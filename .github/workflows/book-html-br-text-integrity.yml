@@ -1,0 +1,157 @@
+name: Book HTML Semantic Text Boundary Integrity
+
+on:
+  push:
+    branches:
+      - integration/book-html-semantic-reading-apex-20261004-sol6p3
+  pull_request:
+    branches:
+      - integration/pgn-grammar-structural-integrity-apex-20261004-sol6p3
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_v2_book_html_import.py'
+      - 'tests/test_v2_book_html_head_metadata_semantics.py'
+      - '.github/workflows/book-html-br-text-integrity.yml'
+      - '.github/workflows/book-html-semantic-marker-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-html-br-text-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      BOOK_URL: https://www.gutenberg.org/files/16377/16377-h/16377-h.htm
+      BOOK_SHA256: 397cd3d816b6e685d30d3d7cfb36627cff415c754cc8f4e455c24da652d3c21e
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact bounded ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin \
+              "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            upstream="$(git rev-parse "refs/remotes/origin/${{ github.base_ref }}")"
+          else
+            upstream="$(git rev-parse HEAD^)"
+          fi
+          test -n "$upstream"
+          git merge-base --is-ancestor "$upstream" HEAD
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          test -n "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/book-html-br-text-integrity.yml|.github/workflows/book-html-semantic-marker-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py|tests/test_v2_book_html_head_metadata_semantics.py)
+                ;;
+              *)
+                echo "Unexpected path outside Book HTML semantic text-boundary ownership: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/book-html-br-text-integrity.yml' \
+              '.github/workflows/book-html-semantic-marker-integrity.yml' \
+              'acs/book_html_import.py' \
+              'tests/test_v2_book_html_import.py' \
+              'tests/test_v2_book_html_head_metadata_semantics.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+          git diff --quiet "$upstream" HEAD -- \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_index.py \
+            acs/book_progress_store.py \
+            acs/book_game_content.py \
+            acs/book_board_workflow.py \
+            acs/pgn_roundtrip.py \
+            acs/chesscore.py \
+            acs/acsdb.py \
+            acs/version2_application.py
+
+      - name: Compile changed Python
+        run: >-
+          python -m compileall -q
+          acs/book_html_import.py
+          tests/test_v2_book_html_import.py
+          tests/test_v2_book_html_head_metadata_semantics.py
+
+      - name: Focused HTML EPUB and canonical regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_html_import
+          tests.test_v2_book_html_head_metadata_semantics
+          tests.test_v2_book_epub_import
+          tests.test_version2_epub_application_reachability
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_game_content
+          tests.test_d06_pgn_roundtrip
+
+      - name: Download pinned lawful real HTML chess book transiently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import time
+          import urllib.request
+
+          url = os.environ["BOOK_URL"]
+          for attempt in range(4):
+              try:
+                  request = urllib.request.Request(
+                      url,
+                      headers={"User-Agent": "Accessible-Chess-CI/1.0 semantic-book-verification"},
+                  )
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      data = response.read()
+                  with open("real-book-16377.html", "wb") as stream:
+                      stream.write(data)
+                  print(f"downloaded {len(data)} bytes")
+                  break
+              except Exception:
+                  if attempt == 3:
+                      raise
+                  time.sleep(2 ** attempt)
+          PY
+
+      - name: Pinned lawful real HTML book oracle
+        run: >-
+          python -m scripts.v2_real_html_book_oracle
+          real-book-16377.html
+          --expected-sha256 ${{ env.BOOK_SHA256 }}
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Core selftest
+        run: python -m acs.selftest

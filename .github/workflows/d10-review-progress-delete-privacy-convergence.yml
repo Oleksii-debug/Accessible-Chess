@@ -1,0 +1,104 @@
+name: D10 Review Progress Delete Privacy Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'acs/education_progress_lifecycle.py'
+      - 'acs/education_progress_transaction.py'
+      - 'tests/test_d10_review_progress_delete_privacy.py'
+      - 'tests/test_d10_review_progress_transaction.py'
+      - '.github/workflows/d10-review-progress-delete-privacy-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d10-review-progress-delete-privacy-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained D10 convergence authority and immutable PR-base hygiene
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE_SHA:-}"
+          test -n "$base" || {
+            printf 'D10 convergence qualification requires pull_request event base SHA\n' >&2
+            exit 1
+          }
+          git cat-file -e "${base}^{commit}"
+          d10_owner="c096fc2b4e3bf02a2853a893319cb9512842bed0"
+          git cat-file -e "${d10_owner}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$d10_owner" HEAD
+          git diff --check "$base" HEAD
+          for path in \
+            acs/education_progress_lifecycle.py \
+            acs/education_progress_transaction.py \
+            tests/test_d10_review_progress_delete_privacy.py \
+            tests/test_d10_review_progress_transaction.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$d10_owner:$path")"
+          done
+          printf 'D10 retained authority PASS: immutable-pr-base=%s owner=%s head=%s\n' "$base" "$d10_owner" "$(git rev-parse HEAD)"
+
+      - name: Compile converged Python
+        run: >-
+          python -m py_compile
+          acs/education_progress_lifecycle.py
+          acs/education_progress_transaction.py
+          tests/test_d10_review_progress_delete_privacy.py
+          tests/test_d10_review_progress_transaction.py
+
+      - name: Focused D10 privacy lifecycle and recovery regression
+        run: >-
+          python -m pytest -q
+          tests/test_d10_review_progress_delete_privacy.py
+          tests/test_d10_review_progress_transaction.py
+          tests/test_dev3_student_progress.py
+          tests/test_dev3_student_progress_store.py
+          tests/test_education_workspace.py
+          tests/test_education_records.py
+          tests/test_classroom_domain.py
+
+      - name: Final-product production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic
+
+      - name: Broad unittest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Broad pytest regression on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m pytest -q

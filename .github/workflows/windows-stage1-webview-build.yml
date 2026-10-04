@@ -1,0 +1,21 @@
+name: Legacy Windows Stage 1 WebView2 Build — DISABLED
+
+# SECURITY TOMBSTONE.
+# This historical development ZIP bypasses the current strict package chain.
+# Manual execution is kept fail-closed so it cannot be confused with a fresh
+# NVDA candidate or upload a parallel Windows artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-release-disabled:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject legacy release path
+        shell: bash
+        run: |
+          echo "::error::LEGACY_RELEASE_PATH_DISABLED: obsolete WebView2 artifact path is forbidden; no artifact was created."
+          exit 1

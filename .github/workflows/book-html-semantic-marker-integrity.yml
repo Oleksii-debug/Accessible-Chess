@@ -1,0 +1,116 @@
+name: Book HTML Semantic Marker Integrity
+
+on:
+  push:
+    branches:
+      - integration/book-html-semantic-reading-apex-20261004-sol6p3
+  pull_request:
+    branches:
+      - integration/pgn-grammar-structural-integrity-apex-20261004-sol6p3
+    paths:
+      - 'acs/book_html_import.py'
+      - 'tests/test_v2_book_html_import.py'
+      - 'tests/test_v2_book_html_head_metadata_semantics.py'
+      - '.github/workflows/book-html-semantic-marker-integrity.yml'
+      - '.github/workflows/book-html-br-text-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-html-semantic-marker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact bounded ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            event_base="$PR_BASE_SHA"
+            base_ref="$PR_BASE_REF"
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "$base_ref"
+            live_base="$(git rev-parse "origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            upstream="$live_base"
+          else
+            upstream="$(git rev-parse HEAD^)"
+          fi
+          test -n "$upstream"
+          git merge-base --is-ancestor "$upstream" HEAD
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          test -n "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/book-html-semantic-marker-integrity.yml|.github/workflows/book-html-br-text-integrity.yml|acs/book_html_import.py|tests/test_v2_book_html_import.py|tests/test_v2_book_html_head_metadata_semantics.py)
+                ;;
+              *)
+                echo "Unexpected path outside Book HTML semantic-marker ownership: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            expected="$(printf '%s\n' \
+              '.github/workflows/book-html-semantic-marker-integrity.yml' \
+              '.github/workflows/book-html-br-text-integrity.yml' \
+              'acs/book_html_import.py' \
+              'tests/test_v2_book_html_import.py' \
+              'tests/test_v2_book_html_head_metadata_semantics.py' | sort)"
+            test "$changed" = "$expected"
+          fi
+          git diff --quiet "$upstream" HEAD -- \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_game_content.py \
+            acs/book_board_workflow.py \
+            acs/pgn_roundtrip.py \
+            acs/chesscore.py \
+            acs/acsdb.py \
+            acs/version2_application.py
+
+      - name: Compile changed Python
+        run: >-
+          python -m compileall -q
+          acs/book_html_import.py
+          tests/test_v2_book_html_import.py
+          tests/test_v2_book_html_head_metadata_semantics.py
+
+      - name: Focused semantic and canonical regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_html_import
+          tests.test_v2_book_html_head_metadata_semantics
+          tests.test_v2_book_game_content
+          tests.test_bookdocument
+          tests.test_v2_book_text_import
+
+      - name: Core selftest
+        run: python -m acs.selftest

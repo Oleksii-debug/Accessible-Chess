@@ -1,0 +1,176 @@
+name: P0-G Event-Aware Accessible Results
+
+on:
+  push:
+    branches:
+      - work/p0g-event-aware-announcements-20260924
+  pull_request:
+    paths:
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/p0-dynamic-selection-executable.yml'
+      - 'web/index.html'
+      - 'web/p0_accessibility_runtime.js'
+      - 'web/full_product_teacher.js'
+      - 'tests/js/p0g_event_aware_announcement_test.js'
+      - 'tests/js/p0_accessibility_runtime_test.js'
+      - 'tests/test_accessible_webui.py'
+      - 'tests/test_p0_dynamic_selection_action_delivery.py'
+      - '.github/workflows/p0g-event-aware-announcements.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0g-event-aware-announcements-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  P0G_OWNER_HEAD: fix/p0g-event-aware-current-product-20260926
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove owner scope or retained convergence authority
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head_ref='${{ github.event.pull_request.head.ref }}'
+          git cat-file -e "${base}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/p0-dynamic-selection-executable.yml' \
+            '.github/workflows/p0g-event-aware-announcements.yml' \
+            'tests/js/p0_accessibility_runtime_test.js' \
+            'tests/js/p0g_event_aware_announcement_test.js' \
+            'tests/test_accessible_webui.py' \
+            'tests/test_p0_dynamic_selection_action_delivery.py' \
+            'web/index.html' \
+            'web/p0_accessibility_runtime.js' | sort)"
+          if test "$head_ref" = "$P0G_OWNER_HEAD"; then
+            changed="$(git diff --name-only "$base" HEAD | sort)"
+            test "$changed" = "$expected" || {
+              printf 'Unexpected P0-G owner scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            echo 'P0_G_SCOPE_MODE=OWNER_EXACT'
+          else
+            while IFS= read -r path; do
+              test -f "$path" || {
+                printf 'Retained P0-G authority missing from convergence candidate: %s\n' "$path" >&2
+                exit 1
+              }
+            done <<< "$expected"
+            echo 'P0_G_SCOPE_MODE=CONVERGENCE_RETAINED'
+          fi
+
+      - name: Parse complete shipping inline JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          html = Path('web/index.html').read_text(encoding='utf-8')
+          matches = re.findall(r'<script>\s*([\s\S]*?)</script>', html)
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one inline script, found {len(matches)}')
+          Path('.p0g-shipping-inline.js').write_text(matches[0], encoding='utf-8')
+          PY
+          node --check .p0g-shipping-inline.js
+          node --check web/p0_accessibility_runtime.js
+
+      - name: Lock wrapped surface announcement consumption boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          token = 'payload.announcement'
+          expected = {
+              'web/full_product_pgn.js': 2,
+              'web/full_product_library.js': 2,
+              'web/full_product_books_training.js': 12,
+              'web/full_product_education.js': 2,
+              'web/full_product_teacher.js': 2,
+          }
+          # Simple surfaces consume the transient announcement only through the
+          # guarded String-normalizing statement. Books/Training has two event
+          # ingress functions; each first validates bounded/NUL-free text and
+          # only then announces that already-validated string.
+          required_statement = 'if (payload.announcement) announce(String(payload.announcement));'
+          books_statement = 'if (payload.announcement) announce(payload.announcement);'
+          books_validation_tokens = (
+              'payload.announcement !== undefined &&',
+              'typeof payload.announcement !== "string" ||',
+              'payload.announcement.length > 1200 ||',
+              'payload.announcement.indexOf("\\u0000") !== -1',
+          )
+          for raw_path, count in expected.items():
+              path = Path(raw_path)
+              text = path.read_text(encoding='utf-8')
+              actual = text.count(token)
+              if actual != count:
+                  raise SystemExit(
+                      f'P0_G_SURFACE_ANNOUNCEMENT_CONSUMER_DRIFT={raw_path}:{actual}!={count}'
+                  )
+              if raw_path == 'web/full_product_books_training.js':
+                  statements = text.count(books_statement)
+                  validations = tuple(text.count(part) for part in books_validation_tokens)
+                  if statements != 2 or validations != (2, 2, 2, 2):
+                      raise SystemExit(
+                          'P0_G_SURFACE_ANNOUNCEMENT_BOUNDARY_DRIFT='
+                          f'{raw_path}:consumers={statements}:validations={validations}'
+                      )
+              else:
+                  statements = text.count(required_statement)
+                  if statements * 2 != count:
+                      raise SystemExit(
+                          f'P0_G_SURFACE_ANNOUNCEMENT_BOUNDARY_DRIFT={raw_path}:{statements}'
+                      )
+          print('P0_G_SURFACE_ANNOUNCEMENT_CONSUMPTION_BOUNDARY=PASS')
+          PY
+
+      - name: Execute shipping announcement event contract
+        run: |
+          node tests/js/p0g_event_aware_announcement_test.js
+          node tests/js/p0_accessibility_runtime_test.js
+
+      - name: Backend hotkey result regressions
+        run: python -m unittest -v tests.test_v2_board_analysis_hotkey_feedback
+
+      - name: Compile Python product boundary
+        run: python -m compileall -q acs tests run_accessible_chess_v2.py
+
+      - name: Full unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -v
+
+      - name: Focused pytest on Windows
+        if: matrix.os == 'windows-2025'
+        run: python -m pytest -q tests/test_v2_board_analysis_hotkey_feedback.py

@@ -1,0 +1,196 @@
+name: Integration Hardened Clean Product Transfer
+
+on:
+  push:
+    branches:
+      - integration/hardened-clean-product-transfer-20261004
+  pull_request:
+    branches:
+      - integration/full-product-successor-qualification-20261004
+    paths:
+      - 'acs/**'
+      - 'web/full_product_library.js'
+      - 'tests/**'
+      - '.github/workflows/integration-hardened-clean-product-transfer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-hardened-clean-product-transfer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove clean transfer geometry and exact source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='14242fa0a8a11ac10e7a5e47d8afb8baebd3b120'
+          source='ec37ce81d526f2a76e326712ed350ac8196ac968'
+          merge_base='06eb89be10cfa504bfa166771022f8a0d14c7266'
+          git cat-file -e "$parent^{commit}"
+          git cat-file -e "$source^{commit}"
+          git cat-file -e "$merge_base^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-hardened-clean-product-transfer.yml' \
+            'acs/acsdb.py' \
+            'acs/book_board_workflow.py' \
+            'acs/book_index.py' \
+            'acs/book_training.py' \
+            'acs/bookreader.py' \
+            'acs/full_product_native_menu.py' \
+            'acs/full_product_presenters.py' \
+            'acs/library_import_service.py' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/search_service.py' \
+            'acs/training.py' \
+            'acs/version2_book_workspace.py' \
+            'acs/version2_starter_content_application.py' \
+            'acs/version2_upgrade_base.py' \
+            'tests/js/library_surface_dom_test.js' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/test_acsdb.py' \
+            'tests/test_book_bidirectional_semantic_navigation.py' \
+            'tests/test_book_index.py' \
+            'tests/test_book_reverse_progress_failure_exact.py' \
+            'tests/test_bookreader.py' \
+            'tests/test_bookreader_snapshot_bounds.py' \
+            'tests/test_books_semantic_host_bounds.py' \
+            'tests/test_d07_library_import_reuse_final_cancel.py' \
+            'tests/test_d07_library_import_service.py' \
+            'tests/test_d08_book_training_contract.py' \
+            'tests/test_dev1_books_training_web_asset.py' \
+            'tests/test_dev1_full_product_ui_packages.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_training.py' \
+            'tests/test_training_authority_convergence.py' \
+            'tests/test_v2_book_board_workflow.py' \
+            'tests/test_v2_library_search_service_v4.py' \
+            'tests/test_v2_shared_presentation_path_privacy.py' \
+            'tests/test_v2_upgrade_tracked_writer_conflict.py' \
+            'tests/test_version2_book_workspace.py' \
+            'tests/test_w2_training_progress_crash_recovery.py' \
+            'web/full_product_library.js' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = 'd9a103f0d3e093a487186715b45270180dd2233e'
+          test "$(git rev-parse HEAD:acs/book_board_workflow.py)" = '673774dd51610f643b69ddfc8d513d5f0c2bddfe'
+          test "$(git rev-parse HEAD:acs/book_index.py)" = 'a9bfd2212d312b486886dc7d38256fa10a65e023'
+          test "$(git rev-parse HEAD:acs/book_training.py)" = '072499b01ac3eafe02289360c380d030e8272a8e'
+          test "$(git rev-parse HEAD:acs/bookreader.py)" = 'b9167b0f199440e280d5312f4ff04bf5b8c7f03d'
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = 'b166f3773a7e2cf48ba2a708d76b359a2f5201bb'
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = '9e1b11341359a17c80739e122d3265dd474c0d58'
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = '3ff7dfa63e8d587d5688daed21bdbfce30664c1a'
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = '25b3d03179f42b4565a4dd6d7a2ccd283607e09c'
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = '127037cb6cf264f579516df599bf8c1ad44e8985'
+          test "$(git rev-parse HEAD:acs/search_service.py)" = '3f33e23f971acb30849851831aa9a43edf7e3392'
+          test "$(git rev-parse HEAD:acs/training.py)" = 'fd02d345bf3b68911124510fd5d826e04735a750'
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = 'c28f40f3dd78ce32765fad2357e7b5d8f4aec7f1'
+          test "$(git rev-parse HEAD:acs/version2_starter_content_application.py)" = 'd9237f70eb5c9011e7cfbf9fe4351fb4d9068a50'
+          test "$(git rev-parse HEAD:acs/version2_upgrade_base.py)" = '6b601c6a41fea00ebd965f2cf53dc52ca9611c1f'
+          test "$(git rev-parse HEAD:tests/js/library_surface_dom_test.js)" = '6d1ce6f2a3d2cd09c2585269d0fb8543cd59f98e'
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = '61a148bf2a1282f4eba11104aab462f10e6c263c'
+          test "$(git rev-parse HEAD:tests/test_acsdb.py)" = 'f75e62bffc44ac3f3a9f20665526564f7b18da2a'
+          test "$(git rev-parse HEAD:tests/test_book_bidirectional_semantic_navigation.py)" = 'b182289360743ea137fd5a07f50e1dcd935de86d'
+          test "$(git rev-parse HEAD:tests/test_book_index.py)" = '4a8adf9834eb47b84b60180b3c72e73b1c0f3941'
+          test "$(git rev-parse HEAD:tests/test_book_reverse_progress_failure_exact.py)" = 'e2db0096d10241467109ffca079caac3da789f8a'
+          test "$(git rev-parse HEAD:tests/test_bookreader_snapshot_bounds.py)" = '6f8d85914be0e1656650892912574e39270a99bf'
+          test "$(git rev-parse HEAD:tests/test_bookreader.py)" = '0a9b857c8f91baa170fffb234d13ce3c9151b1c2'
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = '7fe1bfed5ee319d18730968cfc4af59c110105ac'
+          test "$(git rev-parse HEAD:tests/test_d07_library_import_reuse_final_cancel.py)" = '45843a1c1c25a071f5595adc70f3fd77d9e1546f'
+          test "$(git rev-parse HEAD:tests/test_d07_library_import_service.py)" = '881a758831a26253b8d1a244a079badc0e7c663c'
+          test "$(git rev-parse HEAD:tests/test_d08_book_training_contract.py)" = 'a1b693a8eecb16a990e140ad0a229ecfaf9643b3'
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_web_asset.py)" = '4b2aaed73cd7c8ceae289318501144fa13c51d34'
+          test "$(git rev-parse HEAD:tests/test_dev1_full_product_ui_packages.py)" = '1f7f6cb3226871f1301d3ff2921cc5c8ac43e34d'
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = 'c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e'
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = '7b10e03ced17a42cdabd6b7b1fe10e8a5f9b21d1'
+          test "$(git rev-parse HEAD:tests/test_training_authority_convergence.py)" = '8fa52d7b861de5860f82d4c042c9e714356ecfda'
+          test "$(git rev-parse HEAD:tests/test_training.py)" = '2ce307e1c3726b0b7dbfd559f041ca0f16f6828f'
+          test "$(git rev-parse HEAD:tests/test_v2_book_board_workflow.py)" = 'df98fbde263b3ddaa8340b9c16ec61f8f20dde43'
+          test "$(git rev-parse HEAD:tests/test_v2_library_search_service_v4.py)" = '2bb702390cb5d6869511a0ace2e64e0114e83bc3'
+          test "$(git rev-parse HEAD:tests/test_v2_shared_presentation_path_privacy.py)" = '8c3cf875ed97c5a4c2ffc3766515ec3c70849d35'
+          test "$(git rev-parse HEAD:tests/test_v2_upgrade_tracked_writer_conflict.py)" = '01cea8be134da2c34c83b98663346b860b8f01eb'
+          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = '26bfb36adcaf6737775a27ae2449baebaf34e9af'
+          test "$(git rev-parse HEAD:tests/test_w2_training_progress_crash_recovery.py)" = 'a6fc5da0b38b107d956e8286adc2d1228aa05c89'
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = '9943aa2e1924c9087faca7e9ead610475bfb98e5'
+          echo 'HARDENED_CLEAN_PRODUCT_TRANSFER_SCOPE=PASS'
+
+      - name: Compile transferred Python surfaces
+        run: >-
+          python -m compileall -q
+          acs
+          tests
+
+      - name: Validate transferred browser surfaces
+        run: |
+          node --check web/full_product_library.js
+          node --check tests/js/library_surface_dom_test.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node tests/js/library_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+
+      - name: Run clean-transfer regression set
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_d07_library_import_service
+          tests.test_d08_book_training_contract
+          tests.test_dev1_books_training_web_asset
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev1_pgn_webview_projection
+          tests.test_full_product_native_menu
+          tests.test_training
+          tests.test_v2_book_board_workflow
+          tests.test_v2_library_search_service_v4
+          tests.test_v2_shared_presentation_path_privacy
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_version2_book_workspace
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_bookreader_snapshot_bounds
+          tests.test_books_semantic_host_bounds
+          tests.test_d07_library_import_reuse_final_cancel
+          tests.test_training_authority_convergence
+
+      - name: Run current application and persistence adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_version2_release_accessibility_contract
+
+      - name: Core selftest
+        run: python -m acs.selftest

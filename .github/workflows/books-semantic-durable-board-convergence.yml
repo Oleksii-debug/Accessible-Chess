@@ -1,0 +1,194 @@
+name: Books Semantic + Durable Board Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'fix/books-semantic-rendered-text-budget-20261003'
+    paths:
+      - '.github/workflows/book-progress-orphan-backup-recovery.yml'
+      - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/d01-books-training-ui-integration.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/p0g-event-aware-announcements.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
+      - '.github/workflows/w2-training-progress-windows-missing-parent.yml'
+      - 'acs/book_progress_store.py'
+      - 'acs/book_webview_bridge.py'
+      - 'acs/book_webview_projection.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/training_progress_store.py'
+      - 'acs/training_webview_bridge.py'
+      - 'acs/training_webview_projection.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_training_workspace.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_dev1_books_training_webview_bridge.py'
+      - 'tests/test_dev1_books_training_webview_projection.py'
+      - 'tests/test_dev1_full_product_webview_adapter.py'
+      - 'tests/test_v2_book_progress_store.py'
+      - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_v2_book_transaction_current_runtime.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_book_board_refresh_focus_order_evidence.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'tests/test_version2_training_current_runtime.py'
+      - 'tests/test_w3_p0f_starter_books_training_content.py'
+      - 'web/full_product_books_training.js'
+      - 'web/version2_release_bootstrap.js'
+      - '.github/workflows/books-semantic-durable-board-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-semantic-durable-board-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove both live canonical parents and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          semantic_branch='fix/books-semantic-rendered-text-budget-20261003'
+          durable_branch='fix/delegated-focus-roundtrip-ci-recovery-20261003'
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin \
+            "+refs/heads/$semantic_branch:refs/remotes/origin/$semantic_branch" \
+            "+refs/heads/$durable_branch:refs/remotes/origin/$durable_branch"
+          semantic_head="$(git rev-parse "refs/remotes/origin/$semantic_branch")"
+          durable_head="$(git rev-parse "refs/remotes/origin/$durable_branch")"
+
+          git merge-base --is-ancestor "$semantic_head" HEAD
+          git merge-base --is-ancestor "$durable_head" HEAD
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$semantic_branch"
+            event_base='${{ github.event.pull_request.base.sha }}'
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$semantic_head"
+            test "$(git merge-base "$semantic_head" HEAD)" = "$semantic_head"
+
+            changed="$(git diff --name-only "$semantic_head" HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+              '.github/workflows/books-progress-backup-recovery.yml' \
+              '.github/workflows/d01-books-training-ui-integration.yml' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/p0g-event-aware-announcements.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              '.github/workflows/w2-training-progress-windows-missing-parent.yml' \
+              'acs/book_progress_store.py' \
+              'acs/book_webview_bridge.py' \
+              'acs/book_webview_projection.py' \
+              'acs/full_product_actions.py' \
+              'acs/full_product_ui_shell.py' \
+              'acs/training_progress_store.py' \
+              'acs/training_webview_bridge.py' \
+              'acs/training_webview_projection.py' \
+              'acs/version2_application.py' \
+              'acs/version2_training_workspace.py' \
+              'tests/js/books_training_surface_dom_test.js' \
+              'tests/js/version2_release_bootstrap_dom_test.js' \
+              'tests/test_dev1_books_training_webview_bridge.py' \
+              'tests/test_dev1_books_training_webview_projection.py' \
+              'tests/test_dev1_full_product_webview_adapter.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' \
+              'tests/test_v2_book_training_route_rollback.py' \
+              'tests/test_v2_book_transaction_current_runtime.py' \
+              'tests/test_version2_application.py' \
+              'tests/test_version2_book_board_refresh_focus_order_evidence.py' \
+              'tests/test_version2_release_accessibility_contract.py' \
+              'tests/test_version2_training_current_runtime.py' \
+              'tests/test_w3_p0f_starter_books_training_content.py' \
+              'web/full_product_books_training.js' \
+              'web/version2_release_bootstrap.js' \
+              '.github/workflows/books-semantic-durable-board-convergence.yml' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$semantic_head" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "9f4722a1898f9f1bc17daa62737606d8cb847a2d"
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "b7ad9899f614c42589b9f53fddbebe59dee2b9c7"
+          test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = "9a74b92cd2729f0d755500572a60117a554f2fc6"
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "f85916d6b02df0aa4859ca6018662cb4d8e77615"
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "85e4ef957d587d607c47f3b6c143970fdb5fa9d2"
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "df53e5b1cff5b530dd9be8f2a520842dd6a8cd75"
+          test "$(git rev-parse HEAD:acs/training_webview_bridge.py)" = "b148f4640fffcaa5749108a9340cdcbe937daf9a"
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "af72eccfd3ba550a5cfc18ca95e350a0f5d74d62"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "043d8efd1be94b425d9ed153ce7f25e8b9057fed"
+          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "81d5eb59a0b4b8f292480d2dd4c1f82fa4a36b7a"
+          test "$(git rev-parse HEAD:tests/test_books_semantic_host_bounds.py)" = "6c6ed29a7ea4b366912d2bac526c566bbb972003"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "514426af1c45aac3057d3d53f22fd1a0202f2b11"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = "41a08a399dd23021a5adb4d770d3da104483d9a0"
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "5f9f11854dba5771fb103b3c4df0d8b35d208a80"
+
+      - name: Validate combined browser behavior
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile merged runtime and regressions
+        run: >-
+          python -m compileall -q
+          acs/book_progress_store.py
+          acs/book_webview_bridge.py
+          acs/book_webview_projection.py
+          acs/training_webview_bridge.py
+          acs/training_webview_projection.py
+          acs/version2_application.py
+          acs/version2_book_workspace.py
+          acs/version2_training_workspace.py
+          tests/test_version2_application.py
+          tests/test_v2_book_progress_store.py
+          tests/test_books_semantic_host_bounds.py
+
+      - name: Prove combined semantic, persistence and whole-product flow
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_version2_application
+          tests.test_books_semantic_host_bounds
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_v2_book_training_route_rollback
+          tests.test_v2_book_transaction_current_runtime
+          tests.test_version2_training_current_runtime
+          tests.test_w3_p0f_starter_books_training_content
+

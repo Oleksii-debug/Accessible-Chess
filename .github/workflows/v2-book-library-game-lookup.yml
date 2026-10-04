@@ -1,0 +1,150 @@
+name: V2 Book Library Game Lookup
+
+on:
+  push:
+    branches:
+      - integration/book-library-warning-provenance-apex-20261004-sol6p3
+  pull_request:
+    branches:
+      - integration/book-variation-fen-equivalence-apex-20261004-sol6p3
+    paths:
+      - 'acs/book_library_game_lookup.py'
+      - 'tests/test_v2_book_library_game_lookup.py'
+      - '.github/workflows/v2-book-library-game-lookup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-book-library-game-lookup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      PRODUCT_BRANCH: integration/book-variation-fen-equivalence-apex-20261004-sol6p3
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes for cross-platform blob identity gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Restore tracked Stage1 blobs byte-exact on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            acs/stage1_release_ui_core.py \
+            acs/webapp_keymap_core.py
+          do
+            expected="$(git rev-parse "HEAD:$path")"
+            git cat-file blob "HEAD:$path" > "$path"
+            actual="$(git hash-object --no-filters "$path")"
+            test "$actual" = "$expected" || {
+              printf 'Tracked Stage1 workspace blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact current Product ancestry and Books-only lookup scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$PRODUCT_BRANCH"
+          live_product="$(git rev-parse FETCH_HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test -n "$PR_BASE_SHA"
+            test -n "$PR_HEAD_SHA"
+            test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+            # pull_request.base.sha can be stale after a history-preserving
+            # reconvergence. Require that event base is not ahead of live
+            # Product, then scope against the fetched canonical Product head.
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$live_product"
+          fi
+          upstream="$live_product"
+
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-book-library-game-lookup.yml' \
+            'acs/book_library_game_lookup.py' \
+            'tests/test_v2_book_library_game_lookup.py' | sort)"
+          test "$changed" = "$expected"
+
+          git diff --quiet "$upstream" HEAD -- \
+            acs/acsdb.py \
+            acs/search_service.py \
+            acs/search_policy.py \
+            acs/library_import_service.py \
+            acs/gametree.py \
+            acs/pgn_roundtrip.py \
+            acs/book_game_content.py \
+            acs/bookdocument.py \
+            acs/bookreader.py \
+            acs/book_index.py \
+            acs/book_training.py \
+            acs/training.py \
+            acs/book_webview_bridge.py \
+            acs/book_webview_projection.py \
+            acs/full_product_presenters.py \
+            acs/chesscore.py \
+            acs/analysis_service.py \
+            acs/engine_assisted_workflows.py \
+            web/full_product_books_training.js \
+            acs/stage1_release_ui.py
+
+      - name: Compile Book Library lookup package
+        run: >-
+          python -m compileall -q
+          acs/book_library_game_lookup.py
+          tests/test_v2_book_library_game_lookup.py
+
+      - name: Focused Book Library lookup regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_library_game_lookup
+          tests.test_v2_book_game_content
+          tests.test_acsdb
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree
+          tests.test_bookdocument
+          tests.test_v2_book_progress_store
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic

@@ -1,0 +1,71 @@
+ACCESSIBLE CHESS — STAGE 1 — HOTKEYS
+Version 0.3.2-stage1-rc2
+
+GLOBAL NAVIGATION
+H / Shift+H — next / previous heading.
+B / Shift+B — next / previous button.
+I / Shift+I — next / previous input or work control.
+Tab / Shift+Tab — normal Windows focus navigation.
+F1 — shortcut help.
+
+GLOBAL COMMANDS
+Ctrl+N — new standard position.
+Ctrl+Z — undo.
+Ctrl+Shift+Z — redo.
+Ctrl+Shift+E — position editor.
+Ctrl+Alt+E — toggle Stockfish.
+Ctrl+Alt+D — announce Stockfish depth.
+Ctrl+Alt+M — material balance.
+Alt+M — last move.
+Alt+1 ... Alt+5 — current full Stockfish MultiPV lines.
+
+BOARD
+Arrow keys — adjacent square navigation.
+Enter or Space — select a piece; move to a destination and press Enter/Space again to make the move.
+Escape — cancel selection.
+O — current square.
+C — piece captured on the last move.
+L — last move.
+T — your clock.
+Shift+T — opponent clock.
+M — legal moves from current square.
+Shift+M — legal captures.
+X — pieces around current square.
+A — attackers of current square/piece.
+D — defenders of current piece.
+V — current Stockfish evaluation.
+G — Stockfish best move.
+Shift+G — play Stockfish best move in analysis mode.
+K/Q/R/B/N/P — next piece of that type.
+Shift+K/Q/R/B/N/P — previous piece of that type.
+1 ... 8 — jump to rank 1 ... 8, preserving file.
+Shift+1 ... Shift+8 — jump to file a ... h, preserving rank.
+Shift+A — previous historical position.
+Shift+D — next historical position.
+I — move-input field.
+
+MOVE INPUT
+Moves: e4, Nf3, Bc4, Qh5, Rae1, O-O, O-O-O.
+One-letter commands, no colon:
+u — undo.
+y — redo.
+l — last move.
+w — white to move.
+b — black to move.
+c — clear board.
+s — standard start position.
+t — my clock.
+o — opponent clock.
+e — toggle Stockfish.
+v — toggle preserve-side training mode.
+p — position editor.
+
+POSITION EDITOR
+Ctrl+Shift+E — open.
+Example:
+W: K g1 Q d1 R a1 R f1 B c4 N f3 P e4 B: K g8 Q d8 R a8 R f8 B c5 N f6 P e5
+Extra same-type pieces are allowed in analysis/composition mode.
+FEN can be pasted in the editor or opened from File.
+
+IMPORTANT
+An empty square is announced only by coordinate, e.g. “e 5”; the word “empty” is not spoken.

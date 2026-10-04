@@ -1,0 +1,160 @@
+name: W3 P0-F Starter Books Training
+
+on:
+  push:
+    branches:
+      - qualification/p0f-starter-legality-current-main-apex-20261004-sol5n9
+    paths:
+      - acs/starter_books_training_content.py
+      - acs/starter_books_training_release.py
+      - acs/starter_books_training_runtime.py
+      - acs/starter_structured_examples.py
+      - acs/version2_starter_content_application.py
+      - acs/version2_education_mutation_release.py
+      - web/full_product_books_training.js
+      - tests/test_w3_p0f_starter_books_training_content.py
+      - tests/test_p0f_starter_training_canonical_legality.py
+      - tests/test_p0f_starter_structured_examples.py
+      - tests/js/books_training_surface_dom_test.js
+      - docs/V2_STARTER_CONTENT_PROVENANCE.md
+      - .github/workflows/w3-p0f-starter-books-training.yml
+  pull_request:
+    branches:
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
+    paths:
+      - acs/starter_books_training_content.py
+      - acs/starter_books_training_release.py
+      - acs/starter_books_training_runtime.py
+      - acs/starter_structured_examples.py
+      - acs/version2_starter_content_application.py
+      - acs/version2_education_mutation_release.py
+      - web/full_product_books_training.js
+      - tests/test_w3_p0f_starter_books_training_content.py
+      - tests/test_p0f_starter_training_canonical_legality.py
+      - tests/test_p0f_starter_structured_examples.py
+      - tests/js/books_training_surface_dom_test.js
+      - docs/V2_STARTER_CONTENT_PROVENANCE.md
+      - .github/workflows/w3-p0f-starter-books-training.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-w3-p0f-starter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  starter-books-training:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Prove live current-apex ancestry and exact P0-F scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            expected_base='integration/current-main-windows-apex-reconvergence-20261004-sol'
+            test -n "$PR_BASE_SHA"
+            test "$PR_BASE_REF" = "$expected_base"
+            test -n "$PR_HEAD_SHA"
+            test "$PR_HEAD_SHA" = "$expected_head"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
+            live_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            scope_base="$live_base"
+          else
+            scope_base="$(git rev-parse HEAD^)"
+            git cat-file -e "$scope_base^{commit}"
+            git merge-base --is-ancestor "$scope_base" HEAD
+            test "$(git merge-base "$scope_base" HEAD)" = "$scope_base"
+          fi
+
+          git diff --check "$scope_base" HEAD
+          changed="$(git diff --name-only "$scope_base" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w3-p0f-starter-books-training.yml' \
+            'tests/test_p0f_starter_training_canonical_legality.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:tests/test_p0f_starter_training_canonical_legality.py)" = '6ed053719792b7047300bb6ed4b7eec0431bb087'
+
+          # Qualification-only successor: release content, Training semantics,
+          # canonical chess legality, Book indexing/training and browser runtime
+          # remain inherited byte-for-byte from the live whole-product apex.
+          git diff --quiet "$scope_base" HEAD -- \
+            acs/chesscore.py \
+            acs/training.py \
+            acs/book_index.py \
+            acs/book_training.py \
+            acs/starter_books_training_content.py \
+            acs/starter_books_training_release.py \
+            acs/starter_books_training_runtime.py \
+            acs/starter_structured_examples.py \
+            acs/version2_starter_content_application.py \
+            acs/version2_education_mutation_release.py \
+            web/full_product_books_training.js \
+            tests/test_w3_p0f_starter_books_training_content.py \
+            tests/test_p0f_starter_structured_examples.py \
+            tests/js/books_training_surface_dom_test.js
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile bounded W3 source
+        run: >-
+          python -m py_compile
+          acs/starter_books_training_content.py
+          acs/starter_books_training_release.py
+          acs/starter_books_training_runtime.py
+          acs/starter_structured_examples.py
+          acs/version2_starter_content_application.py
+          acs/version2_education_mutation_release.py
+          tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_p0f_starter_training_canonical_legality.py
+          tests/test_p0f_starter_structured_examples.py
+
+      - name: Prove release starter corpus legality, structured semantics and current Training compatibility
+        run: >-
+          python -m pytest -q
+          tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_p0f_starter_training_canonical_legality.py
+          tests/test_p0f_starter_structured_examples.py
+          tests/test_version2_training_current_runtime.py
+
+      - name: Prove keyboard and screen-reader starter material discovery DOM
+        run: node tests/js/books_training_surface_dom_test.js
