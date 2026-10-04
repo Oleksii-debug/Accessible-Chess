@@ -83,9 +83,20 @@ class ResolvedBookVariation:
 
 
 def _source(value: object) -> BookGameSource:
+    # Source selection is part of the same presentation-neutral scalar boundary
+    # as BookDocument text.  Reject string subclasses before Enum lookup because
+    # dict-backed Enum resolution can invoke attacker-controlled __hash__/__eq__
+    # hooks on a str subclass.
+    if type(value) is BookGameSource:
+        return value
+    if type(value) is not str:
+        raise BookGameContentError(
+            "book game source selection is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
     try:
         return BookGameSource(value)
-    except (TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise BookGameContentError(
             "book game source selection is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
