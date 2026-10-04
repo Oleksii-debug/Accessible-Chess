@@ -91,6 +91,8 @@ function chordFor(event) {
         keymap: [
             {id: 'move.submit', binding: 'F2', context: 'move-entry', registryContext: 'move_entry'},
             {id: 'history.commit_go_to_move', binding: 'F3', context: 'document', registryContext: 'history'},
+            {id: 'history.go_to_move', binding: 'Shift+Plus', context: 'document', registryContext: 'history'},
+            {id: 'history.previous', binding: 'Ctrl+Minus', context: 'document', registryContext: 'history'},
             {id: 'board.cursor_down', binding: 'J', context: 'board', registryContext: 'board'},
         ],
     };
@@ -117,6 +119,20 @@ function chordFor(event) {
     assert.strictEqual(
         resolverContext.keymapActionForEvent(eventFor('F2', null), 'history'),
         ''
+    );
+    const plusEvent = eventFor('+', null);
+    plusEvent.shiftKey = true;
+    assert.strictEqual(resolverContext.eventChord(plusEvent), 'Shift+Plus');
+    assert.strictEqual(
+        resolverContext.keymapActionForEvent(plusEvent, 'history'),
+        'history.go_to_move'
+    );
+    const minusEvent = eventFor('-', null);
+    minusEvent.ctrlKey = true;
+    assert.strictEqual(resolverContext.eventChord(minusEvent), 'Ctrl+Minus');
+    assert.strictEqual(
+        resolverContext.keymapActionForEvent(minusEvent, 'history'),
+        'history.previous'
     );
 
     // Execute the real document-level keydown handler. Editable controls retain

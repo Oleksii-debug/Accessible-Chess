@@ -258,6 +258,28 @@ def test_capture_shortcut_preserves_literal_space_from_keyboard_event(tmp_path):
     assert service.editor.registry.get_binding("board.current") == "O"
 
 
+def test_capture_shortcut_canonicalizes_plus_and_minus_keys(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="en")
+
+    plus = service.capture_shortcut(
+        "history.go_to_move",
+        "+",
+        shift=True,
+    )
+    minus = service.capture_shortcut(
+        "history.go_to_move",
+        "-",
+        ctrl=True,
+    )
+
+    assert plus["captured"] is True
+    assert plus["binding"] == "Shift+Plus"
+    assert plus["canSave"] is True
+    assert minus["captured"] is True
+    assert minus["binding"] == "Ctrl+Minus"
+    assert minus["canSave"] is True
+
+
 def test_capture_shortcut_normalizes_legacy_spacebar_key_name(tmp_path):
     service = KeymapService(tmp_path / "keymap.json", lang="uk")
 
