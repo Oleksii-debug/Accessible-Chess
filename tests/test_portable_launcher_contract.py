@@ -282,8 +282,6 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertLess(reparse_inspected, reparse_rejected)
         self.assertLess(reparse_rejected, link_inspected)
         self.assertLess(link_inspected, link_rejected)
-        self.assertLess(reparse_rejected, link_inspected)
-        self.assertLess(link_inspected, link_rejected)
         self.assertLess(link_rejected, truncated)
         self.assertLess(truncated, bom)
 
@@ -307,6 +305,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "$second.WaitForExit(10000)",
             "Overlapping second portable launcher smoke failed",
             "Launch report missing after overlapping launchers",
+            "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
+            "$ownedChildren.Count -ne 1",
+            "Expected exactly one package-local child after overlapping launchers",
+            "Single package-local child PID mismatch",
             "Start-Sleep -Seconds 7",
         ):
             with self.subTest(token=token):
