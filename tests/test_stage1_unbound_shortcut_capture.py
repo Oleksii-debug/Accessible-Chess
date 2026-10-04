@@ -172,5 +172,33 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         )
 
 
+    def test_keymap_dialog_chrome_and_failure_feedback_are_localized(self) -> None:
+        self.assertIn("function applyKeymapLanguage()", HTML)
+        for token in (
+            "setText('h-settings',en?'Settings':'Налаштування')",
+            "setText('language-label',en?'Language':'Мова')",
+            "setText('open-keymap',en?'Keyboard and commands':'Клавіатура і команди')",
+            "setText('key-search-label',en?'Search':'Пошук')",
+            "setText('key-context-label',en?'Section':'Розділ')",
+            "setText('key-reset-all',en?'Restore all':'Відновити всі')",
+            "setText('key-import-label',en?'Import':'Імпорт')",
+            "setText('close-keymap',en?'Close':'Закрити')",
+            "applyKeymapLanguage();if(changed&&keymap.length)renderKeymap()",
+        ):
+            self.assertIn(token, HTML)
+        self.assertIn(
+            "announce(result&&result.message|| (en?'Keyboard settings could not be changed.':'Не вдалося змінити налаштування клавіш.'))",
+            HTML,
+        )
+        self.assertIn(
+            "announce(en?'Select a section first.':'Спочатку виберіть розділ.')",
+            HTML,
+        )
+        self.assertIn("Keyboard profile exported.", HTML)
+        self.assertIn("Профіль клавіш експортовано.", HTML)
+        self.assertIn("Keyboard settings could not be imported.", HTML)
+        self.assertIn("Не вдалося імпортувати налаштування.", HTML)
+
+
 if __name__ == "__main__":
     unittest.main()
