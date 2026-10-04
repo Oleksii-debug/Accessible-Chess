@@ -1403,21 +1403,25 @@ class BookProgressStoreTests(unittest.TestCase):
             )
         )
 
-    def test_windows_publication_sync_reopens_file_with_write_access(self) -> None:
-        handle = mock.MagicMock()
-        handle.fileno.return_value = 73
-        context = mock.MagicMock()
-        context.__enter__.return_value = handle
+    def test_windows_publication_sync_uses_writable_nonreparse_descriptor(self) -> None:
+        self.path.parent.mkdir(parents=True)
+        self.path.write_bytes(b"durable")
+        descriptor = os.open(self.path, os.O_RDWR)
 
         with (
             mock.patch("acs.book_progress_store.os.name", "nt"),
-            mock.patch.object(Path, "open", return_value=context) as open_path,
+            mock.patch(
+                "acs.book_progress_store._windows_open_existing_writable_no_reparse",
+                return_value=descriptor,
+            ) as open_bound,
             mock.patch("acs.book_progress_store.os.fsync") as fsync,
         ):
             _sync_published_path(self.path)
 
-        open_path.assert_called_once_with("r+b")
-        fsync.assert_called_once_with(73)
+        open_bound.assert_called_once_with(self.path)
+        fsync.assert_called_once_with(descriptor)
+        with self.assertRaises(OSError):
+            os.fstat(descriptor)
 
     def test_post_replace_canonical_change_reports_durability_unknown(self) -> None:
         self.path.parent.mkdir(parents=True)
