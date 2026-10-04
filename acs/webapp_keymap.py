@@ -142,17 +142,47 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             game = projection()
         except Exception:
             return None, None
-        if not game.get("configured"):
+
+        # This projection is owned by Stage1ReleaseAccessibleChessAPI and is a
+        # closed-world built-in dict. Prove that passive root before any mapping
+        # hook, then bound/validate keys before keyed lookup can encounter an
+        # active str subclass stored by a substituted provider.
+        if type(game) is not dict or len(game) > 20:
             return None, None
-        if int(game.get("initialMinutes", 0)) == 0 and int(game.get("incrementSeconds", 0)) == 0:
+        for key in game:
+            if type(key) is not str:
+                return None, None
+
+        configured = game.get("configured")
+        if type(configured) is not bool or not configured:
+            return None, None
+
+        initial = game.get("initialMinutes", 0)
+        increment = game.get("incrementSeconds", 0)
+        if (
+            type(initial) is not int
+            or type(increment) is not int
+            or initial < 0
+            or increment < 0
+        ):
+            return None, None
+        if initial == 0 and increment == 0:
             untimed = "Untimed" if self.lang == "en" else "Без годинника"
             return untimed, untimed
+
         human = game.get("humanSide")
+        white_clock = game.get("whiteClock")
+        black_clock = game.get("blackClock")
+        if (
+            type(human) is not str
+            or human not in {"w", "b"}
+            or type(white_clock) is not str
+            or type(black_clock) is not str
+        ):
+            return None, None
         if human == "w":
-            return str(game.get("whiteClock") or ""), str(game.get("blackClock") or "")
-        if human == "b":
-            return str(game.get("blackClock") or ""), str(game.get("whiteClock") or "")
-        return None, None
+            return white_clock, black_clock
+        return black_clock, white_clock
 
     def _material_message(self, service: BoardCommandService) -> str:
         material = service.material()
