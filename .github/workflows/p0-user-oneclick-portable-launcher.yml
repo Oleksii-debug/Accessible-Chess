@@ -158,8 +158,10 @@ jobs:
               DWORD module_size = GetModuleFileNameW(NULL, module_path, CAP);
               WCHAR no_window[2];
               WCHAR flash_window[2];
+              WCHAR hung_window[2];
               DWORD no_window_size;
               DWORD flash_window_size;
+              DWORD hung_window_size;
               DWORD i = 0;
               if (env_size == 0 || env_size >= CAP || module_size == 0 || module_size >= CAP) ExitProcess(41);
               while (module_path[i] != L'\0') { expected[i] = module_path[i]; ++i; }
@@ -169,6 +171,7 @@ jobs:
 
               no_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_NO_WINDOW", no_window, 2);
               flash_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_FLASH_WINDOW", flash_window, 2);
+              hung_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_HUNG_WINDOW", hung_window, 2);
               if (no_window_size == 0) {
                   WNDCLASSW window_class;
                   HWND window;
@@ -198,8 +201,19 @@ jobs:
                       Sleep(150);
                       DestroyWindow(window);
                       Sleep(1000);
+                  } else if (hung_window_size > 0) {
+                      Sleep(60000);
                   } else {
-                      Sleep(7000);
+                      DWORD started = GetTickCount();
+                      MSG message;
+                      while (GetTickCount() - started < 7000) {
+                          while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
+                              if (message.message == WM_QUIT) ExitProcess(0);
+                              TranslateMessage(&message);
+                              DispatchMessageW(&message);
+                          }
+                          Sleep(10);
+                      }
                   }
               } else {
                   Sleep(60000);
@@ -309,6 +323,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
           Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
+          Remove-Item Env:ACS_SMOKE_HUNG_WINDOW -ErrorAction SilentlyContinue
           $launcher = Join-Path $PWD 'portable-smoke/AccessibleChess.exe'
           $root = Join-Path $PWD 'portable-smoke'
           $app = Join-Path $root 'App'
@@ -410,6 +425,58 @@ jobs:
             } | Stop-Process -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Execute hung-window false-success regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-hung-window-smoke'
+          $app = Join-Path $root 'App'
+          $launcher = Join-Path $root 'AccessibleChess.exe'
+          $child = Join-Path $app 'AccessibleChess.exe'
+          $report = Join-Path $root 'launch-report.txt'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/SmokeChild.exe $child
+          Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+          Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
+          $env:ACS_SMOKE_HUNG_WINDOW = '1'
+          try {
+            $process = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(40)
+            $text = $null
+            do {
+              Start-Sleep -Milliseconds 200
+              if (Test-Path -LiteralPath $report -PathType Leaf) {
+                try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+              }
+            } while (
+              [DateTime]::UtcNow -lt $deadline -and
+              ($null -eq $text -or -not $text.Contains('STATUS: FAILED_STARTUP_TIMEOUT'))
+            )
+
+            if ($null -ne $text -and $text.Contains('STATUS: STARTUP_WINDOW_READY')) {
+              throw 'Hung visible Accessible Chess window was falsely accepted as startup readiness'
+            }
+            if ($null -eq $text -or -not $text.Contains('STATUS: FAILED_STARTUP_TIMEOUT')) {
+              throw 'Hung visible Accessible Chess window did not fail closed at the startup deadline'
+            }
+            foreach ($required in @(
+              'STATUS: FAILED_STARTUP_TIMEOUT',
+              'USER_WINDOW_PROVEN: NO',
+              'USER_NVDA_PROVEN: NO',
+              'CHILD_LEFT_RUNNING: YES'
+            )) {
+              if (-not $text.Contains($required)) { throw "Hung-window report missing: $required" }
+            }
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+          }
+          finally {
+            Remove-Item Env:ACS_SMOKE_HUNG_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Execute no-window false-success regression
         shell: pwsh
         run: |
@@ -472,7 +539,11 @@ jobs:
           assert 'CreateProcessW(' in source
           assert 'EnumWindows(ac_find_ready_window' in source
           assert '#define AC_STARTUP_READY_STABILITY_MS 500' in source
-          assert 'ready_elapsed += AC_STARTUP_POLL_MS' in source
+          assert '#define AC_WINDOW_RESPONSE_PROBE_MS 100' in source
+          assert 'SendMessageTimeoutW(' in source
+          assert 'SMTO_ABORTIFHUNG | SMTO_BLOCK' in source
+          assert 'startup_started = GetTickCount64();' in source
+          assert 'now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS' in source
           assert 'STATUS: STARTUP_WINDOW_READY' in source
           assert 'USER_WINDOW_PROVEN: YES' in source
           assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
