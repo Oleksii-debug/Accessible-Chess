@@ -186,18 +186,22 @@ function chordFor(event) {
     const analysisInInput = eventFor('r', inputTarget);
     analysisInInput.altKey = true;
     await documentKeydown(analysisInInput);
-    assert.strictEqual(analysisInInput.prevented, false);
-    assert.deepStrictEqual(editableActions, ['screen.help']);
+    assert.strictEqual(analysisInInput.prevented, true);
+    assert.strictEqual(analysisInInput.stopped, true);
+    assert.deepStrictEqual(editableActions, ['screen.help', 'analysis.restart']);
     assert.strictEqual(
         resolutionCalls.some(row => row[1] === 'analysis' && row[0] === 'Alt+R'),
-        false
+        true
     );
 
     const analysisOutsideInput = eventFor('r', divTarget);
     analysisOutsideInput.altKey = true;
     await documentKeydown(analysisOutsideInput);
     assert.strictEqual(analysisOutsideInput.prevented, true);
-    assert.deepStrictEqual(editableActions, ['screen.help', 'analysis.restart']);
+    assert.deepStrictEqual(
+        editableActions,
+        ['screen.help', 'analysis.restart', 'analysis.restart']
+    );
 
     const copyInInput = eventFor('c', inputTarget);
     copyInInput.ctrlKey = true;
