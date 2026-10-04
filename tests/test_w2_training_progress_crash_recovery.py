@@ -608,6 +608,54 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
         os.name == "nt",
         "replacing an open progress pathname is a POSIX-specific race probe",
     )
+
+    def test_missing_progress_appearance_between_lstat_and_open_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "training-progress.json"
+            definition = self._definition()
+            seed_store = TrainingProgressStore(path)
+            seed_store.save(ExerciseSession(definition), expected_revision=None)
+            valid_payload = path.read_bytes()
+            path.unlink()
+            self.assertFalse(path.exists())
+
+            real_open = progress_store_module._open_no_reparse
+            inserted = False
+
+            def appearing_open(
+                candidate: Path,
+                *,
+                create: bool,
+                writable: bool = False,
+                exclusive: bool = False,
+            ) -> int:
+                nonlocal inserted
+                candidate = Path(candidate)
+                if candidate == path and not create and not inserted:
+                    inserted = True
+                    path.write_bytes(valid_payload)
+                return real_open(
+                    candidate,
+                    create=create,
+                    writable=writable,
+                    exclusive=exclusive,
+                )
+
+            with mock.patch(
+                "acs.training_progress_store._open_no_reparse",
+                side_effect=appearing_open,
+            ):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "changed while being opened",
+                ):
+                    TrainingProgressStore(path).load(definition)
+
+            self.assertTrue(inserted)
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.read_bytes(), valid_payload)
+
     def test_same_byte_progress_path_swap_after_open_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
