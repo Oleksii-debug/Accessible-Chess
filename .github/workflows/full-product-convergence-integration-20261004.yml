@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
       - main
     paths:
       - 'acs/**'
