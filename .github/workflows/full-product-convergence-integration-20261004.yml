@@ -7,10 +7,13 @@ on:
       - integration/full-product-successor-qualification-20261004
       - integration/current-main-windows-apex-reconvergence-20261004-sol
       - qualification/consolidated-completion-contract-20261004-ooxple7
+      - qualification/owner-portable-candidate-20261004-sol6f2
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
       - integration/current-main-windows-apex-reconvergence-20261004-sol
+      - qualification/consolidated-completion-contract-20261004-ooxple7
+      - qualification/owner-portable-candidate-20261004-sol6f2
       - main
     paths:
       - 'acs/**'
@@ -35,6 +38,14 @@ on:
       - '.github/workflows/full-product-book-command-authority.yml'
       - '.github/workflows/p0-dynamic-selection-executable.yml'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
+      - '.github/workflows/owner-library-seed-ingress.yml'
+      - '.github/workflows/owner-oneclick-finalizer-contract.yml'
+      - '.github/workflows/owner-oneclick-from-w4.yml'
+      - '.github/workflows/owner-portable-final-candidate-contract.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+      - 'scripts/build_owner_portable_candidate.py'
+      - 'scripts/materialize_owner_library_seed.py'
+      - 'packaging/portable_launcher.c'
       - '.github/workflows/p0-packaged-acceptance-orchestrator.yml'
       - '.github/workflows/p0-packaged-document-copy-probe-contract.yml'
       - '.github/workflows/p0g-final-product-runtime-reachability.yml'
@@ -152,6 +163,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_MAIN_NON_PR_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "qualification/owner-portable-candidate-20261004-sol6f2" ]; then
+            live_base_ref='qualification/consolidated-completion-contract-20261004-ooxple7'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "qualification/consolidated-completion-contract-20261004-ooxple7" ]; then
             live_base_ref='fix/portable-package-same-inode-stable-read-20261004-ooxple7'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
@@ -394,6 +413,11 @@ jobs:
           tests.test_dev1_full_product_ui_packages
           tests.test_v2_board_analysis_hotkey_feedback
           tests.test_version2_package_assembler
+          tests.test_owner_portable_candidate
+          tests.test_owner_portable_candidate_stable_reads
+          tests.test_materialize_owner_library_seed
+          tests.test_owner_oneclick_from_w4_workflow
+          tests.test_w4_v2_p0_fresh_candidate_workflow
           tests.test_portable_launcher_contract
           tests.test_version2_portable_package
           tests.test_version2_package_preflight
