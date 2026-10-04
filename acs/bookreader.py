@@ -244,14 +244,14 @@ class BookReader:
         self._require_indexed_revision()
         return self._fallback_digest_after_verified(key)
 
-    def _go_to_target_after_verified(self, key: str) -> ReadingLocation:
+    def _go_to_target(self, key: str) -> ReadingLocation:
+        # Callers own the preflight revision barrier. Keep this seam as the
+        # target-navigation publication boundary so restore/return-point tests
+        # can inject a concurrent edit after navigation and rely on the caller's
+        # final barrier to reject it.
         validated_key = self._durable_target(key)
         entry = self._book_index.resolve(validated_key)
         return self._go_to_after_verified(entry.target.index)
-
-    def _go_to_target(self, key: str) -> ReadingLocation:
-        self._require_content()
-        return self._go_to_target_after_verified(key)
 
     def _location_after_verified(self) -> ReadingLocation:
         entry = self._book_index.entries[self._index]
@@ -431,6 +431,7 @@ class BookReader:
         validated_name = self._return_point_name(name)
         if validated_name not in self._return_points:
             raise LookupError(f"Unknown return point: {validated_name}")
+        self._require_content()
         return self._go_to_target(self._return_points[validated_name])
 
     def snapshot(self) -> dict[str, object]:
@@ -712,9 +713,7 @@ class BookReader:
             if reader._fallback_digest_after_verified(key) != expected_digest:
                 raise LookupError(f"Book reader index fallback no longer identifies the same block: {key}")
 
-        validated_current_target = reader._durable_target(current_target)
-        current_entry = reader._book_index.resolve(validated_current_target)
-        reader._index = current_entry.target.index
+        reader._go_to_target(current_target)
         reader._return_points = return_points
         reader._require_indexed_revision()
         return reader
