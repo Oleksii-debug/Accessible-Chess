@@ -91,6 +91,19 @@ def _regular_file(path: Path, *, label: str, maximum: int) -> os.stat_result:
     return st
 
 
+def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
+    try:
+        return os.path.samestat(first, second)
+    except (AttributeError, OSError):
+        return (
+            getattr(first, "st_dev", None),
+            getattr(first, "st_ino", None),
+        ) == (
+            getattr(second, "st_dev", None),
+            getattr(second, "st_ino", None),
+        )
+
+
 def _direct_directory(path: Path, *, label: str) -> None:
     try:
         st = path.lstat()
@@ -166,7 +179,16 @@ def load_user_library_seed(root: str | Path) -> UserLibrarySeedManifest:
         manifest_bytes = manifest_path.read_bytes()
     except OSError as exc:
         raise UserLibrarySeedError("user Library seed manifest cannot be read") from exc
-    if len(manifest_bytes) != manifest_stat.st_size:
+    manifest_after = _regular_file(
+        manifest_path,
+        label="user Library seed manifest",
+        maximum=MAX_MANIFEST_BYTES,
+    )
+    if (
+        len(manifest_bytes) != manifest_stat.st_size
+        or manifest_after.st_size != manifest_stat.st_size
+        or not _same_file_identity(manifest_stat, manifest_after)
+    ):
         raise UserLibrarySeedError("user Library seed manifest changed while reading")
     try:
         manifest_text = manifest_bytes.decode("utf-8-sig", errors="strict")
@@ -241,8 +263,7 @@ def _verified_source_bytes(manifest: UserLibrarySeedManifest, entry: UserLibrary
     after = _regular_file(path, label="user Library seed PGN", maximum=MAX_SOURCE_BYTES)
     if (
         after.st_size != before.st_size
-        or getattr(after, "st_ino", None) != getattr(before, "st_ino", None)
-        or getattr(after, "st_dev", None) != getattr(before, "st_dev", None)
+        or not _same_file_identity(before, after)
     ):
         raise UserLibrarySeedError("user Library seed PGN changed while reading")
     if len(payload) != entry.size_bytes or hashlib.sha256(payload).hexdigest() != entry.sha256:
