@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/build_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_owner_portable_candidate_stable_reads.py'
       - 'acs/user_library_seed.py'
       - 'acs/version2_portable_package.py'
       - 'scripts/build_user_sound_pack.py'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'scripts/build_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_owner_portable_candidate_stable_reads.py'
       - '.github/workflows/owner-portable-final-candidate-contract.yml'
   workflow_dispatch:
 
@@ -50,7 +52,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile scripts/build_owner_portable_candidate.py tests/test_owner_portable_candidate.py
+          python -m py_compile \
+            scripts/build_owner_portable_candidate.py \
+            tests/test_owner_portable_candidate.py \
+            tests/test_owner_portable_candidate_stable_reads.py
           echo 'OWNER_PORTABLE_COMPILE=PASS'
 
       - name: Run owner candidate and canonical dependency regressions
@@ -59,6 +64,7 @@ jobs:
           set -euo pipefail
           python -m unittest -v \
             tests.test_owner_portable_candidate \
+            tests.test_owner_portable_candidate_stable_reads \
             tests.test_user_library_seed \
             tests.test_version2_portable_package
           echo 'OWNER_PORTABLE_CONTRACT=PASS'
@@ -80,6 +86,8 @@ jobs:
               'AcsDatabase(":memory:")',
               'expected_seed_game_count: int = 3738',
               'expected_seed_source_count: int = 6',
+              '_stable_bytes',
+              '_stable_digest',
           )
           for token in required:
               assert token in source, token
