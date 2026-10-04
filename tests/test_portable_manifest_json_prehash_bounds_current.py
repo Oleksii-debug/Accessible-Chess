@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import acs.version2_package_assembler as assembler
 import acs.version2_package_preflight as preflight
@@ -57,6 +58,18 @@ class PortableManifestJsonPrehashBoundsTests(unittest.TestCase):
             "too many object members",
         ):
             portable._strict_json_bytes(payload)
+
+    def test_decoder_recursion_failure_is_fail_closed(self) -> None:
+        with mock.patch.object(
+            portable.json,
+            "loads",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ):
+            with self.assertRaisesRegex(
+                Version2PortablePackageError,
+                "invalid: RecursionError",
+            ):
+                portable._strict_json_bytes(b"{}")
 
     def test_key_length_guard_runs_before_first_hash(self) -> None:
         hostile = _HashBombKey(
