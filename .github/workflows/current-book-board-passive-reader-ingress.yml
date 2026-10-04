@@ -3,7 +3,7 @@ name: Current Book Board Passive Reader Ingress
 on:
   pull_request:
     branches:
-      - converge/current-accessibility-bookreader-passive-20261004-c2mbezb
+      - converge/current-books-recovery-model-root-20261004-sol57x1
     paths:
       - 'acs/book_board_workflow.py'
       - 'tests/test_v2_book_board_workflow.py'
@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
-          base_ref="${EVENT_BASE_REF:-converge/current-accessibility-bookreader-passive-20261004-c2mbezb}"
+          base_ref="${EVENT_BASE_REF:-converge/current-books-recovery-model-root-20261004-sol57x1}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
