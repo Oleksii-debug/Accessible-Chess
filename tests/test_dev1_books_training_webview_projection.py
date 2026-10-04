@@ -204,6 +204,72 @@ class BookProjectionTests(unittest.TestCase):
                         )
                     )
 
+    def test_snapshot_rejects_navigation_dict_subclass_before_container_hooks(self) -> None:
+        class HostileNavigation(dict):
+            armed = False
+            touched = False
+
+            @classmethod
+            def _touch(cls, hook: str):
+                cls.touched = True
+                raise AssertionError(f"navigation {hook} hook must not execute")
+
+            def __len__(self):
+                if type(self).armed:
+                    type(self)._touch("__len__")
+                return super().__len__()
+
+            def __iter__(self):
+                if type(self).armed:
+                    type(self)._touch("__iter__")
+                return super().__iter__()
+
+            def items(self):
+                if type(self).armed:
+                    type(self)._touch("items")
+                return super().items()
+
+        hostile = HostileNavigation(self.presenter.navigation_availability())
+        HostileNavigation.armed = True
+
+        with patch.object(self.presenter, "navigation_availability", return_value=hostile):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.snapshot()
+
+        self.assertFalse(HostileNavigation.touched)
+
+    def test_snapshot_rejects_navigation_key_subclass_before_hash_or_equality_hooks(self) -> None:
+        class HostileKey(str):
+            armed = False
+            touched = False
+
+            @classmethod
+            def _touch(cls, hook: str):
+                cls.touched = True
+                raise AssertionError(f"navigation key {hook} hook must not execute")
+
+            def __hash__(self):
+                if type(self).armed:
+                    type(self)._touch("__hash__")
+                return super().__hash__()
+
+            def __eq__(self, other):
+                if type(self).armed:
+                    type(self)._touch("__eq__")
+                return super().__eq__(other)
+
+        canonical = self.presenter.navigation_availability()
+        hostile_key = HostileKey("previous")
+        hostile = {hostile_key: canonical["previous"]}
+        hostile.update({key: value for key, value in canonical.items() if key != "previous"})
+        HostileKey.armed = True
+
+        with patch.object(self.presenter, "navigation_availability", return_value=hostile):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.snapshot()
+
+        self.assertFalse(HostileKey.touched)
+
     def test_snapshot_rejects_heading_and_navigation_contract_drift(self) -> None:
         paragraph = self.presenter.next_block()
         with self.assertRaisesRegex(ValueError, "non-heading"):
