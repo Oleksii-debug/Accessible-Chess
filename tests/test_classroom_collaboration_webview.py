@@ -8,12 +8,14 @@ from unittest import mock
 
 from acs.classroom_collaboration import (
     ClassroomCollaborationController,
+    CollaborationError,
     FileTransferProgress,
 )
 from acs.classroom_collaboration_storage import (
     AttachmentMetadata,
     AttachmentStateUpdate,
     ChatMessageMetadata,
+    ChatMessageStateUpdate,
     ClassroomCollaborationSQLiteStore,
 )
 from acs.classroom_collaboration_webview import ClassroomCollaborationWebView
@@ -289,6 +291,24 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
         self.assertEqual("error", failed.kind)
         pending_id = calls[0]
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
+        self.assertNotIn("Recovered later", pending_draft_key)
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=failed_send,
+        ):
+            failed_again = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Recovered later"},
+            )
+        self.assertEqual(
+            pending_draft_key,
+            failed_again.payload["pending_chat_draft_key"],
+        )
+        self.assertEqual(calls, [pending_id, pending_id])
 
         accepted = ChatMessageMetadata(
             pending_id,
@@ -304,6 +324,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         synced = view.dispatch("collaboration.chat.sync", {})
         self.assertEqual("collaboration.chat.synced", synced.kind)
         self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertEqual(
+            (pending_draft_key,),
+            synced.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", synced.payload)
         self.assertEqual({}, view._pending_chat)
         self.assertNotIn(pending_id, repr(synced.payload))
 
@@ -324,6 +349,68 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             )
         self.assertEqual("collaboration.chat.sent", sent_again.kind)
         self.assertEqual(next_calls, ["message-ui-2"])
+
+    def test_chat_sync_announces_recovered_send_with_new_remote_message(self) -> None:
+        view = self.webview()
+        calls: list[str] = []
+
+        def failed_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=failed_send,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": "Recovered while reply arrived"},
+            )
+        self.assertEqual("error", failed.kind)
+        pending_id = calls[0]
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
+
+        accepted = ChatMessageMetadata(
+            pending_id,
+            "room-1",
+            "student-1",
+            0,
+            "Recovered while reply arrived",
+            sent_at_unix_ms=1700000000000,
+        )
+        remote = ChatMessageMetadata(
+            "remote-after-recovery",
+            "room-1",
+            "student-2",
+            1,
+            "New reply",
+            sent_at_unix_ms=1700000001000,
+        )
+        self.chat.messages = {
+            accepted.message_id: accepted,
+            remote.message_id: remote,
+        }
+        self.chat.ordered = [accepted, remote]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertEqual(
+            f"Message sent. {self.labels['student-2']}: New reply",
+            synced.payload["announcement"],
+        )
+        self.assertEqual(
+            (pending_draft_key,),
+            synced.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", synced.payload)
+        self.assertEqual({}, view._pending_chat)
+        self.assertEqual(
+            1,
+            synced.payload["collaboration"]["chat"]["unread_count"],
+        )
 
     def test_chat_sync_does_not_confirm_mutated_pending_identity(self) -> None:
         view = self.webview()
@@ -465,10 +552,10 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual(1, len(self.store.room_messages("room-1")))
 
-    def test_hidden_live_redelivery_clears_existing_unread_state(self) -> None:
+    def test_mutable_live_redelivery_fails_closed_without_mutating_unread_state(self) -> None:
         view = self.webview()
         message = ChatMessageMetadata(
-            "remote-live-hidden",
+            "remote-live-mutable-state",
             "room-1",
             "student-2",
             0,
@@ -481,16 +568,27 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
             first.payload["collaboration"]["chat"]["unread_count"],
         )
 
-        hidden = view.receive_chat(replace(message, hidden=True))
-
-        self.assertEqual("collaboration.chat.received", hidden.kind)
-        self.assertNotIn("announcement", hidden.payload)
-        self.assertEqual(
-            0,
-            hidden.payload["collaboration"]["chat"]["unread_count"],
+        mutable_redeliveries = (
+            replace(message, hidden=True),
+            replace(message, body="", redacted=True),
         )
-        self.assertEqual((), hidden.payload["collaboration"]["chat"]["messages"])
-        self.assertEqual(set(), view._unread_message_ids)
+        for mutable in mutable_redeliveries:
+            with self.subTest(hidden=mutable.hidden, redacted=mutable.redacted):
+                with self.assertRaisesRegex(
+                    CollaborationError,
+                    "live chat message cannot carry mutable state",
+                ):
+                    view.receive_chat(mutable)
+
+        # Live delivery is not a moderation-state authority. Forged/stale mutable
+        # bits must not mutate local presentation state; authoritative state sync
+        # performs hide/redaction and unread reconciliation.
+        self.assertEqual({"remote-live-mutable-state"}, view._unread_message_ids)
+        stored = self.store.room_messages("room-1")
+        self.assertEqual(1, len(stored))
+        self.assertFalse(stored[0].hidden)
+        self.assertFalse(stored[0].redacted)
+        self.assertEqual("Visible before moderation", stored[0].body)
 
     def test_sync_removes_hidden_message_from_unread_count(self) -> None:
         view = self.webview()
@@ -524,6 +622,105 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual((), synced.payload["collaboration"]["chat"]["messages"])
         self.assertEqual(set(), view._unread_message_ids)
 
+    def test_sync_redaction_clears_unread_and_exposes_accessible_tombstone(self) -> None:
+        view = self.webview()
+        message = ChatMessageMetadata(
+            "remote-unread-redacted",
+            "room-1",
+            "student-2",
+            0,
+            "Session-only answer that expires",
+            retention="session",
+            sent_at_unix_ms=1700000000000,
+        )
+        received = view.receive_chat(message)
+        self.assertEqual(
+            1,
+            received.payload["collaboration"]["chat"]["unread_count"],
+        )
+
+        self.chat.state_updates = [
+            ChatMessageStateUpdate(
+                "room-1",
+                message.message_id,
+                0,
+                hidden=False,
+                redacted=True,
+            )
+        ]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertNotIn("announcement", synced.payload)
+        chat = synced.payload["collaboration"]["chat"]
+        self.assertEqual(0, chat["unread_count"])
+        self.assertEqual(set(), view._unread_message_ids)
+        self.assertEqual(1, len(chat["messages"]))
+        tombstone = chat["messages"][0]
+        self.assertTrue(tombstone["redacted"])
+        self.assertFalse(tombstone["unread"])
+        self.assertEqual("", tombstone["body"])
+        self.assertEqual(
+            "Message content is no longer available.",
+            tombstone["redacted_label"],
+        )
+        self.assertNotIn("Session-only answer that expires", repr(tombstone))
+        stored = self.store.room_messages("room-1", include_hidden=True)
+        self.assertEqual("", stored[0].body)
+        self.assertTrue(stored[0].redacted)
+
+    def test_redacted_history_recovers_pending_send_without_restoring_body(self) -> None:
+        view = self.webview()
+        original_body = "Accepted then expired before recovery"
+        calls: list[str] = []
+
+        def ambiguous_send(*, message_id: str, body: str, retention: str = "session"):
+            calls.append(message_id)
+            raise RuntimeError("ambiguous chat transport")
+
+        with mock.patch.object(
+            self.controller,
+            "send_chat",
+            side_effect=ambiguous_send,
+        ):
+            failed = view.dispatch(
+                "collaboration.chat.send",
+                {"body": original_body},
+            )
+        self.assertEqual("error", failed.kind)
+        pending_id = calls[0]
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
+        redacted = ChatMessageMetadata(
+            pending_id,
+            "room-1",
+            "student-1",
+            0,
+            "",
+            retention="session",
+            sent_at_unix_ms=1700000000000,
+            redacted=True,
+        )
+        self.chat.messages[pending_id] = redacted
+        self.chat.ordered = [redacted]
+
+        synced = view.dispatch("collaboration.chat.sync", {})
+
+        self.assertEqual("collaboration.chat.synced", synced.kind)
+        self.assertEqual("Message sent.", synced.payload["announcement"])
+        self.assertEqual(
+            (pending_draft_key,),
+            synced.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", synced.payload)
+        self.assertEqual({}, view._pending_chat)
+        self.assertEqual(0, synced.payload["collaboration"]["chat"]["unread_count"])
+        tombstone = synced.payload["collaboration"]["chat"]["messages"][0]
+        self.assertTrue(tombstone["redacted"])
+        self.assertEqual("", tombstone["body"])
+        self.assertNotIn(original_body, repr(synced.payload))
+
     def test_trusted_live_chat_echo_recovers_pending_send_without_unread(self) -> None:
         view = self.webview()
         with mock.patch.object(
@@ -538,6 +735,8 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         self.assertEqual("error", failed.kind)
         self.assertEqual(1, len(view._pending_chat))
         pending_id = next(iter(view._pending_chat.values()))
+        pending_draft_key = failed.payload["pending_chat_draft_key"]
+        self.assertRegex(pending_draft_key, r"^[0-9a-f]{64}$")
         self.assertNotIn("Pending live echo", repr(view._pending_chat))
 
         recovered = view.receive_chat(
@@ -553,6 +752,11 @@ class ClassroomCollaborationWebViewTests(unittest.TestCase):
         )
         self.assertEqual("collaboration.chat.received", recovered.kind)
         self.assertEqual("Message sent.", recovered.payload["announcement"])
+        self.assertEqual(
+            (pending_draft_key,),
+            recovered.payload["clear_chat_draft_keys"],
+        )
+        self.assertNotIn("clear_chat_draft", recovered.payload)
         self.assertEqual({}, view._pending_chat)
         self.assertEqual(
             0,

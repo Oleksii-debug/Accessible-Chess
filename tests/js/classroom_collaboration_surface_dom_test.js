@@ -216,6 +216,56 @@ check(
   collaborationStatus.getAttribute("aria-live") === "off",
   "available collaboration must expose a visible non-live status transcript"
 );
+const redactedRoot = new FakeElement("div");
+const redactedSnapshot = {
+  document: { lang: "en", heading: "Classes" },
+  sections: [],
+  detail: null,
+  collaboration: collaboration([
+    {
+      dom_id: "collaboration-message-redacted",
+      sender: "Student two",
+      // A stale/malformed redraw may carry a pre-redaction body. The browser
+      // must trust the redacted semantic state and never render that stale body.
+      body: "STALE SECRET MUST NOT RENDER",
+      redacted: true,
+      redacted_label: "Message content is no longer available.",
+      // Browser rendering must not revive unread semantics for a tombstone even
+      // if a stale host snapshot carries an obsolete unread presentation bit.
+      unread: true,
+      retention_label: "Retention: session"
+    }
+  ], 0)
+};
+window.AccessibleChessEducationSurface.render(
+  redactedRoot,
+  redactedSnapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+const redactedMessage = redactedRoot.querySelector("#collaboration-message-redacted");
+const redactedLabel = redactedRoot.querySelector(
+  "#collaboration-message-redacted-redacted"
+);
+check(
+  redactedMessage !== null &&
+  redactedMessage.getAttribute("data-unread") === null,
+  "retention-redacted tombstones must never render as unread"
+);
+check(
+  redactedLabel !== null &&
+  redactedLabel.textContent === "Message content is no longer available." &&
+  redactedLabel.getAttribute("data-message-redacted") === "true" &&
+  redactedLabel.getAttribute("aria-live") === "off",
+  "redacted chat content must remain visible/selectable and screen-reader readable without live-region spam"
+);
+check(
+  redactedMessage.querySelectorAll("BDI").length === 1,
+  "redacted chat rendering must ignore any stale pre-redaction body and retain only the sender bdi"
+);
+
 const fileProgressRegion = root.querySelector("#collaboration-file-transfer-progress");
 check(
   fileProgressRegion !== null &&
@@ -935,6 +985,15 @@ check(
   disclosureSummary !== null,
   "message timestamp disclosure must expose a stable focus anchor"
 );
+const disclosureRetentionSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-retention"
+);
+check(
+  disclosureRetentionSummary !== null,
+  "message retention disclosure must expose a stable focus anchor"
+);
+disclosureSummary.parentNode.open = true;
+disclosureRetentionSummary.parentNode.open = true;
 disclosureSummary.focus();
 const oldDisclosureSummary = disclosureSummary;
 window.AccessibleChessEducationSurface.apply(
@@ -956,9 +1015,111 @@ check(
   document.activeElement !== oldDisclosureSummary,
   "collaboration redraw must restore keyboard focus to the rebuilt message disclosure"
 );
+const rebuiltTimestampSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-timestamp"
+);
+const rebuiltRetentionSummary = disclosureFocusRoot.querySelector(
+  "#collaboration-message-one-retention"
+);
 check(
-  disclosureFocusRoot.querySelector("#collaboration-message-one-retention") !== null,
-  "message retention disclosure must expose a stable focus anchor"
+  rebuiltTimestampSummary !== null &&
+  rebuiltRetentionSummary !== null &&
+  rebuiltTimestampSummary.parentNode.open === true &&
+  rebuiltRetentionSummary.parentNode.open === true,
+  "collaboration redraw must preserve open message timestamp and retention disclosures"
+);
+
+const recoveredDraftRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  recoveredDraftRoot,
+  snapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+const recoveredDraftKey = "c".repeat(64);
+recoveredDraftRoot.querySelector("#collaboration-chat-input").value =
+  "Already accepted by the server";
+recoveredDraftRoot.querySelector("#collaboration-chat-input").setAttribute(
+  "data-pending-chat-draft-key",
+  recoveredDraftKey
+);
+window.AccessibleChessEducationSurface.apply(
+  recoveredDraftRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  recoveredDraftRoot.querySelector("#collaboration-chat-input").value ===
+    "Already accepted by the server" &&
+  recoveredDraftRoot.querySelector("#collaboration-chat-input").getAttribute(
+    "data-pending-chat-draft-key"
+  ) === recoveredDraftKey,
+  "ordinary chat refresh must preserve an unsent composer draft and its opaque recovery correlation"
+);
+window.AccessibleChessEducationSurface.apply(
+  recoveredDraftRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration,
+      clear_chat_draft_keys: [recoveredDraftKey],
+      announcement: "Message sent."
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  recoveredDraftRoot.querySelector("#collaboration-chat-input").value === "",
+  "authoritatively recovered chat send must clear only its correlated committed draft"
+);
+
+const newerDraftRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  newerDraftRoot,
+  snapshot,
+  invoke,
+  () => {},
+  "",
+  "Action failed"
+);
+const newerDraftInput = newerDraftRoot.querySelector("#collaboration-chat-input");
+newerDraftInput.value = "Older ambiguous draft";
+newerDraftInput.setAttribute("data-pending-chat-draft-key", recoveredDraftKey);
+newerDraftInput.value = "New unsent draft must survive";
+newerDraftInput.listeners.input({});
+check(
+  newerDraftInput.getAttribute("data-pending-chat-draft-key") === null,
+  "editing the composer must revoke correlation with an older ambiguous send"
+);
+window.AccessibleChessEducationSurface.apply(
+  newerDraftRoot,
+  {
+    kind: "collaboration.chat.synced",
+    payload: {
+      collaboration: snapshot.collaboration,
+      clear_chat_draft_keys: [recoveredDraftKey],
+      announcement: "Message sent."
+    }
+  },
+  invoke,
+  () => {},
+  "Action failed"
+);
+check(
+  newerDraftRoot.querySelector("#collaboration-chat-input").value ===
+    "New unsent draft must survive",
+  "late recovery of an older send must never erase a newer composer draft"
 );
 
 const pageStatus = root.querySelector("#collaboration-chat-page-status");
@@ -1210,6 +1371,31 @@ check(
   throwingRoot.querySelector("#classroom-collaboration").getAttribute("aria-busy") === "true",
   "pending chat send must be single-flight and expose bounded busy state without blurring controls"
 );
+
+const pendingDraftKey = "e".repeat(64);
+const correlatedFailureRoot = new FakeElement("div");
+window.AccessibleChessEducationSurface.render(
+  correlatedFailureRoot,
+  snapshot,
+  () => Promise.resolve({
+    kind: "error",
+    payload: {
+      collaboration: snapshot.collaboration,
+      message: "Message send was not confirmed. Retry or refresh chat.",
+      pending_chat_draft_key: pendingDraftKey
+    }
+  }),
+  () => {},
+  "",
+  "Action failed"
+);
+const correlatedFailureInput = correlatedFailureRoot.querySelector(
+  "#collaboration-chat-input"
+);
+correlatedFailureInput.value = "Ambiguous submitted draft";
+correlatedFailureRoot.querySelector("#collaboration-chat-form").listeners.submit({
+  preventDefault() {}
+});
 
 const fileProgressRoot = new FakeElement("div");
 const fileProgressAnnouncements = [];
@@ -2060,6 +2246,14 @@ setImmediate(() => {
     check(
       bridgeInvokeCount === 1,
       "pending send must suppress duplicate submissions before the host result"
+    );
+    check(
+      correlatedFailureRoot.querySelector("#collaboration-chat-input").value ===
+        "Ambiguous submitted draft" &&
+      correlatedFailureRoot.querySelector("#collaboration-chat-input").getAttribute(
+        "data-pending-chat-draft-key"
+      ) === pendingDraftKey,
+      "ambiguous send failure must correlate only the unchanged submitted draft with its opaque host key"
     );
     check(
       throwingRoot.querySelector("#classroom-collaboration-status").textContent ===
