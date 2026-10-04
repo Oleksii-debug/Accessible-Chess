@@ -398,14 +398,15 @@ class BookReader:
         return result
 
     @classmethod
-    def restore_snapshot(cls, document: BookDocument, snapshot: Mapping[str, object]) -> "BookReader":
-        """Restore reading progress using stable semantic targets.
+    def validate_snapshot_contract(
+        cls,
+        snapshot: Mapping[str, object],
+    ) -> dict[str, object]:
+        """Validate document-independent durable snapshot structure.
 
-        Unknown/missing fields and scalar coercion fail closed. A target that no
-        longer exists, or that became ambiguous because source identities were
-        duplicated, is surfaced by ``BookIndex.resolve`` rather than silently
-        selecting a different block. Index-only targets additionally require an
-        exact semantic digest for the block currently occupying that fallback.
+        This is the single scalar/schema authority shared by persistence ingress
+        and document-bound restore. It deliberately does not resolve semantic
+        targets against a BookDocument; restore_snapshot owns that later step.
         """
         if not isinstance(snapshot, Mapping):
             raise TypeError("Book reader snapshot must be a mapping")
@@ -579,13 +580,42 @@ class BookReader:
                 raise ValueError("Book reader fallback digest must be lowercase SHA-256 hex")
             fallback_digests[validated_key] = digest
 
-        reader = cls(document)
         referenced_targets = set(return_points.values())
         if current_target is not None:
             referenced_targets.add(current_target)
         required_fallbacks = {key for key in referenced_targets if key.startswith("index:")}
         if set(fallback_digests) != required_fallbacks:
             raise ValueError("Book reader snapshot fallback_digests do not match referenced index targets")
+
+        return {
+            "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+            "current_target": current_target,
+            "return_points": return_points,
+            "fallback_digests": fallback_digests,
+        }
+
+    @classmethod
+    def restore_snapshot(cls, document: BookDocument, snapshot: Mapping[str, object]) -> "BookReader":
+        """Restore reading progress using stable semantic targets.
+
+        Unknown/missing fields and scalar coercion fail closed. A target that no
+        longer exists, or that became ambiguous because source identities were
+        duplicated, is surfaced by ``BookIndex.resolve`` rather than silently
+        selecting a different block. Index-only targets additionally require an
+        exact semantic digest for the block currently occupying that fallback.
+        """
+        validated = cls.validate_snapshot_contract(snapshot)
+        current_target = validated["current_target"]
+        return_points = validated["return_points"]
+        fallback_digests = validated["fallback_digests"]
+        assert current_target is None or type(current_target) is str
+        assert isinstance(return_points, dict)
+        assert isinstance(fallback_digests, dict)
+
+        reader = cls(document)
+        referenced_targets = set(return_points.values())
+        if current_target is not None:
+            referenced_targets.add(current_target)
 
         if not reader._book_index.entries:
             if current_target is not None or return_points or fallback_digests:

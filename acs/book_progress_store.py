@@ -329,7 +329,13 @@ def _snapshot_copy(value: object) -> dict[str, object]:
             "book progress snapshot exceeds the resource limit",
             code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
         )
-    return snapshot
+    try:
+        return BookReader.validate_snapshot_contract(snapshot)
+    except (TypeError, ValueError):
+        raise BookProgressStoreError(
+            "book progress snapshot is corrupt",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        ) from None
 
 
 def _empty_payload() -> dict[str, object]:
