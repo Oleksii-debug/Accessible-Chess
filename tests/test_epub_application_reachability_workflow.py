@@ -97,6 +97,10 @@ class EpubApplicationReachabilityWorkflowTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn(
+            "- converge/book-inline-order-current-owner-apex-20261004-c2mbezb",
+            self.workflow,
+        )
+        self.assertIn(
             "- converge/book-html-epub-semantics-20261004-c2mbezb",
             self.workflow,
         )
