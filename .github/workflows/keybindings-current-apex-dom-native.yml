@@ -70,8 +70,8 @@ jobs:
           PLUS_MINUS_HEAD: dbfa010ed872f66c4cffb97b0e880f750847c2ad
           PLUS_MINUS_SERVICE_BLOB: 19d3a406f9c94bb1aba8052e46c9d676b5a8dbc9
           PLUS_MINUS_SERVICE_TEST_BLOB: fe69226d35901b67a6fcbdf96e3c03534b3bb7d4
-          PLUS_MINUS_DOM_TEST_BLOB: 357f163afc2d83488fb609e81ea4ac06c925bda8
-          PLUS_MINUS_WEB_INDEX_BLOB: ecbe5200c49e49ec4e71fcd72dd268d5a2aac143
+          PLUS_MINUS_DOM_TEST_BLOB: 15f5ee0deb189b1c11de9c1c5e7d4d020da1a40d
+          PLUS_MINUS_WEB_INDEX_BLOB: d0a7701f461f487702fe1af52904adb472bd3a7b
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
