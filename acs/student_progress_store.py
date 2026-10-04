@@ -254,6 +254,40 @@ def _open_writer_lock(path: Path) -> int:
         raise
 
 
+def _assert_writer_lock_current(path: Path, descriptor: int) -> None:
+    """Re-authenticate pathname-to-handle lock identity at transaction boundaries."""
+    try:
+        opened = os.fstat(descriptor)
+        _require_private_regular(opened, "student progress lock")
+        if int(opened.st_size) != len(_LOCK_MARKER):
+            raise StudentProgressBusyError("student progress store lock is unavailable")
+        current = path.lstat()
+        _require_private_regular(current, "student progress lock")
+    except (OSError, ValueError) as exc:
+        raise StudentProgressBusyError(
+            "student progress store lock changed during save"
+        ) from exc
+
+    if not _same_file_identity(opened, current):
+        raise StudentProgressBusyError(
+            "student progress store lock changed during save"
+        )
+
+    try:
+        position = os.lseek(descriptor, 0, os.SEEK_CUR)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        marker = os.read(descriptor, len(_LOCK_MARKER) + 1)
+        os.lseek(descriptor, position, os.SEEK_SET)
+    except OSError as exc:
+        raise StudentProgressBusyError(
+            "student progress store lock changed during save"
+        ) from exc
+    if marker != _LOCK_MARKER:
+        raise StudentProgressBusyError(
+            "student progress store lock changed during save"
+        )
+
+
 def _lock_writer_descriptor(descriptor: int) -> None:
     try:
         if os.name == "nt":
@@ -378,6 +412,7 @@ class StudentProgressStore:
         try:
             _lock_writer_descriptor(descriptor)
             acquired = True
+            _assert_writer_lock_current(self._lock_path, descriptor)
             try:
                 current_data = _read_bounded_file(self.path)
             except FileNotFoundError:
@@ -416,6 +451,7 @@ class StudentProgressStore:
                 temporary = None
                 raise
 
+            _assert_writer_lock_current(self._lock_path, descriptor)
             os.replace(temporary, self.path)
             temporary = None
             try:
@@ -429,6 +465,12 @@ class StudentProgressStore:
                 raise StudentProgressDurabilityError(
                     "student progress was published but canonical bytes changed"
                 )
+            try:
+                _assert_writer_lock_current(self._lock_path, descriptor)
+            except StudentProgressBusyError as exc:
+                raise StudentProgressDurabilityError(
+                    "student progress was published but writer authority changed"
+                ) from exc
             return new_revision
         finally:
             if temporary is not None and temporary.exists():
