@@ -38,15 +38,14 @@ class RawAnalysisLine:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.depth, int)
-            or isinstance(self.depth, bool)
+            type(self.depth) is not int
             or self.depth < 0
         ):
             raise EngineContractError(
                 "analysis depth must be a non-negative integer",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.score_kind, str):
+        if type(self.score_kind) is not str:
             raise EngineContractError(
                 "analysis score kind must be text",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -57,22 +56,19 @@ class RawAnalysisLine:
                 "analysis score kind must be 'cp' or 'mate'",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.score_value, int) or isinstance(
-            self.score_value,
-            bool,
-        ):
+        if type(self.score_value) is not int:
             raise EngineContractError(
                 "analysis score value must be an integer",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.pv, tuple):
+        if type(self.pv) is not tuple:
             raise EngineContractError(
                 "analysis PV must be a tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         moves: list[str] = []
         for move in self.pv:
-            if not isinstance(move, str) or not move.strip():
+            if type(move) is not str or not move.strip():
                 raise EngineContractError(
                     "analysis PV moves must be non-empty text",
                     code=EngineContractErrorCode.INVALID_RESULT,
