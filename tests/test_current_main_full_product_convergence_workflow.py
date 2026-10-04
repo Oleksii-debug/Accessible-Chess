@@ -35,6 +35,20 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_current_main_non_pr_qualification_late_binds_live_main(self) -> None:
+        required = (
+            'elif [ "${GITHUB_REF_NAME:-}" = "integration/current-main-windows-apex-reconvergence-20261004-sol" ]; then',
+            "live_base_ref='main'",
+            'git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"',
+            'live_base="$(git rev-parse "origin/$live_base_ref")"',
+            'git merge-base --is-ancestor "$live_base" HEAD',
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            "FULL_PRODUCT_LIVE_MAIN_NON_PR_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_completion_lens_domains_are_bound_into_one_exact_head_gate(self) -> None:
         required = (
             "tests.test_bookdocument",
