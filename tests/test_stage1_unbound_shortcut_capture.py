@@ -99,7 +99,12 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
             "inp.setAttribute('aria-describedby',meta.id+' '+status.id)",
             HTML,
         )
-        self.assertIn("if(keymap.length)renderKeymap();renderHelp()", HTML)
+        self.assertIn(
+            "const next=lang==='en'?'en':'uk',changed=document.documentElement.lang!==next",
+            HTML,
+        )
+        self.assertIn("if(changed&&keymap.length)renderKeymap();renderHelp()", HTML)
+        self.assertNotIn("if(keymap.length)renderKeymap();renderHelp()", HTML)
 
     def test_shortcut_capture_remains_keyboard_first_and_backend_validated(self) -> None:
         self.assertIn("b.textContent='Нова комбінація'", HTML)
