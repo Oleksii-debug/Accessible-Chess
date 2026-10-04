@@ -119,14 +119,181 @@ def _validate_source_path(path: Path) -> tuple[Path, os.stat_result]:
     return absolute, leaf
 
 
+
+def _windows_open_readonly_no_reparse(path: Path) -> int:
+    """Open one Windows disk file without following the final reparse point.
+
+    Validation is performed on the opened Windows handle before conversion to a
+    CRT descriptor.  A path that becomes a reparse object after lexical checks
+    therefore cannot redirect source-byte reads through its target.
+    """
+
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    GENERIC_READ = 0x80000000
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    FILE_SHARE_DELETE = 0x00000004
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x00000080
+    FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+    FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+    FILE_TYPE_DISK = 0x0001
+    FILE_ATTRIBUTE_TAG_INFO_CLASS = 9
+    ERROR_FILE_NOT_FOUND = 2
+    ERROR_PATH_NOT_FOUND = 3
+
+    class FILE_ATTRIBUTE_TAG_INFO(ctypes.Structure):
+        _fields_ = [
+            ("FileAttributes", wintypes.DWORD),
+            ("ReparseTag", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+
+    get_file_type = kernel32.GetFileType
+    get_file_type.argtypes = [wintypes.HANDLE]
+    get_file_type.restype = wintypes.DWORD
+
+    get_info = kernel32.GetFileInformationByHandleEx
+    get_info.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    get_info.restype = wintypes.BOOL
+
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    handle = create_file(
+        str(path),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        None,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        None,
+    )
+    invalid = ctypes.c_void_p(-1).value
+    if handle == invalid:
+        error = ctypes.get_last_error()
+        if error in {ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND}:
+            raise FileNotFoundError(error, "could not open import source", str(path))
+        raise OSError(error, "could not open import source")
+
+    transferred = False
+    try:
+        if get_file_type(handle) != FILE_TYPE_DISK:
+            raise ValueError("Import source must be a regular disk file")
+        info = FILE_ATTRIBUTE_TAG_INFO()
+        if not get_info(
+            handle,
+            FILE_ATTRIBUTE_TAG_INFO_CLASS,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        ):
+            error = ctypes.get_last_error()
+            raise OSError(error, "could not inspect opened import source")
+        if info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT:
+            raise ValueError("Import source must not be a symlink or reparse point")
+
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOINHERIT", 0)
+        descriptor = msvcrt.open_osfhandle(int(handle), flags)
+        transferred = True
+        return descriptor
+    finally:
+        if not transferred:
+            close_handle(handle)
+
+
+def _open_readonly_no_reparse(path: Path) -> int:
+    """Open an existing source so the opened object is the authority."""
+
+    if os.name == "nt":
+        return _windows_open_readonly_no_reparse(path)
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise OSError("no-follow source open is unavailable")
+    flags = os.O_RDONLY | nofollow
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    return os.open(os.fspath(path), flags)
+
+
+def _publish_opened_fingerprint(
+    submitted: Path,
+    absolute: Path,
+    path_before: os.stat_result,
+    fd_before: os.stat_result,
+    fd_after: os.stat_result,
+    verified_sha256: str,
+) -> SourceFingerprint:
+    """Publish provenance only when one opened object and its public path stay stable."""
+
+    path_after = absolute.lstat()
+    stable_fd = (
+        fd_before.st_dev == fd_after.st_dev
+        and fd_before.st_ino == fd_after.st_ino
+        and fd_before.st_size == fd_after.st_size
+        and fd_before.st_mtime_ns == fd_after.st_mtime_ns
+    )
+    stable_path = (
+        path_before.st_dev == path_after.st_dev
+        and path_before.st_ino == path_after.st_ino
+        and path_before.st_size == path_after.st_size
+        and path_before.st_mtime_ns == path_after.st_mtime_ns
+        and not stat.S_ISLNK(path_after.st_mode)
+        and not _is_reparse_point(path_after)
+    )
+    if not stable_fd or not stable_path:
+        raise ValueError("Import source changed while fingerprinting")
+
+    public_path = absolute.resolve(strict=True)
+    _, absolute_publication_stat = _validate_source_path(absolute)
+    public_absolute, public_stat = _validate_source_path(public_path)
+    expected_identity = (fd_after.st_dev, fd_after.st_ino)
+    if (
+        (absolute_publication_stat.st_dev, absolute_publication_stat.st_ino)
+        != expected_identity
+        or (public_stat.st_dev, public_stat.st_ino) != expected_identity
+    ):
+        raise ValueError("Import source changed before provenance publication")
+
+    return SourceFingerprint(
+        path=str(public_absolute),
+        size=fd_after.st_size,
+        sha256=verified_sha256,
+        suffix=submitted.suffix.lower(),
+    )
+
+
 def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFingerprint:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
 
     submitted = Path(path)
     absolute, path_before = _validate_source_path(submitted)
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(os.fspath(absolute), flags)
+    fd = _open_readonly_no_reparse(absolute)
     try:
         fd_before = os.fstat(fd)
         if not stat.S_ISREG(fd_before.st_mode):
@@ -156,45 +323,13 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
     finally:
         os.close(fd)
 
-    path_after = absolute.lstat()
-    stable_fd = (
-        fd_before.st_dev == fd_after.st_dev
-        and fd_before.st_ino == fd_after.st_ino
-        and fd_before.st_size == fd_after.st_size
-        and fd_before.st_mtime_ns == fd_after.st_mtime_ns
-    )
-    stable_path = (
-        path_before.st_dev == path_after.st_dev
-        and path_before.st_ino == path_after.st_ino
-        and path_before.st_size == path_after.st_size
-        and path_before.st_mtime_ns == path_after.st_mtime_ns
-        and not stat.S_ISLNK(path_after.st_mode)
-        and not _is_reparse_point(path_after)
-    )
-    if not stable_fd or not stable_path:
-        raise ValueError("Import source changed while fingerprinting")
-
-    # Windows can expose an 8.3 alias (for example ``RUNNER~1``) through the
-    # lexical path used by the no-follow checks. Resolve the public provenance
-    # spelling only after hashing, then revalidate both spellings and bind them
-    # to the exact inode that was read. This expands aliases without weakening
-    # the symlink/reparse-point boundary.
-    public_path = absolute.resolve(strict=True)
-    _, absolute_publication_stat = _validate_source_path(absolute)
-    public_absolute, public_stat = _validate_source_path(public_path)
-    expected_identity = (fd_after.st_dev, fd_after.st_ino)
-    if (
-        (absolute_publication_stat.st_dev, absolute_publication_stat.st_ino)
-        != expected_identity
-        or (public_stat.st_dev, public_stat.st_ino) != expected_identity
-    ):
-        raise ValueError("Import source changed before provenance publication")
-
-    return SourceFingerprint(
-        path=str(public_absolute),
-        size=fd_after.st_size,
-        sha256=verified_sha256,
-        suffix=submitted.suffix.lower(),
+    return _publish_opened_fingerprint(
+        submitted,
+        absolute,
+        path_before,
+        fd_before,
+        fd_after,
+        verified_sha256,
     )
 
 
