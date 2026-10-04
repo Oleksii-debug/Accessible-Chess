@@ -5,7 +5,11 @@ from enum import Enum
 import re
 
 from .keybindings import ActionRegistry, BindingContext
-from .position_editor import PositionState, parse_piece_coordinate_position
+from .position_editor import (
+    MAX_COORDINATE_POSITION_CHARS,
+    PositionState,
+    parse_piece_coordinate_position,
+)
 
 
 class MoveEntryKind(str, Enum):
@@ -43,6 +47,8 @@ def parse_move_entry(
 
     if type(text) is not str:
         raise ValueError("move entry text must be text")
+    if len(text) > MAX_COORDINATE_POSITION_CHARS:
+        raise ValueError("move entry text is too long")
     raw = text
     stripped = raw.strip()
     if not stripped:

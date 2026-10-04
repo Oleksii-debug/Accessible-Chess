@@ -146,6 +146,15 @@ class PositionTextAuthorityTests(unittest.TestCase):
             "Текст позиції має бути текстовим значенням",
         )
 
+    def test_move_entry_rejects_oversized_text_before_routing(self):
+        canonical = "W: K e1 B: K e8"
+        at_limit = canonical + (" " * (4096 - len(canonical)))
+        intent = parse_move_entry(at_limit)
+        self.assertEqual(intent.position.to_fen(), "4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+
+        with self.assertRaisesRegex(ValueError, "^move entry text is too long$"):
+            parse_move_entry(at_limit + " ")
+
     def test_move_entry_rejects_non_text_without_invoking_string_conversion(self):
         class CoercibleEntry:
             def __init__(self):
