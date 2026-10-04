@@ -1,9 +1,6 @@
 name: Current Apex Windows Nullmove Import Convergence
 
 on:
-  push:
-    branches:
-      - converge/current-apex-windows-nullmove-import-20261004-ooxple7
   pull_request:
     branches:
       - converge/full-product-final-20261004
@@ -40,6 +37,7 @@ jobs:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      TARGET_BASE_REF: converge/full-product-final-20261004
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -69,25 +67,24 @@ jobs:
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
 
+          base_ref="$TARGET_BASE_REF"
+          git fetch --no-tags origin "$base_ref"
+          live_base="$(git rev-parse "origin/$base_ref")"
+          git cat-file -e "$live_base^{commit}"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test -n "$PR_BASE_SHA"
             test -n "$PR_BASE_REF"
-            test "$PR_BASE_REF" = 'converge/full-product-final-20261004'
+            test "$PR_BASE_REF" = "$TARGET_BASE_REF"
             git cat-file -e "$PR_BASE_SHA^{commit}"
-            git fetch --no-tags origin "$PR_BASE_REF"
-            live_base="$(git rev-parse "origin/$PR_BASE_REF")"
             git merge-base --is-ancestor "$PR_BASE_SHA" "$live_base"
-            git merge-base --is-ancestor "$live_base" HEAD
-            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-            scope_base="$live_base"
-          else
-            scope_base="$(git rev-parse HEAD^)"
           fi
 
-          git diff --check "$scope_base" HEAD
-          changed="$(git diff --name-only "$scope_base" HEAD | LC_ALL=C sort)"
-          wanted="$(printf '%s
-'             '.github/workflows/current-apex-windows-nullmove-import-convergence.yml'             '.github/workflows/version2-windows-composition.yml'             'acs/chessbase_decoder.py'             'acs/chesscore.py'             'acs/version2_application.py'             'acs/version2_windows_file_workflows.py'             'acs/webapp_keymap.py'             'tests/test_current_canonical_nullmove_convergence.py'             'tests/test_v2_windows_nvda_file_workflows.py'             'tests/test_version2_application.py'             'tests/test_version2_import_terminal_ui.py' | LC_ALL=C sort)"
+          git diff --check "$live_base" HEAD
+          changed="$(git diff --name-only "$live_base" HEAD | LC_ALL=C sort)"
+          wanted="$(printf '%s\n' '.github/workflows/current-apex-windows-nullmove-import-convergence.yml' '.github/workflows/version2-windows-composition.yml' 'acs/chessbase_decoder.py' 'acs/chesscore.py' 'acs/version2_application.py' 'acs/version2_windows_file_workflows.py' 'acs/webapp_keymap.py' 'tests/test_current_canonical_nullmove_convergence.py' 'tests/test_v2_windows_nvda_file_workflows.py' 'tests/test_version2_application.py' 'tests/test_version2_import_terminal_ui.py' | LC_ALL=C sort)"
           test "$changed" = "$wanted"
 
       - name: Compile converged production and regression seams
