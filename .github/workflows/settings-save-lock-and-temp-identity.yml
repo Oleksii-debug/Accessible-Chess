@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - fix/settings-save-lock-and-temp-identity-20261004
+      - fix/current-main-settings-transaction-20261004-sol5k6
   pull_request:
     branches:
       - fix/v2-upgrade-library-prepare-path-identity-20261004
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
     paths:
       - 'acs/settings.py'
       - 'tests/test_settings.py'
+      - 'tests/test_settings_postpublication_cleanup_current_main.py'
       - '.github/workflows/settings-save-lock-and-temp-identity.yml'
   workflow_dispatch:
 
@@ -43,29 +46,53 @@ jobs:
 
       - name: Prove exact parent and Settings writer scope
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
           test "$(git rev-parse HEAD)" = "$expected_head"
 
-          parent='5611e56a1f5b5be2f130d2870ad4c5857ba855e2'
-          git cat-file -e "$parent^{commit}"
-          git merge-base --is-ancestor "$parent" HEAD
-          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_BASE_REF" = "integration/current-main-windows-apex-reconvergence-20261004-sol" ]; then
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git fetch --no-tags origin "+refs/heads/$PR_BASE_REF:refs/remotes/origin/$PR_BASE_REF"
+            live_base="$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            scope_base="$live_base"
+            expected="$(printf '%s\n' \
+              '.github/workflows/settings-save-lock-and-temp-identity.yml' \
+              'acs/settings.py' \
+              'tests/test_settings_postpublication_cleanup_current_main.py' | sort)"
+            test "$(git rev-parse HEAD:acs/settings.py)" = "a082aff226c3e1c70b14f9aeee3179e8d20158ac"
+            test "$(git rev-parse HEAD:tests/test_settings_postpublication_cleanup_current_main.py)" = "52b430f9808ac78c9b2f5ce99421ac47109b18f9"
+            echo "SETTINGS_CURRENT_MAIN_LIVE_BASE=$live_base"
+          else
+            parent='5611e56a1f5b5be2f130d2870ad4c5857ba855e2'
+            git cat-file -e "$parent^{commit}"
+            git merge-base --is-ancestor "$parent" HEAD
+            test "$(git merge-base "$parent" HEAD)" = "$parent"
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            test '${{ github.event.pull_request.base.ref }}' = 'fix/v2-upgrade-library-prepare-path-identity-20261004'
-            test '${{ github.event.pull_request.base.sha }}' = "$parent"
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              test "$PR_BASE_REF" = 'fix/v2-upgrade-library-prepare-path-identity-20261004'
+              test "$PR_BASE_SHA" = "$parent"
+            fi
+
+            scope_base="$parent"
+            expected="$(printf '%s\n' \
+              '.github/workflows/settings-save-lock-and-temp-identity.yml' \
+              'acs/settings.py' \
+              'tests/test_settings.py' | sort)"
+            test "$(git rev-parse HEAD:acs/settings.py)" = "2c38dd42410b257b634a1621acb393124ccecf41"
+            test "$(git rev-parse HEAD:tests/test_settings.py)" = "71adc030928cb31506e77b828d9df9f0f1ad0dbe"
           fi
 
-          git diff --check "$parent" HEAD
-          changed="$(git diff --name-only "$parent" HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/settings-save-lock-and-temp-identity.yml'             'acs/settings.py'             'tests/test_settings.py' | sort)"
+          git diff --check "$scope_base" HEAD
+          changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           test "$changed" = "$expected"
-
-          test "$(git rev-parse HEAD:acs/settings.py)" = "2c38dd42410b257b634a1621acb393124ccecf41"
-          test "$(git rev-parse HEAD:tests/test_settings.py)" = "71adc030928cb31506e77b828d9df9f0f1ad0dbe"
-
           echo 'SETTINGS_SAVE_LOCK_TEMP_IDENTITY_SCOPE=PASS'
 
       - name: Compile Settings surfaces
@@ -73,11 +100,13 @@ jobs:
           python -m compileall -q
           acs/settings.py
           tests/test_settings.py
+          tests/test_settings_postpublication_cleanup_current_main.py
 
       - name: Settings writer and upgrade coordination regressions
         run: >-
           python -m unittest -v
           tests.test_settings
+          tests.test_settings_postpublication_cleanup_current_main
           tests.test_v2_upgrade_tracked_writer_conflict
           tests.test_v2_upgrade_publish_race_audit
 
