@@ -24,10 +24,20 @@ def test_rows_are_searchable_localized_and_expose_context_and_defaults():
     found = model.rows(query="перейти")
     assert [x.action_id for x in found] == ["history.go_to_move"]
 
+    # The accessible search contract includes the visible localized context,
+    # not the internal English registry token. This lets a Ukrainian user find
+    # intentionally unbound actions such as Material by searching for "Дошка".
+    board_found = model.rows(query="дошка")
+    assert "board.material" in {x.action_id for x in board_found}
+    assert board_found
+    assert all(x.context == "board" for x in board_found)
+    assert model.rows(query="board") == ()
+
     model.set_language("en")
     row_en = _row(model, "history.go_to_move")
     assert row_en.label == "Go to move"
     assert row_en.status_text == "No conflicts."
+    assert "board.material" in {x.action_id for x in model.rows(query="board")}
 
 
 def test_board_context_can_be_filtered_without_visual_table_semantics():
