@@ -89,6 +89,10 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
             HTML,
         )
         self.assertIn("o.textContent=keymapContextLabel(ctx)", HTML)
+        self.assertIn(
+            "+' '+keymapContextLabel(x.registryContext||x.context)+' '+(x.binding||x.alias||'')+' '+(x.defaultBinding||x.defaultAlias||'')",
+            HTML,
+        )
         self.assertIn("meta.id='binding-meta-'+token", HTML)
         self.assertIn("meta.className='binding-meta'", HTML)
         self.assertIn(
