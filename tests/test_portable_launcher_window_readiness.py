@@ -80,7 +80,7 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
                 self.assertIn(token, self.source)
 
     def test_early_exit_remains_failure_before_window_proof(self):
-        window_ready = self.source.index("if (ac_has_ready_window(g_process.dwProcessId))")
+        window_ready = self.source.index("window_ready = ac_has_ready_window(g_process.dwProcessId);")
         early_exit = self.source.index("STATUS: FAILED_EARLY_EXIT")
         self.assertLess(early_exit, window_ready)
         self.assertIn("CHILD_EXIT_REASON", self.source)
