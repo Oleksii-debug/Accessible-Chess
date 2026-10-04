@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "full-product-convergence-integration-20261004.yml"
+BOOKDOCUMENT_WORKFLOW = ROOT / ".github" / "workflows" / "bookdocument-constructor-semantic-integrity.yml"
+PGN_POSITION_WORKFLOW = ROOT / ".github" / "workflows" / "pgn-document-new-game-position-integrity.yml"
 
 
 class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
@@ -81,6 +83,32 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(f"      - '{path}'", self.text)
+
+    def test_narrow_owner_gates_are_safe_on_whole_product_main_rollup(self) -> None:
+        bookdocument = BOOKDOCUMENT_WORKFLOW.read_text(encoding="utf-8")
+        pgn_position = PGN_POSITION_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("BOOKDOCUMENT_TOPOLOGY=BOUNDED_OWNER_SUCCESSOR", bookdocument)
+        self.assertIn("BOOKDOCUMENT_TOPOLOGY=WHOLE_PRODUCT_COMPOSITION", bookdocument)
+        self.assertIn("[ \"$base_ref\" = 'main' ]", bookdocument)
+        self.assertIn("71a4ac74de61de10967284b7a1908534b5384259", bookdocument)
+        self.assertIn("f8abeb20819df2776e82d1bf5f9007fc12cb31d6", bookdocument)
+
+        self.assertIn("PGN_POSITION_TOPOLOGY=BOUNDED_OWNER_SUCCESSOR", pgn_position)
+        self.assertIn("PGN_POSITION_TOPOLOGY=WHOLE_PRODUCT_COMPOSITION", pgn_position)
+        self.assertIn("[ \"$PR_BASE_REF\" = 'main' ]", pgn_position)
+        self.assertIn("bf9e0f28dda8a811845df2c977436ea9523f6be5", pgn_position)
+        self.assertIn("c098f028c9e8811a9c40c682ee5abcbb994dbf4c", pgn_position)
+        self.assertIn("e7b2e9ebca69b5b13c5a633ca32b125004b35ac4", pgn_position)
+        for required in (
+            "tests.test_version2_pgn_commands",
+            "python -m unittest discover -s tests -v",
+            "python -m pytest -q tests",
+            "python run_accessible_chess.py --diagnostic",
+            "python run_accessible_chess_v2.py --diagnostic",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, pgn_position)
 
     def test_gate_keeps_dual_os_qualification(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
