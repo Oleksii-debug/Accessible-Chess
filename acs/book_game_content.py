@@ -140,7 +140,11 @@ def _one_embedded_game(pgn: str) -> PgnGame:
 
 
 def _canonical_copy(game: object) -> PgnGame:
-    if not isinstance(game, PgnGame):
+    # The lookup port promises the canonical concrete GameTree DTO.  Reject a
+    # PgnGame subclass before deepcopy: an injected subclass may override
+    # __deepcopy__ and execute provider-controlled code before canonical
+    # serialization has had a chance to validate the returned graph.
+    if type(game) is not PgnGame:
         raise BookGameContentError(
             "book game lookup did not return a canonical GameTree game",
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
