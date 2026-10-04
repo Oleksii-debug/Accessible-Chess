@@ -5,7 +5,7 @@ from enum import Enum
 import re
 
 from .keybindings import ActionRegistry, BindingContext
-from .position_editor import PositionState, empty_position
+from .position_editor import PositionState, parse_piece_coordinate_position
 
 
 class MoveEntryKind(str, Enum):
@@ -25,10 +25,6 @@ class MoveEntryIntent:
 
 
 _POSITION_HEADER_RE = re.compile(r"(?is)^\s*W\s*:")
-_POSITION_SECTIONS_RE = re.compile(
-    r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
-)
-
 
 def parse_move_entry(
     text: str,
@@ -44,7 +40,9 @@ def parse_move_entry(
     for the chess rules service to validate/execute.
     """
 
-    raw = str(text)
+    if type(text) is not str:
+        raise ValueError("move entry text must be text")
+    raw = text
     stripped = raw.strip()
     if not stripped:
         return MoveEntryIntent(MoveEntryKind.EMPTY, raw)
@@ -70,53 +68,3 @@ def parse_move_entry(
         raw,
         move_text=stripped,
     )
-
-
-def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionState:
-    """Parse canonical ``W:/B:`` piece-coordinate text into ``PositionState``.
-
-    Example: ``W: K e1 Q d1 P e4 B: K e8 P e5``. Piece symbols are canonical
-    chess data and are deliberately independent from command aliases.
-    """
-
-    if turn not in {"w", "b"}:
-        raise ValueError("turn must be 'w' or 'b'")
-
-    match = _POSITION_SECTIONS_RE.match(str(text))
-    if match is None:
-        raise ValueError("position text must contain W: and B: sections")
-
-    position = empty_position(turn=turn)
-    used: set[str] = set()
-    position = _fill_section(position, match.group("white"), white=True, used=used)
-    position = _fill_section(position, match.group("black"), white=False, used=used)
-
-    white_kings = sum(piece == "K" for piece in position.pieces)
-    black_kings = sum(piece == "k" for piece in position.pieces)
-    if white_kings != 1 or black_kings != 1:
-        raise ValueError("position text requires exactly one white and one black king")
-    return position
-
-
-def _fill_section(
-    position: PositionState,
-    chunk: str,
-    *,
-    white: bool,
-    used: set[str],
-) -> PositionState:
-    tokens = chunk.replace(",", " ").split()
-    if len(tokens) % 2:
-        raise ValueError("each piece must be followed by a square, for example N f3")
-
-    result = position
-    for index in range(0, len(tokens), 2):
-        piece = tokens[index].upper()
-        square = tokens[index + 1].lower()
-        if piece not in "KQRBNP":
-            raise ValueError(f"unknown piece symbol: {tokens[index]}")
-        if square in used:
-            raise ValueError(f"square {square} is specified more than once")
-        used.add(square)
-        result = result.with_piece(square, piece if white else piece.lower())
-    return result
