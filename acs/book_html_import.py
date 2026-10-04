@@ -77,6 +77,7 @@ class _InlineSemanticEvent:
     part_index: int
     block: object
     structural: bool = False
+    resume_part_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,6 +431,7 @@ class _SemanticHtmlParser(HTMLParser):
         owner: _Capture | None = None,
         part_index: int | None = None,
         structural: bool = False,
+        resume_part_index: int | None = None,
     ) -> None:
         # Direct image/position semantics trigger splitting for the nearest
         # paragraph or heading owner. Nested captures are recorded only as
@@ -444,6 +446,7 @@ class _SemanticHtmlParser(HTMLParser):
                 part_index=boundary,
                 block=block,
                 structural=structural,
+                resume_part_index=resume_part_index,
             )
         )
 
@@ -679,7 +682,17 @@ class _SemanticHtmlParser(HTMLParser):
         cursor = 0
         legacy_identity_available = True
         for event in capture.inline_semantics:
-            if event.part_index < cursor or event.part_index > len(capture.parts):
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
                 raise BookHtmlImportError(
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -695,7 +708,7 @@ class _SemanticHtmlParser(HTMLParser):
                 )
                 self._insert_block(self._block_identity_index(event.block), paragraph)
                 legacy_identity_available = False
-            cursor = event.part_index
+            cursor = resume_part_index
 
         trailing = _compact("".join(capture.parts[cursor:]))
         if trailing:
@@ -745,7 +758,17 @@ class _SemanticHtmlParser(HTMLParser):
             )
 
         for event in capture.inline_semantics:
-            if event.part_index < cursor or event.part_index > len(capture.parts):
+            resume_part_index = (
+                event.resume_part_index
+                if event.resume_part_index is not None
+                else event.part_index
+            )
+            if (
+                event.part_index < cursor
+                or event.part_index > len(capture.parts)
+                or resume_part_index < event.part_index
+                or resume_part_index > len(capture.parts)
+            ):
                 raise BookHtmlImportError(
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -756,7 +779,7 @@ class _SemanticHtmlParser(HTMLParser):
                     self._block_identity_index(event.block),
                     heading_or_fragment(segment),
                 )
-            cursor = event.part_index
+            cursor = resume_part_index
 
         trailing = _compact("".join(capture.parts[cursor:]))
         if trailing:
@@ -864,6 +887,9 @@ class _SemanticHtmlParser(HTMLParser):
             owner=parent,
             part_index=part_index,
             structural=True,
+            resume_part_index=(
+                len(parent.parts) if capture.kind == "heading" else None
+            ),
         )
 
     def close(self) -> None:
