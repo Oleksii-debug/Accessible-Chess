@@ -48,7 +48,9 @@ jobs:
             0bf46b2561db3d1dc26f354699c5610d331edb6a \
             b6aaaf50e20aec31f908da80249cb285a090fc23 \
             448d6ccd099549354fee23c5d3f6acfd08179eba \
-            5759e454e9382a09f276d09b15894ae2e77d6c65
+            5759e454e9382a09f276d09b15894ae2e77d6c65 \
+            66e627fb097db582bac37cde882690fe10aa89a4 \
+            1ee73ed85ac8eac3bc46c6fd5f495889e8a84d0e
           do
             git cat-file -e "$absorbed^{commit}"
             git merge-base --is-ancestor "$absorbed" HEAD
@@ -81,6 +83,7 @@ jobs:
           tests/test_bookreader.py
           tests/test_version2_application.py
           tests/test_v2_book_progress_store.py
+          tests/test_v2_book_progress_store_production.py
           tests/test_w2_training_progress_crash_recovery.py
           tests/test_book_browser_presentation_lease_required.py
           tests/test_child_coaching.py
@@ -149,6 +152,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
           tests.test_w2_training_progress_crash_recovery
           tests.test_p0_semantic_document_copy
 
