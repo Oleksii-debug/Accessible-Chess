@@ -132,6 +132,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             # production browser boundary separately requires a lease after a
             # rendered Books snapshot, just like the PGN surface.
             return None
+        if (
+            type(token) is not str
+            or len(token) != 64
+            or any(character not in "0123456789abcdef" for character in token)
+        ):
+            return self.generic_error()
         try:
             board_active, workflow_revision = self._workflow_presentation_state()
             expected = self._presentation_token(
