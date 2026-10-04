@@ -296,6 +296,33 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.block_id, "snapshot-block")
         self.assertEqual(resolved.source_anchor, "snapshot-anchor")
 
+    def test_source_selection_rejects_text_subclass_before_enum_hooks(self) -> None:
+        class HostileSource(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("hostile hash hook must not execute")
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("hostile equality hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("hostile string hook must not execute")
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(
+                Game(pgn=EMBEDDED_PGN),
+                source=HostileSource("auto"),
+            )
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+        self.assertFalse(HostileSource.touched)
+
     def test_mutated_text_subclasses_fail_before_custom_hooks(self) -> None:
         class HostileText(str):
             touched = False
