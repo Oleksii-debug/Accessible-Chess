@@ -3,7 +3,7 @@ name: Position Text Canonical Authority
 on:
   pull_request:
     branches:
-      - work/full-product-teacher-education-reachability-20260911
+      - converge/keybindings-settings-a11y-current-20261004-ooxple7-g2
     paths:
       - 'acs/position_editor.py'
       - 'acs/move_entry.py'
@@ -60,7 +60,9 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             upstream="$live_base"
           else
-            upstream="$(git rev-parse HEAD^)"
+            base_ref="converge/keybindings-settings-a11y-current-20261004-ooxple7-g2"
+            git fetch --no-tags origin "$base_ref"
+            upstream="$(git rev-parse "origin/$base_ref")"
           fi
 
           git cat-file -e "$upstream^{commit}"
