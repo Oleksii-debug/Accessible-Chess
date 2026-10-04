@@ -126,12 +126,13 @@ jobs:
               "acs/training_progress_store.py": "0ee7a0b873127412c3b60bb996a547f32189670a",
               "tests/test_v2_book_progress_store.py": "e80e9dcfde1a5508fb1d266cd8334e24ab904c59",
               "tests/test_w2_training_progress_crash_recovery.py": "b75bb83cc3cc19774ba19afe6476e4a028c52d8a",
-              # Exact Book browser presentation-lease source (#1685).
+              # Book browser presentation-lease source (#1685), with the
+              # reviewed starter-material final-revalidation successor below.
               ".github/workflows/book-browser-presentation-lease.yml": "68f16d4f8a75a9e0ecc7dcb56c3e55545550a7ef",
               "acs/version2_application.py": "e1020f4d7d2320f3162bc78b9a6221b2afd46876",
-              "acs/version2_starter_content_application.py": "a6d3a1be86db6626ce9e54edaacc7cf9e677b7c5",
+              "acs/version2_starter_content_application.py": "193ef900e2264db04458e62b053d9cdcff9b801f",
               "tests/js/books_training_surface_dom_test.js": "a37cdf5f78bf3d43a2b0e36bb46dbe133ccbbbdb",
-              "tests/test_book_browser_presentation_lease_required.py": "30e7ca72c928e705c36f8fb1eb55387899e8eff8",
+              "tests/test_book_browser_presentation_lease_required.py": "e16a8bb36d45c3c92d96fbc07746e4e49da1b740",
               "web/full_product_books_training.js": "3819377dbeaa4de47b3bafd5ad88b52d1f38da3d",
               # Exact clean child-coaching source (#1682).
               "acs/child_coaching.py": "8330b42d7a6684c9b1bfa6ca5badebe0bb07fcfa",
