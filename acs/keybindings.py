@@ -90,6 +90,18 @@ def _normalize_alias(value: str | None) -> str | None:
     return value.casefold() if value else None
 
 
+def _parse_keymap_json(text: str) -> object:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("keymap profile contains duplicate JSON object keys")
+            result[key] = value
+        return result
+
+    return json.loads(text, object_pairs_hook=reject_duplicate_keys)
+
+
 def normalize_binding(value: str | None) -> str | None:
     if value is None:
         return None
@@ -492,7 +504,7 @@ class ActionRegistry:
             raise ValueError("keymap profile must be valid UTF-8 text") from exc
         if len(encoded) > MAX_KEYMAP_JSON_BYTES:
             raise ValueError("keymap profile is too large")
-        value = json.loads(text)
+        value = _parse_keymap_json(text)
         if type(value) is not dict:
             raise ValueError("keymap profile must be a JSON object")
         return cls.from_profile(value, definitions)
