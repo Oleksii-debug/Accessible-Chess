@@ -127,6 +127,8 @@ class AnalysisResult:
             if (
                 type(self.error) is not str
                 or len(self.error) > ANALYSIS_MAX_ERROR_CHARS
+                or "\n" in self.error
+                or "\r" in self.error
                 or not self.error.strip()
             ):
                 raise EngineContractError(
@@ -215,12 +217,17 @@ class AnalysisService:
 
     @staticmethod
     def _safe_error_text(exc: Exception) -> str:
-        fallback = type(exc).__name__
+        fallback = type(exc).__name__[:ANALYSIS_MAX_ERROR_CHARS] or "Exception"
         try:
             text = str(exc).strip()
         except Exception:
             return fallback
-        if not text or len(text) > ANALYSIS_MAX_ERROR_CHARS:
+        if (
+            not text
+            or len(text) > ANALYSIS_MAX_ERROR_CHARS
+            or "\n" in text
+            or "\r" in text
+        ):
             return fallback
         return text
 
