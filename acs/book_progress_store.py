@@ -1981,11 +1981,77 @@ class BookProgressStore:
             snapshot = dict(entries[key])
         return BookReader.restore_snapshot(document, snapshot)
 
-    def validated_backup_revision(self, book_key: str, document: BookDocument) -> str:
-        """Validate the exact backup for this Book and return its byte revision.
+    def validated_recovery_revisions(
+        self,
+        book_key: str,
+        document: BookDocument,
+    ) -> tuple[str | None, str]:
+        """Validate the exact primary/backup state offered for explicit rollback.
 
-        The returned revision binds later explicit recovery to the same backup
-        bytes that were semantically validated before user confirmation.
+        The primary revision is None only when the primary was stably absent.
+        Otherwise it identifies the exact corrupt primary bytes whose loss the
+        caller may ask the user to confirm. The backup revision identifies the
+        exact semantically valid snapshot that may later be published.
+        """
+        key = _book_key(book_key)
+        if not isinstance(document, BookDocument):
+            raise TypeError("document must be BookDocument")
+        with self._exclusive_access():
+            primary_identity = self._data_path_identity_unlocked(
+                self._path,
+                missing_ok=True,
+            )
+            primary_raw = self._read_raw_file_unlocked(
+                self._path,
+                missing_ok=True,
+            )
+            self._require_recovery_primary_unchanged_unlocked(
+                primary_identity,
+                primary_raw,
+            )
+            if primary_raw is not None:
+                try:
+                    self._decode_payload(primary_raw)
+                except BookProgressStoreError as primary_error:
+                    if primary_error.code != BookProgressStoreErrorCode.CORRUPT_STORE:
+                        raise
+                else:
+                    raise BookProgressStoreError(
+                        "book progress changed before recovery could be validated",
+                        code=BookProgressStoreErrorCode.STALE_WRITE,
+                    )
+
+            backup_identity = self._data_path_identity_unlocked(
+                self.backup_path,
+                missing_ok=False,
+            )
+            payload, raw, revision = self._read_state_unlocked(
+                self.backup_path,
+                missing_ok=False,
+            )
+            assert payload is not None and raw is not None and revision is not None
+            entries = payload["entries"]
+            assert isinstance(entries, dict)
+            if key not in entries:
+                raise LookupError("No saved reading progress for this book")
+            snapshot = dict(entries[key])
+            BookReader.restore_snapshot(document, snapshot)
+            self._require_recovery_primary_unchanged_unlocked(
+                primary_identity,
+                primary_raw,
+            )
+            self._require_recovery_backup_unchanged_unlocked(
+                backup_identity,
+                raw,
+            )
+            return _revision(primary_raw), revision
+
+    def validated_backup_revision(self, book_key: str, document: BookDocument) -> str:
+        """Validate a backup snapshot and return its exact byte revision.
+
+        This compatibility helper deliberately preserves the historical contract.
+        Product recovery that crosses a user-confirmation boundary should use
+        validated_recovery_revisions() so the discarded primary state is bound too.
         """
         key = _book_key(book_key)
         if not isinstance(document, BookDocument):
@@ -2047,12 +2113,14 @@ class BookProgressStore:
         self,
         *,
         expected_backup_revision: str | None = None,
+        expected_primary_revision: str | None | object = _EXPECTED_TARGET_UNSET,
     ) -> bool:
         """Explicitly replace a missing/corrupt primary with a valid prior snapshot.
 
-        If an expected backup revision is supplied, only those exact previously
-        validated backup bytes may be published. Calls without a revision retain
-        the historical explicit-recovery contract.
+        A supplied backup revision binds the bytes to publish. A supplied primary
+        revision binds the corrupt/missing state the caller agreed may be lost;
+        None means the primary was expected to remain absent. Calls that omit both
+        expectations retain the historical explicit-recovery contract.
         """
         if expected_backup_revision is not None:
             if (
@@ -2067,6 +2135,22 @@ class BookProgressStore:
                     "book progress backup revision is invalid",
                     code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
                 )
+        if (
+            expected_primary_revision is not _EXPECTED_TARGET_UNSET
+            and expected_primary_revision is not None
+        ):
+            if (
+                type(expected_primary_revision) is not str
+                or len(expected_primary_revision) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in expected_primary_revision
+                )
+            ):
+                raise BookProgressStoreError(
+                    "book progress primary revision is invalid",
+                    code=BookProgressStoreErrorCode.INVALID_ARGUMENT,
+                )
 
         with self._exclusive_access():
             primary_identity = self._data_path_identity_unlocked(
@@ -2078,6 +2162,14 @@ class BookProgressStore:
                 primary_identity,
                 primary_raw,
             )
+            if (
+                expected_primary_revision is not _EXPECTED_TARGET_UNSET
+                and _revision(primary_raw) != expected_primary_revision
+            ):
+                raise BookProgressStoreError(
+                    "book progress changed before recovery could be committed",
+                    code=BookProgressStoreErrorCode.STALE_WRITE,
+                )
             primary_missing = primary_raw is None
             if not primary_missing:
                 try:
