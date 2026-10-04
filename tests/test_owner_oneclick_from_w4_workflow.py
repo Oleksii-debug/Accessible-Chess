@@ -36,6 +36,34 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_EXACT_ARTIFACT_BINDING=PASS", self.text)
         self.assertIn("validate_version2_package_tree(", self.text)
 
+    def test_w4_run_provenance_is_authenticated_before_download(self) -> None:
+        provenance_index = self.text.index("Authenticate exact W4 workflow run provenance")
+        download_index = self.text.index("Download exact W4 artifact by run ID")
+        self.assertLess(provenance_index, download_index)
+
+        for token in (
+            "actions/runs/{run_id}",
+            "W4_WORKFLOW_PATH: .github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
+            "payload.get('path') != workflow_path",
+            "payload.get('event') != 'workflow_dispatch'",
+            "payload.get('status') != 'completed'",
+            "payload.get('conclusion') != 'success'",
+            "payload.get('head_branch') != release_branch",
+            "actual_sha != exact",
+            "W4_RUN_WORKFLOW_PATH_INVALID",
+            "W4_RUN_EVENT_INVALID",
+            "W4_RUN_STATUS_INVALID",
+            "W4_RUN_CONCLUSION_INVALID",
+            "W4_RUN_HEAD_BRANCH_INVALID",
+            "W4_RUN_HEAD_SHA_INVALID",
+            "W4_RUN_REPOSITORY_INVALID",
+            "W4_RUN_PROVENANCE=PASS",
+        ):
+            self.assertIn(token, self.text)
+
+        self.assertIn("Authorization': f'Bearer {token}", self.text)
+        self.assertIn("actions: read", self.text)
+
     def test_owner_external_inputs_are_explicit_https_and_sha_bound(self) -> None:
         for token in (
             "owner_seed_url:",
