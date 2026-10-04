@@ -244,7 +244,7 @@ class KeymapService:
         result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
         if result.ok:
             self._persist()
-        return self._result(result)
+        return self._mutation_result(result)
 
     def reset_action(self, action_id: str) -> dict[str, Any]:
         blocked = self._blocked_incremental_mutation()
@@ -252,7 +252,7 @@ class KeymapService:
             return blocked
         result = self.editor.reset_action(action_id)
         self._persist()
-        return self._result(result)
+        return self._mutation_result(result)
 
     def reset_context(self, context: str) -> dict[str, Any]:
         blocked = self._blocked_incremental_mutation()
@@ -260,12 +260,12 @@ class KeymapService:
             return blocked
         result = self.editor.reset_context(BindingContext(context))
         self._persist()
-        return self._result(result)
+        return self._mutation_result(result)
 
     def reset_all(self) -> dict[str, Any]:
         result = self.editor.reset_all()
         self._persist(replace_incompatible=True)
-        return self._result(result)
+        return self._mutation_result(result)
 
     def export_profile(self) -> str:
         return self.editor.export_profile()
@@ -312,7 +312,7 @@ class KeymapService:
         result = self.editor.import_profile(text)
         if result.ok:
             self._persist(replace_incompatible=True)
-        response = self._result(result)
+        response = self._mutation_result(result)
         response["requiresConfirmation"] = False
         return response
 
@@ -382,6 +382,16 @@ class KeymapService:
             "message": item.message,
             "severity": item.severity,
         }
+
+    def _mutation_result(self, result) -> dict[str, Any]:
+        response = self._result(result)
+        if result.ok:
+            # Return the post-mutation authority snapshot in the same bridge
+            # response. The WebView can then atomically replace its synchronous
+            # child-surface resolver without a second request that temporarily
+            # revives stale/default shortcuts.
+            response["snapshot"] = self.snapshot()
+        return response
 
     @classmethod
     def _result(cls, result) -> dict[str, Any]:
