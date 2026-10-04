@@ -74,7 +74,9 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             upstream="$live_base"
           else
-            upstream="$(git rev-parse HEAD^)"
+            base_ref="converge/current-product-position-root-atomicity-20261004-hy6ez0h"
+            git fetch --no-tags origin "$base_ref"
+            upstream="$(git rev-parse "origin/$base_ref")"
           fi
           git cat-file -e "$upstream^{commit}"
           git merge-base --is-ancestor "$upstream" HEAD
