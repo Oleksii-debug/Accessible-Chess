@@ -107,6 +107,7 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.app.progress_store.save(self.app.book_key, self.app.reader)
         self.app.shell.open_route("books")
         self.app._focus = self.app.shell.restore_focus_target()
+        self.app._repair_book_block_focus_after_rebind()
         return reader
 
     def test_open_route_failure_rolls_back_before_release_board_projection(self):
