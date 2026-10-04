@@ -377,7 +377,7 @@ jobs:
           }
           $reportedChild = Get-Process -Id $reportedChildPid -ErrorAction Stop
           $expectedChildPath = (Resolve-Path (Join-Path $app 'AccessibleChess.exe')).Path
-          if ($reportedChild.Path -ne $expectedChildPath) {
+          if (-not ($reportedChild.Path -eq $expectedChildPath)) {
             throw "Launch report child PID path mismatch: $($reportedChild.Path)"
           }
           $ownedChildren = @(
