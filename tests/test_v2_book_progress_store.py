@@ -721,6 +721,87 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
         self.assertFalse(self.store.backup_path.exists())
 
+    def test_recovery_pair_rejects_different_corrupt_primary_after_confirmation(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:primary-confirmation-race", reader)
+        reader.go_to(3)
+        self.store.save("book:primary-confirmation-race", reader)
+
+        corrupt_primary = b'{"schema_version":2,"generation":'
+        self.path.write_bytes(corrupt_primary)
+        backup_bytes = self.store.backup_path.read_bytes()
+        primary_revision, backup_revision = self.store.validated_recovery_revisions(
+            "book:primary-confirmation-race",
+            self.original_document(),
+        )
+        self.assertIsNotNone(primary_revision)
+
+        changed_corrupt_primary = b'{"schema_version":2,"entries":'
+        self.path.write_bytes(changed_corrupt_primary)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+                expected_primary_revision=primary_revision,
+            )
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), changed_corrupt_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_recovery_pair_rejects_primary_appearance_after_missing_validation(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(1)
+        self.store.save("book:missing-confirmation-race", reader)
+        reader.go_to(3)
+        self.store.save("book:missing-confirmation-race", reader)
+
+        self.path.unlink()
+        backup_bytes = self.store.backup_path.read_bytes()
+        primary_revision, backup_revision = self.store.validated_recovery_revisions(
+            "book:missing-confirmation-race",
+            self.original_document(),
+        )
+        self.assertIsNone(primary_revision)
+
+        appeared_corrupt_primary = b'{"schema_version":2,"generation":'
+        self.path.write_bytes(appeared_corrupt_primary)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.recover_from_backup(
+                expected_backup_revision=backup_revision,
+                expected_primary_revision=primary_revision,
+            )
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+        self.assertEqual(self.path.read_bytes(), appeared_corrupt_primary)
+        self.assertEqual(self.store.backup_path.read_bytes(), backup_bytes)
+
+    def test_recovery_pair_validation_rejects_already_valid_primary(self) -> None:
+        reader = BookReader(self.original_document())
+        self.store.save("book:valid-primary-pair", reader)
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.validated_recovery_revisions(
+                "book:valid-primary-pair",
+                self.original_document(),
+            )
+
+        self.assertEqual(caught.exception.code, BookProgressStoreErrorCode.STALE_WRITE)
+
+    def test_explicit_recovery_rejects_invalid_primary_revision_token(self) -> None:
+        for invalid in ("", "not-a-revision", "A" * 64, "0" * 63, 7):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(BookProgressStoreError) as caught:
+                    self.store.recover_from_backup(
+                        expected_primary_revision=invalid,
+                    )
+                self.assertEqual(
+                    caught.exception.code,
+                    BookProgressStoreErrorCode.INVALID_ARGUMENT,
+                )
+
     def test_revision_bound_recovery_rejects_primary_repaired_during_confirmation(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(1)
