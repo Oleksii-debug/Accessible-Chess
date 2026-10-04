@@ -415,16 +415,16 @@ def _is_mime_token(value: str) -> bool:
     )
 
 
-def _normalized_manifest_media_type(value: object) -> str:
+def _normalized_media_type(value: object, *, context: str) -> str:
     if type(value) is not str or value != value.strip():
         raise _error(
-            "EPUB manifest item media type is malformed",
+            f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     parts = value.split("/")
     if len(parts) != 2 or not all(_is_mime_token(part) for part in parts):
         raise _error(
-            "EPUB manifest item media type is malformed",
+            f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     return value.casefold()
@@ -849,6 +849,12 @@ def _package_rootfiles(
                     )
             raw_href = element.attrib.get("href")
             raw_rel = element.attrib.get("rel")
+            raw_media_type = element.attrib.get("media-type")
+            if raw_media_type is not None:
+                _normalized_media_type(
+                    raw_media_type,
+                    context="container link",
+                )
             if type(raw_href) is not str or not raw_href or raw_href != raw_href.strip():
                 raise _error(
                     "EPUB container link href is missing or malformed",
@@ -934,7 +940,10 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
-        media_type = _normalized_manifest_media_type(raw_media_type)
+        media_type = _normalized_media_type(
+            raw_media_type,
+            context="manifest item",
+        )
         if raw_fallback is None:
             fallback = None
         elif not _is_exact_identifier(raw_fallback):
