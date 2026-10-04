@@ -336,6 +336,48 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_relative_token_enforces_exact_win32_utf16_component_boundary(self):
+        astral = "\U0001f642"
+        accepted = astral * 125 + "a.txt"
+        rejected = astral * 126 + "a.txt"
+        self.assertEqual(len(accepted.encode("utf-16-le")) // 2, 255)
+        self.assertGreater(len(rejected.encode("utf-16-le")) // 2, 255)
+        accepted_path = f"AccessibleChess/{accepted}"
+        self.assertEqual(
+            preflight._relative_token(accepted_path, label="package path"),
+            accepted_path,
+        )
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "255 UTF-16 code-unit component limit",
+        ):
+            preflight._relative_token(
+                f"AccessibleChess/{rejected}",
+                label="package path",
+            )
+
+    def test_relative_token_rejects_malformed_win32_unicode(self):
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "not valid Win32 Unicode",
+        ):
+            preflight._relative_token(
+                "AccessibleChess/broken\ud800.txt",
+                label="package path",
+            )
+
+    def test_relative_token_rejects_extended_and_trimmed_win32_device_aliases(self):
+        for name in ("CON .txt", "conin$.bin", "CONOUT$.dat"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "reserved Windows name",
+                ):
+                    preflight._relative_token(
+                        f"AccessibleChess/{name}",
+                        label="package path",
+                    )
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
@@ -992,6 +1034,24 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         max_text_scan_bytes=100,
                     ),
                 )
+
+    def test_zip_rejects_overlong_win32_component_before_readback(self):
+        overlong = "\U0001f642" * 126 + "a.txt"
+        self.assertGreater(len(overlong.encode("utf-16-le")) // 2, 255)
+        with tempfile.TemporaryDirectory() as td:
+            archive_path = Path(td) / "hostile.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(f"AccessibleChess/{overlong}", b"hostile")
+
+            with patch(
+                "acs.version2_package_preflight.tempfile.TemporaryDirectory",
+                side_effect=AssertionError("ZIP readback must not start"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "255 UTF-16 code-unit component limit",
+                ):
+                    _validate_zip(archive_path)
 
     def test_zip_rejects_superscript_windows_device_aliases_before_readback(self):
         reserved = (
