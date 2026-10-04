@@ -46,6 +46,7 @@ _ROOTFILE_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfile"
 _LINKS_TAG = f"{{{_CONTAINER_NAMESPACE}}}links"
 _OPF_MEDIA_TYPE = "application/oebps-package+xml"
 _OPF_NAMESPACE = "http://www.idpf.org/2007/opf"
+_DUBLIN_CORE_NAMESPACE = "http://purl.org/dc/elements/1.1/"
 _PACKAGE_TAG = f"{{{_OPF_NAMESPACE}}}package"
 _METADATA_TAG = f"{{{_OPF_NAMESPACE}}}metadata"
 _MANIFEST_TAG = f"{{{_OPF_NAMESPACE}}}manifest"
@@ -402,12 +403,17 @@ def _required_unique_direct_child(
 def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
     if metadata is None:
         return []
-    wanted = name.casefold()
+    wanted = f"{{{_DUBLIN_CORE_NAMESPACE}}}{name}"
     values: list[str] = []
-    for element in metadata.iter():
-        if _local_name(element.tag) != wanted:
+    for element in metadata:
+        if element.tag != wanted:
             continue
-        text = " ".join("".join(element.itertext()).split())
+        if len(element):
+            raise _error(
+                "EPUB Dublin Core metadata must contain text only",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        text = " ".join((element.text or "").split())
         if text and text not in values:
             values.append(text)
     return values
@@ -471,6 +477,30 @@ def _validate_package_document(package: ET.Element) -> None:
     if positions != sorted(positions):
         raise _error(
             "EPUB package required sections are out of canonical order",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    metadata = _required_unique_direct_child(package, "metadata")
+    identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
+    matching_identifiers: list[str] = []
+    for element in metadata:
+        if element.tag != identifier_tag or element.attrib.get("id") != unique_identifier:
+            continue
+        if len(element):
+            raise _error(
+                "EPUB unique identifier metadata must contain text only",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        value = " ".join((element.text or "").split())
+        if not value:
+            raise _error(
+                "EPUB unique identifier metadata is empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        matching_identifiers.append(value)
+    if len(matching_identifiers) != 1:
+        raise _error(
+            "EPUB package unique identifier must resolve to exactly one direct dc:identifier",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
