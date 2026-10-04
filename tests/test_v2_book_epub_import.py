@@ -1262,6 +1262,123 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertTrue(any("package image is unavailable" in warning for warning in result.warnings))
         self.assertFalse(any(isinstance(block, Diagram) for block in result.document.blocks))
 
+    def test_existing_unmanifested_package_image_is_not_published(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Images/unlisted.png" '
+            b'alt="Unlisted visual"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/chapter.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": chapter,
+                "OEBPS/Images/unlisted.png": b"image-bytes",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="unmanifested-image.epub")
+
+        self.assertEqual(result.image_references, ())
+        self.assertTrue(
+            any(
+                "not declared in the manifest" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertIn(
+            "Unlisted visual",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Note)
+            ],
+        )
+
+    def test_manifest_non_image_resource_cannot_be_published_as_image(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Data/payload.bin" '
+            b'alt="Accessible fallback"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="payload" href="Data/payload.bin" media-type="application/octet-stream"/>''',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": chapter,
+                "OEBPS/Data/payload.bin": b"not-image-bytes",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="wrong-image-media.epub")
+
+        self.assertEqual(result.image_references, ())
+        self.assertTrue(
+            any(
+                "not declared as an image" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertIn(
+            "Accessible fallback",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Note)
+            ],
+        )
+
+    def test_ocf_service_files_cannot_be_published_as_images(self) -> None:
+        for src in (
+            "../../META-INF/container.xml",
+            "../content.opf",
+            "../../mimetype",
+        ):
+            with self.subTest(src=src):
+                chapter = (
+                    f'<html><body><img src="{src}" '
+                    'alt="Service-file fallback"/></body></html>'
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": chapter,
+                    },
+                )
+
+                result = import_epub_book(
+                    raw,
+                    source_name="service-file-image.epub",
+                )
+
+                self.assertEqual(result.image_references, ())
+                self.assertTrue(
+                    any(
+                        "not declared in the manifest" in warning
+                        for warning in result.warnings
+                    )
+                )
+                self.assertIn(
+                    "Service-file fallback",
+                    [
+                        block.text
+                        for block in result.document.blocks
+                        if isinstance(block, Note)
+                    ],
+                )
+
     def test_invalid_explicit_chess_position_fails_before_publication(self) -> None:
         raw = _simple_epub(
             b'<html><body><p>Before</p><div data-acs-fen="8/8/8/8/8/8/8/8 w - - 0 1"></div><p>After</p></body></html>'
@@ -1936,7 +2053,8 @@ class BookEpubImportTests(unittest.TestCase):
         )
         raw = _epub(
             opf=_opf(
-                manifest='    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>',
+                manifest='''    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="board" href="Images/board.svg" media-type="image/svg+xml"/>''',
                 spine='    <itemref idref="c1"/>',
             ),
             entries={
