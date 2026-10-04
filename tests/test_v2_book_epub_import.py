@@ -292,6 +292,111 @@ def _simple_epub(chapter: bytes) -> bytes:
 
 
 class BookEpubImportTests(unittest.TestCase):
+    def test_all_archive_entries_obey_ocf_filename_character_constraints(self) -> None:
+        forbidden_names = (
+            'OEBPS/bad"name.bin',
+            "OEBPS/bad*.bin",
+            "OEBPS/bad:.bin",
+            "OEBPS/bad<.bin",
+            "OEBPS/bad>.bin",
+            "OEBPS/bad?.bin",
+            "OEBPS/bad|.bin",
+            "OEBPS/control\x01.bin",
+            "OEBPS/del\x7f.bin",
+            "OEBPS/c1\u0085.bin",
+            "OEBPS/pua\ue000.bin",
+            "OEBPS/nonchar\ufdd0.bin",
+            "OEBPS/special\ufff0.bin",
+            "OEBPS/plane-end\U0001fffe.bin",
+            "OEBPS/supp-pua\U000f0000.bin",
+            "OEBPS/supp-pua-b\U00100000.bin",
+        )
+        for entry_name in forbidden_names:
+            with self.subTest(entry_name=repr(entry_name)):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    prepend=[(entry_name, b"unused")],
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="forbidden-entry-name.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
+    def test_ocf_filename_byte_limit_and_trailing_period_fail_closed(self) -> None:
+        invalid_names = (
+            "OEBPS/trailing.",
+            "OEBPS/" + ("a" * 256),
+            "OEBPS/" + ("é" * 128),
+        )
+        for entry_name in invalid_names:
+            with self.subTest(entry_name=entry_name[:40]):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    prepend=[(entry_name, b"unused")],
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="oversized-entry-name.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
+    def test_ocf_filename_allows_255_utf8_bytes_and_spaces(self) -> None:
+        boundary_name = "é" * 127 + "a"
+        self.assertEqual(255, len(boundary_name.encode("utf-8")))
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="chapter.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Boundary filename safe.</p></body></html>"
+                ),
+            },
+            prepend=[
+                (f"OEBPS/{boundary_name}", b"unused"),
+                ("OEBPS/name with spaces.bin", b"unused"),
+            ],
+        )
+        result = import_epub_book(raw, source_name="filename-boundary.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Boundary filename safe.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
     def test_local_zip_header_extract_version_must_be_ocf_supported(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         damaged = _set_local_zip_field(
