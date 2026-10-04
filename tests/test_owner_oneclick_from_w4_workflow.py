@@ -195,6 +195,38 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("assemble_version2_package_tree(", self.text)
         self.assertIn("OWNER_CANONICAL_INNER_WITH_PRIVATE_SEED=PASS", self.text)
 
+    def test_machine_launch_uses_fresh_extraction_of_exact_uploaded_zip(self) -> None:
+        extract = self.text.index("Fresh-extract and launch exact final ZIP bytes")
+        freshness = self.text.index("Recheck live release apex immediately before publication")
+        upload_recheck = self.text.index(
+            "Recheck final ZIP bytes immediately before artifact upload"
+        )
+        upload = self.text.index("Upload exact owner one-click candidate and receipt")
+        self.assertLess(extract, freshness)
+        self.assertLess(freshness, upload_recheck)
+        self.assertLess(upload_recheck, upload)
+
+        for token in (
+            "Expand-Archive -LiteralPath $archive -DestinationPath $extracted",
+            "owner-oneclick-from-zip",
+            "validate_owner_portable_candidate_tree(",
+            "expected_seed_source_count=6",
+            "expected_seed_game_count=3738",
+            "_stable_digest(path, label=label)",
+            "OWNER_FINAL_EXTRACTED_DOCX_SHA_MISMATCH",
+            "OWNER_FINAL_ZIP_CHANGED_DURING_EXTRACTION",
+            "OWNER_FINAL_ZIP_CHANGED_DURING_MACHINE_LAUNCH",
+            "$root=(Resolve-Path $extracted).Path",
+            "OWNER_FINAL_ZIP_FRESH_EXTRACTION=PASS",
+            "OWNER_FINAL_ZIP_PRE_UPLOAD_BINDING=PASS",
+            "owner-oneclick-from-zip/launch-report.txt",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.text)
+
+        self.assertNotIn("$root=(Resolve-Path 'owner-oneclick').Path", self.text)
+        self.assertNotIn("owner-oneclick/launch-report.txt", self.text)
+
     def test_final_outer_package_uses_canonical_owner_gate(self) -> None:
         self.assertIn("scripts/build_owner_portable_candidate.py", self.text)
         self.assertIn("--seed-source-count 6", self.text)
