@@ -95,7 +95,7 @@ class BookBlock:
         data = {"kind": self.kind}
         for name in self.__dataclass_fields__:
             value = getattr(self, name)
-            if value is not None and value != []:
+            if value is not None:
                 data[name] = value
         # Dataclass instances are intentionally mutable for authoring. Rebuild
         # the exact current payload before export so post-construction mutation
@@ -104,7 +104,7 @@ class BookBlock:
         canonical = {"kind": rebuilt.kind}
         for name in rebuilt.__dataclass_fields__:
             value = getattr(rebuilt, name)
-            if value is not None and value != []:
+            if value is not None:
                 canonical[name] = value
         return canonical
 
@@ -358,6 +358,12 @@ class BookDocument:
                 "Book blocks must be a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        # Semantic blocks are mutable for authoring. Initial construction must
+        # enforce the same live-state validator already used by append()/extend()
+        # so a block corrupted after its own __post_init__ cannot become part of
+        # a canonical BookDocument and fail only later at export or resolution.
+        for block in self.blocks:
+            block.as_dict()
         if not isinstance(self.warnings, list) or not all(
             isinstance(warning, str) and warning.strip()
             for warning in self.warnings
@@ -370,6 +376,9 @@ class BookDocument:
         self.warnings = list(self.warnings)
 
     def append(self, block: SemanticBlock) -> SemanticBlock:
+        # Mutation is allowed only from a valid live document. Do not let a new
+        # block publication hide pre-existing metadata/container corruption.
+        self._validate_export_state()
         if not isinstance(block, _SEMANTIC_BLOCK_TYPES):
             raise BookDocumentError(
                 "Book block type is unsupported",
@@ -380,6 +389,7 @@ class BookDocument:
         return block
 
     def extend(self, blocks: Iterable[SemanticBlock]) -> None:
+        self._validate_export_state()
         additions = list(blocks)
         if not all(isinstance(block, _SEMANTIC_BLOCK_TYPES) for block in additions):
             raise BookDocumentError(
@@ -391,21 +401,27 @@ class BookDocument:
         self.blocks.extend(additions)
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
+        self._validate_export_state()
         for block in self.blocks:
             if isinstance(block, kind):
                 yield block
 
     def headings(self) -> list[Heading]:
-        return [block for block in self.blocks if isinstance(block, Heading)]
+        return list(self.iter_kind(Heading))
 
     def lists(self) -> list[ListBlock]:
-        return [block for block in self.blocks if isinstance(block, ListBlock)]
+        return list(self.iter_kind(ListBlock))
 
     def exercises(self) -> list[Exercise]:
-        return [block for block in self.blocks if isinstance(block, Exercise)]
+        return list(self.iter_kind(Exercise))
 
     def validate_structure(self) -> list[str]:
         """Return non-destructive semantic warnings suitable for import reports."""
+        # BookDocument and its blocks remain mutable for authoring. Reuse the
+        # canonical live export-state validator before warning inspection so
+        # malformed containers, metadata or block fields fail through the stable
+        # BookDocumentError boundary rather than leaking raw Python exceptions.
+        self._validate_export_state()
         warnings = list(self.warnings)
         previous_level = 0
         seen_ids: set[str] = set()

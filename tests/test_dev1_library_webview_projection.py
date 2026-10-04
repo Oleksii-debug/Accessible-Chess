@@ -233,6 +233,41 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         self.assertEqual(1, [row for row in snapshot["rows"] if row["selected"]][0]["game_id"])
 
 
+    def test_browser_game_identity_boundary_matches_javascript_number_contract(self) -> None:
+        maximum = (1 << 53) - 1
+        service = FakeSearchService()
+        service.pages[None] = GameSearchPage(
+            items=(item(maximum),),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        _service, _presenter, projection, _bridge, _calls = self.build(service)
+        event = projection.search(GameSearchQuery(limit=25))
+        self.assertEqual(maximum, event.payload["snapshot"]["rows"][0]["game_id"])
+
+        oversized = FakeSearchService()
+        oversized.pages[None] = GameSearchPage(
+            items=(item(maximum + 1),),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        _service, _presenter, projection, _bridge, _calls = self.build(oversized)
+        with self.assertRaisesRegex(ValueError, "browser-safe"):
+            projection.search(GameSearchQuery(limit=25))
+        with self.assertRaisesRegex(ValueError, "browser-safe"):
+            projection.select(maximum + 1)
+
+    def test_import_count_boundary_matches_javascript_number_contract(self) -> None:
+        maximum = (1 << 53) - 1
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        event = projection.import_projection.begin(maximum)
+        self.assertEqual(maximum, event.payload["import"]["total_games"])
+
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        with self.assertRaisesRegex(ValueError, "browser-safe"):
+            projection.import_projection.begin(maximum + 1)
+
+
 class LibraryWebAssetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

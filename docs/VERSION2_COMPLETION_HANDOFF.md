@@ -1,3 +1,102 @@
+# CURRENT Version 2 convergence checkpoint — 2026-10-04
+
+This section is the authoritative continuation checkpoint. Historical checkpoints
+below remain provenance only when they conflict with this section.
+
+Canonical Full Product branch:
+`work/full-product-teacher-education-reachability-20260911`
+
+Canonical Full Product SHA:
+`0a92698bbb923ef6d7bc2d672e3fd30554fb0138`
+
+Whole-product convergence PR: #1558
+`converge/full-product-final-20261004`
+
+Current rollup lineage before this documentation-only successor:
+`ea6deef667fa64bd3cfbf511ca2c368f7dc0dcb2`
+
+Integrated semantic apex retained as ancestry:
+#1570 `00d89fd48e4e60389ef7298958500d2a29d956ce`
+
+Direct Product -> rollup geometry is ahead-only / behind=0 with merge-base equal
+to exact canonical Product. #1558 is mergeable and remains DRAFT while exact-head
+qualification is nonterminal.
+
+## Integrated authority
+
+The rollup contains the current convergence chain rather than parallel
+reimplementations:
+
+- BookDocument live semantic validity from #1561;
+- PGN move-number/SAN structural integrity from #1562;
+- HTML reading-order, hidden-content and text-boundary safety from #1563;
+- canonical Book variation FEN equivalence from #1564;
+- Library recovery-warning provenance for Book references from #1565;
+- BookIndex canonical Unicode/whitespace search, full ListBlock search and
+  detached immutable index snapshot from #1567;
+- Markdown heading/image/fence/list/recovery safety from #1570;
+- retained evidence-gated Windows-1251 decoding across current text/HTML paths;
+- the prior Full Product Books/Training/Library/recovery/accessibility line,
+  including PGN modifier-key delegation and Ukrainian owner/NVDA documentation.
+
+The current Product authority still owns chess rules, canonical PGN/GameTree,
+persistence, Library, Book/Training runtime and package assembly. Do not create
+a second parser, rules engine, Book navigation model, persistence model or
+package validator to continue this checkpoint.
+
+## Qualification authority
+
+The #1558 `Full Product Convergence 2026-10-04` gate now qualifies both Ubuntu
+and Windows and explicitly executes:
+
+- BookDocument, BookIndex and BookReader;
+- GameTree and D06 PGN round-trip;
+- HTML semantic/head metadata;
+- EPUB import and package contract;
+- Book canonical Game/FEN and Library-reference reconstruction;
+- TXT/Markdown plus semantic-list regressions;
+- Books/Training and Library browser/application regressions;
+- Settings/recovery/writer-race regressions;
+- Ukrainian owner accessibility documentation;
+- package assembler, package preflight/hardening, required resources,
+  ZIP-topology, release payload and release diagnostic composition;
+- DOM checks, `run_accessible_chess_v2.py --diagnostic` and `acs.selftest`.
+
+BookDocument and PGN component gates have explicit whole-product inherited modes:
+narrow owner PRs still require exact owner-only scope, while the #1558 rollup
+pins the exact reviewed owner blobs and integrated-apex ancestry instead of
+false-failing because Product -> rollup is intentionally broad.
+
+At this checkpoint GitHub Actions are registered but queued/pending because
+runner capacity is saturated. QUEUED/PENDING is not GREEN. Do not merge #1558
+or claim acceptance from historical green runs.
+
+## Remaining acceptance gates
+
+- HUMAN_TESTED=NO
+- NVDA_VERIFIED=NO
+- FINAL_WINDOWS_ZIP=NO
+
+Physical Windows 11 + NVDA keyboard acceptance remains required. A final Windows
+ZIP must be produced only through the canonical Version 2 package
+assembler/preflight/release-payload path after exact-head CI is terminal green.
+Do not substitute an older ZIP or an ad-hoc archive.
+
+## Continue from here
+
+1. Treat #1558 current head as the integration authority and #1570 ancestry as
+   the latest semantic source apex; do not restart a broad audit.
+2. Read exact-head #1558 Actions. Repair real RED failures before adding product
+   scope. Ignore stale historical runs as qualification evidence.
+3. Keep source component PRs/branches until rollup qualification is complete;
+   they are provenance, not competing product heads.
+4. When exact-head CI is terminal green, run canonical package
+   assembler/preflight/readback and preserve the artifact identity.
+5. Perform the physical Windows/NVDA keyboard journey against that same packaged
+   candidate, record evidence, and only then mark the product accepted.
+
+---
+
 # Version 2 completion checkpoint
 
 Current runtime: `codex/v2-runtime-completion-20260907`, review #441.

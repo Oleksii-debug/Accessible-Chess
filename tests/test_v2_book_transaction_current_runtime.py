@@ -127,7 +127,7 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
         self.assertEqual(self.app.book_key, before_key)
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
 
-    def test_training_state_survives_book_rollback_without_stale_reader_binding(self):
+    def test_visible_book_rollback_rebinds_training_to_restored_reader(self):
         source = self._book("training-rollback.md", "Training rollback")
         document = BookDocument(
             title="Training rollback",
@@ -160,7 +160,9 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
 
         reader_before = self.app.reader
         reader_snapshot_before = reader_before.snapshot()
-        self.assertTrue(self.app._start_training_from_current_book())
+        training_route = self.app.browser_command("shell", "screen.training")
+        self.assertEqual(training_route["kind"], "route")
+        self.assertEqual(self.app.shell.current_route.route_id, "training")
         training_before = self.app.training_workspace
         self.assertIsNotNone(training_before)
         self.assertIs(training_before.reader, reader_before)
@@ -176,6 +178,11 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
         self.assertEqual(len(progress_files), 1)
         durable_training_before = progress_files[0].read_bytes()
 
+        books_route = self.app.browser_command("shell", "screen.books")
+        self.assertEqual(books_route["kind"], "route")
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+        self.app.drain_events()
+
         with patch.object(
             self.progress_store,
             "save",
@@ -189,14 +196,18 @@ class Version2BookTransactionCurrentRuntimeTests(unittest.TestCase):
         self.assertIsNone(self.app.training_workspace)
         self.assertIsNone(self.app.training)
         self.assertEqual(progress_files[0].read_bytes(), durable_training_before)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
 
-        self.assertTrue(self.app._start_training_from_current_book())
+        restarted = self.app.browser_command("shell", "screen.training")
+        self.assertEqual(restarted["kind"], "route")
+        self.assertEqual(self.app.shell.current_route.route_id, "training")
         self.assertIsNot(self.app.training_workspace, training_before)
         self.assertIs(self.app.training_workspace.reader, self.app.reader)
         restored_training = self.app.training_workspace.snapshot()
         self.assertIsNotNone(restored_training)
         self.assertTrue(restored_training["progress"]["completed"])
         self.assertEqual(progress_files[0].read_bytes(), durable_training_before)
+
 
     def test_bookmark_save_failure_restores_reader_and_transient_name(self):
         source = self._book("bookmark.md", "Bookmark")

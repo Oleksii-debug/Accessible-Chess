@@ -36,16 +36,20 @@ class PgnWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping):
+        # PyWebView JSON objects arrive as built-in dicts. Reject Mapping/dict
+        # subclasses before len()/items() can execute custom Python hooks.
+        if type(value) is not dict:
             raise TypeError("PGN browser payload must be a mapping")
         if len(value) > 4:
             raise ValueError("PGN browser payload has too many fields")
         normalized: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str) or not key.strip():
+            if type(key) is not str:
                 raise TypeError("PGN browser payload keys must be text")
+            if len(key) > 64 or "\x00" in key:
+                raise ValueError("invalid PGN browser payload key")
             token = key.strip()
-            if len(token) > 64 or token in normalized:
+            if not token or token in normalized:
                 raise ValueError("invalid PGN browser payload key")
             normalized[token] = item
         return normalized
@@ -57,9 +61,9 @@ class PgnWebViewBridge:
 
     @staticmethod
     def _text(value: object, *, name: str, limit: int) -> str:
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise TypeError(f"{name} must be text")
-        if "\x00" in value or len(value) > limit:
+        if len(value) > limit or "\x00" in value:
             raise ValueError(f"{name} is invalid")
         token = value.strip() if name != "comment text" else value
         if name != "comment text" and not token:
@@ -72,10 +76,12 @@ class PgnWebViewBridge:
         payload: Mapping[str, object] | None = None,
     ) -> PgnWebViewEvent:
         try:
-            if not isinstance(command, str):
+            if type(command) is not str:
                 raise TypeError("PGN browser command must be text")
+            if len(command) > 64 or "\x00" in command:
+                raise ValueError("PGN browser command is invalid")
             command_id = command.strip()
-            if not command_id or len(command_id) > 64:
+            if not command_id:
                 raise ValueError("PGN browser command is invalid")
             data = self._payload(payload)
 

@@ -40,7 +40,7 @@ ROUTES: tuple[ModuleRoute, ...] = (
     ModuleRoute("pgn", {UILanguage.UA: "PGN і дерево партії", UILanguage.EN: "PGN and game tree"}, {UILanguage.UA: "Партії, варіанти, коментарі та теги", UILanguage.EN: "Games, variations, comments, and tags"}, default_focus_id="pgn-game-list", open_action_id="screen.pgn"),
     ModuleRoute("library", {UILanguage.UA: "Бібліотека і пошук", UILanguage.EN: "Library and search"}, {UILanguage.UA: "Пошук і відкриття збережених партій", UILanguage.EN: "Search and open saved games"}, default_focus_id="library-search-player", open_action_id="screen.library"),
     ModuleRoute("books", {UILanguage.UA: "Книги", UILanguage.EN: "Books"}, {UILanguage.UA: "Структуроване читання шахових матеріалів", UILanguage.EN: "Structured chess material reading"}, default_focus_id="book-reader", open_action_id="screen.books"),
-    ModuleRoute("training", {UILanguage.UA: "Тренування", UILanguage.EN: "Training"}, {UILanguage.UA: "Вправи, підказки та прогрес", UILanguage.EN: "Exercises, hints, and progress"}, default_focus_id="training-prompt", open_action_id="screen.training"),
+    ModuleRoute("training", {UILanguage.UA: "Тренування", UILanguage.EN: "Training"}, {UILanguage.UA: "Вправи, підказки та прогрес", UILanguage.EN: "Exercises, hints, and progress"}, default_focus_id="training-answer", open_action_id="screen.training"),
     ModuleRoute("teacher", {UILanguage.UA: "Режим викладача", UILanguage.EN: "Teacher mode"}, {UILanguage.UA: "Візуальне пояснення для учня з керуванням із клавіатури", UILanguage.EN: "Keyboard-controlled visual teaching for a student"}, default_focus_id="teacher-pointer-input", open_action_id="screen.teacher"),
     ModuleRoute("classes", {UILanguage.UA: "Класи й учні", UILanguage.EN: "Classes and students"}, {UILanguage.UA: "Уроки, завдання та прогрес учнів", UILanguage.EN: "Lessons, assignments, and student progress"}, default_focus_id="classes-list", open_action_id="screen.classes"),
     ModuleRoute("settings", {UILanguage.UA: "Налаштування", UILanguage.EN: "Settings"}, {UILanguage.UA: "Параметри програми та доступності", UILanguage.EN: "Application and accessibility settings"}, default_focus_id="settings-list", open_action_id="screen.settings"),
@@ -62,6 +62,8 @@ _LOCAL_PATH_PATTERN = re.compile(
     r'(?:^|[\s"\'(=])/(?:[^/\s]+/)+[^/\s]+)',
     re.IGNORECASE,
 )
+_FOCUS_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,160}$")
+
 _UCI_PROTOCOL_PATTERN = re.compile(
     r'^\s*(?:uci|isready|uciok|readyok|stop|quit|ponderhit)\s*$|'
     r'^\s*(?:id\s+(?:name|author)\b|option\s+name\b|bestmove\b|info\b|'
@@ -121,7 +123,11 @@ class AccessibleShellState:
     def _clean_focus_id(element_id: str) -> str:
         if not isinstance(element_id, str):
             raise TypeError("focus target id must be text")
-        return element_id.strip()
+        if not element_id:
+            return ""
+        if _FOCUS_ID_PATTERN.fullmatch(element_id) is None:
+            raise ValueError("focus target id is invalid")
+        return element_id
 
     def record_focus(self, element_id: str) -> None:
         clean = self._clean_focus_id(element_id)
