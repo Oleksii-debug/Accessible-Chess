@@ -2127,6 +2127,131 @@ class BookEpubImportTests(unittest.TestCase):
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
 
+    def test_container_foreign_tail_text_inside_rootfiles_fails_closed(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0"
+ xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+ xmlns:x="urn:example:foreign">
+  <rootfiles>
+    <x:ignored/>tail
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="chapter.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+            container=container,
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="rootfiles-foreign-tail.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_container_links_require_nonempty_valid_ocf_links(self) -> None:
+        rootfiles = (
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles>'
+        )
+        cases = (
+            ("<links/>", BookEpubImportErrorCode.MALFORMED_PACKAGE),
+            ("<links><bogus/></links>", BookEpubImportErrorCode.MALFORMED_PACKAGE),
+            (
+                '<links>text<link href="OEBPS/chapter.xhtml" rel="alternate"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate"><bogus/></link></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link rel="alternate"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="https://example.test/map.xml" rel="alternate"/></links>',
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel=" alternate "/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                '<links><link href="OEBPS/chapter.xhtml" rel="alternate  mapping"/></links>',
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+        )
+        for links_markup, expected_code in cases:
+            with self.subTest(links_markup=links_markup):
+                container = (
+                    '<container version="1.0" '
+                    'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f"{rootfiles}{links_markup}</container>"
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="invalid-container-links.epub")
+                self.assertEqual(raised.exception.code, expected_code)
+
+    def test_container_link_path_query_fragment_and_rel_tokens_are_preserved(self) -> None:
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+  <links>
+    <link href="OEBPS/chapter.xhtml?view=print#start" rel="alternate mapping"/>
+  </links>
+</container>'''
+        result = import_epub_book(
+            _epub(
+                opf=_opf(
+                    manifest=(
+                        '    <item id="c1" href="chapter.xhtml" '
+                        'media-type="application/xhtml+xml"/>'
+                    ),
+                    spine='    <itemref idref="c1"/>',
+                ),
+                entries={
+                    "OEBPS/chapter.xhtml": (
+                        b"<html><body><p>Readable.</p></body></html>"
+                    ),
+                },
+                container=container,
+            ),
+            source_name="valid-container-links.epub",
+        )
+        self.assertEqual(result.spine_documents, 1)
+
     def test_container_foreign_extensions_are_removed_before_structure_validation(self) -> None:
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"
@@ -2138,7 +2263,11 @@ class BookEpubImportTests(unittest.TestCase):
       <x:extension><x:data/></x:extension>
     </rootfile>
   </rootfiles>
-  <links/>
+  <links>
+    <link href="OEBPS/chapter.xhtml" rel="alternate">
+      <x:extension><x:data/></x:extension>
+    </link>
+  </links>
 </container>'''
         raw = _epub(
             opf=_opf(
