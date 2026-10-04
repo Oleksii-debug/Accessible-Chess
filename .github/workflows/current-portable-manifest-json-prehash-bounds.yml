@@ -1,10 +1,11 @@
-name: Current Portable Manifest JSON Prehash Bounds
+name: Current Package Manifest JSON Prehash Bounds
 
 on:
   pull_request:
     branches:
       - integration/current-product-main-candidate-20261004-c2mbezb
     paths:
+      - 'acs/version2_package_preflight.py'
       - 'acs/version2_portable_package.py'
       - 'tests/test_portable_manifest_json_prehash_bounds_current.py'
       - '.github/workflows/current-portable-manifest-json-prehash-bounds.yml'
@@ -14,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-portable-manifest-json-prehash-${{ github.event.pull_request.number || github.ref }}
+  group: current-package-manifest-json-prehash-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -54,10 +55,11 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-portable-manifest-json-prehash-bounds.yml' \
+            'acs/version2_package_preflight.py' \
             'acs/version2_portable_package.py' \
             'tests/test_portable_manifest_json_prehash_bounds_current.py' | sort)"
           test "$changed" = "$expected" || {
-            printf 'Unexpected portable manifest prehash scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected package manifest prehash scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
@@ -65,14 +67,18 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile portable package surfaces
+      - name: Compile package manifest surfaces
         run: >-
           python -m compileall -q
+          acs/version2_package_preflight.py
           acs/version2_portable_package.py
           tests/test_portable_manifest_json_prehash_bounds_current.py
 
-      - name: Execute manifest JSON prehash regressions
+      - name: Execute manifest JSON resource regressions
         run: python -m unittest -v tests.test_portable_manifest_json_prehash_bounds_current
+
+      - name: Execute full canonical package preflight contract
+        run: python -m unittest -v tests.test_version2_package_preflight
 
       - name: Execute full portable package contract
         run: python -m unittest -v tests.test_version2_portable_package
