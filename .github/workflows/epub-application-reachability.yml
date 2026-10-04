@@ -97,6 +97,10 @@ jobs:
           dc_metadata_successor_parser_test='2af1740b289d0c231f1618acf9a3c25b409f5fb7'
           dc_metadata_successor_contract_test='134cf79cf81037f4412b1eacb8e2358ddfe38163'
           dc_metadata_successor_test='a59c4ac174dba43ce64962c1d780b6e9f49d95a6'
+          document_id_successor_parser='82f575c5152893602297b1acdab745c6796fcbd8'
+          document_id_successor_parser_test='2af1740b289d0c231f1618acf9a3c25b409f5fb7'
+          document_id_successor_contract_test='134cf79cf81037f4412b1eacb8e2358ddfe38163'
+          document_id_successor_test='fcea29131622c0627f7179962af0111135659942'
 
           if test "$candidate_parser" = "$product_parser" && \
              test "$candidate_parser_test" = "$product_parser_test"; then
@@ -110,6 +114,11 @@ jobs:
                test "$candidate_package_contract_test" = "$dc_metadata_successor_contract_test" && \
                test "$candidate_dc_metadata_test" = "$dc_metadata_successor_test"; then
             echo "EPUB_DC_METADATA_IDENTITY_SUCCESSOR=EXACT"
+          elif test "$candidate_parser" = "$document_id_successor_parser" && \
+               test "$candidate_parser_test" = "$document_id_successor_parser_test" && \
+               test "$candidate_package_contract_test" = "$document_id_successor_contract_test" && \
+               test "$candidate_dc_metadata_test" = "$document_id_successor_test"; then
+            echo "EPUB_DOCUMENT_ID_UNIQUENESS_SUCCESSOR=EXACT"
           else
             printf 'EPUB parser/test drift requires an exact reviewed hardening set: parser=%s test=%s contract=%s dc_metadata=%s\n' \
               "$candidate_parser" "$candidate_parser_test" "$candidate_package_contract_test" "$candidate_dc_metadata_test" >&2
