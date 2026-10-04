@@ -443,6 +443,19 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             reader.location()
 
+    def test_document_snapshot_is_detached_and_revision_bound(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        snapshot = reader.document_snapshot()
+        self.assertIsNot(snapshot, book)
+        self.assertIsNot(snapshot.blocks, book.blocks)
+        snapshot.blocks[1].text = "Caller mutation"
+        self.assertEqual(reader.block_snapshot(1).text, "Intro")
+
+        book.blocks[1].text = "Live mutation"
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.document_snapshot()
     def test_block_snapshot_is_detached_and_fails_closed_after_live_revision_changes(self):
         book = self.make_book()
         reader = BookReader(book)
