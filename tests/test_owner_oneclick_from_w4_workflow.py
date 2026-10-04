@@ -306,6 +306,15 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("USER_NVDA_PROVEN: NO", self.text)
         self.assertIn("STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION", self.text)
         self.assertIn("OWNER_ROOT_LAUNCH_REPORT_LEGACY_LIVENESS_SUCCESS", self.text)
+        self.assertIn(
+            "$childPath=(Resolve-Path (Join-Path $root 'App\\AccessibleChess.exe')).Path",
+            self.text,
+        )
+        self.assertIn("try { $_.Path -eq $childPath } catch { $false }", self.text)
+        self.assertNotIn(
+            "Get-Process AccessibleChess -ErrorAction SilentlyContinue | Stop-Process -Force",
+            self.text,
+        )
         self.assertIn("HUMAN_TESTED=NO", self.text)
         self.assertIn("NVDA_VERIFIED=NO", self.text)
         self.assertNotIn("HUMAN_TESTED=YES", self.text)
