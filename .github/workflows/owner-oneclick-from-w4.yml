@@ -167,12 +167,17 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           @'
-          import hashlib
           import json
           import os
           from pathlib import Path
           import re
           import zipfile
+          from acs.version2_portable_package import (
+              Version2PortablePackageError,
+              _stable_bytes,
+              _stable_digest,
+          )
+          from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
 
           root = Path('w4-artifact')
           zips = tuple(root.rglob('Accessible-Chess-V2-*-NVDA-test-candidate.zip'))
@@ -180,7 +185,51 @@ jobs:
           if len(zips) != 1 or len(metadata_files) != 1:
               raise SystemExit('W4_ARTIFACT_TOPOLOGY_INVALID')
           candidate = zips[0]
-          metadata = json.loads(metadata_files[0].read_text(encoding='utf-8-sig'))
+
+          def unique_pairs(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      raise SystemExit('W4_METADATA_DUPLICATE_KEY')
+                  result[key] = value
+              return result
+
+          try:
+              metadata_payload = _stable_bytes(
+                  metadata_files[0],
+                  label='W4 run metadata',
+                  maximum=64 * 1024,
+              )
+              metadata = json.loads(
+                  metadata_payload.decode('utf-8-sig', errors='strict'),
+                  object_pairs_hook=unique_pairs,
+              )
+          except Version2PortablePackageError:
+              raise SystemExit('W4_METADATA_UNSTABLE')
+          except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+              raise SystemExit('W4_METADATA_INVALID')
+          expected_metadata_keys = {
+              'schema_version',
+              'product_sha',
+              'workflow_sha',
+              'pre_upload_product_freshness',
+              'pre_upload_workflow_freshness',
+              'user_sound_pack_zip_sha256',
+              'user_sound_inventory_sha256',
+              'user_sound_wav_count',
+              'human_tested',
+              'nvda_verified',
+          }
+          if not isinstance(metadata, dict) or set(metadata) != expected_metadata_keys:
+              raise SystemExit('W4_METADATA_CONTRACT_INVALID')
+          if metadata.get('schema_version') != 1:
+              raise SystemExit('W4_METADATA_SCHEMA_INVALID')
+          if (
+              metadata.get('pre_upload_product_freshness') is not True
+              or metadata.get('pre_upload_workflow_freshness') is not True
+          ):
+              raise SystemExit('W4_METADATA_FRESHNESS_PROOF_INVALID')
+
           exact = os.environ['EXACT_PRODUCT_SHA'].strip().lower()
           if not re.fullmatch(r'[0-9a-f]{40}', exact):
               raise SystemExit('EXACT_PRODUCT_SHA_INVALID')
@@ -196,10 +245,19 @@ jobs:
               raise SystemExit('W4_MACHINE_EVIDENCE_OVERCLAIMS_HUMAN_ACCEPTANCE')
           if metadata.get('user_sound_wav_count') != 330:
               raise SystemExit('W4_SOUND_WAV_COUNT_INVALID')
+          if metadata.get('user_sound_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('W4_SOUND_INVENTORY_SHA_MISMATCH')
           sound_sha = os.environ['SOUND_ARCHIVE_SHA_INPUT'].strip().lower()
           if metadata.get('user_sound_pack_zip_sha256') != sound_sha:
               raise SystemExit('W4_SOUND_ARCHIVE_SHA_MISMATCH')
-          actual = hashlib.sha256(candidate.read_bytes()).hexdigest()
+          try:
+              actual = _stable_digest(
+                  candidate,
+                  label='W4 candidate ZIP',
+                  maximum=2 * 1024 * 1024 * 1024,
+              )
+          except Version2PortablePackageError:
+              raise SystemExit('W4_CANDIDATE_UNSTABLE')
           wanted = os.environ['W4_CANDIDATE_SHA_INPUT'].strip().lower()
           if actual != wanted:
               raise SystemExit(f'W4_CANDIDATE_SHA_MISMATCH actual={actual} expected={wanted}')
