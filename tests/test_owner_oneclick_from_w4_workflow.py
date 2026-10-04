@@ -27,6 +27,28 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
+    def test_w4_run_id_is_bound_to_registered_successful_workflow_run(self) -> None:
+        authority = self.text.index("Verify exact W4 workflow run authority")
+        download = self.text.index("Download exact W4 artifact by run ID")
+        self.assertLess(authority, download)
+        for token in (
+            "actions: read",
+            "w4-v2-p0-fresh-windows-candidate.yml",
+            "actions/runs/$env:W4_RUN_ID",
+            "W4_RUN_WORKFLOW_ID_MISMATCH",
+            "W4_RUN_EVENT_INVALID",
+            "W4_RUN_NOT_SUCCESSFUL",
+            "W4_RUN_BRANCH_MISMATCH",
+            "W4_RUN_PRODUCT_SHA_MISMATCH",
+            "[string]$run.event -ne 'workflow_dispatch'",
+            "[string]$run.status -ne 'completed'",
+            "[string]$run.conclusion -ne 'success'",
+            "([string]$run.head_branch) -ne $env:RELEASE_BRANCH",
+            "([string]$run.head_sha).ToLowerInvariant() -ne $env:EXACT_PRODUCT_SHA",
+            "W4_RUN_AUTHORITY=PASS",
+        ):
+            self.assertIn(token, self.text)
+
     def test_w4_metadata_is_strict_fresh_and_stably_read(self) -> None:
         for token in (
             "_stable_bytes",
@@ -98,6 +120,18 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("--sound-archive-sha256", self.text)
         self.assertIn("OWNER_FINAL_SOUND_COUNT_INVALID", self.text)
         self.assertIn("OWNER_FINAL_LIBRARY_IDENTITY_INVALID", self.text)
+
+    def test_final_receipt_retains_verified_w4_run_provenance(self) -> None:
+        for token in (
+            "w4_workflow_id",
+            "w4_run_id",
+            "w4_run_attempt",
+            "w4_candidate_sha256",
+            "W4_WORKFLOW_ID",
+            "W4_RUN_ATTEMPT",
+            "OWNER_FINAL_RECEIPT_PROVENANCE=PASS",
+        ):
+            self.assertIn(token, self.text)
 
     def test_real_root_launcher_bytes_are_machine_smoked_without_acceptance_overclaim(self) -> None:
         self.assertIn("Build native x64 root launcher without CRT", self.text)
