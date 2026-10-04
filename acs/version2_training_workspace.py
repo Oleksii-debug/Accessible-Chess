@@ -25,7 +25,10 @@ from .bookreader import BookReader
 from .full_product_presenters import TrainingPresenter
 from .full_product_ui_shell import UILanguage
 from .training import ExerciseSession
-from .training_progress_store import TrainingProgressStore
+from .training_progress_store import (
+    TrainingProgressDurabilityUnknownError,
+    TrainingProgressStore,
+)
 from .training_webview_bridge import TrainingWebViewBridge
 from .training_webview_projection import TrainingWebViewEvent, TrainingWebViewProjection
 
@@ -159,7 +162,34 @@ class Version2BookTrainingWorkspace:
         # The store owns compare-and-swap authority even for byte-identical
         # snapshots. It can elide the physical rewrite only after confirming
         # under its peer lock that the expected durable revision still exists.
-        revision = self._store.save(self.session, expected_revision=self._revision)
+        try:
+            revision = self._store.save(
+                self.session,
+                expected_revision=self._revision,
+            )
+        except TrainingProgressDurabilityUnknownError as error:
+            # This error exists only after atomic publication returned success.
+            # Never move the live session back to a pre-publication snapshot.
+            # Bind to the just-published revision first, then prefer a validated
+            # reread in case a non-cooperating writer changed canonical state
+            # after our replace but before durability confirmation completed.
+            self._revision = error.published_revision
+            try:
+                loaded = self._store.load(self.material.definition)
+            except Exception as reconcile_error:
+                raise TrainingProgressDurabilityUnknownError(
+                    "training progress was published but canonical state could not be reloaded",
+                    published_revision=error.published_revision,
+                ) from reconcile_error
+            if loaded is not None:
+                self.bridge.projection.restore_state(
+                    loaded.session.snapshot(),
+                    language=self.language,
+                    message="",
+                    message_key=None,
+                )
+                self._revision = loaded.revision
+            raise
         self._revision = revision
         return revision
 
@@ -352,9 +382,14 @@ class Version2BookTrainingWorkspace:
             return event
         try:
             self.save()
+        except TrainingProgressDurabilityUnknownError:
+            # save() has already reconciled from canonical storage in place (or
+            # retained the definitely-published state with its publication
+            # revision when canonical reread failed). Never apply stale rollback.
+            raise
         except Exception:
-            # A stale/busy durable write must not leave in-memory progress ahead
-            # of disk truth or invalidate retained live Training references.
+            # A pre-publication stale/busy/error write leaves durable truth at the
+            # old revision, so rollback remains the correct transaction boundary.
             restore_active_state()
             raise
         return event
