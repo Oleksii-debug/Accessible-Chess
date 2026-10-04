@@ -191,6 +191,84 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             self.assertNotIn("select *", visible)
             self.assertNotIn("999999", visible)
 
+    def test_bridge_rejects_active_browser_subclasses_before_hooks(self) -> None:
+        _service, _presenter, _projection, bridge, _calls = self.build()
+
+        class HostileText(str):
+            armed = False
+            touched = False
+
+            def _touch(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile browser text hook must not execute")
+
+            def __len__(self):
+                self._touch()
+                return super().__len__()
+
+            def __eq__(self, other):
+                self._touch()
+                return super().__eq__(other)
+
+            def __hash__(self):
+                self._touch()
+                return super().__hash__()
+
+            def strip(self, *args, **kwargs):
+                self._touch()
+                return super().strip(*args, **kwargs)
+
+            def isascii(self):
+                self._touch()
+                return super().isascii()
+
+            def isdecimal(self):
+                self._touch()
+                return super().isdecimal()
+
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile browser mapping length must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile browser mapping iteration must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("hostile browser mapping items must not execute")
+
+        hostile_command = HostileText("library.search")
+        hostile_key = HostileText("player")
+        hostile_value = HostileText("Alpha")
+        hostile_key_payload = {hostile_key: "Alpha"}
+        hostile_value_payload = {"player": hostile_value}
+        hostile_numeric_payload = {"source_id": HostileText("10")}
+        hostile_result_payload = {"result": HostileText("1-0")}
+        hostile_language_payload = {"language": HostileText("en")}
+        HostileText.armed = True
+
+        cases = (
+            (hostile_command, {}),
+            ("library.search", HostileDict({"player": "Alpha"})),
+            ("library.search", hostile_key_payload),
+            ("library.search", hostile_value_payload),
+            ("library.search", hostile_numeric_payload),
+            ("library.search", hostile_result_payload),
+            ("library.language", hostile_language_payload),
+        )
+        for command, payload in cases:
+            with self.subTest(command=type(command).__name__, payload_type=type(payload).__name__):
+                event = bridge.dispatch(command, payload)
+                self.assertEqual("error", event.kind)
+
+        self.assertFalse(HostileText.touched)
+        self.assertFalse(HostileDict.touched)
+
     def test_language_switch_changes_labels_but_preserves_row_and_focus_identity(self) -> None:
         _service, _presenter, projection, _bridge, _calls = self.build(language=UILanguage.UA)
         ua = projection.search(GameSearchQuery(limit=2)).payload["snapshot"]
