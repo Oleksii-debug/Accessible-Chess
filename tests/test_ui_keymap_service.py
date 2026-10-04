@@ -21,6 +21,38 @@ def test_service_persists_shortcut_and_alias(tmp_path):
     assert by_id["move.undo"]["alias"] == "z"
 
 
+def test_v2_registry_share_migrates_legacy_profile_before_wider_adoption(tmp_path):
+    path = tmp_path / "keymap.json"
+    path.write_text(
+        json.dumps({
+            "keys": {
+                "history.go_to_move": "Alt+J",
+                "pgn.next_item": "J",
+            },
+            "commands": {
+                "move.undo": "back",
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    service = KeymapService(path)
+    narrow_ids = {item["id"] for item in service.snapshot()["actions"]}
+    assert "pgn.next_item" not in narrow_ids
+    assert service.editor.registry.get_binding("history.go_to_move") == "Alt+J"
+    assert service.editor.registry.get_alias("move.undo") == "back"
+
+    wider = build_final_product_action_registry()
+    shared = _share_v2_action_registry(
+        SimpleNamespace(keymap_service=service),
+        SimpleNamespace(adapter=SimpleNamespace(registry=wider)),
+    )
+
+    assert shared.get_binding("history.go_to_move") == "Alt+J"
+    assert shared.get_alias("move.undo") == "back"
+    assert shared.get_binding("pgn.next_item") == "J"
+
+
 def test_v2_registry_share_restores_full_product_remaps_and_valid_swaps(tmp_path):
     path = tmp_path / "keymap.json"
     full = build_final_product_action_registry()
