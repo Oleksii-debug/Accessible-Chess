@@ -61,6 +61,14 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip", self.text)
         self.assertIn("W4_METADATA_LOCATION_INVALID", self.text)
         self.assertIn("W4_CANDIDATE_LOCATION_INVALID", self.text)
+        self.assertLess(
+            self.text.index("if metadata_files[0] != expected_metadata"),
+            self.text.index("label=\'W4 run metadata\'"),
+        )
+        self.assertLess(
+            self.text.index("if candidate != expected_candidate"),
+            self.text.index("label=\'W4 candidate ZIP\'"),
+        )
 
     def test_w4_extraction_reuses_canonical_windows_path_authority(self) -> None:
         self.assertIn("Version2PackagePreflightError", self.text)
