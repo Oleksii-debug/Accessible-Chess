@@ -14,6 +14,7 @@ on:
       - fix/w4-sound-byte-readback-20261004-sol56
       - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
       - fix/owner-apex-private-seed-win32-portability-r2-20261004-zftrkmo
+      - integration/owner-apex-docx-whole-product-20261004-ooxple7
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
@@ -21,6 +22,7 @@ on:
       - integration/owner-equal-sha-release-convergence-20261004-ooxple7
       - converge/owner-equal-apex-run-provenance-20261004-c2mbezb
       - integration/owner-release-pgn-terminal-convergence-20261004-c2mbezb
+      - integration/owner-apex-bootstrap-library-safety-20261004-zftrkmo
       - main
     paths:
       - 'acs/**'
@@ -49,6 +51,7 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - '.github/workflows/owner-oneclick-from-w4.yml'
       - '.github/workflows/owner-portable-final-candidate-contract.yml'
+      - '.github/workflows/owner-docx-win32-portability.yml'
       - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
       - '.github/workflows/w4-v2-p0-candidate-artifact-readback.yml'
       - '.github/workflows/w4-candidate-artifact-readback-workflow-contract.yml'
@@ -207,6 +210,14 @@ jobs:
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_LIVE_OWNER_PGN_CONVERGENCE_PARENT_ANCESTRY=PASS base=$live_base"
+          elif [ "${GITHUB_REF_NAME:-}" = "integration/owner-apex-docx-whole-product-20261004-ooxple7" ]; then
+            live_base_ref='integration/owner-apex-bootstrap-library-safety-20261004-zftrkmo'
+            git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
+            live_base="$(git rev-parse "origin/$live_base_ref")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            echo "FULL_PRODUCT_LIVE_OWNER_APEX_DOCX_PARENT_ANCESTRY=PASS base=$live_base"
           elif [ "${GITHUB_REF_NAME:-}" = "converge/owner-equal-apex-run-provenance-20261004-c2mbezb" ]; then
             live_base_ref='integration/owner-equal-sha-release-convergence-20261004-ooxple7'
             git fetch --no-tags origin "+refs/heads/$live_base_ref:refs/remotes/origin/$live_base_ref"
@@ -462,6 +473,7 @@ jobs:
           tests.test_version2_package_assembler
           tests.test_owner_portable_candidate
           tests.test_owner_portable_candidate_stable_reads
+          tests.test_owner_docx_win32_portability
           tests.test_materialize_owner_library_seed
           tests.test_owner_oneclick_from_w4_workflow
           tests.test_verify_owner_w4_run_provenance

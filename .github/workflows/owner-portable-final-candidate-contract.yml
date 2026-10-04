@@ -6,6 +6,7 @@ on:
       - 'scripts/build_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate.py'
       - 'tests/test_owner_portable_candidate_stable_reads.py'
+      - 'tests/test_owner_docx_win32_portability.py'
       - 'acs/user_library_seed.py'
       - 'acs/version2_portable_package.py'
       - 'scripts/build_user_sound_pack.py'
@@ -70,6 +71,7 @@ jobs:
             scripts/build_owner_portable_candidate.py \
             tests/test_owner_portable_candidate.py \
             tests/test_owner_portable_candidate_stable_reads.py
+            tests/test_owner_docx_win32_portability.py
           echo 'OWNER_PORTABLE_COMPILE=PASS'
 
       - name: Run owner candidate and canonical dependency regressions
@@ -79,6 +81,7 @@ jobs:
           python -m unittest -v \
             tests.test_owner_portable_candidate \
             tests.test_owner_portable_candidate_stable_reads \
+            tests.test_owner_docx_win32_portability \
             tests.test_user_library_seed \
             tests.test_version2_portable_package
           echo 'OWNER_PORTABLE_CONTRACT=PASS'

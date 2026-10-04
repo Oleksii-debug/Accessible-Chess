@@ -45,6 +45,13 @@ from scripts.build_user_sound_pack import (
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _OWNER_JSON_MAX_BYTES = 1024 * 1024
+_WIN32_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"/\\|?*')
+_WIN32_RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", "conin$", "conout$"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+    | {"com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³"}
+)
 
 
 class OwnerPortableCandidateError(RuntimeError):
@@ -86,6 +93,46 @@ class OwnerPortableCandidateReport:
 
 def _fail(message: str) -> None:
     raise OwnerPortableCandidateError(message)
+
+
+def _owner_docx_filename(name: str) -> str:
+    """Return a raw root DOCX filename only when it is Win32-materializable.
+
+    This validator intentionally accepts the un-normalized filename string.
+    Callers that receive an external filename must validate it here *before*
+    constructing a filesystem path; otherwise Windows path parsing could turn a
+    drive-relative or nested value into a different basename before validation.
+    """
+
+    if type(name) is not str:
+        _fail("owner Word document filename is not Win32-portable")
+    try:
+        utf16 = name.encode("utf-16-le", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise OwnerPortableCandidateError(
+            "owner Word document filename is not valid Unicode for Win32"
+        ) from exc
+
+    device_stem = name.split(".", 1)[0].rstrip(" .").casefold()
+    if (
+        not name
+        or name != name.strip()
+        or name in {".", ".."}
+        or name.endswith(".")
+        or len(utf16) // 2 > 255
+        or any(character in _WIN32_FORBIDDEN_FILENAME_CHARS for character in name)
+        or any(ord(character) < 32 or ord(character) == 0x7F for character in name)
+        or not name.casefold().endswith(".docx")
+        or device_stem in _WIN32_RESERVED_DEVICE_NAMES
+    ):
+        _fail("owner Word document filename is not Win32-portable")
+    return name
+
+
+def _owner_docx_name(path: Path) -> str:
+    """Validate the basename of an already-materialized owner DOCX path."""
+
+    return _owner_docx_filename(path.name)
 
 
 def _sha256_value(value: object, *, label: str) -> str:
@@ -398,6 +445,12 @@ def assemble_owner_portable_candidate(
 ) -> OwnerPortableCandidateReport:
     if not isinstance(expected_document_sha256, tuple) or len(expected_document_sha256) != 2:
         raise TypeError("expected_document_sha256 must be an exact two-item tuple")
+    if not isinstance(word_documents, tuple) or len(word_documents) != 2:
+        raise TypeError("word_documents must be an exact two-item tuple")
+    documents = tuple(Path(item) for item in word_documents)
+    document_names = tuple(_owner_docx_name(path) for path in documents)
+    if len({name.casefold() for name in document_names}) != 2:
+        _fail("owner Word documents must have distinct Win32 filenames")
     document_digests = tuple(
         _sha256_value(value, label=f"owner Word document {index + 1}")
         for index, value in enumerate(expected_document_sha256)
@@ -410,14 +463,14 @@ def assemble_owner_portable_candidate(
     assembled = assemble_portable_oneclick_tree(
         canonical_package_root,
         launcher_exe,
-        word_documents,
+        documents,
         output_root,
         integration_sha=integration_sha,
         require_user_seed=True,
     )
     root = assembled.package_root
-    for source, expected_digest in zip(word_documents, document_digests, strict=True):
-        if _file_sha256(root / Path(source).name) != expected_digest:
+    for source, expected_digest in zip(documents, document_digests, strict=True):
+        if _file_sha256(root / source.name) != expected_digest:
             _fail("packaged owner Word document does not match its authorized SHA-256")
 
     qualification = validate_owner_portable_candidate_tree(

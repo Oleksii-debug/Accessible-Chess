@@ -118,6 +118,23 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         ):
             self.assertIn(token, self.text)
 
+    def test_owner_docx_names_use_win32_portable_authority_before_download(self) -> None:
+        validation = self.text.index("Bind explicit owner inputs and exact product identity")
+        download = self.text.index("Download and bind exact private seed and owner DOCX bytes")
+        self.assertLess(validation, download)
+        self.assertIn(
+            "from scripts.build_owner_portable_candidate import _owner_docx_filename",
+            self.text,
+        )
+        self.assertIn(
+            "validated = tuple(_owner_docx_filename(name) for name in names)",
+            self.text,
+        )
+        self.assertNotIn(
+            "from acs.version2_portable_package import _portable_docx_name",
+            self.text,
+        )
+
     def test_private_seed_is_materialized_canonically_before_inner_reassembly(self) -> None:
         self.assertIn("materialize_owner_library_seed", self.text)
         self.assertIn("expected_source_count=6", self.text)
