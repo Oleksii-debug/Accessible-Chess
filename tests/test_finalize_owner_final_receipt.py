@@ -141,6 +141,8 @@ class OwnerFinalReceiptTests(unittest.TestCase):
 
     def test_rejects_wrong_archive_document_sound_or_product_identity(self) -> None:
         cases = (
+            ({"package_root": "other-root"}, {}, "package root"),
+            ({"archive_path": "other.zip"}, {}, "archive path"),
             ({"archive_sha256": "9" * 64}, {}, "does not match"),
             ({"document_sha256": [FIRST_DOC_SHA, "9" * 64]}, {}, "document"),
             ({"sound_archive_sha256": "9" * 64}, {}, "sound archive"),
