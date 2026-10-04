@@ -643,8 +643,6 @@ class _SemanticHtmlParser(HTMLParser):
         """Project inline semantics in source order without losing progress IDs."""
         cursor = 0
         legacy_identity_available = True
-        previous_event: _InlineSemanticEvent | None = None
-
         for event in capture.inline_semantics:
             if event.part_index < cursor or event.part_index > len(capture.parts):
                 raise BookHtmlImportError(
@@ -663,7 +661,6 @@ class _SemanticHtmlParser(HTMLParser):
                 self._insert_block(self._block_identity_index(event.block), paragraph)
                 legacy_identity_available = False
             cursor = event.part_index
-            previous_event = event
 
         trailing = _compact("".join(capture.parts[cursor:]))
         if trailing:
