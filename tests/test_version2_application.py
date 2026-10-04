@@ -1359,6 +1359,35 @@ class Version2ApplicationTests(unittest.TestCase):
             [{"kind": "route", "payload": {"route_id": "books"}}],
         )
 
+    def test_native_game_handoff_feedback_falls_back_if_semantic_probe_breaks(self):
+        _book, _origin = self._open_book_game()
+        self.app.drain_events()
+
+        opened = self.app.adapter.activate_action(
+            "book.open_position",
+            current_focus_id=f"book-block-{self.app.reader.index}",
+        )
+        self.assertEqual(opened.kind, "delegated")
+        self.assertTrue(self.app.book_workflow.active)
+
+        with patch.object(
+            self.app.reader,
+            "location",
+            side_effect=RuntimeError("synthetic read-only semantic probe failure"),
+        ):
+            self.assertTrue(self.app.native_command(opened))
+
+        result = next(
+            event
+            for event in self.app.drain_events()
+            if event["kind"] == "delegated"
+            and event["payload"].get("action_id") == "book.open_position"
+        )
+        self.assertEqual(
+            result["payload"]["announcement"],
+            "Позицію відкрито на дошці.",
+        )
+
     def test_book_keymap_native_ingress_queues_accessible_open_and_return_results(self):
         _book, origin = self._open_book_game()
         self.app.drain_events()
@@ -1378,7 +1407,7 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual(
             open_result["payload"]["announcement"],
-            "Позицію відкрито на дошці.",
+            "Партію відкрито на дошці.",
         )
         self.assertTrue(self.app.book_workflow.active)
         self.assertEqual(self.app.shell.current_route.route_id, "board")
