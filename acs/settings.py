@@ -615,6 +615,8 @@ class Settings:
             self.warning = f"settings recovery: {exc}"
 
     def get(self, key: str, default: Any = None) -> Any:
+        if type(key) is not str:
+            return default
         return self.data.get(key, default)
 
     def _persist_or_reload(self) -> None:
