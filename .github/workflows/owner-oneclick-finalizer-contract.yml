@@ -7,7 +7,9 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
   push:
     branches:
       - qualification/owner-portable-candidate-20261004-sol6f2
@@ -16,7 +18,9 @@ on:
       - '.github/workflows/owner-oneclick-finalizer-contract.yml'
       - 'scripts/build_owner_portable_candidate.py'
       - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
       - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
   workflow_dispatch:
 
 permissions:
@@ -52,12 +56,15 @@ jobs:
           python -m py_compile
           scripts/build_owner_portable_candidate.py
           scripts/materialize_owner_library_seed.py
+          scripts/verify_owner_w4_run_provenance.py
           tests/test_owner_oneclick_from_w4_workflow.py
+          tests/test_verify_owner_w4_run_provenance.py
 
       - name: Run finalizer wiring and owner-input regressions
         run: >-
           python -m unittest -v
           tests.test_owner_oneclick_from_w4_workflow
+          tests.test_verify_owner_w4_run_provenance
           tests.test_materialize_owner_library_seed
           tests.test_owner_portable_candidate
 
@@ -70,6 +77,8 @@ jobs:
           from pathlib import Path
           workflow = Path('.github/workflows/owner-oneclick-from-w4.yml').read_text(encoding='utf-8')
           assert 'metadata.get(\'product_sha\') != exact' in workflow
+          assert 'scripts/verify_owner_w4_run_provenance.py' in workflow
+          assert 'W4_RUN_PRODUCT_SHA_MISMATCH' in workflow
           assert 'HUMAN_TESTED=YES' not in workflow
           assert 'NVDA_VERIFIED=YES' not in workflow
           assert 'expected_source_count=6' in workflow
