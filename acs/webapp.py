@@ -483,7 +483,7 @@ class AccessibleChessAPI:
     def set_turn(self, color: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if color not in ("w", "b"):
+        if type(color) is not str or color not in ("w", "b"):
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
         self.board.turn = color
         self.selected_source = None
