@@ -33,7 +33,14 @@ def _abort_packaged_startup(
 
 
 # This must run before importing pywebview or creating a WebView2 environment.
-enable_webview2_renderer_accessibility()
+try:
+    enable_webview2_renderer_accessibility()
+except Exception:
+    _abort_packaged_startup(
+        ACCESSIBILITY_HOST_INIT_EXIT_CODE,
+        'Accessible WebView2 renderer accessibility could not be initialized.',
+        include_traceback=True,
+    )
 
 
 if '--diagnostic' in sys.argv:
@@ -60,11 +67,18 @@ if '--diagnostic' in sys.argv:
         )
     print('ACCESSIBLE CHESS 0.4 WEBVIEW2 COMPLETE USER FLOW DIAGNOSTIC PASS')
 else:
-    from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
-
     # Patch the actual pywebview WinForms/WebView2 host before any EdgeChrome
     # instance is created. No duplicate native or hidden Move control is used.
-    if not install_pywebview_accessibility_host_patch():
+    try:
+        from acs.webview2_accessibility import install_pywebview_accessibility_host_patch
+        host_ready = install_pywebview_accessibility_host_patch()
+    except Exception:
+        _abort_packaged_startup(
+            ACCESSIBILITY_HOST_INIT_EXIT_CODE,
+            'Accessible WebView2 host could not be initialized.',
+            include_traceback=True,
+        )
+    if not host_ready:
         _abort_packaged_startup(
             ACCESSIBILITY_HOST_INIT_EXIT_CODE,
             'Accessible WebView2 host could not be initialized.',
@@ -72,7 +86,15 @@ else:
 
     # pywebview 6.2.1 otherwise chooses a random local-server port in private
     # mode. The release must never reach Chromium-restricted ports such as 6666.
-    if not install_pywebview_safe_local_server_port():
+    try:
+        safe_server_ready = install_pywebview_safe_local_server_port()
+    except Exception:
+        _abort_packaged_startup(
+            SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
+            'Accessible WebView2 local server could not be initialized.',
+            include_traceback=True,
+        )
+    if not safe_server_ready:
         _abort_packaged_startup(
             SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
             'Accessible WebView2 local server could not be initialized.',
