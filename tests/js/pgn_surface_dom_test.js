@@ -288,6 +288,59 @@ async function run() {
   check(items.length === 2, "semantic tree items missing");
   check(document.activeElement && document.activeElement.id === "pgn-node-aaaaaaaaaaaaaaaaaaaa", "initial tree focus missing");
 
+  // Current user remaps must flow through the shared shell resolver while the
+  // PGN surface keeps canonical pgn.move ownership and presentation handling.
+  const remapCalls = [];
+  const remapContexts = [];
+  const remapRoot = new FakeElement("div");
+  window.accessibleChessKeymapAction = function (event, context) {
+    remapContexts.push(context);
+    return context === "pgn_tree" && event.key === "j"
+      ? "pgn.next_item"
+      : "";
+  };
+  window.AccessibleChessPgnSurface.render(
+    remapRoot,
+    snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+    (command, payload) => {
+      remapCalls.push([command, payload || {}]);
+      if (command === "pgn.move") {
+        return {
+          kind: "selection",
+          payload: {
+            snapshot: snapshot("pgn-node-bbbbbbbbbbbbbbbbbbbb"),
+            focus_target: "pgn-node-bbbbbbbbbbbbbbbbbbbb",
+            announcement: ""
+          }
+        };
+      }
+      throw new Error("unexpected remapped command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const remapItem = remapRoot.querySelectorAll('[role="treeitem"]')[0];
+  let remapPrevented = false;
+  let remapStopped = false;
+  remapItem.listeners.keydown({
+    key: "j",
+    preventDefault: () => { remapPrevented = true; },
+    stopPropagation: () => { remapStopped = true; }
+  });
+  await flush();
+  await flush();
+  check(remapPrevented, "remapped PGN key was not consumed");
+  check(remapStopped, "remapped PGN key did not stop shell propagation");
+  check(
+    remapContexts.length === 1 && remapContexts[0] === "pgn_tree",
+    "PGN tree key used the wrong keymap context"
+  );
+  check(remapCalls.length === 1, "remapped PGN key did not dispatch exactly once");
+  check(
+    remapCalls[0][0] === "pgn.move" && remapCalls[0][1].delta === 1,
+    "remapped PGN key used the wrong canonical command"
+  );
+  delete window.accessibleChessKeymapAction;
 
   const firstToolbar = findRole(root, "toolbar");
   check(firstToolbar !== null, "PGN action toolbar missing");
