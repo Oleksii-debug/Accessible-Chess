@@ -1192,6 +1192,10 @@ def import_epub_book(
             archive_index=index,
         )
         spine = _spine_ids(package, warnings, manifest)
+        manifest_by_resource = {
+            item.entry_name: item
+            for item in manifest.values()
+        }
 
         metadata = _direct_child(package, "metadata")
         package_titles = _metadata_values(metadata, "title")
@@ -1254,6 +1258,17 @@ def import_epub_book(
                 resolved = _resolved_asset(item.entry_name, reference)
                 if resolved is None:
                     warnings.add(f"spine {chapter_index}: an external or unsafe image reference was not resolved")
+                    continue
+                manifest_item = manifest_by_resource.get(resolved)
+                if manifest_item is None:
+                    warnings.add(
+                        f"spine {chapter_index}: a referenced package image is not declared in the manifest"
+                    )
+                    continue
+                if not manifest_item.media_type.startswith("image/"):
+                    warnings.add(
+                        f"spine {chapter_index}: a referenced package resource is not declared as an image"
+                    )
                     continue
                 if resolved not in index:
                     warnings.add(f"spine {chapter_index}: a referenced package image is unavailable")
