@@ -88,6 +88,17 @@ class Version2FinalProductApplication(Version2Application):
     does not prevent the core chess product from starting.
     """
 
+    _COACHING_KEYBOARD_ACTIONS = frozenset(
+        {
+            "teacher.prepared_previous",
+            "teacher.prepared_next",
+            "teacher.rotation_start_or_resume",
+            "teacher.rotation_advance",
+            "teacher.rotation_bind_pairing",
+            "teacher.rotation_status",
+        }
+    )
+
     def __init__(
         self,
         *args: Any,
@@ -820,6 +831,121 @@ class Version2FinalProductApplication(Version2Application):
         except ChildCoachingContextError as exc:
             raise RuntimeError("Student coaching context is unavailable") from exc
         return child_coaching_context_to_teacher_payload(context)
+
+    def _teacher_keyboard_announcement(self, text_uk: str, text_en: str) -> str:
+        if type(text_uk) is not str or type(text_en) is not str:
+            raise TypeError("teacher announcement text must be built-in text")
+        text = text_uk if self.shell.language is UILanguage.UA else text_en
+        self._events.append(
+            {"kind": "status", "payload": {"announcement": text}}
+        )
+        return text
+
+    def _prepared_keyboard_result(
+        self,
+        snapshot: PreparedPositionSnapshot,
+    ) -> dict[str, object]:
+        if type(snapshot) is not PreparedPositionSnapshot:
+            raise TypeError("prepared-position snapshot is invalid")
+        index = snapshot.selected_index
+        if index is None:
+            raise RuntimeError("Prepared position must be selected explicitly")
+        announcement = self._teacher_keyboard_announcement(
+            f"Підготовлена позиція {index + 1} з {snapshot.count}.",
+            f"Prepared position {index + 1} of {snapshot.count}.",
+        )
+        return {
+            "kind": "prepared-position",
+            "selected_index": index,
+            "count": snapshot.count,
+            "announcement": announcement,
+        }
+
+    def _rotation_keyboard_result(self) -> dict[str, object]:
+        snapshot = self.group_rotation_snapshot()
+        phase = snapshot["phase"]
+        if phase == RotationPhase.COMPLETED.value:
+            announcement = self._teacher_keyboard_announcement(
+                "Групову ротацію завершено.",
+                "Group rotation completed.",
+            )
+        else:
+            activity = snapshot.get("activity")
+            activity_uk = {
+                RotationActivity.DEMONSTRATION.value: "демонстрація",
+                RotationActivity.TASK_WORK.value: "самостійне завдання",
+                RotationActivity.PAIR_PLAY.value: "парна гра",
+                RotationActivity.ATTENTION_BREAK.value: "перерва",
+                RotationActivity.REVIEW.value: "підсумок",
+            }.get(activity, "етап")
+            activity_en = {
+                RotationActivity.DEMONSTRATION.value: "demonstration",
+                RotationActivity.TASK_WORK.value: "independent task",
+                RotationActivity.PAIR_PLAY.value: "pair play",
+                RotationActivity.ATTENTION_BREAK.value: "break",
+                RotationActivity.REVIEW.value: "review",
+            }.get(activity, "round")
+            index = int(snapshot["round_index"]) + 1
+            count = int(snapshot["round_count"])
+            announcement = self._teacher_keyboard_announcement(
+                f"Ротація: етап {index} з {count}, {activity_uk}.",
+                f"Rotation: round {index} of {count}, {activity_en}.",
+            )
+        return {
+            "kind": "group-rotation",
+            **snapshot,
+            "announcement": announcement,
+        }
+
+    def _dispatch_teacher_keyboard_action(
+        self,
+        action: str,
+        payload: Mapping[str, object],
+    ) -> dict[str, object]:
+        if self.shell.current_route.route_id != "teacher":
+            raise ValueError("Teacher command requires the visible Teacher workspace")
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("Close the active dialog before using Teacher commands")
+        if payload:
+            raise ValueError("Teacher keyboard command accepts no payload")
+
+        if action == "teacher.prepared_previous":
+            return self._prepared_keyboard_result(self.previous_prepared_position())
+        if action == "teacher.prepared_next":
+            return self._prepared_keyboard_result(self.next_prepared_position())
+        if action == "teacher.rotation_start_or_resume":
+            plan = self._teaching_plan
+            if type(plan) is not LessonSession:
+                raise RuntimeError("No application-owned teaching session is active")
+            rotation_id = f"rotation-{plan.digest[:24]}"
+            self.begin_or_resume_default_group_rotation(rotation_id)
+            return self._rotation_keyboard_result()
+        if action == "teacher.rotation_advance":
+            state = self._rotation_state
+            if type(state) is not RotationState:
+                raise RuntimeError("No group rotation is active")
+            self.advance_group_rotation(
+                expected_rotation_revision=state.revision,
+            )
+            return self._rotation_keyboard_result()
+        if action == "teacher.rotation_bind_pairing":
+            state = self._rotation_state
+            if type(state) is not RotationState:
+                raise RuntimeError("No group rotation is active")
+            self.bind_current_pairing_to_group_rotation(
+                expected_rotation_revision=state.revision,
+            )
+            return self._rotation_keyboard_result()
+        if action == "teacher.rotation_status":
+            return self._rotation_keyboard_result()
+        raise KeyError(f"unsupported Teacher keyboard action: {action}")
+
+    def _delegate(self, action, payload):
+        if action in self._COACHING_KEYBOARD_ACTIONS:
+            if type(action) is not str or type(payload) is not dict:
+                raise ValueError("Teacher keyboard command is malformed")
+            return self._dispatch_teacher_keyboard_action(action, payload)
+        return super()._delegate(action, payload)
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
