@@ -209,10 +209,17 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         launch_index = self.text.index("Fresh-extract and launch exact final ZIP bytes")
         freshness_index = self.text.index("Recheck live release apex immediately before publication")
         upload_index = self.text.index("Upload exact owner one-click candidate")
+        post_upload_index = self.text.index(
+            "Confirm published artifact still matches live release apex"
+        )
         self.assertLess(launch_index, freshness_index)
         self.assertLess(freshness_index, upload_index)
+        self.assertLess(upload_index, post_upload_index)
         self.assertIn("OWNER_FINALIZER_STALE_BEFORE_UPLOAD", self.text)
         self.assertIn("OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS", self.text)
+        self.assertIn("OWNER_FINALIZER_CHECKOUT_DRIFT_AFTER_UPLOAD", self.text)
+        self.assertIn("OWNER_FINALIZER_STALE_AFTER_UPLOAD", self.text)
+        self.assertIn("OWNER_FINALIZER_POST_UPLOAD_FRESHNESS=PASS", self.text)
         self.assertIn("Accessible-Chess-ONECLICK-OWNER-FINAL.zip", self.text)
         self.assertIn("owner-final-receipt.json", self.text)
         self.assertIn("owner-oneclick-from-zip/launch-report.txt", self.text)
