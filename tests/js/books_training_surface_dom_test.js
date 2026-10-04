@@ -155,6 +155,7 @@ function bookSnapshot(index, text) {
   return {
     document: { lang: "en", landmark: "main" },
     heading: "Chess book reader",
+    presentation_token: "a".repeat(64),
     block: {
       dom_id: "book-block-" + String(index),
       index: index,
@@ -345,6 +346,24 @@ async function run() {
       label + " did not fail closed accessibly"
     );
   }
+  const missingLeaseSnapshot = bookSnapshot(70, "Missing lease");
+  delete missingLeaseSnapshot.presentation_token;
+  await expectBookSnapshotRejected(
+    missingLeaseSnapshot,
+    70,
+    "missing Book presentation lease",
+    "Book lease failed"
+  );
+
+  const malformedLeaseSnapshot = bookSnapshot(71, "Malformed lease");
+  malformedLeaseSnapshot.presentation_token = "g".repeat(64);
+  await expectBookSnapshotRejected(
+    malformedLeaseSnapshot,
+    71,
+    "malformed Book presentation lease",
+    "Book lease failed"
+  );
+
   async function expectOversizedTextRejectedBeforeNulScan(
     candidate,
     index,
@@ -747,8 +766,14 @@ async function run() {
 
 
   const bookRoot = new FakeElement("div");
-  const bookInvoke = (command) => {
+  const bookInvoke = (command, payload) => {
     check(command === "book.next", "unexpected book command");
+    check(
+      payload &&
+        Object.keys(payload).length === 1 &&
+        payload.presentation_token === contextualBookSnapshot.presentation_token,
+      "Book toolbar command omitted or widened its presentation lease"
+    );
     return {
       kind: "render",
       payload: {
@@ -2278,7 +2303,12 @@ async function run() {
   let openedMaterial = "";
   const starterInvoke = (command, payload) => {
     check(command === "book.open_starter_material", "unexpected starter material command");
-    check(payload && Object.keys(payload).length === 1, "starter material payload is not bounded");
+    check(
+      payload &&
+        Object.keys(payload).length === 2 &&
+        payload.presentation_token === "a".repeat(64),
+      "starter material payload omitted or widened its presentation lease"
+    );
     openedMaterial = String(payload.material_id || "");
     return {
       kind: "render",
