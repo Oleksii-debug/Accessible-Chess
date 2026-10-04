@@ -18,6 +18,7 @@ on:
       - '.github/workflows/training-snapshot-definition-identity-v4.yml'
       - '.github/workflows/pgn-open-source-binding.yml'
       - '.github/workflows/pgn-command-single-session-toctou.yml'
+      - '.github/workflows/pgn-document-new-game-position-integrity.yml'
       - '.github/workflows/v2-native-thread-runtime.yml'
       - '.github/workflows/v2-windows-book-board-adapter.yml'
       - '.github/workflows/version2-windows-composition.yml'
@@ -162,6 +163,7 @@ jobs:
           tests.test_pgn_open_unlink_source_binding
           tests.test_pgn_open_windows_reparse
           tests.test_version2_pgn_commands
+          tests.test_pgn_document_new_game_position_integrity
 
       - name: Windows terminal authority, NVDA file flow and Book to Board regressions
         run: >-
