@@ -4,14 +4,16 @@ import json
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 STATS_SCHEMA_VERSION = 1
 _MAX_COUNTER = 2**63 - 1
 _MAX_STATS_FILE_BYTES = 64 * 1024
+_NANOSECONDS_PER_SECOND = 1_000_000_000
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 
 
@@ -180,6 +182,63 @@ class AggregateUsageStatistics:
             values[name] = current + delta
         self._snapshot = replace(self._snapshot, **values)
         return self._snapshot
+
+
+class ActiveSessionClock:
+    """Counts only foreground-active monotonic time into aggregate session seconds."""
+
+    def __init__(self, *, now_ns: Callable[[], int] = time.monotonic_ns) -> None:
+        if not callable(now_ns):
+            raise ValueError("now_ns must be callable")
+        self._now_ns = now_ns
+        self._active_since_ns: int | None = None
+        self._unreported_ns = 0
+
+    @property
+    def is_active(self) -> bool:
+        return self._active_since_ns is not None
+
+    def _read_now(self) -> int:
+        value = self._now_ns()
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("now_ns must return a non-negative integer")
+        return value
+
+    def resume(self) -> bool:
+        if self._active_since_ns is not None:
+            return False
+        self._active_since_ns = self._read_now()
+        return True
+
+    def checkpoint(self, statistics: AggregateUsageStatistics) -> int:
+        """Publish whole active seconds while keeping the session active."""
+        return self._publish(statistics, remain_active=True)
+
+    def suspend(self, statistics: AggregateUsageStatistics) -> int:
+        """Publish whole active seconds and stop counting until the next resume."""
+        return self._publish(statistics, remain_active=False)
+
+    def _publish(
+        self,
+        statistics: AggregateUsageStatistics,
+        *,
+        remain_active: bool,
+    ) -> int:
+        if type(statistics) is not AggregateUsageStatistics:
+            raise ValueError("statistics must be AggregateUsageStatistics")
+        started = self._active_since_ns
+        if started is None:
+            return 0
+        now = self._read_now()
+        if now < started:
+            raise ValueError("monotonic clock moved backwards")
+        total_ns = self._unreported_ns + (now - started)
+        whole_seconds, remainder_ns = divmod(total_ns, _NANOSECONDS_PER_SECOND)
+        if whole_seconds:
+            statistics.add_session_seconds(whole_seconds)
+        self._unreported_ns = remainder_ns
+        self._active_since_ns = now if remain_active else None
+        return whole_seconds
 
 
 class UsageStatisticsStore:
