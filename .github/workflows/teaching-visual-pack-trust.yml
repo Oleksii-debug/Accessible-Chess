@@ -1,0 +1,59 @@
+name: Teaching Visual Pack Trust Boundary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/teaching-visual-preference-trust-20261004-sol56
+    paths:
+      - 'acs/visual_preferences.py'
+      - 'acs/visual_pack_presentation.py'
+      - 'tests/test_visual_preferences.py'
+      - 'tests/test_visual_pack_trust_boundary.py'
+      - '.github/workflows/teaching-visual-pack-trust.yml'
+  pull_request:
+    branches:
+      - feature/teaching-classroom-foundation
+    paths:
+      - 'acs/visual_preferences.py'
+      - 'acs/visual_pack_presentation.py'
+      - 'tests/test_visual_preferences.py'
+      - 'tests/test_visual_pack_trust_boundary.py'
+      - '.github/workflows/teaching-visual-pack-trust.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  trust-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile visual trust boundary
+        run: >-
+          python -m compileall -q
+          acs/visual_preferences.py
+          acs/visual_pack_presentation.py
+          acs/visual_board_presentation.py
+          acs/teaching_ui.py
+          tests/test_visual_preferences.py
+          tests/test_visual_pack_presentation.py
+          tests/test_visual_pack_trust_boundary.py
+          tests/test_visual_board_presentation.py
+          tests/test_teaching_ui.py
+      - name: Run visual and Teaching UI regressions
+        run: >-
+          python -m unittest -v
+          tests.test_visual_preferences
+          tests.test_visual_pack_presentation
+          tests.test_visual_pack_trust_boundary
+          tests.test_visual_board_presentation
+          tests.test_teaching_ui
