@@ -1085,6 +1085,9 @@ class _SemanticHtmlParser(HTMLParser):
         child_forces_split = any(
             (not event.structural) or event.forces_split
             for event in capture.inline_semantics
+        ) or any(
+            isinstance(block, _PgnSlot)
+            for block in self.blocks[capture.block_start_index:]
         )
         self._record_inline_semantic(
             self.blocks[capture.block_start_index],
