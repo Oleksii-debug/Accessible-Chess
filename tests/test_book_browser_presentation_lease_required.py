@@ -234,6 +234,96 @@ class BookBrowserPresentationLeaseRequiredTests(unittest.TestCase):
         self.assertEqual("books", self.app.shell.current_route.route_id)
         self.assertEqual(0, self.app.reader.location().index)
 
+    def test_same_lease_survives_read_only_game_board_open_and_exact_return(self) -> None:
+        self.app.open_book(self.game_book)
+        initial = self.app.snapshot()["books"]
+        moved = self.app.browser_command(
+            "books",
+            "book.next_game",
+            {"presentation_token": self._token(initial)},
+        )
+        game_snapshot = moved["payload"]["snapshot"]
+        token = self._token(game_snapshot)
+        origin = self.app.reader.location()
+
+        opened = self.app.browser_command(
+            "books",
+            "book.open_game",
+            {"presentation_token": token},
+        )
+        self.assertEqual("delegated", opened["kind"])
+        self.assertTrue(self.app.book_workflow.active)
+        self.assertEqual("board", self.app.shell.current_route.route_id)
+
+        returned = self.app.browser_command(
+            "books",
+            "book.return_from_board",
+            {"presentation_token": token},
+        )
+        self.assertEqual("render", returned["kind"])
+        self.assertFalse(self.app.book_workflow.active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(origin, self.app.reader.location())
+        self.assertEqual(
+            token,
+            self._token(returned["payload"]["snapshot"]),
+        )
+
+    def test_hostile_token_and_mapping_subclasses_are_rejected_before_hooks(self) -> None:
+        visible = self.app.snapshot()["books"]
+        accepted = self.app.browser_command(
+            "books",
+            "book.next",
+            {"presentation_token": self._token(visible)},
+        )
+        current = self.app.reader.location()
+
+        class HostileToken(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile lease token hook executed")
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("hostile lease token equality executed")
+
+        hostile_token = HostileToken(
+            self._token(accepted["payload"]["snapshot"])
+        )
+        rejected = self.app.browser_command(
+            "books",
+            "book.next",
+            {"presentation_token": hostile_token},
+        )
+        self.assertEqual("render", rejected["kind"])
+        self.assertFalse(HostileToken.touched)
+        self.assertEqual(current, self.app.reader.location())
+
+        class HostilePayload(dict):
+            touched = False
+
+            def __contains__(self, _key):
+                type(self).touched = True
+                raise AssertionError("hostile payload containment executed")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("hostile payload items executed")
+
+        hostile_payload = HostilePayload(
+            presentation_token=self._token(accepted["payload"]["snapshot"])
+        )
+        rejected_mapping = self.app.browser_command(
+            "books",
+            "book.next",
+            hostile_payload,
+        )
+        self.assertEqual("render", rejected_mapping["kind"])
+        self.assertFalse(HostilePayload.touched)
+        self.assertEqual(current, self.app.reader.location())
+
     def test_bookmark_presentation_state_rotates_token_and_stale_name_cannot_replay(self) -> None:
         visible = self.app.snapshot()["books"]
         token = self._token(visible)
