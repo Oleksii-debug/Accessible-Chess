@@ -1,4 +1,5 @@
 name: Keybindings Persistence Boundary
+# Exact serial base: current Keymap UI + History convergence.
 
 on:
   pull_request:
