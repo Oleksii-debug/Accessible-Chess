@@ -473,6 +473,82 @@ class BookProgressStoreTests(unittest.TestCase):
         )
         self.assertIsNone(caught.exception.__cause__)
 
+    def test_semantically_malformed_persisted_snapshot_fails_before_has(self) -> None:
+        valid = {
+            "schema_version": 2,
+            "current_target": "block:intro",
+            "return_points": {},
+            "fallback_digests": {},
+        }
+        cases = (
+            ("snapshot-schema", {**valid, "schema_version": 999}),
+            ("current-target-type", {**valid, "current_target": 7}),
+            ("return-points-type", {**valid, "return_points": []}),
+            (
+                "fallback-digest-format",
+                {
+                    **valid,
+                    "current_target": "index:0",
+                    "fallback_digests": {"index:0": "not-a-digest"},
+                },
+            ),
+            (
+                "missing-index-fallback-binding",
+                {
+                    **valid,
+                    "current_target": "index:0",
+                    "fallback_digests": {},
+                },
+            ),
+        )
+        for label, snapshot in cases:
+            with self.subTest(label=label):
+                payload = {
+                    "schema_version": BOOK_PROGRESS_STORE_SCHEMA_VERSION,
+                    "generation": 1,
+                    "entries": {"book:malformed": snapshot},
+                }
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.write_text(json.dumps(payload), encoding="utf-8")
+
+                with self.assertRaises(BookProgressStoreError) as caught:
+                    self.store.has("book:malformed")
+
+                self.assertEqual(
+                    caught.exception.code,
+                    BookProgressStoreErrorCode.CORRUPT_STORE,
+                )
+
+    def test_save_does_not_republish_semantically_malformed_existing_snapshot(self) -> None:
+        payload = {
+            "schema_version": BOOK_PROGRESS_STORE_SCHEMA_VERSION,
+            "generation": 7,
+            "entries": {
+                "book:malformed": {
+                    "schema_version": 999,
+                    "current_target": "block:intro",
+                    "return_points": {},
+                    "fallback_digests": {},
+                }
+            },
+        }
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps(payload), encoding="utf-8")
+        before = self.path.read_bytes()
+
+        with self.assertRaises(BookProgressStoreError) as caught:
+            self.store.save(
+                "book:other",
+                BookReader(self.original_document()),
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertFalse(self.store.backup_path.exists())
+
     def test_snapshot_resource_limit_is_checked_before_restore(self) -> None:
         huge_target = "x" * (MAX_BOOK_SNAPSHOT_BYTES + 1)
         payload = {
