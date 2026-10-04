@@ -420,7 +420,7 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _nearest_inline_owner_capture(self) -> _Capture | None:
         for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading"}:
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
                 return capture
         return None
 
