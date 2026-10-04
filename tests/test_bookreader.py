@@ -178,6 +178,38 @@ class BookReaderTests(unittest.TestCase):
             reader.go_to(0)
         self.assertEqual(reader.index, 3)
 
+    def test_live_revision_rejects_rebound_document_subclass_before_attribute_hook(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        class HostileDocument(BookDocument):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name == "blocks":
+                    type(self).touched = True
+                    raise AssertionError("rejected live document root must remain passive")
+                return super().__getattribute__(name)
+
+        replacement = HostileDocument("Replacement")
+        reader.document = replacement
+        HostileDocument.armed = True
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertFalse(HostileDocument.touched)
+
+    def test_live_revision_keeps_blocks_only_identity_for_exact_document_rebind(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        replacement = BookDocument.from_dict(book.as_dict())
+        replacement.title = "Equivalent exact document root"
+        replacement.warnings.append("Metadata remains outside reader revision identity")
+        reader.document = replacement
+
+        self.assertEqual(reader.location().block_id, "part-1")
     def test_live_revision_rejects_blocks_list_subclass_before_iteration_hook(self):
         book = self.make_book()
         reader = BookReader(book)
