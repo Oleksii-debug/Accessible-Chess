@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from acs.book_game_content import BookGameSource, resolve_book_game
+from acs.book_game_content import (
+    BookGameContentError,
+    BookGameContentErrorCode,
+    BookGameSource,
+    resolve_book_game,
+)
 from acs.bookdocument import Game
 from acs.gametree import (
     MoveNode,
@@ -31,19 +36,34 @@ class _Lookup:
 
 
 class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
-    def test_nested_move_deepcopy_hook_is_not_executed(self) -> None:
+    def test_nested_provider_subclass_is_rejected_before_any_hook_runs(self) -> None:
         class HostileMoveNode(MoveNode):
             touched = False
+
+            def __getattribute__(self, name):
+                if name in {
+                    "san",
+                    "move_number",
+                    "nags",
+                    "comments_before",
+                    "comments_after",
+                    "variations",
+                }:
+                    type(self).touched = True
+                    raise RuntimeError(
+                        r"C:\Users\Oleksii\private\provider.db attribute hook"
+                    )
+                return super().__getattribute__(name)
 
             def __deepcopy__(self, memo):
                 type(self).touched = True
                 raise RuntimeError(
-                    r"C:\Users\Oleksii\private\provider.db nested deepcopy hook"
+                    r"C:\Users\Oleksii\private\provider.db deepcopy hook"
                 )
 
         source = parse_games(PGN)[0]
         original = source.line.moves[0]
-        source.line.moves[0] = HostileMoveNode(
+        hostile = HostileMoveNode(
             san=original.san,
             move_number=original.move_number,
             nags=list(original.nags),
@@ -51,21 +71,54 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
             comments_after=list(original.comments_after),
             variations=list(original.variations),
         )
+        source.line.moves[0] = hostile
+        lookup = _Lookup(source)
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(Game(game_id=17), lookup=lookup)
+
+        self.assertEqual(lookup.calls, [17])
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+        self.assertFalse(HostileMoveNode.touched)
+        self.assertNotIn("provider.db", str(caught.exception))
+
+    def test_nested_scalar_subclass_is_rejected_before_string_hooks_run(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise RuntimeError("hostile text strip hook")
+
+            def isspace(self):
+                type(self).touched = True
+                raise RuntimeError("hostile text isspace hook")
+
+        source = parse_games(PGN)[0]
+        source.line.moves[0].san = HostileText("e4")
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(Game(game_id=18), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+        self.assertFalse(HostileText.touched)
+
+    def test_exact_graph_is_detached_and_preserves_provider_metadata(self) -> None:
+        source = parse_games(PGN)[0]
         source.source_index = 7
         source.warnings = ["recovered source warning"]
         lookup = _Lookup(source)
 
-        # The provider value is structurally canonical for the existing GameTree
-        # serializer. The Books boundary must detach it without invoking copy
-        # hooks on nested provider-owned subclasses.
-        self.assertIn("e4", serialize_game(source))
-        self.assertFalse(HostileMoveNode.touched)
+        resolved = resolve_book_game(Game(game_id=19), lookup=lookup)
 
-        resolved = resolve_book_game(Game(game_id=17), lookup=lookup)
-
-        self.assertEqual(lookup.calls, [17])
+        self.assertEqual(lookup.calls, [19])
         self.assertEqual(resolved.source, BookGameSource.REFERENCE)
-        self.assertFalse(HostileMoveNode.touched)
         self.assertIs(type(resolved.game.line), VariationLine)
         self.assertIs(type(resolved.game.line.moves[0]), MoveNode)
         self.assertIsNot(resolved.game, source)
@@ -79,7 +132,6 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
         self.assertEqual(resolved.game.line.moves[0].san, "e4")
         self.assertEqual(resolved.game.warnings, ["recovered source warning"])
         self.assertIn("e4", serialize_game(resolved.game))
-
     def test_detach_preserves_valid_absent_result_structure(self) -> None:
         # serialize -> parse would materialize the serializer's effective Result
         # into both the header and movetext. Detachment must preserve the valid
