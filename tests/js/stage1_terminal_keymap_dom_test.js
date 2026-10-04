@@ -119,9 +119,9 @@ function chordFor(event) {
         ''
     );
 
-    // Execute the real document-level keydown handler. Editable controls must
-    // retain F1 Help while refusing unrelated global or analysis commands that
-    // would steal typed input. Non-editable controls keep normal shortcut routing.
+    // Execute the real document-level keydown handler. Editable controls retain
+    // remapped Help and the pre-existing exact Alt+analysis path while refusing
+    // unrelated global/document/history commands that would steal typed input.
     let documentKeydown = null;
     const editableActions = [];
     const resolutionCalls = [];
