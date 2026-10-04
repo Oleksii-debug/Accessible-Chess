@@ -21,8 +21,10 @@
 
   function rootForNode(node) {
     if (!node) return null;
-    if (workspace && workspace.contains(node)) return workspace;
-    if (navigation && navigation.contains(node)) return navigation;
+    const activeWorkspace = documentRef.getElementById("v2-workspace");
+    const activeNavigation = documentRef.getElementById("v2-navigation");
+    if (activeWorkspace && activeWorkspace.contains(node)) return activeWorkspace;
+    if (activeNavigation && activeNavigation.contains(node)) return activeNavigation;
     if (main.contains(node)) return main;
     return null;
   }
@@ -93,20 +95,27 @@
     if (!selectedText) return -1;
     let match = fullText.indexOf(selectedText);
     if (match < 0) return -1;
-    let best = match;
-    let bestScore = contextMatchScore(fullText, selectedText, match, before, after);
-    let bestDistance = Math.abs(match - preferredStart);
+    let best = -1;
+    let bestScore = -1;
+    let bestScoreCount = 0;
+    let candidateCount = 0;
     while (match >= 0) {
+      candidateCount += 1;
+      if (candidateCount > 4096) return -1;
       const score = contextMatchScore(fullText, selectedText, match, before, after);
-      const distance = Math.abs(match - preferredStart);
-      if (score > bestScore || (score === bestScore && distance < bestDistance)) {
+      if (score > bestScore) {
         best = match;
         bestScore = score;
-        bestDistance = distance;
+        bestScoreCount = 1;
+      } else if (score === bestScore) {
+        bestScoreCount += 1;
       }
       match = fullText.indexOf(selectedText, match + 1);
     }
-    return best;
+    // An old absolute offset is not semantic identity. If two occurrences are
+    // equally supported by retained context, guessing can silently move a
+    // blind user's copied selection to a different passage after rerender.
+    return bestScoreCount === 1 ? best : -1;
   }
 
   function captureSemanticSelection() {
@@ -115,7 +124,7 @@
     const range = selection.getRangeAt(0);
     const root = rootForNode(range.startContainer);
     if (!root || rootForNode(range.endContainer) !== root) return null;
-    if ((root === workspace && workspace.hidden) || (root === main && main.hidden)) return null;
+    if (root.hidden) return null;
     try {
       const text = String(range.toString() || "");
       if (!text.trim()) return null;
@@ -136,6 +145,7 @@
       }
       return {
         rootId: root.id,
+        rootNode: root,
         route: routeToken(),
         start: start,
         end: end,
@@ -152,17 +162,13 @@
   function restoreSemanticSelection(snapshot) {
     if (!snapshot || snapshot.route !== routeToken()) return false;
     const root = documentRef.getElementById(snapshot.rootId);
-    if (!root || root.hidden) return false;
+    if (!root || (snapshot.rootNode && root !== snapshot.rootNode) || root.hidden) return false;
     const selection = currentSelection();
     if (!selection) return false;
     try {
       const fullText = String(root.textContent || "");
       let start = Math.max(0, Math.min(Number(snapshot.start) || 0, fullText.length));
       let end = Math.max(start, Math.min(Number(snapshot.end) || 0, fullText.length));
-      const directMatch = fullText.slice(start, end) === snapshot.text;
-      const directScore = directMatch
-        ? contextMatchScore(fullText, snapshot.text, start, snapshot.before, snapshot.after)
-        : -1;
       const candidateStart = nearestSelectionStart(
         fullText,
         snapshot.text,
@@ -171,17 +177,8 @@
         snapshot.after
       );
       if (candidateStart < 0) return false;
-      const candidateScore = contextMatchScore(
-        fullText,
-        snapshot.text,
-        candidateStart,
-        snapshot.before,
-        snapshot.after
-      );
-      if (!directMatch || candidateScore > directScore) {
-        start = candidateStart;
-        end = Math.min(fullText.length, start + snapshot.text.length);
-      }
+      start = candidateStart;
+      end = Math.min(fullText.length, start + snapshot.text.length);
       const startPoint = textPoint(root, start);
       const endPoint = textPoint(root, end);
       const range = documentRef.createRange();
@@ -248,26 +245,49 @@
 
   if (typeof global.MutationObserver === "function") {
     const observer = new global.MutationObserver(function (records) {
-      if (!retainedSelection || !mutationTouchesRetainedRoot(records)) return;
+      if (!retainedSelection) return;
+      // Route identity is part of the retained selection authority. A V2
+      // transition can be represented entirely by aria-current/hidden
+      // attribute changes, so reject stale selection before requiring a
+      // content mutation inside the old semantic root.
       if (retainedSelection.route !== routeToken()) {
         retainedSelection = null;
         return;
       }
       const root = documentRef.getElementById(retainedSelection.rootId);
-      if (!root || root.hidden || String(root.textContent || "").indexOf(retainedSelection.text) < 0) {
+      if (!root || (retainedSelection.rootNode && root !== retainedSelection.rootNode)) {
+        retainedSelection = null;
+        return;
+      }
+      if (!mutationTouchesRetainedRoot(records)) return;
+      if (root.hidden || String(root.textContent || "").indexOf(retainedSelection.text) < 0) {
         retainedSelection = null;
         return;
       }
       restoringSelection = true;
       try {
-        if (!restoreSemanticSelection(retainedSelection)) retainedSelection = null;
+        if (!restoreSemanticSelection(retainedSelection)) {
+          retainedSelection = null;
+        } else {
+          // Successful relocation establishes a new canonical browser range.
+          // Refresh its bounded semantic context so a later rerender follows
+          // that range instead of an obsolete pre-rerender context.
+          retainedSelection = captureSemanticSelection();
+        }
       } finally {
         restoringSelection = false;
       }
     });
-    observer.observe(main, { subtree: true, childList: true, characterData: true });
-    if (workspace) observer.observe(workspace, { subtree: true, childList: true, characterData: true });
-    if (navigation) observer.observe(navigation, { subtree: true, childList: true, characterData: true });
+    const observerOptions = {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["hidden", "aria-current"]
+    };
+    observer.observe(main, observerOptions);
+    if (workspace) observer.observe(workspace, observerOptions);
+    if (navigation) observer.observe(navigation, observerOptions);
   }
 
   let lastAnnouncement = "";

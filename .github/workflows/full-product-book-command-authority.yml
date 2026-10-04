@@ -66,7 +66,6 @@ jobs:
           test "$authority_changed" = "$expected"
           git diff --check "$authority_base" "$authority_tip"
           git diff --exit-code "$authority_tip" HEAD -- \
-            '.github/workflows/full-product-convergence-integration-20261004.yml' \
             'tests/test_full_product_book_command_authority.py'
           echo 'BOOK_COMMAND_AUTHORITY_ORIGINAL_SCOPE=PASS'
           echo 'BOOK_COMMAND_AUTHORITY_RECONVERGED_LINEAGE=PASS'
