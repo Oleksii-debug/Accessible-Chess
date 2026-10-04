@@ -6,7 +6,7 @@ on:
       - converge/current-product-pgn-graph-safety-20261004-sol60a1
     paths:
       - 'acs/training_progress_store.py'
-      - 'tests/test_w2_training_progress_crash_recovery.py'
+      - 'tests/test_training_progress_json_prehash_bounds_current.py'
       - '.github/workflows/current-training-progress-json-prehash-bounds.yml'
   workflow_dispatch:
 
@@ -55,7 +55,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/current-training-progress-json-prehash-bounds.yml' \
             'acs/training_progress_store.py' \
-            'tests/test_w2_training_progress_crash_recovery.py' | sort)"
+            'tests/test_training_progress_json_prehash_bounds_current.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected TrainingProgress prehash scope:\n%s\n' "$changed" >&2
             exit 1
@@ -69,7 +69,10 @@ jobs:
         run: >-
           python -m compileall -q
           acs/training_progress_store.py
-          tests/test_w2_training_progress_crash_recovery.py
+          tests/test_training_progress_json_prehash_bounds_current.py
+
+      - name: Execute persisted JSON prehash regressions
+        run: python -m unittest -v tests.test_training_progress_json_prehash_bounds_current
 
       - name: Execute full Training progress crash and recovery contract
         run: python -m unittest -v tests.test_w2_training_progress_crash_recovery
