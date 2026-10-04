@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -563,7 +564,10 @@ def _parse_settings_json_int(token: str) -> int:
 def _parse_settings_json_float(token: str) -> float:
     if len(token) > _MAX_SETTINGS_JSON_NUMBER_CHARS:
         raise SettingsError("settings JSON number token is too long")
-    return float(token)
+    value = float(token)
+    if not math.isfinite(value):
+        raise SettingsError("settings JSON contains a non-finite number")
+    return value
 
 
 def _reject_duplicate_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
