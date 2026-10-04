@@ -11,6 +11,8 @@ from .position_editor import (
     parse_piece_coordinate_position,
 )
 
+MAX_MOVE_ENTRY_CHARS = MAX_COORDINATE_POSITION_CHARS
+
 
 class MoveEntryKind(str, Enum):
     EMPTY = "empty"
@@ -47,7 +49,7 @@ def parse_move_entry(
 
     if type(text) is not str:
         raise ValueError("move entry text must be text")
-    if len(text) > MAX_COORDINATE_POSITION_CHARS:
+    if len(text) > MAX_MOVE_ENTRY_CHARS:
         raise ValueError("move entry text is too long")
     raw = text
     stripped = raw.strip()
