@@ -17,6 +17,7 @@ from acs.training_progress_store import (
     MAX_TRAINING_PROGRESS_BYTES,
     TrainingProgressBusyError,
     TrainingProgressConflictError,
+    TrainingProgressDurabilityUnknownError,
     TrainingProgressResourceError,
     TrainingProgressStore,
 )
@@ -423,7 +424,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 "acs.training_progress_store._sync_published_path",
                 side_effect=OSError("injected durability failure"),
             ):
-                with self.assertRaisesRegex(OSError, "injected durability failure"):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError) as raised:
                     store.save(advanced, expected_revision=initial_revision)
 
             # Atomic replace may already be visible. The important contract is
@@ -433,6 +434,8 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             assert loaded is not None
             self.assertEqual(1, loaded.session.step_index)
             self.assertEqual(("e4",), loaded.session.accepted_path)
+            self.assertEqual(loaded.revision, raised.exception.published_revision)
+            self.assertIsInstance(raised.exception.__cause__, OSError)
 
     def test_external_change_during_save_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -624,7 +627,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 "acs.training_progress_store._replace_published_path",
                 side_effect=racing_replace,
             ):
-                with self.assertRaises(TrainingProgressConflictError):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError) as raised:
                     store.save(
                         advanced,
                         expected_revision=initial_revision,
@@ -636,6 +639,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             assert loaded is not None
             self.assertEqual(1, loaded.session.step_index)
             self.assertEqual(("e4",), loaded.session.accepted_path)
+            self.assertEqual(loaded.revision, raised.exception.published_revision)
 
     def test_same_byte_post_publish_swap_withholds_success(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -666,7 +670,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 "acs.training_progress_store._sync_published_path",
                 side_effect=racing_sync,
             ):
-                with self.assertRaises(TrainingProgressConflictError):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError) as raised:
                     store.save(
                         advanced,
                         expected_revision=initial_revision,
@@ -678,6 +682,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             assert loaded is not None
             self.assertEqual(1, loaded.session.step_index)
             self.assertEqual(("e4",), loaded.session.accepted_path)
+            self.assertEqual(loaded.revision, raised.exception.published_revision)
 
     def test_lock_path_swap_during_publication_withholds_success(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -707,7 +712,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
                 "acs.training_progress_store._replace_published_path",
                 side_effect=racing_replace,
             ):
-                with self.assertRaises(TrainingProgressBusyError):
+                with self.assertRaises(TrainingProgressDurabilityUnknownError) as raised:
                     store.save(
                         advanced,
                         expected_revision=initial_revision,
@@ -719,6 +724,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertIsNotNone(loaded)
             assert loaded is not None
             self.assertEqual(1, loaded.session.step_index)
+            self.assertEqual(loaded.revision, raised.exception.published_revision)
 
     def test_failed_temp_cleanup_never_unlinks_substituted_foreign_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
