@@ -559,6 +559,22 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIn("function syncEngineTimeControl()", html)
         self.assertIn("function confirmResignEngineGame()", html)
         self.assertIn("window.confirm", html)
+        self.assertIn(
+            "document.documentElement.lang==='en'?'Starting Stockfish…':'Запуск Stockfish…'",
+            html,
+        )
+        self.assertIn(
+            "document.documentElement.lang==='en'?'Could not start the game.':'Не вдалося почати гру.'",
+            html,
+        )
+        self.assertNotIn(
+            "setText('engine-game-dialog-status','Запуск Stockfish…')",
+            html,
+        )
+        self.assertNotIn(
+            "r&&r.announcement||'Не вдалося почати гру.'",
+            html,
+        )
         self.assertIn("setInterval(refreshAnalysis,700)", html)
 
 
