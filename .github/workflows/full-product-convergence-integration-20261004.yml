@@ -134,10 +134,12 @@ jobs:
           node --check tests/js/books_training_surface_dom_test.js
           node --check tests/js/version2_release_bootstrap_dom_test.js
           node --check tests/js/library_surface_dom_test.js
+          node --check tests/js/library_event_boundary_test.js
           node --check tests/js/pgn_surface_dom_test.js
           node tests/js/books_training_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
+          node tests/js/library_event_boundary_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/p0_accessibility_runtime_test.js
           node tests/js/p0_dynamic_selection_runtime_test.js
@@ -160,6 +162,7 @@ jobs:
           tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_full_product_webview_adapter
+          tests.test_books_semantic_host_bounds
           tests.test_v2_book_progress_store
           tests.test_v2_book_progress_store_production
           tests.test_v2_book_training_route_rollback
@@ -178,6 +181,8 @@ jobs:
           tests.test_dev1_library_webview_projection
           tests.test_d07_library_export_webview
           tests.test_d07_library_import_service
+          tests.test_d07_library_import_reuse_final_cancel
+          tests.test_acsdb
           tests.test_user_library_seed
           tests.test_user_library_seed_parent_safety
           tests.test_v2_packaged_starter_application
@@ -189,6 +194,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_settings
+          tests.test_settings_private_temp_identity_current
           tests.test_settings_postpublication_cleanup_current_main
           tests.test_v2_upgrade_generated_artifact_authentication
           tests.test_v2_upgrade_publish_race_audit
@@ -214,6 +220,7 @@ jobs:
           tests.test_gametree
           tests.test_v2_book_html_head_metadata_semantics
           tests.test_v2_book_html_import
+          tests.test_v2_book_epub_package_contract
           tests.test_v2_book_game_content
           tests.test_v2_book_library_game_lookup
           tests.test_book_index
