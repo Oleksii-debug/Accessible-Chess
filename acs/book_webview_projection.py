@@ -372,10 +372,16 @@ class BookWebViewProjection:
             raise ValueError("book heading path contains an empty visible part")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
-        if not isinstance(navigation, Mapping) or set(navigation) != _NAVIGATION_KEYS:
+        # Presenter navigation is a trust boundary just like BookBlockView.
+        # Require the canonical built-in container before iteration, hashing,
+        # equality or lookup can invoke provider-defined hooks.
+        if type(navigation) is not dict or len(navigation) != len(_NAVIGATION_KEYS):
             raise ValueError("book navigation availability schema is invalid")
-        if any(type(navigation[key]) is not bool for key in _NAVIGATION_KEYS):
-            raise ValueError("book navigation availability flags are invalid")
+        for key, value in navigation.items():
+            if type(key) is not str or key not in _NAVIGATION_KEYS:
+                raise ValueError("book navigation availability schema is invalid")
+            if type(value) is not bool:
+                raise ValueError("book navigation availability flags are invalid")
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
