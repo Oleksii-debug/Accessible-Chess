@@ -64,6 +64,21 @@ function liveKeymapAction(event, context) {
     return resolver(event, context);
 }
 
+function liveExactRegistryAction(event, registryContext, uiContext) {
+    const readiness = liveKeymapAction(event, uiContext);
+    if (readiness === null) return null;
+    if (
+        typeof keymap === 'undefined' || !Array.isArray(keymap)
+        || typeof eventChord !== 'function' || typeof normalizeChord !== 'function'
+    ) return '';
+    const chord = normalizeChord(eventChord(event));
+    const item = keymap.find(action =>
+        action && action.registryContext === registryContext
+        && action.binding && normalizeChord(action.binding) === chord
+    );
+    return item ? item.id : '';
+}
+
 function stopOwnedEvent(event) {
     event.preventDefault();
     event.stopPropagation();
@@ -118,15 +133,23 @@ async function executeRemappedBoardAction(id, event) {
 }
 
 async function remappableOnBoardKey(event) {
-    const actionId = liveKeymapAction(event, 'board');
+    const projectedAction = liveKeymapAction(event, 'board');
     // null means the canonical keymap is not ready yet. Preserve the frozen
     // Stage 1 literal defaults only during that bounded bootstrap window.
-    if (actionId === null) {
+    if (projectedAction === null) {
         if (typeof baseOnBoardKey === 'function') return baseOnBoardKey(event);
         return;
     }
-    // Empty means the keymap is ready but this chord is not bound in BOARD.
-    // Do not fall back to the historical literal Arrow/Enter/Escape defaults.
+    // Once ready, use the existing canonical resolver so BOARD keeps the
+    // accepted exact-context -> GLOBAL fallback order. The synchronous projected
+    // action is only a same-snapshot fallback if the async resolver is absent.
+    let actionId = projectedAction;
+    if (typeof resolveBinding === 'function' && typeof eventChord === 'function') {
+        const resolved = await resolveBinding(eventChord(event), 'board', 'board');
+        actionId = resolved && resolved.actionId ? resolved.actionId : '';
+    }
+    // Empty means the keymap is ready but this chord is not bound for BOARD or
+    // GLOBAL. Do not fall back to historical literal Arrow/Enter/Escape defaults.
     if (!actionId) return;
     stopOwnedEvent(event);
     return executeRemappedBoardAction(actionId, event);
@@ -147,11 +170,11 @@ function installBoardKeyHandler() {
     }
 }
 
-function installCommitKeyHandler(elementId, context, actionId, invoke) {
+function installCommitKeyHandler(elementId, registryContext, uiContext, actionId, invoke) {
     const node = document.getElementById(elementId);
     if (!node || typeof node.addEventListener !== 'function') return;
     node.addEventListener('keydown', event => {
-        const resolved = liveKeymapAction(event, context);
+        const resolved = liveExactRegistryAction(event, registryContext, uiContext);
         // Let the existing literal Enter handler remain the bootstrap fallback.
         if (resolved === null) return;
         if (resolved === actionId) {
@@ -167,10 +190,11 @@ function installCommitKeyHandler(elementId, context, actionId, invoke) {
 }
 
 installBoardKeyHandler();
-installCommitKeyHandler('move-input', 'move_entry', 'move.submit', () => submitMove());
+installCommitKeyHandler('move-input', 'move_entry', 'move-entry', 'move.submit', () => submitMove());
 installCommitKeyHandler(
     'history-input',
     'history',
+    'document',
     'history.commit_go_to_move',
     event => apiAction('go_to_move', event.target.value)
 );
