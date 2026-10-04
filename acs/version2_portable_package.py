@@ -376,16 +376,22 @@ def _validate_preflighted_source_binding(
 
     source_manifest = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_MANIFEST).parts)
     source_checksums = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_CHECKSUMS).parts)
-    manifest_digest = _stable_digest(
+    # Read each authoritative metadata file exactly once.  The digest and the
+    # parsed semantics below must describe the same stable byte snapshot; a
+    # digest read followed by a second parse read leaves a between-read TOCTOU
+    # window where different bytes could be parsed under the earlier digest.
+    source_manifest_payload = _stable_bytes(
         source_manifest,
         label="canonical source release manifest",
         maximum=1024 * 1024,
     )
-    checksums_digest = _stable_digest(
+    manifest_digest = hashlib.sha256(source_manifest_payload).hexdigest()
+    source_checksums_payload = _stable_bytes(
         source_checksums,
         label="canonical source checksum inventory",
         maximum=16 * 1024 * 1024,
     )
+    checksums_digest = hashlib.sha256(source_checksums_payload).hexdigest()
     for key, actual in (
         ("source_manifest_sha256", manifest_digest),
         ("source_checksums_sha256", checksums_digest),
@@ -399,13 +405,7 @@ def _validate_preflighted_source_binding(
         ):
             _fail("portable source-package metadata digest is invalid")
 
-    source_value = _strict_json_bytes(
-        _stable_bytes(
-            source_manifest,
-            label="canonical source release manifest",
-            maximum=1024 * 1024,
-        )
-    )
+    source_value = _strict_json_bytes(source_manifest_payload)
     if (
         source_value.get("manifest_schema") != V2_PACKAGE_MANIFEST_SCHEMA_VERSION
         or source_value.get("product") != "Accessible Chess"
@@ -415,11 +415,7 @@ def _validate_preflighted_source_binding(
         _fail("portable canonical source manifest identity is invalid")
 
     source_entries = _checksum_entries(
-        _stable_bytes(
-            source_checksums,
-            label="canonical source checksum inventory",
-            maximum=16 * 1024 * 1024,
-        ),
+        source_checksums_payload,
         label="canonical source checksum inventory",
     )
     manifest_entry = source_entries.get(MANIFEST_NAME.casefold())
