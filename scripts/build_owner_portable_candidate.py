@@ -3,14 +3,13 @@ from __future__ import annotations
 """Build and qualify the owner-specific one-click Windows candidate.
 
 This is a release/build seam, not a second chess, PGN, Library or sound engine.
-It composes the existing portable-package authority with the existing private
-Library seed importer and the exact user-sound-pack identity authority.
+It composes the existing portable-package authority with the canonical private
+Library seed importer and exact user-sound-pack identity authority.
 
-The generic portable package intentionally supports products without private
-owner content.  The final owner candidate does not: this module fails closed
-unless the immutable package contains the explicitly required private Library
-seed and exact 330-WAV user sound inventory, and unless both requested DOCX
-bytes match caller-supplied SHA-256 identities.
+The generic portable package may exist without private owner content. The final
+owner candidate may not: this module fails closed unless the immutable package
+contains the required private seed, exact 330-WAV inventory, and two explicitly
+SHA-256-authorized DOCX inputs.
 """
 
 import argparse
@@ -84,8 +83,8 @@ def _fail(message: str) -> None:
     raise OwnerPortableCandidateError(message)
 
 
-def _sha256_value(value: str, *, label: str) -> str:
-    if not isinstance(value, str):
+def _sha256_value(value: object, *, label: str) -> str:
+    if type(value) is not str:
         _fail(f"{label} SHA-256 is invalid")
     normalized = value.strip().casefold()
     if _SHA256_RE.fullmatch(normalized) is None:
@@ -107,7 +106,7 @@ def _file_sha256(path: Path) -> str:
 
 
 def _strict_json_object(path: Path, *, label: str) -> dict[str, object]:
-    def pairs(items):
+    def unique_pairs(items):
         result: dict[str, object] = {}
         for key, value in items:
             if key in result:
@@ -116,8 +115,8 @@ def _strict_json_object(path: Path, *, label: str) -> dict[str, object]:
         return result
 
     try:
-        payload = path.read_text(encoding="utf-8-sig", errors="strict")
-        value = json.loads(payload, object_pairs_hook=pairs)
+        text = path.read_text(encoding="utf-8-sig", errors="strict")
+        value = json.loads(text, object_pairs_hook=unique_pairs)
     except OwnerPortableCandidateError:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -130,21 +129,20 @@ def _strict_json_object(path: Path, *, label: str) -> dict[str, object]:
 def _portable_inventory_name(value: object) -> str:
     if type(value) is not str:
         _fail("owner sound inventory filename is invalid")
-    name = value
-    pure = PurePosixPath(name)
+    pure = PurePosixPath(value)
     if (
-        not name
+        not value
         or pure.is_absolute()
-        or pure.as_posix() != name
+        or pure.as_posix() != value
         or len(pure.parts) < 2
         or pure.parts[0] != "library"
         or any(part in {"", ".", ".."} for part in pure.parts)
-        or "\\" in name
-        or "\x00" in name
-        or not name.casefold().endswith(".wav")
+        or "\\" in value
+        or "\x00" in value
+        or not value.casefold().endswith(".wav")
     ):
         _fail("owner sound inventory filename is invalid")
-    return name
+    return value
 
 
 def _validate_owner_sound_pack(
@@ -160,7 +158,7 @@ def _validate_owner_sound_pack(
         sound_root / "inventory.json",
         label="owner sound inventory",
     )
-    required = {
+    if set(inventory) != {
         "schema_version",
         "source",
         "license_id",
@@ -170,8 +168,7 @@ def _validate_owner_sound_pack(
         "source_archive_sha256",
         "source_archive_bytes",
         "files",
-    }
-    if set(inventory) != required:
+    }:
         _fail("owner sound inventory contract is invalid")
     if (
         type(inventory["schema_version"]) is not int
@@ -187,7 +184,7 @@ def _validate_owner_sound_pack(
         _fail("owner sound inventory identity is invalid")
 
     declared_archive = _sha256_value(
-        str(inventory["source_archive_sha256"]),
+        inventory["source_archive_sha256"],
         label="declared owner sound archive",
     )
     if declared_archive != expected_archive:
@@ -200,15 +197,13 @@ def _validate_owner_sound_pack(
     declared: dict[str, tuple[str, str, int]] = {}
     fingerprint_rows: list[tuple[str, bytes]] = []
     for item in files:
-        if not isinstance(item, Mapping):
+        if not isinstance(item, Mapping) or not {"file", "sha256", "bytes"}.issubset(item):
             _fail("owner sound inventory file metadata is invalid")
-        if not {"file", "sha256", "bytes"}.issubset(item):
-            _fail("owner sound inventory file metadata is incomplete")
         name = _portable_inventory_name(item["file"])
         folded = name.casefold()
         if folded in declared:
             _fail("owner sound inventory contains duplicate filenames")
-        digest = _sha256_value(str(item["sha256"]), label="owner sound file")
+        digest = _sha256_value(item["sha256"], label="owner sound file")
         size = item["bytes"]
         if type(size) is not int or size <= 0:
             _fail("owner sound inventory file byte size is invalid")
@@ -254,7 +249,7 @@ def _validate_owner_sound_pack(
         metadata = declared.get(folded)
         if metadata is None:
             _fail("owner sound tree contains a WAV not declared by inventory")
-        _declared_name, expected_digest, expected_size = metadata
+        _name, expected_digest, expected_size = metadata
         try:
             actual_size = path.stat().st_size
         except OSError as exc:
@@ -269,7 +264,7 @@ def _validate_owner_sound_pack(
         b"".join(row for _folded, row in sorted(fingerprint_rows, key=lambda item: item[0]))
     ).hexdigest()
     declared_inventory = _sha256_value(
-        str(inventory["source_inventory_sha256"]),
+        inventory["source_inventory_sha256"],
         label="owner sound inventory",
     )
     if (
@@ -293,16 +288,22 @@ def _validate_owner_seed(
         _fail("expected owner Library game count is invalid")
     try:
         manifest = load_user_library_seed(seed_root)
-        with AcsDatabase(":memory:") as database:
-            summary = import_user_library_seed(database, manifest)
     except UserLibrarySeedError as exc:
         raise OwnerPortableCandidateError(
             "owner Library seed failed canonical validation"
         ) from exc
-    except Exception as exc:
+    try:
+        with AcsDatabase(":memory:") as database:
+            summary = import_user_library_seed(database, manifest)
+    except UserLibrarySeedError as exc:
         raise OwnerPortableCandidateError(
             "owner Library seed failed canonical import qualification"
         ) from exc
+    except Exception as exc:
+        raise OwnerPortableCandidateError(
+            "owner Library seed import qualification failed unexpectedly"
+        ) from exc
+
     if summary.source_count != expected_source_count:
         _fail(
             "owner Library seed source count mismatch: "
@@ -393,8 +394,7 @@ def assemble_owner_portable_candidate(
     )
     root = assembled.package_root
     for source, expected_digest in zip(word_documents, document_digests, strict=True):
-        packaged = root / Path(source).name
-        if _file_sha256(packaged) != expected_digest:
+        if _file_sha256(root / Path(source).name) != expected_digest:
             _fail("packaged owner Word document does not match its authorized SHA-256")
 
     qualification = validate_owner_portable_candidate_tree(
@@ -452,10 +452,7 @@ def main() -> int:
         args.output_root,
         args.output_zip,
         integration_sha=args.integration_sha,
-        expected_document_sha256=(
-            args.first_docx_sha256,
-            args.second_docx_sha256,
-        ),
+        expected_document_sha256=(args.first_docx_sha256, args.second_docx_sha256),
         expected_sound_archive_sha256=args.sound_archive_sha256,
         expected_seed_source_count=args.seed_source_count,
         expected_seed_game_count=args.seed_game_count,
