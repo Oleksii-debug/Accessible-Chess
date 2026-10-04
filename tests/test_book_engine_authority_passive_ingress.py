@@ -4,7 +4,7 @@ import unittest
 
 from acs.analysis_service import AnalysisService
 from acs.book_board_workflow import BookBoardWorkflow
-from acs.bookdocument import BookDocument, Position
+from acs.bookdocument import BookDocument, Diagram, Exercise, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
@@ -51,6 +51,47 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
             "^engine_assistance must be EngineAssistedWorkflowService$",
         ):
             BookBoardWorkflow(self._reader(), hostile)
+
+    def test_book_block_analysis_rejects_semantic_subclass_before_attribute_hooks(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        assisted = EngineAssistedWorkflowService(analysis)
+
+        class HostilePosition(Position):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name == "fen":
+                    type(self).touched = True
+                    raise AssertionError("rejected Book semantic subclass must stay passive")
+                return super().__getattribute__(name)
+
+        hostile = HostilePosition(fen=Board.START)
+        HostilePosition.armed = True
+
+        with self.assertRaises(EngineContractError) as caught:
+            assisted.analyze_book_block(hostile)
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_REQUEST)
+        self.assertFalse(HostilePosition.touched)
+
+    def test_exact_book_block_roots_remain_supported_for_engine_analysis(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        assisted = EngineAssistedWorkflowService(analysis)
+
+        exact_blocks = (
+            Position(fen=Board.START),
+            Diagram(fen=Board.START, alt_text="Start"),
+            VariationTree(root_fen=Board.START, pgn="1. e4"),
+            Exercise(fen=Board.START, prompt="Move", answer_text="e4"),
+        )
+        for block in exact_blocks:
+            with self.subTest(kind=type(block).__name__):
+                result = assisted.analyze_book_block(block)
+                self.assertFalse(result.stale)
+                self.assertEqual(result.fen, Board.START)
 
     def test_exact_provider_chain_remains_canonical(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
