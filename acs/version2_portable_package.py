@@ -163,7 +163,7 @@ def _strict_json_bytes(payload: bytes) -> dict[str, object]:
     return value
 
 
-def _manifest(root: Path) -> dict[str, object]:
+def _manifest_snapshot(root: Path) -> tuple[dict[str, object], str]:
     path = root / MANIFEST_NAME
     info = _safe_info(path, label="portable release manifest", directory=False)
     if info.st_size <= 0 or info.st_size > 1024 * 1024:
@@ -176,6 +176,11 @@ def _manifest(root: Path) -> dict[str, object]:
     value = _strict_json_bytes(payload)
     if set(value) != _PORTABLE_MANIFEST_KEYS:
         _fail("portable release manifest contract is invalid")
+    return value, hashlib.sha256(payload).hexdigest()
+
+
+def _manifest(root: Path) -> dict[str, object]:
+    value, _digest = _manifest_snapshot(root)
     return value
 
 
@@ -507,7 +512,7 @@ def validate_portable_oneclick_tree(
         ),
     }
 
-    value = _manifest(root)
+    value, manifest_identity_digest = _manifest_snapshot(root)
     if (
         value["manifest_schema"] != V2_PACKAGE_MANIFEST_SCHEMA_VERSION
         or value["product"] != "Accessible Chess"
@@ -560,6 +565,8 @@ def validate_portable_oneclick_tree(
         inventory=inventory,
     )
     checksums = _checksum_inventory(root, inventory)
+    if checksums.get(MANIFEST_NAME.casefold()) != manifest_identity_digest:
+        _fail("portable release manifest semantics are not bound to checksum inventory")
     for relative, identity_digest in launcher_identities.items():
         if checksums.get(relative) != identity_digest:
             _fail("portable launcher identity is not bound to checksum inventory")
