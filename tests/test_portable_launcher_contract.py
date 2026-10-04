@@ -79,15 +79,37 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         host_ok: bool,
         server_ok: bool,
         release_ui_raises: bool = False,
+        host_install_raises: bool = False,
+        server_install_raises: bool = False,
+        safe_port_raises: bool = False,
     ) -> tuple[object, str]:
         accessibility = types.ModuleType("acs.webview2_accessibility")
         accessibility.enable_webview2_renderer_accessibility = lambda: None
-        accessibility.install_pywebview_accessibility_host_patch = lambda: host_ok
+
+        def host_install():
+            if host_install_raises:
+                raise ImportError("synthetic accessibility host import failure")
+            return host_ok
+
+        accessibility.install_pywebview_accessibility_host_patch = host_install
         safe_server = types.ModuleType("acs.webview_safe_server")
-        safe_server.install_pywebview_safe_local_server_port = lambda: server_ok
+
+        class SafeLocalServerPortError(RuntimeError):
+            pass
+
+        safe_server.SafeLocalServerPortError = SafeLocalServerPortError
+
+        def server_install():
+            if server_install_raises:
+                raise ImportError("synthetic webview import failure")
+            return server_ok
+
+        safe_server.install_pywebview_safe_local_server_port = server_install
         release_ui = types.ModuleType("acs.stage1_release_ui")
 
         def release_main() -> None:
+            if safe_port_raises:
+                raise SafeLocalServerPortError("synthetic safe-port exhaustion")
             if release_ui_raises:
                 raise RuntimeError("synthetic release UI startup failure")
 
@@ -119,6 +141,30 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         code, stderr = self._run_packaged_bootstrap(host_ok=True, server_ok=False)
         self.assertEqual(code, 72)
         self.assertIn("Accessible WebView2 local server could not be initialized.", stderr)
+
+    def test_real_entrypoint_maps_bootstrap_installer_exceptions_to_specific_codes(self):
+        host_code, _stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            host_install_raises=True,
+        )
+        self.assertEqual(host_code, 71)
+
+        server_code, _stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            server_install_raises=True,
+        )
+        self.assertEqual(server_code, 72)
+
+    def test_real_entrypoint_keeps_deferred_safe_port_failure_on_code_72(self):
+        code, stderr = self._run_packaged_bootstrap(
+            host_ok=True,
+            server_ok=True,
+            safe_port_raises=True,
+        )
+        self.assertEqual(code, 72)
+        self.assertIn("could not obtain a safe loopback port", stderr)
 
     def test_real_entrypoint_reports_release_ui_startup_code_and_traceback(self):
         code, stderr = self._run_packaged_bootstrap(
