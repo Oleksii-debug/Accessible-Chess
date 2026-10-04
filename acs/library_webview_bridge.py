@@ -35,13 +35,17 @@ class LibraryWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping) or len(value) > 8:
+        if type(value) is not dict:
+            raise ValueError("invalid library browser payload")
+        if len(value) > 8:
             raise ValueError("invalid library browser payload")
         result: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str) or not key.strip() or len(key.strip()) > 64:
+            if type(key) is not str or len(key) > 64 or "\x00" in key:
                 raise ValueError("invalid library browser payload key")
             token = key.strip()
+            if not token:
+                raise ValueError("invalid library browser payload key")
             if token in result:
                 raise ValueError("duplicate library browser payload key")
             result[token] = item
@@ -54,19 +58,27 @@ class LibraryWebViewBridge:
 
     @staticmethod
     def _text(value: object, name: str) -> str | None:
-        if value is None or value == "":
+        if value is None:
             return None
-        if not isinstance(value, str) or "\x00" in value or len(value) > 256:
+        if type(value) is not str:
+            raise ValueError(f"invalid {name}")
+        if value == "":
+            return None
+        if "\x00" in value or len(value) > 256:
             raise ValueError(f"invalid {name}")
         return value
 
     @staticmethod
     def _positive_int(value: object, name: str) -> int | None:
-        if value is None or value == "":
+        if value is None:
             return None
         if type(value) is int:
             integer = value
-        elif isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 19:
+        elif type(value) is str:
+            if value == "":
+                return None
+            if len(value) > 19 or not value.isascii() or not value.isdecimal():
+                raise ValueError(f"invalid {name}")
             integer = int(value)
         else:
             raise ValueError(f"invalid {name}")
@@ -83,11 +95,15 @@ class LibraryWebViewBridge:
 
     @staticmethod
     def _limit(value: object) -> int:
-        if value is None or value == "":
+        if value is None:
             return 50
         if type(value) is int:
             integer = value
-        elif isinstance(value, str) and value.isascii() and value.isdecimal():
+        elif type(value) is str:
+            if value == "":
+                return 50
+            if len(value) > 3 or not value.isascii() or not value.isdecimal():
+                raise ValueError("invalid limit")
             integer = int(value)
         else:
             raise ValueError("invalid limit")
@@ -97,11 +113,15 @@ class LibraryWebViewBridge:
 
     @staticmethod
     def _result(value: object) -> str | None:
-        if value is None or value == "":
+        if value is None:
+            return None
+        if type(value) is not str:
+            raise ValueError("invalid result")
+        if value == "":
             return None
         if value not in {"1-0", "0-1", "1/2-1/2", "*"}:
             raise ValueError("invalid result")
-        return str(value)
+        return value
 
     def _query(self, data: Mapping[str, object]) -> GameSearchQuery:
         if set(data).difference(self._SEARCH_FIELDS):
@@ -125,9 +145,11 @@ class LibraryWebViewBridge:
 
     def dispatch(self, command: object, payload: Mapping[str, object] | None = None) -> LibraryWebViewEvent:
         try:
-            if not isinstance(command, str) or not command.strip() or len(command.strip()) > 64:
+            if type(command) is not str or len(command) > 64 or "\x00" in command:
                 raise ValueError("invalid library browser command")
             command_id = command.strip()
+            if not command_id:
+                raise ValueError("invalid library browser command")
             data = self._payload(payload)
             if command_id == "library.search":
                 return self._projection.search(self._query(data))
@@ -175,7 +197,7 @@ class LibraryWebViewBridge:
             if command_id == "library.language":
                 self._exact(data, {"language"})
                 language = data["language"]
-                if not isinstance(language, str) or len(language) > 8:
+                if type(language) is not str or len(language) > 8:
                     raise ValueError("invalid language")
                 return self._projection.set_language(language)
             raise ValueError("unsupported library browser command")
