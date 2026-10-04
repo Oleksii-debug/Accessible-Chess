@@ -217,9 +217,6 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             path = Path(td) / "training-progress.json"
             session = ExerciseSession(self._definition())
             oversized_snapshot = session.snapshot()
-            # Canonical Training now rejects over-budget definition identifiers
-            # before a session exists. Exercise the storage boundary directly so
-            # its independent 1 MiB publication guard remains proven.
             oversized_snapshot["exercise_id"] = "x" * (MAX_TRAINING_PROGRESS_BYTES + 1)
             store = TrainingProgressStore(path)
 
@@ -267,6 +264,105 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             self.assertEqual("outside-user-data", target.read_text(encoding="utf-8"))
             self.assertTrue(path.is_symlink())
 
+    def test_storage_parent_symlink_is_rejected_without_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target_dir = root / "outside"
+            target_dir.mkdir()
+            linked_dir = root / "progress-link"
+            try:
+                linked_dir.symlink_to(target_dir, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory symlink creation is unavailable on this platform")
+            path = linked_dir / "training-progress.json"
+            store = TrainingProgressStore(path)
+
+            with self.assertRaisesRegex(ValueError, "storage directory"):
+                store.load(self._definition())
+            with self.assertRaisesRegex(ValueError, "storage directory"):
+                store.save(
+                    ExerciseSession(self._definition()),
+                    expected_revision=None,
+                )
+
+            self.assertEqual([], list(target_dir.iterdir()))
+
+    def test_storage_parent_identity_change_during_save_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            parent = root / "progress"
+            replacement_parent = root / "replacement"
+            parent.mkdir()
+            replacement_parent.mkdir()
+            path = parent / "training-progress.json"
+            store = TrainingProgressStore(path)
+            session = ExerciseSession(self._definition())
+
+            real_lstat = os.lstat
+            replacement_metadata = real_lstat(replacement_parent)
+            parent_checks = 0
+
+            def racing_lstat(candidate):
+                nonlocal parent_checks
+                if Path(candidate) == parent:
+                    parent_checks += 1
+                    if parent_checks >= 3:
+                        return replacement_metadata
+                return real_lstat(candidate)
+
+            with mock.patch(
+                "acs.training_progress_store.os.lstat",
+                side_effect=racing_lstat,
+            ):
+                with self.assertRaisesRegex(ValueError, "changed during the transaction"):
+                    store.save(session, expected_revision=None)
+
+            self.assertGreaterEqual(parent_checks, 3)
+            self.assertFalse(path.exists())
+
+    def test_save_runs_durability_barrier_before_acknowledging_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "training-progress.json"
+            store = TrainingProgressStore(path)
+            session = ExerciseSession(self._definition())
+
+            with mock.patch(
+                "acs.training_progress_store._sync_published_path",
+                wraps=progress_store_module._sync_published_path,
+            ) as sync_published:
+                revision = store.save(session, expected_revision=None)
+
+            sync_published.assert_called_once_with(path)
+            loaded = TrainingProgressStore(path).load(self._definition())
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(revision, loaded.revision)
+
+    def test_durability_barrier_failure_withholds_success_after_visible_replace(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "training-progress.json"
+            definition = self._definition()
+            store = TrainingProgressStore(path)
+            initial = ExerciseSession(definition)
+            initial_revision = store.save(initial, expected_revision=None)
+
+            advanced = ExerciseSession(definition)
+            advanced.submit("e4")
+            with mock.patch(
+                "acs.training_progress_store._sync_published_path",
+                side_effect=OSError("injected durability failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "injected durability failure"):
+                    store.save(advanced, expected_revision=initial_revision)
+
+            # Atomic replace may already be visible. The important contract is
+            # that save did not falsely acknowledge durability.
+            loaded = TrainingProgressStore(path).load(definition)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(1, loaded.session.step_index)
+            self.assertEqual(("e4",), loaded.session.accepted_path)
+
     def test_external_change_during_save_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "training-progress.json"
@@ -309,7 +405,7 @@ class TrainingProgressCrashRecoveryTests(unittest.TestCase):
             advanced = ExerciseSession(definition)
             advanced.submit("e4")
             with mock.patch(
-                "acs.training_progress_store.os.replace",
+                "acs.training_progress_store._replace_published_path",
                 side_effect=OSError("injected replace failure"),
             ):
                 with self.assertRaises(OSError):
