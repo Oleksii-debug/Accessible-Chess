@@ -134,8 +134,16 @@ class KeymapService:
 
         merged = registry.to_profile()
         try:
-            profile_bindings = profile.get("bindings", {})
-            profile_aliases = profile.get("aliases", {})
+            version = profile.get("schema_version", 0)
+            if version == 0:
+                # Match ActionRegistry's bounded legacy migration exactly. An
+                # unversioned profile may use keys/commands, and an explicitly
+                # empty current container still falls back to its legacy peer.
+                profile_bindings = profile.get("bindings") or profile.get("keys") or {}
+                profile_aliases = profile.get("aliases") or profile.get("commands") or {}
+            else:
+                profile_bindings = profile.get("bindings", {})
+                profile_aliases = profile.get("aliases", {})
             if not isinstance(profile_bindings, Mapping) or not isinstance(profile_aliases, Mapping):
                 raise ValueError("invalid keymap profile")
             merged_bindings = merged.get("bindings")
