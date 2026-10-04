@@ -42,6 +42,8 @@ _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES = frozenset(
     {"application/xhtml+xml", "image/svg+xml"}
 )
+_MEDIA_OVERLAY_MEDIA_TYPE = "application/smil+xml"
+_NCX_MEDIA_TYPE = "application/x-dtbncx+xml"
 _CONTAINER_NAMESPACE = "urn:oasis:names:tc:opendocument:xmlns:container"
 _CONTAINER_TAG = f"{{{_CONTAINER_NAMESPACE}}}container"
 _ROOTFILES_TAG = f"{{{_CONTAINER_NAMESPACE}}}rootfiles"
@@ -102,6 +104,7 @@ class _ManifestItem:
     entry_name: str
     media_type: str
     fallback: str | None
+    media_overlay: str | None
 
 
 class _Warnings:
@@ -384,6 +387,15 @@ def _local_name(tag: object) -> str:
     return tag.rsplit("}", 1)[-1].split(":", 1)[-1].casefold()
 
 
+def _is_exact_identifier(value: object) -> bool:
+    return (
+        type(value) is str
+        and bool(value)
+        and value == value.strip()
+        and not any(character.isspace() for character in value)
+    )
+
+
 def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
     for child in parent:
@@ -443,6 +455,11 @@ def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> N
         raw_id = element.attrib.get("id")
         if raw_id is None:
             return
+        if not _is_exact_identifier(raw_id):
+            raise _error(
+                "EPUB package contains a malformed document identifier",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
         if raw_id in seen:
             raise _error(
                 "EPUB package contains duplicate document identifiers",
@@ -477,13 +494,16 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    unique_identifier = package.attrib.get("unique-identifier")
-    if (
-        type(unique_identifier) is not str
-        or not unique_identifier
-        or unique_identifier != unique_identifier.strip()
-        or any(character.isspace() for character in unique_identifier)
+    if (package.text or "").strip() or any(
+        (child.tail or "").strip() for child in package
     ):
+        raise _error(
+            "EPUB package contains invalid mixed text",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    unique_identifier = package.attrib.get("unique-identifier")
+    if not _is_exact_identifier(unique_identifier):
         raise _error(
             "EPUB package metadata has a missing or malformed unique identifier",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -492,32 +512,60 @@ def _validate_package_document(package: ET.Element) -> None:
     structural_children = [
         child.tag for child in package if _is_opf_namespace_tag(child.tag)
     ]
-    required = (
-        (_METADATA_TAG, "metadata"),
-        (_MANIFEST_TAG, "manifest"),
-        (_SPINE_TAG, "spine"),
-    )
-    positions: list[int] = []
-    for tag, name in required:
-        matches = [
-            index
-            for index, child_tag in enumerate(structural_children)
-            if child_tag == tag
-        ]
-        if len(matches) != 1:
-            raise _error(
-                f"EPUB package must contain exactly one {name} section",
-                BookEpubImportErrorCode.MALFORMED_PACKAGE,
-            )
-        positions.append(matches[0])
-    if positions != sorted(positions):
+    required = (_METADATA_TAG, _MANIFEST_TAG, _SPINE_TAG)
+    if (
+        tuple(structural_children[:3]) != required
+        or any(structural_children.count(tag) != 1 for tag in required)
+    ):
         raise _error(
-            "EPUB package required sections are out of canonical order",
+            "EPUB package required sections must be the first three OPF children in canonical order",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
     metadata = _required_unique_direct_child(package, "metadata")
+    if (metadata.text or "").strip() or any(
+        (child.tail or "").strip() for child in metadata
+    ):
+        raise _error(
+            "EPUB metadata contains invalid mixed text",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    for child in metadata:
+        if _is_opf_namespace_tag(child.tag) and child.tag not in {
+            f"{{{_OPF_NAMESPACE}}}meta",
+            f"{{{_OPF_NAMESPACE}}}link",
+        }:
+            raise _error(
+                "EPUB metadata contains an invalid OPF element",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
     _validate_package_ids_unique(package, metadata)
+    dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
+    for element in metadata:
+        if type(element.tag) is not str or not element.tag.startswith(dc_prefix):
+            continue
+        if len(element):
+            raise _error(
+                "EPUB Dublin Core metadata must contain text only",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if not " ".join((element.text or "").split()):
+            raise _error(
+                "EPUB Dublin Core metadata values must not be empty",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
+    if not _metadata_values(metadata, "title"):
+        raise _error(
+            "EPUB package metadata is missing a non-empty dc:title",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    if not _metadata_values(metadata, "language"):
+        raise _error(
+            "EPUB package metadata is missing a non-empty dc:language",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
     for element in metadata:
@@ -608,13 +656,25 @@ def _resolve_package_href(
     return joined
 
 
-def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
+def _package_rootfile(
+    container: ET.Element,
+    warnings: _Warnings,
+    archive_index: dict[str, zipfile.ZipInfo],
+) -> str:
     if (
         container.tag != _CONTAINER_TAG
         or container.attrib.get("version") != "1.0"
     ):
         raise _error(
             "EPUB container metadata has an invalid root element or version",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    if (container.text or "").strip() or any(
+        (child.tail or "").strip() for child in container
+    ):
+        raise _error(
+            "EPUB container contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
@@ -645,7 +705,8 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    candidates: list[ET.Element] = []
+    candidates: list[str] = []
+    seen_paths: set[str] = set()
     for element in rootfiles:
         if not _is_container_namespace_tag(element.tag):
             # Foreign extension element and all its contents are ignored by OCF.
@@ -672,7 +733,19 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
                 "EPUB rootfile has a missing or invalid package media type",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        candidates.append(element)
+        full_path = _resolve_package_href("", element.attrib.get("full-path"))
+        if full_path in seen_paths:
+            raise _error(
+                "EPUB container resolves multiple rootfiles to the same package document",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if full_path not in archive_index:
+            raise _error(
+                "EPUB container references a package document that is unavailable",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        seen_paths.add(full_path)
+        candidates.append(full_path)
         if (element.tail or "").strip():
             raise _error(
                 "EPUB rootfiles section contains invalid text content",
@@ -686,8 +759,7 @@ def _package_rootfile(container: ET.Element, warnings: _Warnings) -> str:
         )
     if len(candidates) > 1:
         warnings.add("multiple EPUB package documents were present; the first supported rootfile was used")
-    full_path = candidates[0].attrib.get("full-path")
-    return _resolve_package_href("", full_path)
+    return candidates[0]
 
 
 def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
@@ -723,34 +795,41 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         raw_item_id = element.attrib.get("id")
-        media_type = (element.attrib.get("media-type") or "").strip().casefold()
+        raw_media_type = element.attrib.get("media-type")
         href = element.attrib.get("href")
         raw_fallback = element.attrib.get("fallback")
+        raw_media_overlay = element.attrib.get("media-overlay")
         if (
-            type(raw_item_id) is not str
-            or not raw_item_id
-            or raw_item_id != raw_item_id.strip()
-            or any(character.isspace() for character in raw_item_id)
-            or not media_type
+            not _is_exact_identifier(raw_item_id)
+            or type(raw_media_type) is not str
+            or not raw_media_type
+            or raw_media_type != raw_media_type.strip()
+            or any(character.isspace() for character in raw_media_type)
         ):
             raise _error(
                 "EPUB manifest item is missing or has malformed required identity",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
+        media_type = raw_media_type.casefold()
         if raw_fallback is None:
             fallback = None
-        elif (
-            not raw_fallback
-            or raw_fallback != raw_fallback.strip()
-            or any(character.isspace() for character in raw_fallback)
-        ):
+        elif not _is_exact_identifier(raw_fallback):
             raise _error(
                 "EPUB manifest fallback identifier is malformed",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         else:
             fallback = raw_fallback
+        if raw_media_overlay is None:
+            media_overlay = None
+        elif not _is_exact_identifier(raw_media_overlay):
+            raise _error(
+                "EPUB manifest media-overlay identifier is malformed",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        else:
+            media_overlay = raw_media_overlay
         if item_id in output:
             raise _error(
                 "EPUB manifest contains duplicate item identifiers",
@@ -769,6 +848,7 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             entry_name=entry_name,
             media_type=media_type,
             fallback=fallback,
+            media_overlay=media_overlay,
         )
     if not output:
         raise _error(
@@ -776,7 +856,33 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     _validate_manifest_fallback_graph(output)
+    _validate_manifest_media_overlays(output)
     return output
+
+
+def _validate_manifest_media_overlays(
+    manifest: dict[str, _ManifestItem],
+) -> None:
+    for item in manifest.values():
+        overlay_id = item.media_overlay
+        if overlay_id is None:
+            continue
+        if item.media_type not in _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES:
+            raise _error(
+                "EPUB media-overlay is only valid on EPUB content documents",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        overlay = manifest.get(overlay_id)
+        if overlay is None:
+            raise _error(
+                "EPUB media-overlay references an unknown manifest item",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if overlay.media_type != _MEDIA_OVERLAY_MEDIA_TYPE:
+            raise _error(
+                "EPUB media-overlay target has an invalid media type",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
 
 def _validate_manifest_fallback_graph(
@@ -840,13 +946,36 @@ def _validate_manifest_resources(
             )
 
 
-def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
+def _spine_ids(
+    package: ET.Element,
+    warnings: _Warnings,
+    manifest: dict[str, _ManifestItem],
+) -> list[str]:
     spine = _required_unique_direct_child(package, "spine")
     if (spine.text or "").strip():
         raise _error(
             "EPUB spine contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    raw_toc = spine.attrib.get("toc")
+    if raw_toc is not None:
+        if not _is_exact_identifier(raw_toc):
+            raise _error(
+                "EPUB spine toc identifier is malformed",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        toc_item = manifest.get(raw_toc)
+        if toc_item is None:
+            raise _error(
+                "EPUB spine toc references an unknown manifest item",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        if toc_item.media_type != _NCX_MEDIA_TYPE:
+            raise _error(
+                "EPUB spine toc target is not an NCX resource",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+
     page_progression = spine.attrib.get("page-progression-direction")
     if page_progression is not None and page_progression not in {
         "ltr",
@@ -884,12 +1013,7 @@ def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         raw_item_id = element.attrib.get("idref")
-        if (
-            type(raw_item_id) is not str
-            or not raw_item_id
-            or raw_item_id != raw_item_id.strip()
-            or any(character.isspace() for character in raw_item_id)
-        ):
+        if not _is_exact_identifier(raw_item_id):
             raise _error(
                 "EPUB spine item has a missing or malformed manifest reference",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1054,7 +1178,7 @@ def import_epub_book(
             _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
             "container metadata",
         )
-        opf_name = _package_rootfile(container, warnings)
+        opf_name = _package_rootfile(container, warnings, index)
         package = _xml_root(
             _read_entry(archive, index, opf_name, limit=MAX_EPUB_XML_BYTES),
             "package metadata",
@@ -1067,7 +1191,11 @@ def import_epub_book(
             package_entry_name=opf_name,
             archive_index=index,
         )
-        spine = _spine_ids(package, warnings)
+        spine = _spine_ids(package, warnings, manifest)
+        manifest_by_resource = {
+            item.entry_name: item
+            for item in manifest.values()
+        }
 
         metadata = _direct_child(package, "metadata")
         package_titles = _metadata_values(metadata, "title")
@@ -1134,6 +1262,17 @@ def import_epub_book(
                 if resolved not in index:
                     warnings.add(f"spine {chapter_index}: a referenced package image is unavailable")
                     continue
+                manifest_item = manifest_by_resource.get(resolved)
+                if manifest_item is None:
+                    warnings.add(
+                        f"spine {chapter_index}: a referenced package image is not declared in the manifest"
+                    )
+                    continue
+                if not manifest_item.media_type.startswith("image/"):
+                    warnings.add(
+                        f"spine {chapter_index}: a referenced package resource is not declared as an image"
+                    )
+                    continue
                 if resolved not in image_references:
                     image_references.append(resolved)
 
@@ -1198,6 +1337,8 @@ SUPPORTED_EPUB_BOOK_CAPABILITY = MappingProxyType(
             "script execution",
             "SVG-only or image-only chapter recognition",
             "audio/video playback",
+            "Media Overlay playback/synchronization",
+            "NCX navigation rendering",
             "UTF-16 spine ingestion",
             "PDF/OCR",
         ),

@@ -13,7 +13,7 @@ from acs.book_epub_import import (
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
 )
-from acs.bookdocument import Diagram, Game, Heading, ListBlock, Paragraph
+from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph
 from acs.chesscore import Board
 
 
@@ -253,6 +253,534 @@ class BookEpubImportTests(unittest.TestCase):
                     raised.exception.code,
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
+
+    def test_manifest_media_type_is_not_repaired_by_whitespace(self) -> None:
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>"
+        }
+        for media_type in (
+            " application/xhtml+xml",
+            "application/xhtml+xml ",
+            "application/ xhtml+xml",
+            "application/xhtml +xml",
+        ):
+            with self.subTest(media_type=media_type):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            f'media-type="{media_type}"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries=entries,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="media-type-whitespace.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_media_type_matching_remains_case_insensitive(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="APPLICATION/XHTML+XML"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Case-insensitive MIME type.</p></body></html>"
+                )
+            },
+        )
+        result = import_epub_book(raw, source_name="media-type-case.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Case-insensitive MIME type.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_package_and_metadata_mixed_text_fail_closed(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        cases = (
+            base.replace(b"  <metadata>", b"package-text\n  <metadata>", 1),
+            base.replace(b"<metadata>", b"<metadata>metadata-text", 1),
+            base.replace(b"</dc:title>", b"</dc:title>metadata-tail", 1),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="mixed-package-text.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_required_opf_sections_must_be_first_three_opf_children(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        cases = (
+            base.replace(
+                b"  <metadata>",
+                b"  <guide/>\n  <metadata>",
+                1,
+            ),
+            base.replace(
+                b"  </metadata>\n  <manifest>",
+                b"  </metadata>\n  <guide/>\n  <manifest>",
+                1,
+            ),
+            base.replace(
+                b"  </manifest>\n  <spine>",
+                b"  </manifest>\n  <guide/>\n  <spine>",
+                1,
+            ),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="misordered-package.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_all_recognized_epub_ids_reject_empty_or_whitespace_values(self) -> None:
+        base = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        )
+        cases = (
+            base.replace(
+                b'<package version="3.0"',
+                b'<package id=" bad " version="3.0"',
+                1,
+            ),
+            base.replace(
+                b"<dc:title>",
+                b'<dc:title id="">',
+                1,
+            ),
+            base.replace(
+                b"<manifest>",
+                b'<manifest id="bad id">',
+                1,
+            ),
+            base.replace(
+                b"<spine>",
+                b'<spine id=" bad">',
+                1,
+            ),
+            base.replace(
+                b'<itemref idref="c1"/>',
+                b'<itemref id="bad id" idref="c1"/>',
+                1,
+            ),
+        )
+        for opf in cases:
+            with self.subTest(opf=opf):
+                raw = _epub(
+                    opf=opf,
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="malformed-package-id.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_media_overlay_identifier_is_exact(self) -> None:
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            "OEBPS/Audio/ch1.smil": b"<smil/>",
+        }
+        for media_overlay in ("", " overlay ", "bad id"):
+            with self.subTest(media_overlay=media_overlay):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml" '
+                            f'media-overlay="{media_overlay}"/>\n'
+                            '    <item id="overlay" href="Audio/ch1.smil" '
+                            'media-type="application/smil+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries=entries,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="bad-media-overlay-id.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_manifest_media_overlay_reference_must_exist(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml" media-overlay="missing"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                )
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="missing-media-overlay.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_manifest_media_overlay_target_must_be_smil(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml" media-overlay="overlay"/>\n'
+                    '    <item id="overlay" href="Audio/ch1.xml" '
+                    'media-type="application/xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+                "OEBPS/Audio/ch1.xml": b"<smil/>",
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="wrong-media-overlay-type.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_manifest_media_overlay_is_only_valid_on_epub_content_document(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>\n'
+                    '    <item id="image" href="Images/board.png" '
+                    'media-type="image/png" media-overlay="overlay"/>\n'
+                    '    <item id="overlay" href="Audio/ch1.smil" '
+                    'media-type="application/smil+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+                "OEBPS/Images/board.png": b"image-bytes",
+                "OEBPS/Audio/ch1.smil": b"<smil/>",
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="overlay-on-image.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+
+    def test_valid_manifest_media_overlay_relationship_is_ignored_safely(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml" media-overlay="overlay"/>\n'
+                    '    <item id="overlay" href="Audio/ch1.smil" '
+                    'media-type="application/smil+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable with overlay metadata.</p></body></html>"
+                ),
+                "OEBPS/Audio/ch1.smil": b"<smil/>",
+            },
+        )
+        result = import_epub_book(raw, source_name="valid-media-overlay.epub")
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Readable with overlay metadata.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_spine_legacy_toc_identifier_is_exact(self) -> None:
+        manifest = (
+            '    <item id="c1" href="Text/ch1.xhtml" '
+            'media-type="application/xhtml+xml"/>\n'
+            '    <item id="ncx" href="toc.ncx" '
+            'media-type="application/x-dtbncx+xml"/>'
+        )
+        entries = {
+            "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable.</p></body></html>",
+            "OEBPS/toc.ncx": b"<ncx/>",
+        }
+        for toc in ("", " ncx ", "bad id"):
+            with self.subTest(toc=toc):
+                opf = _opf(
+                    manifest=manifest,
+                    spine='    <itemref idref="c1"/>',
+                ).replace(
+                    b"<spine>",
+                    f'<spine toc="{toc}">'.encode("utf-8"),
+                    1,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        _epub(opf=opf, entries=entries),
+                        source_name="bad-spine-toc.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_spine_legacy_toc_must_resolve_to_ncx_manifest_item(self) -> None:
+        cases = (
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>',
+                "missing",
+                {
+                    "OEBPS/Text/ch1.xhtml": (
+                        b"<html><body><p>Readable.</p></body></html>"
+                    )
+                },
+            ),
+            (
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>\n'
+                '    <item id="tocitem" href="toc.xml" '
+                'media-type="application/xml"/>',
+                "tocitem",
+                {
+                    "OEBPS/Text/ch1.xhtml": (
+                        b"<html><body><p>Readable.</p></body></html>"
+                    ),
+                    "OEBPS/toc.xml": b"<ncx/>",
+                },
+            ),
+        )
+        for manifest, toc, entries in cases:
+            with self.subTest(toc=toc):
+                opf = _opf(
+                    manifest=manifest,
+                    spine='    <itemref idref="c1"/>',
+                ).replace(
+                    b"<spine>",
+                    f'<spine toc="{toc}">'.encode("ascii"),
+                    1,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        _epub(opf=opf, entries=entries),
+                        source_name="invalid-spine-toc-target.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_valid_spine_legacy_ncx_reference_remains_readable(self) -> None:
+        opf = _opf(
+            manifest=(
+                '    <item id="c1" href="Text/ch1.xhtml" '
+                'media-type="application/xhtml+xml"/>\n'
+                '    <item id="ncx" href="toc.ncx" '
+                'media-type="application/x-dtbncx+xml"/>'
+            ),
+            spine='    <itemref idref="c1"/>',
+        ).replace(b"<spine>", b'<spine toc="ncx">', 1)
+        result = import_epub_book(
+            _epub(
+                opf=opf,
+                entries={
+                    "OEBPS/Text/ch1.xhtml": (
+                        b"<html><body><p>Readable with NCX metadata.</p></body></html>"
+                    ),
+                    "OEBPS/toc.ncx": b"<ncx/>",
+                },
+            ),
+            source_name="valid-spine-toc.epub",
+        )
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "Readable with NCX metadata.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_required_title_and_language_metadata_fail_closed_when_missing_or_empty(self) -> None:
+        cases = (
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>   </dc:title>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:language>   </dc:language>''',
+        )
+        for metadata in cases:
+            with self.subTest(metadata=metadata):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                        metadata=metadata,
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="missing-core-metadata.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_dublin_core_metadata_values_must_be_nonempty_text(self) -> None:
+        cases = (
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title><dc:creator>Nested</dc:creator></dc:title>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:creator>   </dc:creator>
+    <dc:language>uk</dc:language>''',
+            '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:language>uk</dc:language>
+    <dc:rights></dc:rights>''',
+        )
+        for metadata in cases:
+            with self.subTest(metadata=metadata):
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/ch1.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                        metadata=metadata,
+                    ),
+                    entries={
+                        "OEBPS/Text/ch1.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        )
+                    },
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="bad-dc-value.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
+    def test_metadata_rejects_unrecognized_opf_native_children(self) -> None:
+        metadata = '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Readable title</dc:title>
+    <dc:language>uk</dc:language>
+    <item id="nested" href="unexpected.xhtml" media-type="application/xhtml+xml"/>'''
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+                metadata=metadata,
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+        )
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="nested-opf-metadata.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
 
     def test_unicode_package_identifier_without_whitespace_remains_supported(self) -> None:
         raw = _epub(
@@ -733,6 +1261,123 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(result.image_references, ())
         self.assertTrue(any("package image is unavailable" in warning for warning in result.warnings))
         self.assertFalse(any(isinstance(block, Diagram) for block in result.document.blocks))
+
+    def test_existing_unmanifested_package_image_is_not_published(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Images/unlisted.png" '
+            b'alt="Unlisted visual"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/chapter.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": chapter,
+                "OEBPS/Images/unlisted.png": b"image-bytes",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="unmanifested-image.epub")
+
+        self.assertEqual(result.image_references, ())
+        self.assertTrue(
+            any(
+                "not declared in the manifest" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertIn(
+            "Unlisted visual",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Note)
+            ],
+        )
+
+    def test_manifest_non_image_resource_cannot_be_published_as_image(self) -> None:
+        chapter = (
+            b'<html><body><img src="../Data/payload.bin" '
+            b'alt="Accessible fallback"/></body></html>'
+        )
+        raw = _epub(
+            opf=_opf(
+                manifest='''    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="payload" href="Data/payload.bin" media-type="application/octet-stream"/>''',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/chapter.xhtml": chapter,
+                "OEBPS/Data/payload.bin": b"not-image-bytes",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="wrong-image-media.epub")
+
+        self.assertEqual(result.image_references, ())
+        self.assertTrue(
+            any(
+                "not declared as an image" in warning
+                for warning in result.warnings
+            )
+        )
+        self.assertIn(
+            "Accessible fallback",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Note)
+            ],
+        )
+
+    def test_ocf_service_files_cannot_be_published_as_images(self) -> None:
+        for src in (
+            "../../META-INF/container.xml",
+            "../content.opf",
+            "../../mimetype",
+        ):
+            with self.subTest(src=src):
+                chapter = (
+                    f'<html><body><img src="{src}" '
+                    'alt="Service-file fallback"/></body></html>'
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="Text/chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/Text/chapter.xhtml": chapter,
+                    },
+                )
+
+                result = import_epub_book(
+                    raw,
+                    source_name="service-file-image.epub",
+                )
+
+                self.assertEqual(result.image_references, ())
+                self.assertTrue(
+                    any(
+                        "not declared in the manifest" in warning
+                        for warning in result.warnings
+                    )
+                )
+                self.assertIn(
+                    "Service-file fallback",
+                    [
+                        block.text
+                        for block in result.document.blocks
+                        if isinstance(block, Note)
+                    ],
+                )
 
     def test_invalid_explicit_chess_position_fails_before_publication(self) -> None:
         raw = _simple_epub(
@@ -1230,6 +1875,48 @@ class BookEpubImportTests(unittest.TestCase):
                     import_epub_book(raw, source_name="bad-container-structure.epub")
                 self.assertEqual(raised.exception.code, BookEpubImportErrorCode.MALFORMED_PACKAGE)
 
+    def test_container_direct_mixed_text_fails_closed(self) -> None:
+        valid_rootfiles = (
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles>'
+        )
+        cases = (
+            f"text{valid_rootfiles}",
+            f"{valid_rootfiles}tail",
+            (
+                '<x:ignored xmlns:x="urn:example:foreign"/>'
+                f"tail{valid_rootfiles}"
+            ),
+        )
+        for markup in cases:
+            with self.subTest(markup=markup):
+                container = (
+                    '<container version="1.0" '
+                    'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    f"{markup}</container>"
+                ).encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Readable.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="container-mixed-text.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
+
     def test_container_foreign_extensions_are_removed_before_structure_validation(self) -> None:
         container = b'''<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0"
@@ -1271,13 +1958,93 @@ class BookEpubImportTests(unittest.TestCase):
                 manifest='    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>',
                 spine='    <itemref idref="c1"/>',
             ),
-            entries={"OEBPS/chapter.xhtml": b"<html><body><p>Primary rendition.</p></body></html>"},
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Primary rendition.</p></body></html>"
+                ),
+                "ALT/content.opf": b"<package/>",
+            },
             container=container,
         )
         result = import_epub_book(raw, source_name="multi-rendition.epub")
         self.assertEqual(result.spine_documents, 1)
         self.assertIn("Primary rendition.", [block.text for block in result.document.blocks if isinstance(block, Paragraph)])
         self.assertTrue(any("multiple EPUB package documents" in warning for warning in result.warnings))
+
+    def test_every_container_rootfile_path_is_validated_before_selection(self) -> None:
+        cases = (
+            (
+                " ALT/content.opf ",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+            (
+                "../ALT/content.opf",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            ),
+            (
+                "ALT/missing.opf",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            ),
+        )
+        for secondary_path, expected_code in cases:
+            with self.subTest(secondary_path=secondary_path):
+                container = f'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="{secondary_path}" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''.encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Primary rendition.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="invalid-secondary-rootfile.epub")
+                self.assertEqual(raised.exception.code, expected_code)
+
+    def test_container_rootfiles_cannot_alias_the_same_package_document(self) -> None:
+        for secondary_path in ("OEBPS/content.opf", "OEBPS/%63ontent.opf"):
+            with self.subTest(secondary_path=secondary_path):
+                container = f'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="{secondary_path}" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>'''.encode("utf-8")
+                raw = _epub(
+                    opf=_opf(
+                        manifest=(
+                            '    <item id="c1" href="chapter.xhtml" '
+                            'media-type="application/xhtml+xml"/>'
+                        ),
+                        spine='    <itemref idref="c1"/>',
+                    ),
+                    entries={
+                        "OEBPS/chapter.xhtml": (
+                            b"<html><body><p>Primary rendition.</p></body></html>"
+                        ),
+                    },
+                    container=container,
+                )
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(raw, source_name="aliased-rootfiles.epub")
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
 
     def test_in_document_asset_fragment_remains_resolvable(self) -> None:
         chapter = (
@@ -1286,7 +2053,8 @@ class BookEpubImportTests(unittest.TestCase):
         )
         raw = _epub(
             opf=_opf(
-                manifest='    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>',
+                manifest='''    <item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="board" href="Images/board.svg" media-type="image/svg+xml"/>''',
                 spine='    <itemref idref="c1"/>',
             ),
             entries={
@@ -1451,6 +2219,14 @@ class BookEpubImportTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.INVALID_ARGUMENT)
         self.assertEqual(SUPPORTED_EPUB_BOOK_CAPABILITY["format"], "EPUB 2/3")
         self.assertIn("DRM or encrypted spine bypass", SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"])
+        self.assertIn(
+            "Media Overlay playback/synchronization",
+            SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"],
+        )
+        self.assertIn(
+            "NCX navigation rendering",
+            SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"],
+        )
         self.assertIn("ordered/unordered lists", SUPPORTED_EPUB_BOOK_CAPABILITY["preserves"])
 
 
