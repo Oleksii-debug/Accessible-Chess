@@ -778,8 +778,21 @@ def _spine_ids(package: ET.Element, warnings: _Warnings) -> list[str]:
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         item_id = raw_item_id
+        raw_linear = element.attrib.get("linear")
+        if raw_linear is None:
+            linear = "yes"
+        elif (
+            raw_linear not in {"yes", "no"}
+            or raw_linear != raw_linear.strip()
+        ):
+            raise _error(
+                "EPUB spine item has an invalid linear attribute",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+        else:
+            linear = raw_linear
         ids.append(item_id)
-        if (element.attrib.get("linear") or "").strip().casefold() == "no":
+        if linear == "no":
             warnings.add(f"EPUB non-linear spine item {item_id!r} was preserved in document order")
         if len(ids) > MAX_EPUB_SPINE_DOCUMENTS:
             raise _error(
