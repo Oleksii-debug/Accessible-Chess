@@ -148,8 +148,9 @@ static void ac_error_detail(DWORD code) {
 }
 
 static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
+    BOOL has_report = report != NULL && report != INVALID_HANDLE_VALUE;
     ac_error_detail(code);
-    if (report != NULL && report != INVALID_HANDLE_VALUE) {
+    if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
         ac_write_utf8(report, L"STAGE: ");
         ac_write_line(report, stage);
@@ -168,10 +169,14 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     ac_append(g_message, AC_PATH_CAP + 2048, stage);
     ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nКод Windows: ");
     ac_append_u32(g_message, AC_PATH_CAP + 2048, code);
-    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт: ");
-    ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
+    if (has_report) {
+        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт: ");
+        ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
+    } else {
+        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт запуску не створено.");
+    }
     MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-    if (report != NULL && report != INVALID_HANDLE_VALUE) CloseHandle(report);
+    if (has_report) CloseHandle(report);
     ExitProcess(code == 0 ? 1 : code);
 }
 
@@ -192,19 +197,15 @@ static BOOL ac_direct_file(const WCHAR *path) {
 }
 
 static HANDLE ac_open_report(void) {
-    SECURITY_ATTRIBUTES security;
     HANDLE handle;
     DWORD written = 0;
     static const BYTE bom[3] = {0xEF, 0xBB, 0xBF};
 
-    security.nLength = sizeof(security);
-    security.lpSecurityDescriptor = NULL;
-    security.bInheritHandle = TRUE;
     handle = CreateFileW(
         g_report_path,
         GENERIC_WRITE,
         FILE_SHARE_READ,
-        &security,
+        NULL,
         CREATE_ALWAYS,
         FILE_ATTRIBUTE_NORMAL,
         NULL
@@ -232,6 +233,9 @@ void WINAPI wWinMainCRTStartup(void) {
     DWORD exit_code = STILL_ACTIVE;
 
     ac_prepare_paths();
+    if (!ac_direct_directory(g_root)) {
+        ac_fail(INVALID_HANDLE_VALUE, L"package-root validation", ERROR_DIRECTORY);
+    }
     report = ac_open_report();
     if (report == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -250,7 +254,6 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_utf8(report, L"LOCALAPPDATA: ");
     ac_write_line(report, g_data);
 
-    if (!ac_direct_directory(g_root)) ac_fail(report, L"package-root validation", ERROR_DIRECTORY);
     if (!ac_direct_directory(g_app_dir)) ac_fail(report, L"App directory validation", ERROR_PATH_NOT_FOUND);
     if (!ac_direct_file(g_core)) ac_fail(report, L"core executable validation", ERROR_FILE_NOT_FOUND);
 
@@ -273,17 +276,13 @@ void WINAPI wWinMainCRTStartup(void) {
     }
 
     g_startup.cb = sizeof(g_startup);
-    g_startup.dwFlags = STARTF_USESTDHANDLES;
-    g_startup.hStdInput = NULL;
-    g_startup.hStdOutput = report;
-    g_startup.hStdError = report;
 
     if (!CreateProcessW(
             g_core,
             g_command,
             NULL,
             NULL,
-            TRUE,
+            FALSE,
             CREATE_UNICODE_ENVIRONMENT,
             NULL,
             g_app_dir,
