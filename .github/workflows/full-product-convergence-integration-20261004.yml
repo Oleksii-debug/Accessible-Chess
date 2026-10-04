@@ -73,7 +73,7 @@ jobs:
           if [ -n "$event_base" ]; then
             test -n "$event_base_ref"
             git cat-file -e "$event_base^{commit}"
-            git fetch --no-tags origin "$event_base_ref"
+            git fetch --no-tags origin "+refs/heads/$event_base_ref:refs/remotes/origin/$event_base_ref"
             live_base="$(git rev-parse "origin/$event_base_ref")"
             git cat-file -e "$live_base^{commit}"
             git merge-base --is-ancestor "$event_base" "$live_base"

@@ -24,7 +24,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         required = (
             "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
             "EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}",
-            'git fetch --no-tags origin "$event_base_ref"',
+            'git fetch --no-tags origin "+refs/heads/$event_base_ref:refs/remotes/origin/$event_base_ref"',
             'live_base="$(git rev-parse "origin/$event_base_ref")"',
             'git merge-base --is-ancestor "$event_base" "$live_base"',
             'git merge-base --is-ancestor "$live_base" HEAD',
