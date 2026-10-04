@@ -231,6 +231,10 @@ class TrainingProgressAncestorAuthorityTests(unittest.TestCase):
                 with self.assertRaises(OSError) as blocked_read:
                     _windows_open_no_reparse(path, create=False)
                 self.assertEqual(ERROR_SHARING_VIOLATION, blocked_read.exception.errno)
+
+                store = TrainingProgressStore(path)
+                with self.assertRaisesRegex(ValueError, "could not be inspected"):
+                    store.load(self._definition())
             finally:
                 self.assertTrue(close_handle(preexisting_writer))
 
