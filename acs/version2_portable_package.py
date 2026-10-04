@@ -78,6 +78,8 @@ _PORTABLE_MANIFEST_KEYS = frozenset(
 )
 _PORTABLE_ROOT_DIRECTORIES = frozenset({PORTABLE_APP_DIR, "THIRD_PARTY_NOTICES", PORTABLE_SOURCE_METADATA_DIR})
 _COPY_CHUNK_BYTES = 1024 * 1024
+_PORTABLE_MANIFEST_MAX_OBJECT_MEMBERS = 64
+_PORTABLE_MANIFEST_MAX_KEY_CHARS = 128
 
 class Version2PortablePackageError(RuntimeError):
     pass
@@ -158,18 +160,25 @@ def _launcher_identity(path: Path) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _strict_json_bytes(payload: bytes) -> dict[str, object]:
-    def unique_pairs(items):
-        result: dict[str, object] = {}
-        for key, value in items:
-            if key in result:
-                _fail("portable release manifest contains duplicate keys")
-            result[key] = value
-        return result
+def _strict_json_object_pairs(items) -> dict[str, object]:
+    result: dict[str, object] = {}
+    member_count = 0
+    for key, value in items:
+        member_count += 1
+        if member_count > _PORTABLE_MANIFEST_MAX_OBJECT_MEMBERS:
+            _fail("portable release manifest contains too many object members")
+        if not isinstance(key, str) or len(key) > _PORTABLE_MANIFEST_MAX_KEY_CHARS:
+            _fail("portable release manifest object key is too long")
+        if key in result:
+            _fail("portable release manifest contains duplicate keys")
+        result[key] = value
+    return result
 
+
+def _strict_json_bytes(payload: bytes) -> dict[str, object]:
     try:
         decoded = payload.decode("utf-8", errors="strict")
-        value = json.loads(decoded, object_pairs_hook=unique_pairs)
+        value = json.loads(decoded, object_pairs_hook=_strict_json_object_pairs)
     except Version2PortablePackageError:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
