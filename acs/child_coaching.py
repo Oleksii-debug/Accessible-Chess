@@ -18,6 +18,7 @@ from .interaction_contracts import EngineVisibilityPolicy
 from .teaching_session import (
     LessonSession,
     TeachingActivity,
+    TeachingInputKind,
     TeachingPositionSource,
     TeachingSessionError,
     TeachingStep,
@@ -107,7 +108,14 @@ class LessonBlock:
         if type(self.student_engine_visible) is not bool:
             raise ChildCoachingError("student_engine_visible must be boolean")
         # TeachingStep stays authoritative for activity/target/policy shape.
-        self.to_teaching_step()
+        step = self.to_teaching_step()
+        if (
+            self.kind is LessonBlockKind.POINTER_TASK
+            and step.policy.input_kind is not TeachingInputKind.SELECTION
+        ):
+            raise ChildCoachingError(
+                "pointer task must remain selection-only and cannot mutate board state"
+            )
 
     def to_teaching_step(self) -> TeachingStep:
         visibility = (
