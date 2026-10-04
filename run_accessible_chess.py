@@ -3,7 +3,10 @@ import sys
 import traceback
 
 from acs.webview2_accessibility import enable_webview2_renderer_accessibility
-from acs.webview_safe_server import install_pywebview_safe_local_server_port
+from acs.webview_safe_server import (
+    SafeLocalServerPortError,
+    install_pywebview_safe_local_server_port,
+)
 
 
 ACCESSIBILITY_HOST_INIT_EXIT_CODE = 71
@@ -64,7 +67,11 @@ else:
 
     # Patch the actual pywebview WinForms/WebView2 host before any EdgeChrome
     # instance is created. No duplicate native or hidden Move control is used.
-    if not install_pywebview_accessibility_host_patch():
+    try:
+        host_patch_ok = install_pywebview_accessibility_host_patch()
+    except Exception:
+        host_patch_ok = False
+    if not host_patch_ok:
         _abort_packaged_startup(
             ACCESSIBILITY_HOST_INIT_EXIT_CODE,
             'Accessible WebView2 host could not be initialized.',
@@ -72,7 +79,11 @@ else:
 
     # pywebview 6.2.1 otherwise chooses a random local-server port in private
     # mode. The release must never reach Chromium-restricted ports such as 6666.
-    if not install_pywebview_safe_local_server_port():
+    try:
+        safe_server_ok = install_pywebview_safe_local_server_port()
+    except Exception:
+        safe_server_ok = False
+    if not safe_server_ok:
         _abort_packaged_startup(
             SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
             'Accessible WebView2 local server could not be initialized.',
@@ -81,6 +92,11 @@ else:
     try:
         from acs.stage1_release_ui import main
         main()
+    except SafeLocalServerPortError:
+        _abort_packaged_startup(
+            SAFE_LOCAL_SERVER_INIT_EXIT_CODE,
+            'Accessible WebView2 local server could not obtain a safe loopback port.',
+        )
     except Exception:
         _abort_packaged_startup(
             RELEASE_UI_STARTUP_EXIT_CODE,
