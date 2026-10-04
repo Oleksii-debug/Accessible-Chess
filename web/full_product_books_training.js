@@ -16,6 +16,7 @@
   const MAX_TRAINING_SOLUTION_TEXT = 128;
   const MAX_PUBLIC_FALLBACK_TEXT = 1200;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const BOOK_PRESENTATION_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
   function renderEpoch(root) {
     return renderEpochs.get(root) || 0;
@@ -538,6 +539,17 @@
     const block = requireSnapshotRecord(snapshot, "block", "Book");
     requireDocumentSpec(snapshot, "Book");
     requireBoundedText(snapshot.heading, "Book snapshot heading", false, 360);
+    if (snapshot.presentation_token !== undefined) {
+      requireBoundedText(
+        snapshot.presentation_token,
+        "Book presentation token",
+        false,
+        64
+      );
+      if (!BOOK_PRESENTATION_TOKEN_PATTERN.test(snapshot.presentation_token)) {
+        throw new TypeError("Book presentation token is invalid");
+      }
+    }
     requireBookmarkSpec(snapshot);
     requireStarterMaterials(snapshot);
     requireActions(
@@ -1008,6 +1020,20 @@
     if (result.kind === "error") announce(payload.message);
   }
 
+  function bookCommandPayload(snapshot, payload) {
+    const source = payload || {};
+    const result = {};
+    Object.keys(source).forEach(function (key) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        result[key] = source[key];
+      }
+    });
+    if (typeof snapshot.presentation_token === "string") {
+      result.presentation_token = snapshot.presentation_token;
+    }
+    return result;
+  }
+
   function renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage) {
     const catalogue = snapshot.starter_materials;
     const items = catalogue && Array.isArray(catalogue.items) ? catalogue.items : [];
@@ -1044,9 +1070,17 @@
     open.addEventListener("click", function () {
       const materialId = String(select.value || "");
       if (!materialId) return;
-      safeInvoke(root, invoke, "book.open_starter_material", { material_id: materialId }, function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvoke(
+        root,
+        invoke,
+        "book.open_starter_material",
+        bookCommandPayload(snapshot, { material_id: materialId }),
+        function (result) {
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     section.appendChild(open);
     main.appendChild(section);
@@ -1083,9 +1117,17 @@
       button.type = "button";
       button.disabled = !action.enabled;
       button.addEventListener("click", function () {
-        safeInvoke(root, invoke, String(action.command || ""), {}, function (result) {
-          applyBookEvent(root, result, invoke, announce, fallbackMessage);
-        }, announce, fallbackMessage);
+        safeInvoke(
+          root,
+          invoke,
+          String(action.command || ""),
+          bookCommandPayload(snapshot, {}),
+          function (result) {
+            applyBookEvent(root, result, invoke, announce, fallbackMessage);
+          },
+          announce,
+          fallbackMessage
+        );
       });
       toolbar.appendChild(button);
     });
@@ -1111,14 +1153,30 @@
     form.appendChild(restore);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
-      safeInvoke(root, invoke, "book.bookmark.save", { name: input.value }, function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvoke(
+        root,
+        invoke,
+        "book.bookmark.save",
+        bookCommandPayload(snapshot, { name: input.value }),
+        function (result) {
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     restore.addEventListener("click", function () {
-      safeInvoke(root, invoke, "book.bookmark.restore", { name: input.value }, function (result) {
-        applyBookEvent(root, result, invoke, announce, fallbackMessage);
-      }, announce, fallbackMessage);
+      safeInvoke(
+        root,
+        invoke,
+        "book.bookmark.restore",
+        bookCommandPayload(snapshot, { name: input.value }),
+        function (result) {
+          applyBookEvent(root, result, invoke, announce, fallbackMessage);
+        },
+        announce,
+        fallbackMessage
+      );
     });
     main.appendChild(form);
 
