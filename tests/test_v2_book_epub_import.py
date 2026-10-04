@@ -911,6 +911,60 @@ class BookEpubImportTests(unittest.TestCase):
             ],
         )
 
+    def test_zip64_end_records_accept_legacy_sentinels(self) -> None:
+        raw = _simple_epub(
+            b"<html><body><p>ZIP64 legacy sentinels.</p></body></html>"
+        )
+        zip64 = bytearray(_with_zip64_end_records(raw))
+        eocd_offset = zip64.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        zip64[eocd_offset + 8 : eocd_offset + 12] = b"\xff" * 4
+        zip64[eocd_offset + 12 : eocd_offset + 20] = b"\xff" * 8
+
+        result = import_epub_book(
+            bytes(zip64),
+            source_name="zip64-legacy-sentinels.epub",
+        )
+
+        self.assertEqual(result.spine_documents, 1)
+        self.assertIn(
+            "ZIP64 legacy sentinels.",
+            [
+                block.text
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ],
+        )
+
+    def test_zip64_legacy_size_and_offset_must_match_when_not_sentinel(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        zip64 = _with_zip64_end_records(raw)
+        eocd_offset = zip64.rfind(b"PK\x05\x06")
+        self.assertGreaterEqual(eocd_offset, 0)
+        cases = (
+            ("central-size", 12, 4),
+            ("central-offset", 16, 4),
+        )
+        for label, offset, width in cases:
+            with self.subTest(label=label):
+                damaged = bytearray(zip64)
+                current = int.from_bytes(
+                    damaged[eocd_offset + offset : eocd_offset + offset + width],
+                    "little",
+                )
+                damaged[
+                    eocd_offset + offset : eocd_offset + offset + width
+                ] = (current + 1).to_bytes(width, "little")
+                with self.assertRaises(BookEpubImportError) as raised:
+                    import_epub_book(
+                        bytes(damaged),
+                        source_name=f"zip64-legacy-{label}-mismatch.epub",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+
     def test_zip64_version_2_end_record_is_rejected(self) -> None:
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         zip64_v2 = _with_zip64_end_records(raw, version_needed=62)

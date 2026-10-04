@@ -203,6 +203,10 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> int:
     total_entries = int.from_bytes(raw[eocd_offset + 10 : eocd_offset + 12], "little")
     central_size = int.from_bytes(raw[eocd_offset + 12 : eocd_offset + 16], "little")
     central_offset = int.from_bytes(raw[eocd_offset + 16 : eocd_offset + 20], "little")
+    legacy_entries_on_disk = entries_on_disk
+    legacy_total_entries = total_entries
+    legacy_central_size = central_size
+    legacy_central_offset = central_offset
     if disk_number != 0 or central_disk != 0:
         raise _error(
             "EPUB uses a multi-disk ZIP container, which OCF does not permit",
@@ -276,11 +280,11 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> int:
             raw[zip64_eocd_offset + 32 : zip64_eocd_offset + 40],
             "little",
         )
-        central_size = int.from_bytes(
+        zip64_central_size = int.from_bytes(
             raw[zip64_eocd_offset + 40 : zip64_eocd_offset + 48],
             "little",
         )
-        central_offset = int.from_bytes(
+        zip64_central_offset = int.from_bytes(
             raw[zip64_eocd_offset + 48 : zip64_eocd_offset + 56],
             "little",
         )
@@ -293,6 +297,19 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> int:
                 "EPUB ZIP64 central-directory metadata indicates multiple disks",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
+        if (
+            legacy_entries_on_disk not in {0xFFFF, zip64_entries_on_disk}
+            or legacy_total_entries not in {0xFFFF, zip64_total_entries}
+            or legacy_central_size not in {0xFFFFFFFF, zip64_central_size}
+            or legacy_central_offset not in {0xFFFFFFFF, zip64_central_offset}
+        ):
+            raise _error(
+                "EPUB ZIP64 and legacy central-directory metadata are inconsistent",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+        total_entries = zip64_total_entries
+        central_size = zip64_central_size
+        central_offset = zip64_central_offset
 
     if (
         central_size <= 0

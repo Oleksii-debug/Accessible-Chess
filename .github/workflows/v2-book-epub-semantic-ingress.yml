@@ -43,8 +43,8 @@ jobs:
     env:
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-      EPUB_RUNTIME_BLOB: 6c94cbfc31c5e4f7750002d1bfa9936d6be3ddfe
-      EPUB_TEST_BLOB: 88da17d1bd2c03da4903cc1f5e1da77d041f014b
+      EPUB_RUNTIME_BLOB: d69fdac9bc411ea861fd2e6fef31904856aa9288
+      EPUB_TEST_BLOB: a6eb03005133b3e5388904317e6ca6daa8e50f1c
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
