@@ -7,11 +7,13 @@ on:
     paths:
       - acs/full_product_presenters.py
       - tests/test_book_document_warning_accessibility.py
+      - tests/js/book_document_warning_accessibility_dom_test.js
       - .github/workflows/book-document-warning-accessibility.yml
   pull_request:
     paths:
       - acs/full_product_presenters.py
       - tests/test_book_document_warning_accessibility.py
+      - tests/js/book_document_warning_accessibility_dom_test.js
       - .github/workflows/book-document-warning-accessibility.yml
   workflow_dispatch:
 
@@ -43,6 +45,9 @@ jobs:
 
       - name: Run existing Book projection regressions
         run: python -m unittest -v tests.test_dev1_books_training_webview_projection
+
+      - name: Run retained warning DOM regression
+        run: node tests/js/book_document_warning_accessibility_dom_test.js
 
       - name: Run executable Books and Training DOM regressions
         run: node tests/js/books_training_surface_dom_test.js
