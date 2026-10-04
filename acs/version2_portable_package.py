@@ -50,12 +50,19 @@ PORTABLE_LAUNCHER_NAME = "AccessibleChess.exe"
 PORTABLE_APP_DIR = "App"
 PORTABLE_DATA_DIR = "data"
 PORTABLE_LAUNCH_REPORT = "launch-report.txt"
+PORTABLE_SOURCE_METADATA_DIR = "SOURCE_PACKAGE"
+PORTABLE_SOURCE_MANIFEST = f"{PORTABLE_SOURCE_METADATA_DIR}/{MANIFEST_NAME}"
+PORTABLE_SOURCE_CHECKSUMS = f"{PORTABLE_SOURCE_METADATA_DIR}/{CHECKSUMS_NAME}"
 _PORTABLE_MANIFEST_KEYS = frozenset(
     {
         "manifest_schema",
         "product",
         "package_profile",
         "source_package_profile",
+        "source_checksums_sha256",
+        "source_checksums",
+        "source_manifest_sha256",
+        "source_manifest",
         "integration_sha",
         "launcher",
         "application_directory",
@@ -67,7 +74,7 @@ _PORTABLE_MANIFEST_KEYS = frozenset(
         "nvda_verified",
     }
 )
-_PORTABLE_ROOT_DIRECTORIES = frozenset({PORTABLE_APP_DIR, "THIRD_PARTY_NOTICES"})
+_PORTABLE_ROOT_DIRECTORIES = frozenset({PORTABLE_APP_DIR, "THIRD_PARTY_NOTICES", PORTABLE_SOURCE_METADATA_DIR})
 _COPY_CHUNK_BYTES = 1024 * 1024
 
 
@@ -218,40 +225,237 @@ def _relative_files(root: Path) -> tuple[str, ...]:
     return tuple(sorted(result, key=str.casefold))
 
 
-def _checksum_inventory(root: Path, inventory: tuple[str, ...]) -> None:
-    checksum_path = root / CHECKSUMS_NAME
-    _safe_info(checksum_path, label="portable checksums", directory=False)
+
+def _complete_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
     try:
-        text = checksum_path.read_text(encoding="utf-8", errors="strict")
-    except (OSError, UnicodeError) as exc:
-        _fail(f"portable checksums cannot be read: {type(exc).__name__}")
-    expected_files = tuple(item for item in inventory if item != CHECKSUMS_NAME)
-    seen: dict[str, str] = {}
+        return bool(os.path.samestat(first, second))
+    except (AttributeError, OSError):
+        first_dev = getattr(first, "st_dev", None)
+        first_ino = getattr(first, "st_ino", None)
+        second_dev = getattr(second, "st_dev", None)
+        second_ino = getattr(second, "st_ino", None)
+        if None in {first_dev, first_ino, second_dev, second_ino}:
+            return False
+        return (first_dev, first_ino) == (second_dev, second_ino)
+
+
+def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str:
+    before = _safe_info(path, label=label, directory=False)
+    if maximum is not None and before.st_size > maximum:
+        _fail(f"{label} exceeds its byte budget")
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_size != before.st_size
+                or not _complete_file_identity(before, opened)
+            ):
+                _fail(f"{label} changed while being opened")
+            copied = 0
+            while True:
+                block = handle.read(_COPY_CHUNK_BYTES)
+                if not block:
+                    break
+                copied += len(block)
+                if maximum is not None and copied > maximum:
+                    _fail(f"{label} exceeds its byte budget")
+                digest.update(block)
+            opened_after = os.fstat(handle.fileno())
+    except Version2PortablePackageError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read safely: {type(exc).__name__}")
+    after = _safe_info(path, label=label, directory=False)
+    if (
+        copied != before.st_size
+        or opened_after.st_size != before.st_size
+        or after.st_size != before.st_size
+        or not _complete_file_identity(opened, opened_after)
+        or not _complete_file_identity(before, after)
+    ):
+        _fail(f"{label} changed while being read")
+    return digest.hexdigest()
+
+
+def _stable_bytes(path: Path, *, label: str, maximum: int) -> bytes:
+    before = _safe_info(path, label=label, directory=False)
+    if before.st_size > maximum:
+        _fail(f"{label} exceeds its byte budget")
+    try:
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_size != before.st_size
+                or not _complete_file_identity(before, opened)
+            ):
+                _fail(f"{label} changed while being opened")
+            payload = handle.read(maximum + 1)
+            opened_after = os.fstat(handle.fileno())
+    except Version2PortablePackageError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read safely: {type(exc).__name__}")
+    after = _safe_info(path, label=label, directory=False)
+    if (
+        len(payload) != before.st_size
+        or len(payload) > maximum
+        or opened_after.st_size != before.st_size
+        or after.st_size != before.st_size
+        or not _complete_file_identity(opened, opened_after)
+        or not _complete_file_identity(before, after)
+    ):
+        _fail(f"{label} changed while being read")
+    return payload
+
+
+def _checksum_entries(payload: bytes, *, label: str) -> dict[str, tuple[str, str]]:
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        _fail(f"{label} is not valid UTF-8: {type(exc).__name__}")
+    seen: dict[str, tuple[str, str]] = {}
     for raw in text.splitlines():
         if len(raw) < 67 or raw[64:66] != "  ":
-            _fail("portable checksum line is malformed")
+            _fail(f"{label} line is malformed")
         digest = raw[:64].casefold()
         relative = raw[66:]
         if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
-            _fail("portable checksum digest is invalid")
+            _fail(f"{label} digest is invalid")
         pure = PurePosixPath(relative)
         if (
             not relative
             or pure.is_absolute()
             or any(part in {"", ".", ".."} for part in pure.parts)
-            or relative == CHECKSUMS_NAME
+            or "\x00" in relative
         ):
-            _fail("portable checksum path is invalid")
+            _fail(f"{label} path is invalid")
         folded = relative.casefold()
         if folded in seen:
-            _fail("portable checksum inventory contains a duplicate path")
-        seen[folded] = digest
-    if set(seen) != {item.casefold() for item in expected_files}:
+            _fail(f"{label} contains a duplicate path")
+        seen[folded] = (relative, digest)
+    return seen
+
+
+def _validate_preflighted_source_binding(
+    root: Path,
+    *,
+    integration_sha: str,
+    manifest: dict[str, object],
+    inventory: tuple[str, ...],
+) -> None:
+    if (
+        manifest.get("source_manifest") != PORTABLE_SOURCE_MANIFEST
+        or manifest.get("source_checksums") != PORTABLE_SOURCE_CHECKSUMS
+    ):
+        _fail("portable source-package metadata paths are invalid")
+
+    source_manifest = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_MANIFEST).parts)
+    source_checksums = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_CHECKSUMS).parts)
+    manifest_digest = _stable_digest(
+        source_manifest,
+        label="canonical source release manifest",
+        maximum=1024 * 1024,
+    )
+    checksums_digest = _stable_digest(
+        source_checksums,
+        label="canonical source checksum inventory",
+        maximum=16 * 1024 * 1024,
+    )
+    for key, actual in (
+        ("source_manifest_sha256", manifest_digest),
+        ("source_checksums_sha256", checksums_digest),
+    ):
+        declared = manifest.get(key)
+        if (
+            type(declared) is not str
+            or len(declared) != 64
+            or any(char not in "0123456789abcdef" for char in declared)
+            or declared != actual
+        ):
+            _fail("portable source-package metadata digest is invalid")
+
+    source_value = _strict_json_bytes(
+        _stable_bytes(
+            source_manifest,
+            label="canonical source release manifest",
+            maximum=1024 * 1024,
+        )
+    )
+    if (
+        source_value.get("manifest_schema") != V2_PACKAGE_MANIFEST_SCHEMA_VERSION
+        or source_value.get("product") != "Accessible Chess"
+        or source_value.get("package_profile") != V2_PACKAGE_PROFILE
+        or source_value.get("integration_sha") != integration_sha
+    ):
+        _fail("portable canonical source manifest identity is invalid")
+
+    source_entries = _checksum_entries(
+        _stable_bytes(
+            source_checksums,
+            label="canonical source checksum inventory",
+            maximum=16 * 1024 * 1024,
+        ),
+        label="canonical source checksum inventory",
+    )
+    manifest_entry = source_entries.get(MANIFEST_NAME.casefold())
+    if manifest_entry is None or manifest_entry[1] != manifest_digest:
+        _fail("canonical source manifest is not bound by its checksum inventory")
+
+    mapped: dict[str, tuple[str, str]] = {}
+    for relative in inventory:
+        if relative.startswith(PORTABLE_APP_DIR + "/"):
+            source_relative = "AccessibleChess/" + relative[len(PORTABLE_APP_DIR) + 1 :]
+        elif relative.startswith("THIRD_PARTY_NOTICES/"):
+            source_relative = relative
+        else:
+            continue
+        folded = source_relative.casefold()
+        if folded in mapped:
+            _fail("portable canonical source mapping contains a duplicate path")
+        mapped[folded] = (source_relative, relative)
+
+    expected = {
+        folded
+        for folded, (relative, _digest) in source_entries.items()
+        if relative.startswith("AccessibleChess/")
+        or relative.startswith("THIRD_PARTY_NOTICES/")
+    }
+    if set(mapped) != expected:
+        _fail("portable payload inventory does not match the preflighted canonical source")
+
+    for folded, (_source_relative, portable_relative) in mapped.items():
+        expected_digest = source_entries[folded][1]
+        portable_path = root.joinpath(*PurePosixPath(portable_relative).parts)
+        if _stable_digest(portable_path, label="portable canonical payload file") != expected_digest:
+            _fail("portable payload bytes do not match the preflighted canonical source")
+
+
+
+def _checksum_inventory(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
+    entries = _checksum_entries(
+        _stable_bytes(
+            root / CHECKSUMS_NAME,
+            label="portable checksum inventory",
+            maximum=16 * 1024 * 1024,
+        ),
+        label="portable checksum inventory",
+    )
+    expected_files = tuple(item for item in inventory if item != CHECKSUMS_NAME)
+    if CHECKSUMS_NAME.casefold() in entries:
+        _fail("portable checksum inventory must not checksum itself")
+    if set(entries) != {item.casefold() for item in expected_files}:
         _fail("portable checksum inventory does not match package files")
+    result: dict[str, str] = {}
     for relative in expected_files:
+        expected_digest = entries[relative.casefold()][1]
         path = root.joinpath(*PurePosixPath(relative).parts)
-        if _sha256(path) != seen[relative.casefold()]:
+        if _stable_digest(path, label="portable package checksum member") != expected_digest:
             _fail("portable package checksum verification failed")
+        result[relative.casefold()] = expected_digest
+    return result
 
 
 def validate_portable_oneclick_tree(
@@ -284,6 +488,8 @@ def validate_portable_oneclick_tree(
         or value["product"] != "Accessible Chess"
         or value["package_profile"] != PORTABLE_PACKAGE_PROFILE
         or value["source_package_profile"] != V2_PACKAGE_PROFILE
+        or value["source_manifest"] != PORTABLE_SOURCE_MANIFEST
+        or value["source_checksums"] != PORTABLE_SOURCE_CHECKSUMS
         or value["integration_sha"] != sha
         or value["launcher"] != PORTABLE_LAUNCHER_NAME
         or value["application_directory"] != PORTABLE_APP_DIR
@@ -322,6 +528,12 @@ def validate_portable_oneclick_tree(
         _safe_info(seed / "manifest.json", label="portable owner Library seed manifest", directory=False)
 
     inventory = _relative_files(root)
+    _validate_preflighted_source_binding(
+        root,
+        integration_sha=sha,
+        manifest=value,
+        inventory=inventory,
+    )
     _checksum_inventory(root, inventory)
     total_bytes = 0
     for relative in inventory:
@@ -336,11 +548,25 @@ def validate_portable_oneclick_tree(
 
 
 def _write_portable_manifest(root: Path, integration_sha: str, documents: tuple[str, str]) -> None:
+    source_manifest = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_MANIFEST).parts)
+    source_checksums = root.joinpath(*PurePosixPath(PORTABLE_SOURCE_CHECKSUMS).parts)
     value = {
         "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
         "product": "Accessible Chess",
         "package_profile": PORTABLE_PACKAGE_PROFILE,
         "source_package_profile": V2_PACKAGE_PROFILE,
+        "source_manifest": PORTABLE_SOURCE_MANIFEST,
+        "source_manifest_sha256": _stable_digest(
+            source_manifest,
+            label="canonical source release manifest",
+            maximum=1024 * 1024,
+        ),
+        "source_checksums": PORTABLE_SOURCE_CHECKSUMS,
+        "source_checksums_sha256": _stable_digest(
+            source_checksums,
+            label="canonical source checksum inventory",
+            maximum=16 * 1024 * 1024,
+        ),
         "integration_sha": integration_sha,
         "launcher": PORTABLE_LAUNCHER_NAME,
         "application_directory": PORTABLE_APP_DIR,
@@ -429,6 +655,14 @@ def assemble_portable_oneclick_tree(
         _copy_file(launcher, staged / PORTABLE_LAUNCHER_NAME, label="portable launcher")
         _copy_tree(canonical / "AccessibleChess", staged / PORTABLE_APP_DIR, label="canonical product payload")
         _copy_tree(canonical / "THIRD_PARTY_NOTICES", staged / "THIRD_PARTY_NOTICES", label="canonical notices payload")
+        source_metadata = staged / PORTABLE_SOURCE_METADATA_DIR
+        source_metadata.mkdir(exist_ok=False)
+        _copy_file(canonical / MANIFEST_NAME, source_metadata / MANIFEST_NAME, label="canonical source release manifest")
+        _copy_file(canonical / CHECKSUMS_NAME, source_metadata / CHECKSUMS_NAME, label="canonical source checksum inventory")
+        if _stable_digest(canonical / MANIFEST_NAME, label="canonical source release manifest") != _stable_digest(source_metadata / MANIFEST_NAME, label="copied canonical source release manifest"):
+            _fail("canonical source release manifest changed while building portable package")
+        if _stable_digest(canonical / CHECKSUMS_NAME, label="canonical source checksum inventory") != _stable_digest(source_metadata / CHECKSUMS_NAME, label="copied canonical source checksum inventory"):
+            _fail("canonical source checksum inventory changed while building portable package")
         for source, name in zip(documents, names, strict=True):
             _copy_file(source, staged / name, label="portable Word document")
 
@@ -466,6 +700,8 @@ def write_portable_oneclick_zip(
         expected_integration_sha=expected_integration_sha,
         require_user_seed=require_user_seed,
     )
+    expected_member_digests = _checksum_inventory(root, report.inventory)
+    checksum_file_digest = _stable_digest(root / CHECKSUMS_NAME, label="portable checksum inventory")
     if _path_entry_exists(target, label="portable ZIP output"):
         _fail("portable ZIP output must not already exist")
     try:
@@ -508,8 +744,12 @@ def write_portable_oneclick_zip(
                 with archive.open(relative, "r") as handle:
                     for block in iter(lambda: handle.read(_COPY_CHUNK_BYTES), b""):
                         digest.update(block)
-                source = root.joinpath(*PurePosixPath(relative).parts)
-                if digest.hexdigest() != _sha256(source):
+                expected_digest = (
+                    checksum_file_digest
+                    if relative == CHECKSUMS_NAME
+                    else expected_member_digests.get(relative.casefold())
+                )
+                if expected_digest is None or digest.hexdigest() != expected_digest:
                     _fail("portable ZIP byte readback failed")
 
         try:
@@ -539,6 +779,9 @@ __all__ = [
     "PORTABLE_LAUNCHER_NAME",
     "PORTABLE_LAUNCH_REPORT",
     "PORTABLE_PACKAGE_PROFILE",
+    "PORTABLE_SOURCE_CHECKSUMS",
+    "PORTABLE_SOURCE_MANIFEST",
+    "PORTABLE_SOURCE_METADATA_DIR",
     "Version2PortablePackageError",
     "Version2PortablePackageReport",
     "assemble_portable_oneclick_tree",
