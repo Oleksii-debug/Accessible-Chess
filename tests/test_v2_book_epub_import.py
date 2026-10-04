@@ -70,6 +70,61 @@ def _epub(
     return buffer.getvalue()
 
 
+def _corrupt_deflated_entry(raw: bytes, name: str) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+    if info.compress_type != zipfile.ZIP_DEFLATED or info.compress_size < 3:
+        raise AssertionError("fixture entry must use a non-trivial Deflate payload")
+    offset = info.header_offset
+    if damaged[offset : offset + 4] != b"PK\\x03\\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    name_length = int.from_bytes(damaged[offset + 26 : offset + 28], "little")
+    extra_length = int.from_bytes(damaged[offset + 28 : offset + 30], "little")
+    data_offset = offset + 30 + name_length + extra_length
+    damaged[data_offset + 1] ^= 0xFF
+    return bytes(damaged)
+
+
+def _mark_zip_entry_encrypted(raw: bytes, name: str) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        info = archive.getinfo(name)
+        central_offset = archive.start_dir
+
+    local_offset = info.header_offset
+    if damaged[local_offset : local_offset + 4] != b"PK\\x03\\x04":
+        raise AssertionError("fixture local ZIP header was not found")
+    local_flags = int.from_bytes(
+        damaged[local_offset + 6 : local_offset + 8],
+        "little",
+    )
+    damaged[local_offset + 6 : local_offset + 8] = (local_flags | 0x1).to_bytes(
+        2,
+        "little",
+    )
+
+    encoded_name = name.encode("utf-8")
+    cursor = central_offset
+    while damaged[cursor : cursor + 4] == b"PK\\x01\\x02":
+        name_length = int.from_bytes(damaged[cursor + 28 : cursor + 30], "little")
+        extra_length = int.from_bytes(damaged[cursor + 30 : cursor + 32], "little")
+        comment_length = int.from_bytes(damaged[cursor + 32 : cursor + 34], "little")
+        entry_name = bytes(damaged[cursor + 46 : cursor + 46 + name_length])
+        if entry_name == encoded_name:
+            central_flags = int.from_bytes(
+                damaged[cursor + 8 : cursor + 10],
+                "little",
+            )
+            damaged[cursor + 8 : cursor + 10] = (central_flags | 0x1).to_bytes(
+                2,
+                "little",
+            )
+            return bytes(damaged)
+        cursor += 46 + name_length + extra_length + comment_length
+    raise AssertionError("fixture central ZIP entry was not found")
+
+
 def _simple_epub(chapter: bytes) -> bytes:
     return _epub(
         opf=_opf(
@@ -1400,6 +1455,60 @@ class BookEpubImportTests(unittest.TestCase):
         with self.assertRaises(BookEpubImportError) as raised:
             import_epub_book(raw, source_name="unsafe.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSAFE_PACKAGE)
+
+    def test_mimetype_zip_extra_field_is_rejected(self) -> None:
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            mimetype = zipfile.ZipInfo("mimetype")
+            mimetype.compress_type = zipfile.ZIP_STORED
+            mimetype.extra = b"\\x01\\x00\\x00\\x00"
+            archive.writestr(mimetype, b"application/epub+zip")
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(buffer.getvalue(), source_name="mimetype-extra.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_zip_encryption_flag_is_rejected_even_on_unused_resource(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="chapter.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/chapter.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+                "OEBPS/unused.bin": b"not part of the publication manifest",
+            },
+        )
+        raw = _mark_zip_entry_encrypted(raw, "OEBPS/unused.bin")
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="zip-encrypted-unused.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_corrupt_deflate_is_wrapped_as_stable_container_error(self) -> None:
+        raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
+        raw = _corrupt_deflated_entry(raw, "OEBPS/content.opf")
+
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(raw, source_name="corrupt-deflate.epub")
+
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
 
     def test_special_or_contradictory_zip_entry_types_fail_closed(self) -> None:
         cases = (
