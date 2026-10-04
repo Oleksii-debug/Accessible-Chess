@@ -1,0 +1,94 @@
+name: Classroom Collaboration Contract
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/classroom_collaboration.py'
+      - 'acs/classroom_collaboration_storage.py'
+      - 'tests/test_classroom_collaboration.py'
+      - 'tests/test_classroom_collaboration_storage.py'
+      - '.github/workflows/classroom-collaboration-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-collaboration-${{ github.ref }}
+  cancel-in-progress: true
+
+# Provider-consumption object-key tamper regressions live in test_classroom_collaboration.
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact current-Product collaboration scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          base_tip="$(git rev-parse "origin/$BASE_REF")"
+          stack_base="$(git merge-base "$base_tip" HEAD)"
+          git cat-file -e "$stack_base^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" "$stack_base"
+          git merge-base --is-ancestor "$stack_base" HEAD
+          git merge-base --is-ancestor "$stack_base" "$base_tip"
+          git diff --check "$stack_base" HEAD
+          mapfile -t actual < <(git diff --name-only "$stack_base" HEAD | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-collaboration-contract.yml'
+            'acs/classroom_collaboration.py'
+            'acs/classroom_collaboration_storage.py'
+            'tests/test_classroom_collaboration.py'
+            'tests/test_classroom_collaboration_storage.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected collaboration PR scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo 'CLASSROOM_COLLABORATION_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile collaboration boundaries
+        run: >-
+          python -m py_compile
+          acs/classroom_collaboration.py
+          acs/classroom_collaboration_storage.py
+          tests/test_classroom_collaboration.py
+          tests/test_classroom_collaboration_storage.py
+
+      - name: Run collaboration and current media contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
+          tests.test_classroom_realtime_media
+
+      - name: Core selftest
+        run: python -m acs.selftest
