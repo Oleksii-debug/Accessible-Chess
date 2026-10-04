@@ -92,6 +92,7 @@ class Version2PortablePackageReport:
     total_bytes: int
     archive_path: Path | None = None
     archive_sha256: str | None = None
+    checksum_sha256: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -101,6 +102,7 @@ class Version2PortablePackageReport:
             "total_bytes": self.total_bytes,
             "archive_path": None if self.archive_path is None else str(self.archive_path),
             "archive_sha256": self.archive_sha256,
+            "checksum_sha256": self.checksum_sha256,
             "human_tested": False,
             "nvda_verified": False,
             "result": "PASS",
@@ -458,13 +460,18 @@ def _validate_preflighted_source_binding(
 
 
 
-def _checksum_inventory(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
+def _checksum_inventory(
+    root: Path,
+    inventory: tuple[str, ...],
+) -> tuple[dict[str, str], str]:
+    payload = _stable_bytes(
+        root / CHECKSUMS_NAME,
+        label="portable checksum inventory",
+        maximum=16 * 1024 * 1024,
+    )
+    checksum_sha256 = hashlib.sha256(payload).hexdigest()
     entries = _checksum_entries(
-        _stable_bytes(
-            root / CHECKSUMS_NAME,
-            label="portable checksum inventory",
-            maximum=16 * 1024 * 1024,
-        ),
+        payload,
         label="portable checksum inventory",
     )
     expected_files = tuple(item for item in inventory if item != CHECKSUMS_NAME)
@@ -479,7 +486,7 @@ def _checksum_inventory(root: Path, inventory: tuple[str, ...]) -> dict[str, str
         if _stable_digest(path, label="portable package checksum member") != expected_digest:
             _fail("portable package checksum verification failed")
         result[relative.casefold()] = expected_digest
-    return result
+    return result, checksum_sha256
 
 
 def validate_portable_oneclick_tree(
@@ -564,7 +571,7 @@ def validate_portable_oneclick_tree(
         manifest=value,
         inventory=inventory,
     )
-    checksums = _checksum_inventory(root, inventory)
+    checksums, checksum_sha256 = _checksum_inventory(root, inventory)
     if checksums.get(MANIFEST_NAME.casefold()) != manifest_identity_digest:
         _fail("portable release manifest semantics are not bound to checksum inventory")
     for relative, identity_digest in launcher_identities.items():
@@ -579,6 +586,7 @@ def validate_portable_oneclick_tree(
         integration_sha=sha,
         inventory=inventory,
         total_bytes=total_bytes,
+        checksum_sha256=checksum_sha256,
     )
 
 
@@ -790,6 +798,7 @@ def assemble_portable_oneclick_tree(
             integration_sha=report.integration_sha,
             inventory=report.inventory,
             total_bytes=report.total_bytes,
+            checksum_sha256=report.checksum_sha256,
         )
     finally:
         if staged is not None:
@@ -804,16 +813,35 @@ def write_portable_oneclick_zip(
     *,
     expected_integration_sha: str,
     require_user_seed: bool = False,
+    expected_checksum_sha256: str | None = None,
 ) -> Version2PortablePackageReport:
     root = Path(package_root)
     target = Path(zip_path)
+    expected_checksum = None
+    if expected_checksum_sha256 is not None:
+        if type(expected_checksum_sha256) is not str:
+            _fail("expected portable checksum SHA-256 is invalid")
+        expected_checksum = expected_checksum_sha256.strip().casefold()
+        if (
+            len(expected_checksum) != 64
+            or any(character not in "0123456789abcdef" for character in expected_checksum)
+        ):
+            _fail("expected portable checksum SHA-256 is invalid")
     report = validate_portable_oneclick_tree(
         root,
         expected_integration_sha=expected_integration_sha,
         require_user_seed=require_user_seed,
     )
-    expected_member_digests = _checksum_inventory(root, report.inventory)
-    checksum_file_digest = _stable_digest(root / CHECKSUMS_NAME, label="portable checksum inventory")
+    if report.checksum_sha256 is None:
+        _fail("portable checksum snapshot is unavailable after validation")
+    if expected_checksum is not None and report.checksum_sha256 != expected_checksum:
+        _fail("portable checksum inventory changed after external qualification")
+    expected_member_digests, checksum_file_digest = _checksum_inventory(
+        root,
+        report.inventory,
+    )
+    if checksum_file_digest != report.checksum_sha256:
+        _fail("portable checksum inventory changed during ZIP preparation")
     if _path_entry_exists(target, label="portable ZIP output"):
         _fail("portable ZIP output must not already exist")
     try:
@@ -877,6 +905,7 @@ def write_portable_oneclick_zip(
             total_bytes=report.total_bytes,
             archive_path=target,
             archive_sha256=archive_sha,
+            checksum_sha256=checksum_file_digest,
         )
     finally:
         try:
