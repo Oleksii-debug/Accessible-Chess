@@ -221,6 +221,31 @@ class HistoryTreePassiveBoundaryTests(unittest.TestCase):
 
         self.assertFalse(HostileInt.touched)
 
+    def test_append_branch_rejects_snapshot_subclass_before_attribute_hooks_and_mutation(self) -> None:
+        class HostileSnapshot(PositionSnapshot):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if (
+                    type(self).armed
+                    and name in {"fen", "san", "side", "last_move", "context"}
+                ):
+                    type(self).touched = True
+                    raise AssertionError("branch snapshot attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostileSnapshot(START_FEN)
+        HostileSnapshot.armed = True
+        history = ReviewHistory(START_FEN)
+        before = history.export_tree()
+
+        with self.assertRaisesRegex(HistoryError, "invalid snapshot"):
+            history.append_branch(0, (hostile,))
+
+        self.assertEqual(history.export_tree(), before)
+        self.assertFalse(HostileSnapshot.touched)
+
     def test_cursor_parent_and_active_child_require_exact_integers(self) -> None:
         class HostileInt(int):
             touched = False
