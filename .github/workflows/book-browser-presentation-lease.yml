@@ -6,7 +6,7 @@ on:
       - fix/book-browser-presentation-lease-20261004-ooxple7
   pull_request:
     branches:
-      - fix/progress-appear-race-current-20261004-hy6ez0h
+      - fix/training-progress-target-inode-cas-20261004-c2mbezb
     paths:
       - "acs/version2_application.py"
       - "acs/version2_starter_content_application.py"
@@ -63,7 +63,7 @@ jobs:
               git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
             fi
           else
-            live_base='b20cb22c8e1c483f3bcca32e23b811ac89ef2133'
+            live_base='b6aaaf50e20aec31f908da80249cb285a090fc23'
           fi
 
           git cat-file -e "$live_base^{commit}"
