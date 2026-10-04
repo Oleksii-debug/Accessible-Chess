@@ -98,6 +98,20 @@ class WebViewSafeServerTests(unittest.TestCase):
             fake.start(gui="edgechromium")
         self.assertEqual(fake.calls, [])
 
+    def test_original_webview_start_failure_is_not_misclassified_as_port_error(self) -> None:
+        fake = _FakeWebview()
+
+        def fail_start(*_args, **_kwargs):
+            raise RuntimeError("synthetic original webview start failure")
+
+        fake.start = fail_start
+        install_pywebview_safe_local_server_port(fake, port_selector=lambda: 42001)
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "synthetic original webview start failure",
+        ):
+            fake.start(gui="edgechromium")
+
     def test_install_is_idempotent_and_does_not_stack_wrappers(self) -> None:
         fake = _FakeWebview()
         install_pywebview_safe_local_server_port(fake, port_selector=lambda: 42001)
