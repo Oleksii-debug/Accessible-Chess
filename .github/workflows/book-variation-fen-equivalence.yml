@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - integration/book-html-semantic-reading-apex-20261004-sol6p3
+      - converge/current-product-settings-a11y-20261004-sol56-q8t2
     paths:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
