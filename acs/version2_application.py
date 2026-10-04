@@ -1066,10 +1066,16 @@ class Version2Application:
                     # event_sink as a non-authoritative observer and intentionally
                     # contains observer exceptions, so route mutation cannot live
                     # in _book_event() without risking inactive-workflow/Board-route
-                    # divergence.
-                    self._focus = self.shell.open_route("books")
-                    self._repair_book_block_focus_after_rebind()
-                    return_route_precommitted = True
+                    # divergence. Focus repair is part of the same precommit: if
+                    # it rejects, restore Board before domain Return is attempted.
+                    try:
+                        self._focus = self.shell.open_route("books")
+                        return_route_precommitted = True
+                        self._repair_book_block_focus_after_rebind()
+                    except Exception:
+                        if return_route_precommitted:
+                            self._focus = self.shell.open_route("board")
+                        raise
                 result = self.book_delegate(action, payload)
                 if result.kind is BookBoardUiEventKind.FAILED:
                     if return_route_precommitted:
