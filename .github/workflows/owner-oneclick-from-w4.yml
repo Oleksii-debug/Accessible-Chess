@@ -515,12 +515,66 @@ jobs:
           Write-Host "OWNER_ONECLICK_ZIP_SHA256=$($data.archive_sha256)"
           Write-Host 'OWNER_ONECLICK_ASSEMBLY=PASS'
 
-      - name: Launch exact root one-click bytes and inspect machine-only report
+      - name: Fresh-extract and launch exact final ZIP bytes
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $root=(Resolve-Path 'owner-oneclick').Path
-          $launcher=(Resolve-Path 'owner-oneclick\AccessibleChess.exe').Path
+          $archive=(Resolve-Path 'Accessible-Chess-ONECLICK-OWNER-FINAL.zip').Path
+          $receipt=Get-Content -LiteralPath 'owner-final-receipt.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          $receiptSha=([string]$receipt.archive_sha256).Trim().ToLowerInvariant()
+          if($receiptSha -notmatch '^[0-9a-f]{64}$'){throw 'OWNER_FINAL_RECEIPT_ARCHIVE_SHA_INVALID'}
+          $before=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($before -ne $receiptSha){throw "OWNER_FINAL_ZIP_RECEIPT_SHA_MISMATCH actual=$before expected=$receiptSha"}
+          $extracted='owner-oneclick-from-zip'
+          if(Test-Path -LiteralPath $extracted){throw 'OWNER_FINAL_EXTRACT_DESTINATION_EXISTS'}
+          Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+
+          @'
+          import os
+          from pathlib import Path
+          from acs.version2_portable_package import _stable_digest
+          from scripts.build_owner_portable_candidate import (
+              OwnerPortableCandidateError,
+              validate_owner_portable_candidate_tree,
+          )
+
+          root = Path('owner-oneclick-from-zip')
+          try:
+              qualification = validate_owner_portable_candidate_tree(
+                  root,
+                  expected_integration_sha=os.environ['EXACT_PRODUCT_SHA'],
+                  expected_sound_archive_sha256=os.environ['SOUND_ARCHIVE_SHA_INPUT'],
+                  expected_seed_source_count=6,
+                  expected_seed_game_count=3738,
+              )
+          except OwnerPortableCandidateError as exc:
+              raise SystemExit(f'OWNER_FINAL_EXTRACTED_TREE_INVALID: {exc}') from exc
+
+          for name_key, sha_key, label in (
+              ('FIRST_DOCX_NAME', 'FIRST_DOCX_SHA_INPUT', 'first owner DOCX'),
+              ('SECOND_DOCX_NAME', 'SECOND_DOCX_SHA_INPUT', 'second owner DOCX'),
+          ):
+              path = root / os.environ[name_key]
+              actual = _stable_digest(path, label=label)
+              expected = os.environ[sha_key].strip().lower()
+              if actual != expected:
+                  raise SystemExit(
+                      f'OWNER_FINAL_EXTRACTED_DOCX_SHA_MISMATCH '
+                      f'label={label} actual={actual} expected={expected}'
+                  )
+
+          print(f'OWNER_FINAL_EXTRACTED_SOUND_WAV_COUNT={qualification["sound_wav_count"]}')
+          print(f'OWNER_FINAL_EXTRACTED_SEED_SOURCES={qualification["seed_source_count"]}')
+          print(f'OWNER_FINAL_EXTRACTED_SEED_GAMES={qualification["seed_game_count"]}')
+          print('OWNER_FINAL_EXTRACTED_TREE=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Freshly extracted owner ZIP failed canonical validation'}
+
+          $afterExtract=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($afterExtract -ne $before){throw 'OWNER_FINAL_ZIP_CHANGED_DURING_EXTRACTION'}
+
+          $root=(Resolve-Path $extracted).Path
+          $launcher=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
           $proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
           if(-not $proc.WaitForExit(15000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
           if($proc.ExitCode -ne 0){throw "OWNER_ROOT_LAUNCHER_EXIT=$($proc.ExitCode)"}
@@ -531,6 +585,11 @@ jobs:
             if(-not $text.Contains($marker)){throw "OWNER_ROOT_LAUNCH_REPORT_MISSING $marker"}
           }
           Get-Process AccessibleChess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+          $afterLaunch=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($afterLaunch -ne $before){throw 'OWNER_FINAL_ZIP_CHANGED_DURING_MACHINE_LAUNCH'}
+          "OWNER_ONECLICK_ZIP_SHA256=$before" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'OWNER_FINAL_ZIP_FRESH_EXTRACTION=PASS'
           Write-Host 'OWNER_ROOT_ONECLICK_MACHINE_LAUNCH=PASS'
           Write-Host 'HUMAN_TESTED=NO'
           Write-Host 'NVDA_VERIFIED=NO'
@@ -552,6 +611,20 @@ jobs:
           }
           echo 'OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS'
 
+      - name: Recheck final ZIP bytes immediately before artifact upload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $archive='Accessible-Chess-ONECLICK-OWNER-FINAL.zip'
+          $receipt=Get-Content -LiteralPath 'owner-final-receipt.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          $receiptSha=([string]$receipt.archive_sha256).Trim().ToLowerInvariant()
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($actual -ne $env:OWNER_ONECLICK_ZIP_SHA256){throw "OWNER_FINAL_ZIP_CHANGED_BEFORE_UPLOAD actual=$actual bound=$env:OWNER_ONECLICK_ZIP_SHA256"}
+          if($actual -ne $receiptSha){throw "OWNER_FINAL_ZIP_RECEIPT_DRIFT actual=$actual receipt=$receiptSha"}
+          if(-not (Test-Path -LiteralPath 'owner-oneclick-from-zip\launch-report.txt' -PathType Leaf)){throw 'OWNER_FINAL_EXTRACTED_LAUNCH_REPORT_MISSING_BEFORE_UPLOAD'}
+          Write-Host "OWNER_FINAL_UPLOAD_ZIP_SHA256=$actual"
+          Write-Host 'OWNER_FINAL_ZIP_PRE_UPLOAD_BINDING=PASS'
+
       - name: Upload exact owner one-click candidate and receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -559,7 +632,7 @@ jobs:
           path: |
             Accessible-Chess-ONECLICK-OWNER-FINAL.zip
             owner-final-receipt.json
-            owner-oneclick/launch-report.txt
+            owner-oneclick-from-zip/launch-report.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
