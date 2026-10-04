@@ -819,12 +819,100 @@ class BookProgressStore:
             return None, None, None
         return self._decode_payload(raw), raw, _revision(raw)
 
+    def _data_path_identity_unlocked(
+        self,
+        path: Path,
+        *,
+        missing_ok: bool,
+    ) -> os.stat_result | None:
+        """Return one authenticated private data-path identity or stable missing state."""
+        try:
+            metadata = os.lstat(path)
+        except FileNotFoundError:
+            if missing_ok:
+                return None
+            raise BookProgressStoreError(
+                "book progress recovery data is unavailable",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
+        except OSError:
+            raise BookProgressStoreError(
+                "book progress storage is unavailable",
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            ) from None
+        self._require_private_data_metadata(metadata)
+        return metadata
+
+    def _require_recovery_path_unchanged_unlocked(
+        self,
+        path: Path,
+        *,
+        expected_identity: os.stat_result | None,
+        expected_raw: bytes | None,
+        message: str,
+    ) -> None:
+        """Bind a recovery decision to exact bytes and exact canonical file identity."""
+        current_raw = self._read_raw_file_unlocked(path, missing_ok=True)
+        current_identity = self._data_path_identity_unlocked(path, missing_ok=True)
+        changed = (
+            (expected_identity is None) != (expected_raw is None)
+            or (current_identity is None) != (current_raw is None)
+            or current_raw != expected_raw
+        )
+        if (
+            not changed
+            and expected_identity is not None
+            and current_identity is not None
+            and not self._same_file_identity(expected_identity, current_identity)
+        ):
+            changed = True
+        if changed:
+            raise BookProgressStoreError(
+                message,
+                code=BookProgressStoreErrorCode.IO_FAILURE,
+            )
+
+    def _require_recovery_primary_unchanged_unlocked(
+        self,
+        expected_identity: os.stat_result | None,
+        expected_raw: bytes | None,
+    ) -> None:
+        self._require_recovery_path_unchanged_unlocked(
+            self._path,
+            expected_identity=expected_identity,
+            expected_raw=expected_raw,
+            message="book progress primary data changed during recovery read",
+        )
+
+    def _require_recovery_backup_unchanged_unlocked(
+        self,
+        expected_identity: os.stat_result | None,
+        expected_raw: bytes | None,
+    ) -> None:
+        self._require_recovery_path_unchanged_unlocked(
+            self.backup_path,
+            expected_identity=expected_identity,
+            expected_raw=expected_raw,
+            message="book progress recovery data changed during recovery read",
+        )
+
     def _load_state_unlocked(
         self,
         *,
         allow_backup_recovery: bool = False,
     ) -> tuple[dict[str, object], bytes | None, str | None]:
+        primary_identity = (
+            self._data_path_identity_unlocked(self._path, missing_ok=True)
+            if allow_backup_recovery
+            else None
+        )
         primary_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
+        if allow_backup_recovery:
+            self._require_recovery_primary_unchanged_unlocked(
+                primary_identity,
+                primary_raw,
+            )
+
         if primary_raw is not None:
             try:
                 primary_payload = self._decode_payload(primary_raw)
@@ -835,6 +923,10 @@ class BookProgressStore:
                 ):
                     raise
                 try:
+                    backup_identity = self._data_path_identity_unlocked(
+                        self.backup_path,
+                        missing_ok=False,
+                    )
                     backup_payload, backup_raw, _ = self._read_state_unlocked(
                         self.backup_path,
                         missing_ok=False,
@@ -842,18 +934,36 @@ class BookProgressStore:
                 except BookProgressStoreError:
                     raise primary_error
                 assert backup_payload is not None and backup_raw is not None
-                self._require_recovery_primary_unchanged_unlocked(primary_raw)
+                self._require_recovery_primary_unchanged_unlocked(
+                    primary_identity,
+                    primary_raw,
+                )
+                self._require_recovery_backup_unchanged_unlocked(
+                    backup_identity,
+                    backup_raw,
+                )
                 return backup_payload, backup_raw, _revision(backup_raw)
             return primary_payload, primary_raw, _revision(primary_raw)
 
         if allow_backup_recovery:
+            backup_identity = self._data_path_identity_unlocked(
+                self.backup_path,
+                missing_ok=True,
+            )
             backup_payload, backup_raw, backup_revision = self._read_state_unlocked(
                 self.backup_path,
                 missing_ok=True,
             )
+            self._require_recovery_primary_unchanged_unlocked(
+                primary_identity,
+                None,
+            )
+            self._require_recovery_backup_unchanged_unlocked(
+                backup_identity,
+                backup_raw,
+            )
             if backup_payload is not None:
                 assert backup_raw is not None and backup_revision is not None
-                self._require_recovery_primary_unchanged_unlocked(None)
                 return backup_payload, backup_raw, backup_revision
         else:
             # Mutation callers must not mistake recoverable orphan state for
@@ -861,18 +971,6 @@ class BookProgressStore:
             # the race where a backup appears after this load.
             self._require_no_orphan_backup_unlocked()
         return _empty_payload(), None, None
-
-    def _require_recovery_primary_unchanged_unlocked(
-        self,
-        expected_raw: bytes | None,
-    ) -> None:
-        """Bind a backup fallback to the primary snapshot that authorized it."""
-        current_raw = self._read_raw_file_unlocked(self._path, missing_ok=True)
-        if current_raw != expected_raw:
-            raise BookProgressStoreError(
-                "book progress primary data changed during recovery read",
-                code=BookProgressStoreErrorCode.IO_FAILURE,
-            )
 
     def _load_payload_unlocked(self) -> dict[str, object]:
         payload, _, _ = self._load_state_unlocked()
