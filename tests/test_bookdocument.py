@@ -166,6 +166,26 @@ class BookDocumentTests(unittest.TestCase):
             BookDocumentErrorCode.INVALID_FIELD,
         )
 
+    def test_semantic_kind_query_rejects_custom_instancecheck_before_hook(self):
+        class HostileMeta(type):
+            touched = False
+
+            def __instancecheck__(cls, _instance):
+                type(cls).touched = True
+                raise AssertionError("hostile __instancecheck__ must not execute")
+
+        class HostileKind(metaclass=HostileMeta):
+            pass
+
+        book = BookDocument("Book", blocks=[Paragraph(text="Readable")])
+        with self.assertRaises(BookDocumentError) as caught:
+            list(book.iter_kind(HostileKind))
+        self.assertEqual(
+            caught.exception.code,
+            BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
+        )
+        self.assertFalse(HostileMeta.touched)
+
     def test_live_semantic_queries_reject_corrupted_mutable_blocks(self):
         heading = Heading(text="Heading", level=1, block_id="h1")
         book = BookDocument("Book", blocks=[heading])
