@@ -51,6 +51,49 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             self.assertIn("migrated unversioned settings to schema 1", warnings)
             self.assertEqual(settings.to_profile()["schema_version"], SCHEMA_VERSION)
 
+    def test_load_rejects_duplicate_json_keys_at_every_object_depth(self) -> None:
+        payloads = (
+            '{"schema_version":2,"schema_version":1,"values":{"language":"en"}}',
+            '{"schema_version":2,"values":{"language":"uk","language":"en"}}',
+            '{"schema_version":2,"values":{"ignored":{"x":1,"x":2}}}',
+            '{"schema_version":2,"values":{"volume":40,"vol\\u0075me":20}}',
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / "settings.json"
+                    path.write_text(payload, encoding="utf-8")
+                    original = path.read_bytes()
+
+                    settings = Settings(path)
+
+                    self.assertEqual(settings.data, DEFAULTS)
+                    self.assertIn("settings recovery", settings.warning or "")
+                    self.assertIn("duplicate object key", settings.warning or "")
+                    self.assertEqual(path.read_bytes(), original)
+
+    def test_import_rejects_duplicate_json_keys_without_state_or_disk_mutation(self) -> None:
+        payloads = (
+            '{"schema_version":2,"schema_version":1,"values":{"volume":1}}',
+            '{"schema_version":2,"values":{"volume":1,"volume":99}}',
+            '{"schema_version":2,"values":{"ignored":{"x":1,"x":2}}}',
+            '{"schema_version":2,"values":{"volume":40,"vol\\u0075me":20}}',
+        )
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+            settings.set("language", "en")
+            settings.set("volume", 37)
+            baseline = dict(settings.data)
+            persisted = path.read_bytes()
+
+            for payload in payloads:
+                for persist in (False, True):
+                    with self.subTest(payload=payload, persist=persist):
+                        with self.assertRaisesRegex(SettingsError, "duplicate object key"):
+                            settings.import_json(payload, persist=persist)
+                        self.assertEqual(settings.data, baseline)
+                        self.assertEqual(path.read_bytes(), persisted)
 
     def test_mutation_rejects_active_scalar_subclasses_before_hooks(self) -> None:
         class HostileText(str):
@@ -183,7 +226,6 @@ class SettingsCorruptionSecurityTests(unittest.TestCase):
             self.assertEqual(restored.get("tick_last_seconds"), 5)
             self.assertEqual(restored.get("sound_move_variant"), "2")
             self.assertEqual(restored.get("engine_path"), "stockfish.exe")
-
 
     def test_direct_import_rejects_active_or_oversized_text_before_json_parse(self) -> None:
         class HostileProfile(str):
