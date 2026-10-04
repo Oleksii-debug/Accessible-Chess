@@ -514,33 +514,52 @@
         );
       });
       treeItem.addEventListener("keydown", function (event) {
-        if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+        const resolve = global.accessibleChessKeymapAction;
+        let actionId = "";
+        if (typeof resolve === "function") {
+          actionId = resolve(event, "pgn_tree");
+        } else if (
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
+        ) {
+          if (event.key === "ArrowUp") actionId = "pgn.previous_item";
+          else if (event.key === "ArrowDown") actionId = "pgn.next_item";
+          else if (event.key === "ArrowLeft") actionId = "pgn.parent_variation";
+        }
 
         let command = "";
         let payload = {};
-        if (event.key === "ArrowUp") {
+        if (actionId === "pgn.previous_item") {
           if (itemIndex > 0) {
             command = "pgn.move";
             payload = { delta: -1 };
           }
-        } else if (event.key === "ArrowDown") {
+        } else if (actionId === "pgn.next_item") {
           if (itemIndex + 1 < snapshot.tree.length) {
             command = "pgn.move";
             payload = { delta: 1 };
           }
-        } else if (event.key === "ArrowLeft") {
+        } else if (actionId === "pgn.parent_variation") {
           if (item.has_parent) command = "pgn.parent";
-        } else if (event.key === "ArrowRight") {
+        } else if (
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
+          event.key === "ArrowRight"
+        ) {
           if (hasChild) {
             command = "pgn.select";
             payload = { node_id: snapshot.tree[itemIndex + 1].node_id };
           }
-        } else if (event.key === "Home") {
+        } else if (
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
+          event.key === "Home"
+        ) {
           if (itemIndex > 0 && snapshot.tree.length) {
             command = "pgn.select";
             payload = { node_id: snapshot.tree[0].node_id };
           }
-        } else if (event.key === "End") {
+        } else if (
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
+          event.key === "End"
+        ) {
           if (itemIndex + 1 < snapshot.tree.length) {
             command = "pgn.select";
             payload = {
@@ -551,10 +570,10 @@
           return;
         }
 
+        if (!command) return;
         event.preventDefault();
-        if (command) {
-          invokeCommand(root, invoke, announce, command, payload);
-        }
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        invokeCommand(root, invoke, announce, command, payload);
       });
       tree.appendChild(treeItem);
     });
