@@ -1,5 +1,5 @@
-# exact-package-reconvergence: f85ae1a / p0g f85ae1a / p0-document f85ae1a / publication-parent b487d7f
-# qualification-request: ACCESSIBLE-CHESS-20261004-1726-HY6EZ0H-G253-F85-EXACT
+# exact-package-reconvergence: a94d0c8 / p0g a94d0c8 / p0-document a94d0c8 / publication-parent 05d19ed
+# qualification-request: ACCESSIBLE-CHESS-20261004-1742-HY6EZ0H-G253-A94-EXACT
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -21,10 +21,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PRODUCT_PARENT_SHA: f85ae1a34ced27ef9ff97916b6e59b3ecb315317
+  PRODUCT_PARENT_SHA: a94d0c87d11ceb9056fb4121f336cb4643fb5863
   PREVIOUS_PACKAGE_SHA: 569a9a4e2ec43ecc0386bcaa529d897ab260e858
-  RECONVERGENCE_MERGE_SHA: b487d7faa84804a292dc6e99ac9015094bfaaeaf
-  PUBLICATION_PARENT_SHA: b487d7faa84804a292dc6e99ac9015094bfaaeaf
+  RECONVERGENCE_MERGE_SHA: 05d19ed8f3430dcf8830a37660672878ab861fac
+  PUBLICATION_PARENT_SHA: 05d19ed8f3430dcf8830a37660672878ab861fac
   PREVIOUS_WORKFLOW_BLOB_SHA: dc57ca8446f8351c0f4c5c25a16511b0182e3ce0
   EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
@@ -32,10 +32,10 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: f85ae1a34ced27ef9ff97916b6e59b3ecb315317
+  P0G_QA_SHA: a94d0c87d11ceb9056fb4121f336cb4643fb5863
   P0G_PROBE_BLOB_SHA: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: f85ae1a34ced27ef9ff97916b6e59b3ecb315317
+  P0_DOCUMENT_QA_SHA: a94d0c87d11ceb9056fb4121f336cb4643fb5863
   P0_DOCUMENT_PROBE_BLOB_SHA: 08c343f04b6383445b9360f5cee346d7a4a414a5
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
@@ -484,7 +484,7 @@ jobs:
           once(evidence_needle, evidence_replacement, 'Book persistence evidence insertion')
 
           source_test_needle = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy"""
-          source_test_replacement = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy tests.test_book_document_warning_accessibility tests.test_v2_book_epub_import tests.test_v2_book_html_import tests.test_v2_book_text_import tests.test_v2_book_game_content tests.test_v2_book_progress_store_production tests.test_w2_training_progress_crash_recovery tests.test_book_bidirectional_semantic_navigation tests.test_bookreader_snapshot_bounds tests.test_owner_oneclick_from_w4_workflow tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness"""
+          source_test_replacement = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy tests.test_book_document_warning_accessibility tests.test_v2_book_epub_import tests.test_v2_book_html_import tests.test_v2_book_text_import tests.test_v2_book_game_content tests.test_v2_book_progress_store_production tests.test_w2_training_progress_crash_recovery tests.test_book_bidirectional_semantic_navigation tests.test_bookreader_snapshot_bounds tests.test_owner_oneclick_from_w4_workflow tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_portable_localappdata_persistence_binding tests.test_pgn_post_commit_presentation_recovery_current"""
           once(source_test_needle, source_test_replacement, 'Current completion safety regression expansion')
 
           source_gate_needle = """          if($LASTEXITCODE -ne 0){throw 'SOURCE_P0G_W3_REGRESSION_FAILURE'}"""
@@ -511,6 +511,8 @@ jobs:
               'tests.test_owner_oneclick_from_w4_workflow',
               'tests.test_portable_launcher_contract',
               'tests.test_portable_launcher_window_readiness',
+              'tests.test_portable_localappdata_persistence_binding',
+              'tests.test_pgn_post_commit_presentation_recovery_current',
               'SOURCE_CURRENT_COMPLETION_SAFETY_REGRESSIONS=PASS',
           )
           for token in required:
