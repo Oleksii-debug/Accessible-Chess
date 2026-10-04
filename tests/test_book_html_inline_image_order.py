@@ -1562,6 +1562,76 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(location.index, 2)
         self.assertEqual(Board(location.position_fen).fen(), Board.START)
 
+    def test_unclosed_nested_rich_capture_recovers_once_in_source_order(self) -> None:
+        result = import_html_book(
+            '<html><body><p id="outer">Before'
+            '<blockquote id="quote">Inner<img src="board.png" alt="Board">Tail',
+            source_name="unclosed-nested-rich.html",
+            available_assets={"board.png"},
+        )
+
+        self.assertEqual(
+            _semantic_signature(result.document.blocks),
+            [
+                ("Paragraph", "Before"),
+                ("Paragraph", "Inner"),
+                ("ImageNote", "Board"),
+                ("Paragraph", "Tail"),
+            ],
+        )
+        self.assertEqual(
+            sum(
+                block.text.count("Inner") + block.text.count("Tail")
+                for block in result.document.blocks
+                if isinstance(block, Paragraph)
+            ),
+            2,
+        )
+        self.assertTrue(any("unclosed blockquote" in warning for warning in result.warnings))
+        self.assertTrue(any("unclosed p" in warning for warning in result.warnings))
+
+    def test_nested_rich_list_split_restores_legacy_list_progress_identity(self) -> None:
+        baseline = import_html_book(
+            '<html><body><ul id="choices"><li>Before Inner Tail After</li></ul>'
+            '</body></html>',
+            source_name="nested-rich-list-progress-baseline.html",
+        )
+        baseline_reader = BookReader(baseline.document)
+        baseline_index = next(
+            index
+            for index, block in enumerate(baseline.document.blocks)
+            if block.kind == "List"
+        )
+        baseline_location = baseline_reader.go_to(baseline_index)
+
+        changed = import_html_book(
+            '<html><body><ul id="choices"><li>Before'
+            '<blockquote>Inner<img src="board.png" alt="Board">Tail</blockquote>'
+            'After</li></ul></body></html>',
+            source_name="nested-rich-list-progress-changed.html",
+            available_assets={"board.png"},
+        )
+        first = changed.document.blocks[0]
+        self.assertIsInstance(first, Paragraph)
+        self.assertEqual(first.text, "• Before")
+        self.assertEqual(first.block_id, baseline_location.block_id)
+        self.assertEqual(first.source_anchor, "choices")
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = BookProgressStore(Path(directory) / "progress.json")
+            store.save("nested-rich-list-progress", baseline_reader)
+            restored = store.restore(
+                "nested-rich-list-progress",
+                changed.document,
+            )
+
+        restored_location = restored.location()
+        restored_block = restored.block_snapshot(restored_location.index)
+        self.assertEqual(restored_location.block_id, baseline_location.block_id)
+        self.assertEqual(restored_location.source_anchor, "choices")
+        self.assertIsInstance(restored_block, Paragraph)
+        self.assertEqual(restored_block.text, "• Before")
+
     def test_decorative_heading_image_does_not_split_heading_text(self) -> None:
         baseline = import_html_book(
             '<html><body><h2 id="topic">BeforeAfter</h2></body></html>',
