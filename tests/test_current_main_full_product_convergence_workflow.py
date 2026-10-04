@@ -418,6 +418,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             ".github/workflows/w4-v2-p0-fresh-windows-candidate.yml",
             "scripts/build_owner_portable_candidate.py",
             "scripts/materialize_owner_library_seed.py",
+            "scripts/verify_owner_w4_run_provenance.py",
             "packaging/portable_launcher.c",
         )
         for path in retriggers:
@@ -429,6 +430,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             "tests.test_owner_portable_candidate_stable_reads",
             "tests.test_materialize_owner_library_seed",
             "tests.test_owner_oneclick_from_w4_workflow",
+            "tests.test_verify_owner_w4_run_provenance",
             "tests.test_w4_v2_p0_fresh_candidate_workflow",
         )
         for contract in contracts:
