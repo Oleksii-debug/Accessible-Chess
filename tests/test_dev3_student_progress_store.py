@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import acs.student_progress_store as student_progress_store_module
+
 from acs.student_progress import (
     ReviewKind,
     STUDENT_PROGRESS_MAX_SNAPSHOT_RECORDS,
@@ -185,6 +187,53 @@ os._exit(0)
             )
             self.assertNotEqual(replacement_revision, revision)
             self.assertEqual(store.load().revision, replacement_revision)  # type: ignore[union-attr]
+
+
+    def test_lock_path_swap_after_kernel_acquire_fails_closed_and_recovers(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            store = StudentProgressStore(root / "student-progress.json")
+            revision = store.save(self._ledger(), expected_revision=None)
+            original = store.path.read_bytes()
+            replacement = root / "replacement.lock"
+            replacement.write_bytes(b"\0")
+            real_lock = student_progress_store_module._lock_writer_descriptor
+            injected = False
+
+            def swap_after_lock(descriptor: int) -> None:
+                nonlocal injected
+                real_lock(descriptor)
+                if not injected:
+                    os.replace(replacement, store._lock_path)
+                    injected = True
+
+            with patch.object(
+                student_progress_store_module,
+                "_lock_writer_descriptor",
+                side_effect=swap_after_lock,
+            ):
+                with self.assertRaisesRegex(
+                    StudentProgressBusyError,
+                    "lock changed during save",
+                ):
+                    store.save(
+                        self._ledger(record_id="blocked-by-lock-swap"),
+                        expected_revision=revision,
+                    )
+
+            self.assertTrue(injected)
+            self.assertEqual(original, store.path.read_bytes())
+            self.assertTrue(store._lock_path.is_file())
+
+            replacement_revision = store.save(
+                self._ledger(record_id="after-lock-swap"),
+                expected_revision=revision,
+            )
+            self.assertNotEqual(replacement_revision, revision)
+            loaded = store.load()
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(replacement_revision, loaded.revision)
 
     def test_publication_failure_preserves_prior_file_and_cleans_temp(self) -> None:
         with tempfile.TemporaryDirectory() as raw_dir:
