@@ -23,7 +23,10 @@ class FakeElement {
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   getAttribute(name) { return this.attributes[String(name)] || ""; }
   addEventListener(name, listener) { this.listeners[String(name)] = listener; }
-  focus() { document.activeElement = this; }
+  focus() {
+    document.activeElement = this;
+    if (this.listeners.focus) this.listeners.focus({ target: this });
+  }
   select() { this.selectedText = true; }
   showModal() { this.open = true; }
   close() { this.open = false; }
@@ -44,6 +47,18 @@ global.window = {};
 vm.runInThisContext(fs.readFileSync("web/full_product_pgn.js", "utf8"), { filename: "full_product_pgn.js" });
 
 function check(condition, message) { if (!condition) throw new Error(message); }
+function findRole(root, role) {
+  return root.descendants().find((item) => item.getAttribute("role") === role) || null;
+}
+function pressKey(target, container, key) {
+  let prevented = false;
+  container.listeners.keydown({
+    key: key,
+    target: target,
+    preventDefault: function () { prevented = true; }
+  });
+  return prevented;
+}
 function snapshot(selectedId) {
   return {
     document: { lang: "en", landmark: "main" },
@@ -254,6 +269,120 @@ async function run() {
   const items = root.querySelectorAll('[role="treeitem"]');
   check(items.length === 2, "semantic tree items missing");
   check(document.activeElement && document.activeElement.id === "pgn-node-aaaaaaaaaaaaaaaaaaaa", "initial tree focus missing");
+
+  const toolbar = findRole(root, "toolbar");
+  check(toolbar !== null, "PGN action toolbar missing");
+  check(
+    toolbar.getAttribute("aria-orientation") === "horizontal",
+    "PGN toolbar orientation missing"
+  );
+  const toolbarButtons = toolbar.children.filter((item) => item.tagName === "BUTTON");
+  const enabledToolbarButtons = toolbarButtons.filter((item) => !item.disabled);
+  const disabledToolbarButtons = toolbarButtons.filter((item) => item.disabled);
+  check(enabledToolbarButtons.length >= 2, "PGN toolbar needs two enabled actions");
+  check(enabledToolbarButtons[0].tabIndex === 0, "first enabled PGN action must be tabbable");
+  check(
+    enabledToolbarButtons.slice(1).every((item) => item.tabIndex === -1),
+    "non-active PGN toolbar actions entered Tab order"
+  );
+  check(
+    disabledToolbarButtons.every((item) => item.tabIndex === -1),
+    "disabled PGN toolbar action entered roving order"
+  );
+
+  enabledToolbarButtons[0].focus();
+  check(
+    pressKey(enabledToolbarButtons[0], toolbar, "ArrowRight"),
+    "PGN toolbar ArrowRight must be handled"
+  );
+  check(
+    document.activeElement === enabledToolbarButtons[1],
+    "PGN toolbar ArrowRight did not move to next enabled action"
+  );
+  check(
+    pressKey(enabledToolbarButtons[1], toolbar, "Home"),
+    "PGN toolbar Home must be handled"
+  );
+  check(
+    document.activeElement === enabledToolbarButtons[0],
+    "PGN toolbar Home did not reach first enabled action"
+  );
+  check(
+    pressKey(enabledToolbarButtons[0], toolbar, "End"),
+    "PGN toolbar End must be handled"
+  );
+  check(
+    document.activeElement === enabledToolbarButtons[enabledToolbarButtons.length - 1],
+    "PGN toolbar End did not reach last enabled action"
+  );
+  check(
+    pressKey(enabledToolbarButtons[enabledToolbarButtons.length - 1], toolbar, "ArrowRight"),
+    "PGN toolbar ArrowRight wrap must be handled"
+  );
+  check(
+    document.activeElement === enabledToolbarButtons[0],
+    "PGN toolbar ArrowRight did not wrap"
+  );
+  check(
+    !pressKey(enabledToolbarButtons[0], toolbar, "Enter"),
+    "PGN toolbar hijacked native activation"
+  );
+  enabledToolbarButtons[1].focus();
+  check(
+    enabledToolbarButtons[1].tabIndex === 0
+      && enabledToolbarButtons[0].tabIndex === -1,
+    "PGN toolbar focus did not update roving tab stop"
+  );
+
+  // Standard ARIA tree keys own quiet boundaries without manufacturing backend errors.
+  const boundaryCalls = [];
+  let upPrevented = false;
+  items[0].listeners.keydown({
+    key: "ArrowUp",
+    preventDefault: function () { upPrevented = true; }
+  });
+  check(upPrevented, "PGN tree ArrowUp boundary must be owned");
+  check(boundaryCalls.length === 0, "PGN tree boundary manufactured a command");
+
+  const hierarchical = snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa");
+  hierarchical.tree[1].aria_level = 2;
+  hierarchical.tree[1].has_parent = true;
+  const hierarchyRoot = new FakeElement("div");
+  const hierarchyCalls = [];
+  window.AccessibleChessPgnSurface.render(
+    hierarchyRoot,
+    hierarchical,
+    (command, payload) => {
+      hierarchyCalls.push([command, payload]);
+      return {
+        kind: "selection",
+        payload: {
+          snapshot: hierarchical,
+          focus_target: hierarchical.focus_target,
+          announcement: ""
+        }
+      };
+    },
+    function () {},
+    hierarchical.focus_target
+  );
+  const hierarchyItems = hierarchyRoot.querySelectorAll('[role="treeitem"]');
+  check(
+    hierarchyItems[0].getAttribute("aria-expanded") === "true",
+    "PGN parent tree item lacks aria-expanded"
+  );
+  let rightPrevented = false;
+  hierarchyItems[0].listeners.keydown({
+    key: "ArrowRight",
+    preventDefault: function () { rightPrevented = true; }
+  });
+  await flush();
+  check(rightPrevented, "PGN tree ArrowRight was not handled");
+  check(
+    hierarchyCalls[0][0] === "pgn.select"
+      && hierarchyCalls[0][1].node_id === hierarchical.tree[1].node_id,
+    "PGN tree ArrowRight did not select visible child"
+  );
 
   let prevented = false;
   items[0].listeners.keydown({ key: "ArrowDown", preventDefault: () => { prevented = true; } });
