@@ -23,6 +23,9 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         registry.set_binding("library.open_game", "Ctrl+Enter")
         registry.set_binding("education.next_item", "L")
         registry.set_binding("education.open_selected", "O")
+        registry.set_binding("board.cursor_down", "Ctrl+J")
+        registry.set_binding("move.submit", "F2")
+        registry.set_binding("history.commit_go_to_move", "F3")
 
         self.assertIsNone(_resolved(registry, BindingContext.PGN_TREE, "Down"))
         self.assertEqual("pgn.next_item", _resolved(registry, BindingContext.PGN_TREE, "J"))
@@ -32,7 +35,12 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertIsNone(_resolved(registry, BindingContext.EDUCATION_LIST, "Down"))
         self.assertEqual("education.next_item", _resolved(registry, BindingContext.EDUCATION_LIST, "L"))
         self.assertEqual("education.open_selected", _resolved(registry, BindingContext.EDUCATION_LIST, "O"))
-        self.assertEqual("board.cursor_down", _resolved(registry, BindingContext.BOARD, "Down"))
+        self.assertIsNone(_resolved(registry, BindingContext.BOARD, "Down"))
+        self.assertEqual("board.cursor_down", _resolved(registry, BindingContext.BOARD, "Ctrl+J"))
+        self.assertIsNone(_resolved(registry, BindingContext.MOVE_ENTRY, "Enter"))
+        self.assertEqual("move.submit", _resolved(registry, BindingContext.MOVE_ENTRY, "F2"))
+        self.assertIsNone(_resolved(registry, BindingContext.HISTORY, "Enter"))
+        self.assertEqual("history.commit_go_to_move", _resolved(registry, BindingContext.HISTORY, "F3"))
 
         restored = ActionRegistry.import_json(registry.export_json(), registry.definitions())
         self.assertEqual("pgn.next_item", _resolved(restored, BindingContext.PGN_TREE, "J"))
@@ -40,6 +48,9 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertEqual("library.open_game", _resolved(restored, BindingContext.LIBRARY_RESULTS, "Ctrl+Enter"))
         self.assertEqual("education.next_item", _resolved(restored, BindingContext.EDUCATION_LIST, "L"))
         self.assertEqual("education.open_selected", _resolved(restored, BindingContext.EDUCATION_LIST, "O"))
+        self.assertEqual("board.cursor_down", _resolved(restored, BindingContext.BOARD, "Ctrl+J"))
+        self.assertEqual("move.submit", _resolved(restored, BindingContext.MOVE_ENTRY, "F2"))
+        self.assertEqual("history.commit_go_to_move", _resolved(restored, BindingContext.HISTORY, "F3"))
 
     def test_shell_exports_current_synchronous_event_resolver_for_child_surfaces(self) -> None:
         source = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
@@ -54,6 +65,28 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertIn("if(result.snapshot)installKeymapSnapshot(result.snapshot,true)", source)
         self.assertIn("keymapReady=true", source)
         self.assertNotIn("async function loadKeymap(){keymapReady=false", source)
+
+    def test_stage1_board_and_commit_surfaces_consume_live_registry_without_old_defaults(self) -> None:
+        source = (ROOT / "web" / "stage1_board_actions.js").read_text(encoding="utf-8")
+        for marker in (
+            "window.onBoardKey = remappableOnBoardKey",
+            "cell.removeEventListener('keydown', baseOnBoardKey)",
+            "const projectedAction = liveKeymapAction(event, 'board')",
+            "resolveBinding(eventChord(event), 'board', 'board')",
+            "if (projectedAction === null)",
+            "if (!actionId) return",
+            "liveExactRegistryAction(event, registryContext, uiContext)",
+            "action.registryContext === registryContext",
+            "'move-input', 'move_entry', 'move-entry', 'move.submit'",
+            "'history-input'",
+            "'history.commit_go_to_move'",
+            "if (event.key === 'Enter') event.stopImmediatePropagation()",
+        ):
+            self.assertIn(marker, source)
+        # The central registry projection deliberately distinguishes the Python
+        # registry context from the UI interaction scope for move entry.
+        adapter = (ROOT / "acs" / "ui_keymap_adapter.py").read_text(encoding="utf-8")
+        self.assertIn('BindingContext.MOVE_ENTRY: "move-entry"', adapter)
 
     def test_pgn_tree_uses_remappable_context_and_retains_current_roving_keys(self) -> None:
         source = (ROOT / "web" / "full_product_pgn.js").read_text(encoding="utf-8")
