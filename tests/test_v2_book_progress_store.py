@@ -261,6 +261,44 @@ class BookProgressStoreTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             BookProgressStore(os.fsencode(self.path))
 
+    def test_storage_path_collapses_lexical_parent_segments_at_construction(self) -> None:
+        origin = Path(self.tempdir.name) / "lexical-origin"
+        (origin / "pivot").mkdir(parents=True)
+        previous_cwd = Path.cwd()
+        try:
+            os.chdir(origin)
+            store = BookProgressStore(Path("pivot") / ".." / "book-progress.json")
+        finally:
+            os.chdir(previous_cwd)
+
+        self.assertEqual(store.path, origin / "book-progress.json")
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "Windows symlink creation requires environment-specific privileges",
+    )
+    def test_symlink_parent_pivot_cannot_split_lock_and_data_authority(self) -> None:
+        origin = Path(self.tempdir.name) / "pivot-origin"
+        outside = Path(self.tempdir.name) / "pivot-outside"
+        nested = outside / "nested"
+        origin.mkdir()
+        nested.mkdir(parents=True)
+        (origin / "pivot").symlink_to(nested, target_is_directory=True)
+        previous_cwd = Path.cwd()
+        try:
+            os.chdir(origin)
+            store = BookProgressStore(Path("pivot") / ".." / "book-progress.json")
+            reader = BookReader(self.original_document())
+            store.save("book:pivot", reader)
+        finally:
+            os.chdir(previous_cwd)
+
+        self.assertEqual(store.path, origin / "book-progress.json")
+        self.assertTrue((origin / "book-progress.json").is_file())
+        self.assertTrue((origin / "book-progress.json.lock").is_file())
+        self.assertFalse((outside / "book-progress.json").exists())
+        self.assertFalse((outside / "book-progress.json.lock").exists())
+
     def test_relative_storage_path_is_bound_before_working_directory_changes(self) -> None:
         origin = Path(self.tempdir.name) / "cwd-origin"
         destination = Path(self.tempdir.name) / "cwd-destination"

@@ -78,13 +78,11 @@ jobs:
       CWD_BOUND_STORE_BLOB: 39502e72ed5a12efd4746f500ccb2ede589d4152
       CWD_BOUND_BASE_TEST_BLOB: 810b8cbe1f9fbba835cba95e721b702acd924b56
       CWD_BOUND_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
-      RECOVERY_CONSENT_STORE_BLOB: 53b8b69ac2c61b42a9e065d1b5fe9c754dd2fd2c
-      RECOVERY_CONSENT_BASE_TEST_BLOB: 37f1048d902e1d577b21b7ed310e9ecea0444136
+      RECOVERY_CONSENT_STORE_BLOB: 3bf69ef648789f5ec597859abcce0c0729836352
+      RECOVERY_CONSENT_BASE_TEST_BLOB: 0fd92590040daf948921b40f09daea2e0824c94c
       RECOVERY_CONSENT_APPLICATION_BLOB: 4ffb8ede3105a38d0872443fd011cc23c1a7841b
       RECOVERY_CONSENT_APPLICATION_TEST_BLOB: 5029be95905806de8df625bdae07baddd844c6c4
       RECOVERY_CONSENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
-      INTEGRATED_RECOVERY_SUCCESSOR_HEAD: f1611f77affeb3b3fc5a0a587c3add2b28269424
-      INTEGRATED_RECOVERY_APPLICATION_BLOB: 978ad31bfaedd137e8264062c976fe6d14c47045
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -207,22 +205,6 @@ jobs:
             fi
           fi
 
-          integrated_recovery_convergence=false
-          if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
-            candidate_store_now="$(git rev-parse HEAD:acs/book_progress_store.py)"
-            candidate_base_test_now="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
-            candidate_production_test_now="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
-            candidate_application_now="$(git rev-parse HEAD:acs/version2_application.py)"
-            candidate_application_test_now="$(git rev-parse HEAD:tests/test_version2_application.py)"
-            if [ "$candidate_store_now" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
-              && [ "$candidate_base_test_now" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
-              && [ "$candidate_production_test_now" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
-              && [ "$candidate_application_now" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
-              && [ "$candidate_application_test_now" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
-              integrated_recovery_convergence=true
-            fi
-          fi
-
           full_product_composition=false
           if [ "${{ github.event_name }}" = "pull_request" ] \
             && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
@@ -292,15 +274,6 @@ jobs:
               tests/test_v2_book_progress_store.py \
               tests/test_v2_book_progress_store_production.py
             echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_RECHECK_SUCCESSOR'
-          elif [ "$integrated_recovery_convergence" = true ]; then
-            git diff --check "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD -- \
-              .github/workflows/v2-book-progress-production-repair.yml \
-              acs/book_progress_store.py \
-              acs/version2_application.py \
-              tests/test_v2_book_progress_store.py \
-              tests/test_v2_book_progress_store_production.py \
-              tests/test_version2_application.py
-            echo 'BOOK_PROGRESS_TOPOLOGY=INTEGRATED_RECOVERY_CONVERGENCE'
           elif [ "$full_product_composition" = true ]; then
             # The repair is composed into the live Full Product. A broad Product
             # history is legitimate only on that exact canonical branch.
@@ -336,25 +309,11 @@ jobs:
           # exact store/base-test/production-test tuple.
           if [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
             || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
-            exact_recovery_consent=false
-            integrated_recovery_application=false
-            if [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
-              && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
-              && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
-              && [ "$candidate_application" = "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
-              && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
-              exact_recovery_consent=true
-            fi
-            if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD \
-              && [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
-              && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
-              && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
-              && [ "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
-              && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
-              integrated_recovery_application=true
-            fi
-            if [ "$exact_recovery_consent" != true ] \
-              && [ "$integrated_recovery_application" != true ]; then
+            if [ "$candidate_store" != "$RECOVERY_CONSENT_STORE_BLOB" ] \
+              || [ "$candidate_base_test" != "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+              || [ "$candidate_production_test" != "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+              || [ "$candidate_application" != "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+              || [ "$candidate_application_test" != "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
               echo 'BookProgress application authority drift' >&2
               exit 1
             fi
@@ -416,13 +375,6 @@ jobs:
             && [ "$candidate_base_test" = "$CWD_BOUND_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$CWD_BOUND_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=CWD_BOUND_SUCCESSOR'
-          elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
-            && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
-            && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
-            && [ "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
-            && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ] \
-            && git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
-            echo 'BOOK_PROGRESS_BLOB_SET=INTEGRATED_RECOVERY_CONVERGENCE'
           elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
