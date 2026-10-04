@@ -47,7 +47,7 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       CONTEXT_BLOB: 890fcc1d6cd57c1555e02a435d835d1d3fc75c4d
-      CONTEXT_TEST_BLOB: b775380ca5f4d5311a87b2a9330b42a3ac08f7ff
+      CONTEXT_TEST_BLOB: 33e575d589761bb162479eea9f5e1ad06153998e
       PROGRESS_DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
       PROGRESS_STORE_BLOB: 41125b74aa8a1446e3830f268a59d85cd0784b50
     steps:

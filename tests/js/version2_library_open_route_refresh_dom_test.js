@@ -59,9 +59,76 @@ let snapshotCalls = 0;
 let intervalCallback = null;
 let pgnRenderCalls = 0;
 function navigation(route) { return ["board", "pgn", "library", "books"].map((routeId) => ({ route_id: routeId, label: routeId.toUpperCase(), action_id: "screen." + routeId, current: routeId === route })); }
-function librarySnapshot() { return { heading: "Library", description: "Search games", filters_heading: "Filters", results_heading: "Results", search_label: "Search", transport_error_message: "Could not complete action.", import: null, filters: [], rows: [{ dom_id: "library-game-1", game_id: 1, label: "Alpha - Beta", source_label: "sample.pgn", selected: true }], actions: [], summary: "1 game", message: "" }; }
+const LIBRARY_GAME_DOM_ID = "library-game-00000000000000000001";
+function libraryImportSnapshot() {
+  return {
+    phase: "idle",
+    heading: "Import",
+    description: "Import games",
+    processed_games: 0,
+    total_games: 0,
+    progress_label: "No import is running.",
+    message: "",
+    actions: [
+      { action: "library.import", dom_id: "library-import-file", label: "Import file", enabled: true },
+      { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel import", enabled: false }
+    ]
+  };
+}
+function libraryFilters() {
+  return [
+    { id: "player", kind: "text", label: "Player", value: "" },
+    { id: "event", kind: "text", label: "Event", value: "" },
+    { id: "eco", kind: "text", label: "ECO", value: "" },
+    { id: "opening", kind: "text", label: "Opening", value: "" },
+    { id: "result", kind: "select", label: "Result", value: "", options: [
+      { value: "", label: "Any" }, { value: "1-0", label: "1-0" },
+      { value: "0-1", label: "0-1" }, { value: "1/2-1/2", label: "1/2-1/2" },
+      { value: "*", label: "*" }
+    ] },
+    { id: "source_id", kind: "number", label: "Source identifier", value: "", minimum: 1 },
+    { id: "source_name", kind: "text", label: "Source name", value: "" },
+    { id: "limit", kind: "select", label: "Games per page", value: "25", options: [
+      { value: "25", label: "25" }, { value: "50", label: "50" },
+      { value: "100", label: "100" }, { value: "200", label: "200" }
+    ] }
+  ];
+}
+function librarySnapshot() {
+  return {
+    document: { lang: "en", landmark: "main" },
+    status: "ready",
+    heading: "Library",
+    description: "Search games",
+    filters_heading: "Filters",
+    results_heading: "Results",
+    search_label: "Search",
+    transport_error_message: "Could not complete action.",
+    import: libraryImportSnapshot(),
+    filters: libraryFilters(),
+    rows: [{
+      dom_id: LIBRARY_GAME_DOM_ID,
+      game_id: 1,
+      position: 1,
+      selected: true,
+      label: "Alpha - Beta",
+      source_label: "sample.pgn",
+      result: "1-0"
+    }],
+    selected_game_id: 1,
+    focus_target: LIBRARY_GAME_DOM_ID,
+    message: "",
+    summary: "1 game",
+    actions: [
+      { action: "library.previous_page", label: "Previous page", enabled: false },
+      { action: "library.next_page", label: "Next page", enabled: false },
+      { action: "library.open_game", label: "Open selected game", enabled: true },
+      { action: "library.reset_filters", label: "Reset filters", enabled: false }
+    ]
+  };
+}
 function snapshot(route) {
-  const screenFocus = route === "library" ? "library-game-1" : route === "pgn" ? "pgn-game-list" : "move-input";
+  const screenFocus = route === "library" ? LIBRARY_GAME_DOM_ID : route === "pgn" ? "pgn-game-list" : "move-input";
   return { document: { lang: "en", title: route.toUpperCase() }, navigation: navigation(route), screen: { route_id: route, heading: route.toUpperCase(), focus_target: screenFocus }, library: librarySnapshot(), pgn: route === "pgn" ? { focus_target: "pgn-game-list" } : null, books: null };
 }
 
@@ -88,7 +155,7 @@ function flush() { return new Promise((resolve) => setImmediate(resolve)); }
   vm.runInThisContext(fs.readFileSync("web/full_product_library.js", "utf8"), { filename: "full_product_library.js" });
   vm.runInThisContext(fs.readFileSync("web/version2_release_bootstrap.js", "utf8"), { filename: "version2_release_bootstrap.js" });
   await flush(); await flush();
-  const libraryRow = documentRef.getElementById("library-game-1");
+  const libraryRow = documentRef.getElementById(LIBRARY_GAME_DOM_ID);
   check(libraryRow !== null, "initial Library game row was not rendered");
   check(documentRef.activeElement === libraryRow, "initial Library selection did not receive focus");
   check(typeof libraryRow.listeners.keydown === "function", "Library keyboard handler missing");
@@ -101,7 +168,7 @@ function flush() { return new Promise((resolve) => setImmediate(resolve)); }
   check(currentRoute === "pgn", "backend route did not move to PGN");
   check(snapshotCalls > beforeOpenSnapshotCalls, "direct Library open changed backend route but did not request a new V2 snapshot");
   check(pgnRenderCalls === 1, "direct Library open did not render the PGN surface");
-  check(documentRef.getElementById("library-game-1") === null, "stale Library surface remained visible after opening the game");
+  check(documentRef.getElementById(LIBRARY_GAME_DOM_ID) === null, "stale Library surface remained visible after opening the game");
   check(documentRef.activeElement && documentRef.activeElement.id === "pgn-game-list", "PGN route focus was not restored after Library open");
   console.log("Library -> PGN direct route refresh DOM contract PASS");
 })().catch((error) => { console.error(error && error.stack ? error.stack : error); process.exitCode = 1; });
