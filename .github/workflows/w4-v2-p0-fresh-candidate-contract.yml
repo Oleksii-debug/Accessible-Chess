@@ -6,6 +6,8 @@ on:
       - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
       - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
       - 'tests/test_w4_exact_owner_apex_registration.py'
+      - '.github/workflows/owner-oneclick-from-w4.yml'
+      - 'tests/test_owner_oneclick_from_w4_workflow.py'
       - '.github/workflows/w4-v2-p0-fresh-candidate-contract.yml'
   push:
     branches:
@@ -14,6 +16,8 @@ on:
       - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
       - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
       - 'tests/test_w4_exact_owner_apex_registration.py'
+      - '.github/workflows/owner-oneclick-from-w4.yml'
+      - 'tests/test_owner_oneclick_from_w4_workflow.py'
       - '.github/workflows/w4-v2-p0-fresh-candidate-contract.yml'
 
 permissions:
@@ -45,8 +49,11 @@ jobs:
         run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
       - name: Parse candidate workflow as YAML
         run: python -c "from pathlib import Path; import yaml; yaml.safe_load(Path('.github/workflows/w4-v2-p0-fresh-windows-candidate.yml').read_text(encoding='utf-8')); print('W4_P0_CANDIDATE_YAML=PASS')"
+      - name: Parse owner finalizer workflow as YAML
+        run: python -c "from pathlib import Path; import yaml; yaml.safe_load(Path('.github/workflows/owner-oneclick-from-w4.yml').read_text(encoding='utf-8')); print('OWNER_ONECLICK_FINALIZER_YAML=PASS')"
       - name: Run workflow contracts
         run: >-
           python -m unittest -v
           tests.test_w4_v2_p0_fresh_candidate_workflow
           tests.test_w4_exact_owner_apex_registration
+          tests.test_owner_oneclick_from_w4_workflow
