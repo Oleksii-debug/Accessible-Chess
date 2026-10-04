@@ -64,6 +64,8 @@ _LABELS = {
         "multiple_comments": "На цьому вузлі кілька коментарів. Редагування вимкнено, доки канонічний API не надасть однозначний вибір коментаря.",
         "local_path": "[локальний шлях приховано]",
         "action_failed": "Не вдалося виконати дію.",
+        "presentation_unavailable": "Подання PGN змінилося і не може бути безпечно оновлене. Оновіть подання.",
+        "refresh": "Оновити подання PGN",
     },
     UILanguage.EN: {
         "game": "Game",
@@ -89,6 +91,8 @@ _LABELS = {
         "multiple_comments": "This node has multiple comments. Editing is disabled until the canonical API exposes an unambiguous comment selection.",
         "local_path": "[local path hidden]",
         "action_failed": "The action could not be completed.",
+        "presentation_unavailable": "The PGN view changed and could not be refreshed safely. Refresh the view.",
+        "refresh": "Refresh PGN view",
     },
 }
 
@@ -180,6 +184,14 @@ class PgnWebViewProjection:
     @property
     def language(self) -> UILanguage:
         return self._language
+
+    def browser_presentation_guard(
+        self,
+        token: str | None,
+    ) -> PgnWebViewEvent | None:
+        if token is not None:
+            raise ValueError("PGN presentation token is unexpected")
+        return None
 
     def _count(self, view: PgnGameView) -> int:
         value = self._game_count()
@@ -453,6 +465,52 @@ class PgnWebViewProjection:
             "error_message": _LABELS[self._language]["action_failed"],
             **self._safe_view(view, count),
         }
+
+    def _unavailable_snapshot(self) -> dict[str, object]:
+        labels = _LABELS[self._language]
+        return {
+            "document": {"lang": self._language.value, "landmark": "main"},
+            "error_message": labels["action_failed"],
+            "status": "unavailable",
+            "unavailable_message": labels["presentation_unavailable"],
+            "refresh_label": labels["refresh"],
+            "focus_target": "pgn-refresh-view",
+            "game": {},
+            "tree": (),
+            "actions": (),
+            "comment_editor": self._comment_editor(
+                enabled=False,
+                value="",
+                message="",
+            ),
+        }
+
+    def _unavailable_event(self) -> PgnWebViewEvent:
+        snapshot = self._unavailable_snapshot()
+        return PgnWebViewEvent(
+            "selection",
+            {
+                "snapshot": snapshot,
+                "focus_target": snapshot["focus_target"],
+                "announcement": snapshot["unavailable_message"],
+            },
+        )
+
+    def refresh_view(self) -> PgnWebViewEvent:
+        snapshot = self.snapshot()
+        announcement = (
+            str(snapshot.get("unavailable_message", ""))
+            if snapshot.get("status") == "unavailable"
+            else ""
+        )
+        return PgnWebViewEvent(
+            "selection",
+            {
+                "snapshot": snapshot,
+                "focus_target": snapshot.get("focus_target", ""),
+                "announcement": announcement,
+            },
+        )
 
     def _render_event(self, *, announce: str = "") -> PgnWebViewEvent:
         snapshot = self.snapshot()
