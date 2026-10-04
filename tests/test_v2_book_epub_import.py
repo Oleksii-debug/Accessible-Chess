@@ -145,6 +145,24 @@ def _set_local_zip_field(
     return bytes(damaged)
 
 
+def _set_central_zip_volume(raw: bytes, name: str, volume: int) -> bytes:
+    damaged = bytearray(raw)
+    with zipfile.ZipFile(BytesIO(raw), "r") as archive:
+        central_offset = archive.start_dir
+    encoded_name = name.encode("utf-8")
+    cursor = central_offset
+    while damaged[cursor : cursor + 4] == b"PK\x01\x02":
+        name_length = int.from_bytes(damaged[cursor + 28 : cursor + 30], "little")
+        extra_length = int.from_bytes(damaged[cursor + 30 : cursor + 32], "little")
+        comment_length = int.from_bytes(damaged[cursor + 32 : cursor + 34], "little")
+        entry_name = bytes(damaged[cursor + 46 : cursor + 46 + name_length])
+        if entry_name == encoded_name:
+            damaged[cursor + 34 : cursor + 36] = volume.to_bytes(2, "little")
+            return bytes(damaged)
+        cursor += 46 + name_length + extra_length + comment_length
+    raise AssertionError("fixture central ZIP entry was not found")
+
+
 def _simple_epub(chapter: bytes) -> bytes:
     return _epub(
         opf=_opf(
@@ -222,6 +240,30 @@ class BookEpubImportTests(unittest.TestCase):
         raw = _simple_epub(b"<html><body><p>Readable.</p></body></html>")
         with self.assertRaises(BookEpubImportError) as raised:
             import_epub_book(b"MZ-preface" + raw, source_name="prefixed.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+        )
+
+    def test_multi_disk_zip_entry_is_not_an_ocf_container(self) -> None:
+        raw = _epub(
+            opf=_opf(
+                manifest=(
+                    '    <item id="c1" href="Text/ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                ),
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={
+                "OEBPS/Text/ch1.xhtml": (
+                    b"<html><body><p>Readable.</p></body></html>"
+                ),
+            },
+            prepend=[("unused.bin", b"unused")],
+        )
+        damaged = _set_central_zip_volume(raw, "unused.bin", 1)
+        with self.assertRaises(BookEpubImportError) as raised:
+            import_epub_book(damaged, source_name="multi-disk-entry.epub")
         self.assertEqual(
             raised.exception.code,
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
