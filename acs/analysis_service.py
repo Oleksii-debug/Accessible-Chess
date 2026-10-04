@@ -23,6 +23,7 @@ from .input_limits import MAX_FEN_CHARS
 
 ANALYSIS_MAX_LINES = 10
 ANALYSIS_MAX_PV_PLIES = 256
+ANALYSIS_MAX_ERROR_CHARS = 180
 
 
 @dataclass(frozen=True)
@@ -123,9 +124,13 @@ class AnalysisResult:
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if self.error is not None:
-            if type(self.error) is not str or not self.error.strip():
+            if (
+                type(self.error) is not str
+                or len(self.error) > ANALYSIS_MAX_ERROR_CHARS
+                or not self.error.strip()
+            ):
                 raise EngineContractError(
-                    "analysis error must be non-empty text or None",
+                    "analysis error must be bounded non-empty text or None",
                     code=EngineContractErrorCode.INVALID_RESULT,
                 )
             object.__setattr__(self, "error", self.error.strip())
@@ -207,6 +212,17 @@ class AnalysisService:
     def _is_stale(self, generation: int, fen: str) -> bool:
         with self._state_lock:
             return generation != self._generation or fen != self._current_fen
+
+    @staticmethod
+    def _safe_error_text(exc: Exception) -> str:
+        fallback = type(exc).__name__
+        try:
+            text = str(exc).strip()
+        except Exception:
+            return fallback
+        if not text or len(text) > ANALYSIS_MAX_ERROR_CHARS:
+            return fallback
+        return text
 
     @staticmethod
     def _normalize_line(item: object, multipv: int) -> AnalysisLine:
@@ -351,7 +367,7 @@ class AnalysisService:
         except Exception as exc:
             if self._is_stale(generation, fen):
                 return AnalysisResult(fen, generation, True, ())
-            error = str(exc).strip() or type(exc).__name__
+            error = self._safe_error_text(exc)
             return AnalysisResult(fen, generation, False, (), error)
 
     def close(self) -> None:
