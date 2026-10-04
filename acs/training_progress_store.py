@@ -354,23 +354,33 @@ class TrainingProgressStore:
         except (AttributeError, OSError):
             return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
-    def _require_storage_path_components(self, *, allow_missing: bool) -> None:
-        """Reject redirected directory components in the configured storage path."""
+    def _storage_path_component_identities(
+        self,
+        *,
+        allow_missing: bool,
+    ) -> tuple[tuple[Path, os.stat_result], ...]:
+        """Return identity-bound lexical directory components, rejecting redirects."""
 
         parent = self.path.parent
         anchor = parent.anchor
         if not anchor:
             raise ValueError("training progress storage path is not absolute")
+
+        components: list[Path] = [Path(anchor)]
         current = Path(anchor)
         parts = parent.parts
         start = 1 if parts and parts[0] == anchor else 0
         for part in parts[start:]:
             current = current / part
+            components.append(current)
+
+        identities: list[tuple[Path, os.stat_result]] = []
+        for component in components:
             try:
-                metadata = os.lstat(current)
+                metadata = os.lstat(component)
             except FileNotFoundError:
                 if allow_missing:
-                    return
+                    return tuple(identities)
                 raise ValueError(
                     "training progress storage directory is unavailable"
                 ) from None
@@ -384,8 +394,10 @@ class TrainingProgressStore:
                 or not stat.S_ISDIR(metadata.st_mode)
             ):
                 raise ValueError(
-                    "training progress storage path contains redirected directory"
+                    "training progress storage directory path contains redirected directory"
                 )
+            identities.append((component, metadata))
+        return tuple(identities)
 
     def _require_storage_directory(
         self,
@@ -395,26 +407,14 @@ class TrainingProgressStore:
     ) -> os.stat_result | None:
         """Require and optionally identity-bind the configured storage parent."""
 
-        # Inspect every existing lexical component first so a symlink/reparse
-        # ancestor cannot be mistaken for an ordinary missing first-run tree.
-        self._require_storage_path_components(allow_missing=True)
-        try:
-            metadata = os.lstat(self.path.parent)
-        except FileNotFoundError:
+        identities = self._storage_path_component_identities(
+            allow_missing=missing_ok and expected_identity is None
+        )
+        if not identities or identities[-1][0] != self.path.parent:
             if missing_ok and expected_identity is None:
                 return None
-            raise ValueError("training progress storage directory is unavailable") from None
-        except OSError as exc:
-            raise ValueError("training progress storage directory is unavailable") from exc
-        if (
-            stat.S_ISLNK(metadata.st_mode)
-            or _is_reparse_point(metadata)
-            or not stat.S_ISDIR(metadata.st_mode)
-        ):
-            raise ValueError(
-                "training progress storage directory is not a regular directory"
-            )
-        self._require_storage_path_components(allow_missing=False)
+            raise ValueError("training progress storage directory is unavailable")
+        metadata = identities[-1][1]
         if (
             expected_identity is not None
             and not self._same_file_identity(expected_identity, metadata)
@@ -889,12 +889,30 @@ class TrainingProgressStore:
 
     @contextmanager
     def _exclusive_access(self) -> Iterator[None]:
-        # Reject any pre-existing redirected ancestor before mkdir can traverse
-        # it and create Training state outside the configured lexical tree.
-        self._require_storage_path_components(allow_missing=True)
+        # Bind every existing component before mkdir so a swap to a different
+        # ordinary directory is detected as well as a symlink/reparse redirect.
+        preexisting_components = self._storage_path_component_identities(
+            allow_missing=True
+        )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         directory_identity = self._require_storage_directory()
         assert directory_identity is not None
+        for component, expected_identity in preexisting_components:
+            try:
+                current_identity = os.lstat(component)
+            except OSError as exc:
+                raise ValueError(
+                    "training progress storage directory changed during the transaction"
+                ) from exc
+            if (
+                stat.S_ISLNK(current_identity.st_mode)
+                or _is_reparse_point(current_identity)
+                or not stat.S_ISDIR(current_identity.st_mode)
+                or not self._same_file_identity(expected_identity, current_identity)
+            ):
+                raise ValueError(
+                    "training progress storage directory changed during the transaction"
+                )
         descriptor = self._open_lock_descriptor(
             expected_directory_identity=directory_identity
         )
