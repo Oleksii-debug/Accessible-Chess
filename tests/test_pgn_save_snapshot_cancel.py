@@ -88,23 +88,25 @@ class PgnSaveSnapshotCancellationTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
-    def test_cancel_during_destination_hash_prevents_later_publication(self) -> None:
-        target = self.root / "existing.pgn"
-        target.write_text(ONE_GAME, encoding="utf-8", newline="\n")
-        before = target.read_bytes()
+    def test_cancel_during_destination_hash_stops_between_chunks(self) -> None:
+        target = self.root / "existing-large.pgn"
+        original = b"x" * (3 * 1024 * 1024 + 17)
+        target.write_bytes(original)
         calls = 0
 
         def cancel_check() -> bool:
             nonlocal calls
             calls += 1
-            # First poll permits hashing; second poll observes cancellation.
-            return calls >= 2
+            # Helper preflight + fingerprint entry + first 1 MiB read are
+            # permitted. The next chunk poll must stop the first hash pass,
+            # rather than waiting for both complete fingerprint passes.
+            return calls >= 4
 
         with self.assertRaises(PgnSaveCancelledError):
             expected_pgn_destination_sha256(target, cancel_check=cancel_check)
 
-        self.assertEqual(calls, 2)
-        self.assertEqual(target.read_bytes(), before)
+        self.assertEqual(calls, 4)
+        self.assertEqual(target.read_bytes(), original)
 
     def test_cancel_arriving_after_publication_cannot_turn_success_into_cancel(self) -> None:
         session = PgnDocumentSession.from_text(ONE_GAME)
