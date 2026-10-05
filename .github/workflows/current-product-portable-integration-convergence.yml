@@ -106,11 +106,6 @@ jobs:
               'tests/test_p0_oneclick_exact_head_concurrency.py' \
               'tests/test_portable_launch_report_reparse_concurrency.py' \
               'tests/test_training_progress_durability_concurrency.py' \
-              '.github/workflows/owner-oneclick-from-w4.yml' \
-              'docs/USER_SOUND_PACK_CURRENT.md' \
-              'scripts/build_owner_portable_candidate.py' \
-              'tests/test_owner_oneclick_from_w4_workflow.py' \
-              'tests/test_owner_portable_candidate.py' \
               | sort)"
             test "$extra" = "$expected_extra" || {
               printf 'Unexpected current shipping integration qualification delta:\n%s\n' "$extra" >&2
