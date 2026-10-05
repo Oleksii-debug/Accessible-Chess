@@ -41,7 +41,7 @@ jobs:
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
-          PINNED_PRODUCT_SHA: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
+          PINNED_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62
           WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
           WINDOWS_EVIDENCE_SHA: 1728432f216d4f6cdda9d2283bea89c242c89337
           TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo
@@ -94,7 +94,7 @@ jobs:
           product_paths="$(git diff --name-only "$live_shipping"..."$live_product" | sort)"
           test -n "$product_paths"
           product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$product_count" -eq 216
+          test "$product_count" -eq 217
 
           extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected_extra="$(printf '%s\n' \
@@ -145,7 +145,7 @@ jobs:
             exit 1
           }
           candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$candidate_count" -eq 227
+          test "$candidate_count" -eq 228
 
           echo "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS"
           echo "SHIPPING_BASE=$live_shipping"
@@ -181,6 +181,8 @@ jobs:
           acs/pgn_conversion.py
           acs/pgn_conversion_windows.py
           acs/pgn_service.py
+          acs/full_product_presenters.py
+          acs/pgn_webview_projection.py
           acs/version2_windows_file_workflows.py
           tests/test_current_product_shipping_integration_20261005.py
           tests/test_current_product_windows_evidence_convergence_20261005.py
