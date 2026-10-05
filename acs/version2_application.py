@@ -33,7 +33,7 @@ from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
-from .library_webview_projection import LibraryImportPhase
+from .library_webview_projection import LibraryImportPhase, LibraryWebViewEvent
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
@@ -1516,20 +1516,22 @@ class Version2Application:
                     result = projection.next_page()
                 else:
                     result = projection.previous_page()
-                if getattr(result, "kind", None) != "render":
+                if type(result) is not LibraryWebViewEvent or result.kind != "render":
                     raise ValueError("invalid Library projection result")
-                result_payload = getattr(result, "payload", None)
+                result_payload = result.payload
                 if type(result_payload) is not dict:
                     raise ValueError("invalid Library projection result")
                 snapshot = result_payload.get("snapshot")
                 if type(snapshot) is not dict:
                     raise ValueError("invalid Library projection result")
                 status = snapshot.get("status")
+                if type(status) is not str:
+                    raise ValueError("invalid Library projection status")
                 if status == "error":
                     message = snapshot.get("message")
                     raise RuntimeError(
                         message
-                        if isinstance(message, str) and message.strip()
+                        if type(message) is str and message.strip()
                         else "Library action failed"
                     )
                 if status not in {"ready", "empty"}:
