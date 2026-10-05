@@ -120,6 +120,8 @@ let lastShellPublicationResolution = null;
 let nextShellPublicationToken = 1;
 let shellPublicationCommits = 0;
 let shellPublicationRollbacks = 0;
+let shellRouteEffects = 0;
+let dropNextRouteResponseAfterEffect = false;
 let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
 
@@ -255,20 +257,38 @@ const windowObject = {
           });
         }
 
-        const keys = Object.keys(payload);
-        if (keys.length !== 1 || keys[0] !== "publication_protocol" ||
+        const keys = Object.keys(payload).sort();
+        if (keys.length !== 2 || keys[0] !== "publication_protocol" ||
+            keys[1] !== "request_id" ||
             payload.publication_protocol !== "ack-v1" ||
-            String(command).indexOf("screen.") !== 0 ||
-            pendingShellPublication !== null) {
+            !Number.isSafeInteger(payload.request_id) || payload.request_id <= 0 ||
+            String(command).indexOf("screen.") !== 0) {
           return Promise.reject(new Error("unexpected browser route command"));
+        }
+        if (pendingShellPublication !== null) {
+          if (pendingShellPublication.requestId === payload.request_id &&
+              pendingShellPublication.command === String(command)) {
+            return Promise.resolve({
+              kind: "route",
+              payload: { publication_token: pendingShellPublication.token }
+            });
+          }
+          return Promise.reject(new Error("publication already pending"));
         }
         const token = nextShellPublicationToken++;
         const previousRoute = currentRoute;
         currentRoute = String(command).replace(/^screen\./, "");
+        shellRouteEffects += 1;
         pendingShellPublication = {
           token: token,
-          previousRoute: previousRoute
+          previousRoute: previousRoute,
+          requestId: payload.request_id,
+          command: String(command)
         };
+        if (dropNextRouteResponseAfterEffect) {
+          dropNextRouteResponseAfterEffect = false;
+          return Promise.reject(new Error("simulated lost route response"));
+        }
         return Promise.resolve({
           kind: "route",
           payload: { publication_token: token }
@@ -452,9 +472,15 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 1, "malformed Training render incorrectly committed the route");
   check(pendingShellPublication === null, "malformed Training render left a pending publication");
 
+  const routeEffectsBeforeReplay = shellRouteEffects;
+  dropNextRouteResponseAfterEffect = true;
   dropNextCommitResponseAfterEffect = true;
   await clickRoute("board");
-  check(currentRoute === "board", "lost commit response changed the committed Board route");
+  check(currentRoute === "board", "lost route/commit response changed the committed Board route");
+  check(
+    shellRouteEffects === routeEffectsBeforeReplay + 1,
+    "route-start response retry executed the Board transition more than once"
+  );
   check(shellPublicationCommits === 2, "commit response retry duplicated or lost the Board commit");
   check(pendingShellPublication === null, "lost commit response left a pending route");
   booksAvailable = false;
