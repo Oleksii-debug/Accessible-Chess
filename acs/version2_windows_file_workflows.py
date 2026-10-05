@@ -1347,16 +1347,13 @@ class Version2WindowsFileActionDelegate:
             )
             if running:
                 candidate = self._pending_save_result
-                if (
-                    candidate is not None
-                    and candidate[0] == self._generation
-                    and candidate[3] is None
-                    and bool(candidate[4])
-                ):
-                    # The worker has already classified a terminal cancellation
-                    # or failure. Resolve that exact result now instead of
-                    # announcing a new cancellation request that can no longer
-                    # affect publication truth.
+                if candidate is not None and candidate[0] == self._generation:
+                    # A pending result exists only after the worker has finished
+                    # publication/classification. At that point cancellation can
+                    # no longer change disk truth, whether the fixed result is a
+                    # durable success, cancellation, conflict, or other failure.
+                    # Resolve that exact terminal now instead of announcing a
+                    # contradictory new cancellation request.
                     pending = candidate
                 else:
                     cancel_event.set()
