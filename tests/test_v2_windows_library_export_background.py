@@ -211,6 +211,50 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         self.assertEqual([], touched)
         self.assertEqual([], forwarded)
 
+    def test_worker_factory_rejects_derived_services_without_field_or_cleanup_hooks(self) -> None:
+        touched: list[str] = []
+
+        class HostileWorkerServices(LibraryExportWorkerServices):
+            def __getattribute__(self, name):
+                if name in {"library", "close"}:
+                    touched.append(name)
+                    raise AssertionError("rejected worker-services hook executed")
+                return super().__getattribute__(name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = AcsDatabase()
+            hostile = HostileWorkerServices.__new__(HostileWorkerServices)
+            object.__setattr__(hostile, "library", LibraryExportService(database))
+            object.__setattr__(hostile, "close", database.close)
+            events: list[LibraryExportHostEvent] = []
+            posted: list[object] = []
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(Path(directory) / "hostile-services.pgn"),
+                worker_services_factory=lambda: hostile,
+                post_to_ui=posted.append,
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-results",
+            )
+            try:
+                started = delegate(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(delegate.wait_for_export(timeout=2.0))
+                self.assertEqual(touched, [])
+                self.assertEqual(len(posted), 1)
+
+                posted.pop()()
+
+                self.assertFalse(delegate.export_running)
+                self.assertEqual(events[-1].kind, LibraryExportHostEventKind.FAILED)
+                self.assertEqual(events[-1].error_code, "library_export_failed")
+                self.assertEqual(touched, [])
+            finally:
+                database.close()
+
     def test_export_scope_rejects_active_text_before_comparison_or_dialog(self) -> None:
         touched: list[str] = []
 
