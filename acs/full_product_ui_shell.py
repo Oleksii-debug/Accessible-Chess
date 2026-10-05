@@ -115,6 +115,7 @@ class AccessibleShellState:
         self._dialogs: list[DialogFocusFrame] = []
         self._focus_observation_sequence = 0
         self._last_observed_focus: tuple[int, str, str] | None = None
+        self._publication_hold_active = False
 
     @property
     def language(self) -> UILanguage:
@@ -161,6 +162,7 @@ class AccessibleShellState:
                 self._focus_by_route[route_id] = focus_id
 
     def set_language(self, language: UILanguage) -> None:
+        self._assert_action_dispatch_ready()
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
         self._language = language
@@ -177,6 +179,20 @@ class AccessibleShellState:
         if _FOCUS_ID_PATTERN.fullmatch(element_id) is None:
             raise ValueError("focus target id is invalid")
         return element_id
+
+    def _begin_publication_hold(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is already pending")
+        self._publication_hold_active = True
+
+    def _end_publication_hold(self) -> None:
+        if not self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is not pending")
+        self._publication_hold_active = False
+
+    def _assert_action_dispatch_ready(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is pending")
 
     def record_focus(self, element_id: str) -> None:
         clean = self._clean_focus_id(element_id)
@@ -204,6 +220,7 @@ class AccessibleShellState:
             )
 
     def open_route(self, route_id: str, *, current_focus_id: str = "") -> str:
+        self._assert_action_dispatch_ready()
         if route_id not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
         if self._dialogs:
@@ -226,6 +243,7 @@ class AccessibleShellState:
         opener_focus_id: str,
         initial_focus_id: str,
     ) -> str:
+        self._assert_action_dispatch_ready()
         dialog = self._clean_focus_id(dialog_id)
         opener = self._clean_focus_id(opener_focus_id)
         initial = self._clean_focus_id(initial_focus_id)
@@ -237,6 +255,7 @@ class AccessibleShellState:
         return initial
 
     def close_dialog(self, dialog_id: str | None = None) -> str:
+        self._assert_action_dispatch_ready()
         if not self._dialogs:
             raise LookupError("no dialog is open")
         frame = self._dialogs[-1]

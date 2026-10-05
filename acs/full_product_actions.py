@@ -236,6 +236,7 @@ class FullProductActionRouter:
         current_focus_id: str = "",
     ) -> ActionDispatchResult:
         self._registry.definition(action_id)
+        self._shell._assert_action_dispatch_ready()
         route_id = _ROUTE_BY_ACTION.get(action_id)
         if route_id is not None:
             focus_target = self._shell.open_route(
