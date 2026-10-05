@@ -414,6 +414,57 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             self.assertTrue(session.dirty)
             self.assertFalse(controller.pgn_save_running)
 
+    def test_durable_save_checkpoint_failure_keeps_session_precommit_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "checkpoint-failure-after-publish.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Durable before checkpoint failure")
+            source_before = session.source
+            saved_digest_before = session._saved_digest
+            revision_before = session.document_revision
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn(
+                '[Event "Durable before checkpoint failure"]',
+                source.read_text(encoding="utf-8"),
+            )
+
+            with mock.patch(
+                "acs.pgn_workspace.PgnWorkspace.mark_saved",
+                autospec=True,
+                side_effect=RuntimeError("workspace checkpoint unavailable"),
+            ):
+                poster.drain()
+
+            self.assertEqual(len(async_events), 1)
+            terminal = async_events[0]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(terminal.focus_target, "pgn-game-list")
+            self.assertEqual(session.source, source_before)
+            self.assertEqual(session._saved_digest, saved_digest_before)
+            self.assertEqual(session.document_revision, revision_before)
+            self.assertTrue(session.dirty)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(sync_events, [started])
+
     def test_late_cancel_resolves_completed_durable_save_as_success(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "save-as-source.pgn"
