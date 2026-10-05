@@ -39,10 +39,7 @@ from .child_coaching_rotation import (
     start_rotation,
     validate_rotation_scope,
 )
-from .child_coaching_rotation_store import (
-    ChildCoachingRotationStore,
-    ChildCoachingRotationStoreConflictError,
-)
+from .child_coaching_rotation_store import ChildCoachingRotationStore
 from .classroom_prepared_position_deployment import (
     DeploymentTarget,
     PreparedPositionDeploymentBatch,
@@ -649,7 +646,11 @@ class Version2FinalProductApplication(Version2Application):
                 next_state,
                 expected_revision=expected_store_revision,
             )
-        except ChildCoachingRotationStoreConflictError:
+        except Exception:
+            # Any failed durable publication is recovery-relevant. In particular,
+            # an I/O failure can occur after os.replace has already advanced the
+            # on-disk generation; do not advertise the in-memory snapshot as
+            # clean until the durable slot is reloaded/reconciled.
             self._rotation_load_error = True
             raise
         self._rotation_state = next_state
@@ -680,7 +681,11 @@ class Version2FinalProductApplication(Version2Application):
                 next_state,
                 expected_revision=expected_store_revision,
             )
-        except ChildCoachingRotationStoreConflictError:
+        except Exception:
+            # Any failed durable publication is recovery-relevant. In particular,
+            # an I/O failure can occur after os.replace has already advanced the
+            # on-disk generation; do not advertise the in-memory snapshot as
+            # clean until the durable slot is reloaded/reconciled.
             self._rotation_load_error = True
             raise
         self._rotation_state = next_state
