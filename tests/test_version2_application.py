@@ -233,6 +233,31 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertNotIn("уже записано", preflight_message)
         self.assertIn("уже записано", durable_message)
 
+    def test_pgn_save_commit_failure_tells_nvda_user_file_is_already_written(self):
+        event = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save_as",
+            focus_target="pgn-game-list",
+            error_code="pgn_save_commit_failed",
+        )
+
+        self.app._file_event(event)
+
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "error")
+        message = events[-1]["payload"]["message"]
+        self.assertIn("Файл уже записано", message)
+        self.assertIn("Перевідкрийте PGN", message)
+        self.assertIn("перед наступним збереженням", message)
+        self.assertNotIn(str(self.root), message)
+
+        self.app.shell.set_language(UILanguage.EN)
+        english = self.app._native_file_error_message(event)
+        self.assertIn("file was written", english)
+        self.assertIn("Reopen the PGN", english)
+        self.assertIn("before saving again", english)
+        self.assertNotIn(str(self.root), english)
+
     def test_unverified_pgn_publication_error_warns_against_blind_retry(self):
         event = FileWorkflowEvent(
             kind=FileWorkflowEventKind.FAILED,
