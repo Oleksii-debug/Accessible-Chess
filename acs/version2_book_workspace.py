@@ -90,7 +90,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(reader, BookReader) or not isinstance(workflow, BookBoardWorkflow):
+        if type(reader) is not BookReader or type(workflow) is not BookBoardWorkflow:
             raise TypeError("V2 Books requires the canonical reader and workflow")
         self._reader = reader
         self._workflow = workflow
