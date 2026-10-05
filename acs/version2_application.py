@@ -2157,6 +2157,10 @@ class Version2Application:
                 "Файл уже записано, але стан документа не вдалося безпечно оновити. Перевідкрийте PGN перед наступним збереженням.",
                 "The file was written, but document state could not be updated safely. Reopen the PGN before saving again.",
             ),
+            "pgn_save_conflict": (
+                "PGN змінився на диску під час збереження. Файл не перезаписано; перевірте актуальну версію та повторіть дію.",
+                "The PGN changed on disk while saving. The file was not overwritten; review the current version and retry.",
+            ),
             "pgn_save_failed": (
                 "Не вдалося зберегти PGN. Поточні незбережені зміни залишилися в документі.",
                 "PGN could not be saved. The current unsaved edits remain in the document.",
