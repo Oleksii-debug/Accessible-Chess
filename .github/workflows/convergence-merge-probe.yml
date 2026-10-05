@@ -1,0 +1,37 @@
+name: Convergence merge probe
+
+on:
+  push:
+    branches:
+      - converge/books-keymap-20261005-sol56r8k4
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact convergence base
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe exact three-way merge without writing repository state
+        shell: bash
+        run: |
+          set -u
+          SOURCE_SHA=27b4a816149fee9a26eafcd35cbd9c27a6ea52a8
+          git fetch --no-tags origin "${SOURCE_SHA}"
+          set +e
+          git merge --no-commit --no-ff "${SOURCE_SHA}"
+          merge_rc=$?
+          set -e
+          echo "MERGE_RC=${merge_rc}"
+          echo "UNMERGED_BEGIN"
+          git diff --name-only --diff-filter=U
+          echo "UNMERGED_END"
+          echo "CONFLICT_DIFF_BEGIN"
+          git diff --cc --no-ext-diff
+          echo "CONFLICT_DIFF_END"
+          git merge --abort || true
+          exit 0
