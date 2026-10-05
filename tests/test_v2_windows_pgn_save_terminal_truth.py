@@ -6,7 +6,11 @@ import threading
 import unittest
 from unittest import mock
 
-from acs.pgn_document import PgnDocumentSession
+from acs.pgn_document import (
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+)
 from acs.pgn_service import (
     PgnConcurrentWriteError,
     PgnPublicationUnverifiedError,
@@ -71,6 +75,66 @@ class _OwnerPoster:
 
 
 class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
+    def test_direct_save_preserves_post_publication_commit_failure_code(self) -> None:
+        session = PgnDocumentSession.from_text(_PGN)
+        published_source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session._source = published_source
+        session._saved_digest = session.workspace.content_digest
+        sync_events: list[FileWorkflowEvent] = []
+        controller = Version2WindowsFileActionDelegate(
+            dialogs=_Dialogs(),
+            get_pgn_session=lambda: session,
+            set_pgn_session=lambda value: None,
+            import_services_factory=lambda: None,
+            event_sink=sync_events.append,
+            next_delegate=lambda action_id, payload: None,
+            current_focus_provider=lambda: "pgn-game-list",
+        )
+        failure = PgnDocumentError(
+            "file written; checkpoint failed",
+            code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+
+        with mock.patch.object(session, "save", side_effect=failure):
+            terminal = controller("pgn.save", {})
+
+        self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+        self.assertEqual(terminal.focus_target, "pgn-game-list")
+        self.assertEqual(sync_events, [terminal])
+
+    def test_direct_save_as_preserves_post_publication_commit_failure_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "direct-commit-failed.pgn"
+            session = PgnDocumentSession.from_text(_PGN)
+            sync_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_SaveAsDialogs(target),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+            )
+            failure = PgnDocumentError(
+                "file written; checkpoint failed",
+                code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+
+            with mock.patch.object(session, "save_as", side_effect=failure):
+                terminal = controller("pgn.save_as", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(terminal.focus_target, "pgn-game-list")
+            self.assertEqual(sync_events, [terminal])
+
     def test_direct_save_as_reports_post_publication_uncertainty_without_rebinding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "direct-published-unverified.pgn"
