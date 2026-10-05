@@ -87,6 +87,7 @@ jobs:
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PRODUCT_BASE: bf418985e9e20dc3491db7e229a33052a399e1a6
           DIAGNOSTIC_HELP: 7baaaa5f6b90987b60b08595808b5ab2808141d4
           CLASSROOM_SOURCE: d901cb1ba880af2348b5f9ca0b700eb3b1c59b02
@@ -101,6 +102,13 @@ jobs:
           MERGED_BOOKS_RUNTIME_BLOB: a269a5771c87bb39837b0d78247fbe938da794c9
           SEMANTIC_BOOKS_DOM_BLOB: a1ce64e2ded06518f0e0c9f5e623bf78a8de1855
           TOOLBAR_CONVERGENCE_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
+          SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
+          SHIPPING_PRODUCT_BRANCH: converge/current-product-books-formats-20261005-c2mbezb
+          SHIPPING_PRODUCT_SHA: 3c3102d810635107f5116926eace15cd055f932f
+          MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
+          PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
+          SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
+          SHIPPING_TEST: tests/test_current_product_shipping_integration_20261005.py
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -156,7 +164,25 @@ jobs:
             'web/full_product_pgn.js' \
             'web/index.html' | sort)"
 
-          if [ "$changed" = "$expected_paths" ]; then
+          if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then
+            git fetch --no-tags origin "+refs/heads/$SHIPPING_PRODUCT_BRANCH:refs/remotes/origin/$SHIPPING_PRODUCT_BRANCH"
+            live_shipping_product="$(git rev-parse "refs/remotes/origin/$SHIPPING_PRODUCT_BRANCH")"
+            test "$live_shipping_product" = "$SHIPPING_PRODUCT_SHA"
+            git merge-base --is-ancestor "$live_shipping_product" HEAD
+
+            extra="$(git diff --name-only "$live_shipping_product"...HEAD | sort)"
+            expected_extra="$(printf '%s\n' \
+              '.github/workflows/current-product-accessibility-formats-convergence.yml' \
+              "$MANIFEST_SOURCE_GATE" \
+              "$PORTABLE_GATE" \
+              "$SHIPPING_GATE" \
+              "$SHIPPING_TEST" | sort)"
+            test "$extra" = "$expected_extra" || {
+              printf 'Unexpected shipping qualification delta in accessibility/formats gate.\n%s\n' "$extra" >&2
+              exit 1
+            }
+            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
+          elif [ "$changed" = "$expected_paths" ]; then
             echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_SCOPE'
           else
             for commit in "$CURRENT_PRODUCT" "$KEYMAP_SOURCE" "$BOOKS_SOURCE"; do
