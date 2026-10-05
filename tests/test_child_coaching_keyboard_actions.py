@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -216,6 +217,8 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         pair = self._dispatch_chord("Ctrl+Alt+N").value
         self.assertEqual("pair_play", pair["activity"])
         self.assertFalse(pair["pair_play_bound"])
+        pair_spoken = pair["announcement"].casefold()
+        self.assertTrue("не прив" in pair_spoken or "not bound" in pair_spoken)
 
         batch = self.app.plan_classroom_pairings(
             batch_id="keyboard-round-1",
@@ -234,6 +237,8 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
 
         bound = self._dispatch_chord("Ctrl+Alt+B").value
         self.assertTrue(bound["pair_play_bound"])
+        bound_spoken = bound["announcement"].casefold()
+        self.assertTrue("прив’язано" in bound_spoken or "pairing bound" in bound_spoken)
         review = self._dispatch_chord("Ctrl+Alt+N").value
         self.assertEqual("review", review["activity"])
         status = self._dispatch_chord("Ctrl+Alt+S").value
@@ -250,6 +255,43 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         self.assertNotIn("white_student_id", status)
         self.assertNotIn("black_student_id", status)
         self.assertNotIn("fen", status)
+
+    def test_keyboard_rotation_recovery_is_spoken_and_blocks_stale_advance(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        self.assertFalse(started["recovery_required"])
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        real_save = store.save
+
+        def publish_then_fail(plan, next_state, *, expected_revision):
+            real_save(
+                plan,
+                next_state,
+                expected_revision=expected_revision,
+            )
+            raise OSError("simulated keyboard post-publication failure")
+
+        with mock.patch.object(store, "save", side_effect=publish_then_fail):
+            with self.assertRaisesRegex(OSError, "post-publication failure"):
+                self._dispatch_chord("Ctrl+Alt+N")
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+N")
+
+        resumed = self._dispatch_chord("Ctrl+Alt+R").value
+        self.assertFalse(resumed["recovery_required"])
+        self.assertEqual(started["revision"] + 1, resumed["revision"])
+        self.assertEqual("teacher", self.app.shell.current_route.route_id)
+        self.assertEqual(
+            "teacher-pointer-input",
+            self.app.shell.restore_focus_target(),
+        )
 
     def test_hidden_route_and_modal_reject_teacher_keyboard_actions_without_mutation(self) -> None:
         selected_before = self.app.prepared_position_snapshot()
