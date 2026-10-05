@@ -1,6 +1,7 @@
 name: Current PGN Writer Passive Overwrite
 
 on:
+  # The branch push trigger qualifies this new gate before it can exist on Product.
   push:
     branches:
       - fix/current-pgn-writer-passive-overwrite-20261005-sol56t3k8
