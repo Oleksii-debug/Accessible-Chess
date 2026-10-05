@@ -7,8 +7,10 @@ on:
     paths:
       - 'acs/pgn_service.py'
       - 'acs/pgn_conversion.py'
+      - 'acs/pgn_conversion_windows.py'
       - 'tests/test_pgn_service.py'
       - 'tests/test_pgn_conversion.py'
+      - 'tests/test_pgn_conversion_windows.py'
       - '.github/workflows/pgn-conversion-prepublish-cancel.yml'
   workflow_dispatch:
 
@@ -67,8 +69,10 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-conversion-prepublish-cancel.yml' \
             'acs/pgn_conversion.py' \
+            'acs/pgn_conversion_windows.py' \
             'acs/pgn_service.py' \
             'tests/test_pgn_conversion.py' \
+            'tests/test_pgn_conversion_windows.py' \
             'tests/test_pgn_service.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected PGN conversion cancellation scope:\n%s\n' "$changed" >&2
@@ -94,8 +98,10 @@ jobs:
           python -m compileall -q
           acs/pgn_service.py
           acs/pgn_conversion.py
+          acs/pgn_conversion_windows.py
           tests/test_pgn_service.py
           tests/test_pgn_conversion.py
+          tests/test_pgn_conversion_windows.py
 
       - name: Execute conversion and writer atomicity regressions
         run: >-
