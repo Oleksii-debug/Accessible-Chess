@@ -368,40 +368,10 @@ class Version2WindowsFileActionDelegate:
         if payload:
             raise ValueError("file actions accept no browser path payload")
 
-    def _recover_finished_pgn_save_on_owner(self) -> FileWorkflowEvent | None:
-        """Commit a classified save before accepting the next owner-thread action.
-
-        A save worker records its exact terminal result before posting the owner
-        callback.  The callback can legitimately still be queued when another
-        keyboard/menu action reaches the owner thread, and a failed UI post can
-        leave the same durable result pending.  Once the worker itself has
-        stopped, finishing that already-classified transaction here prevents a
-        false long-lived file_worker_busy state without overlapping file I/O.
-        """
-
-        with self._lock:
-            worker = self._worker
-            pending = self._pending_save_result
-            ready = (
-                worker is not None
-                and self._worker_started
-                and self._worker_kind == "pgn_save"
-                and pending is not None
-                and pending[0] == self._generation
-                and not worker.is_alive()
-                and not self._shutdown_requested
-            )
-        if not ready:
-            return None
-        assert pending is not None
-        return self._finish_pgn_save_on_owner(*pending)
-
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
         if action_id not in self.OWNED_ACTIONS:
             return self._next_delegate(action_id, payload)
         self._empty_payload(payload)
-        if action_id != "pgn.cancel_save":
-            self._recover_finished_pgn_save_on_owner()
         if action_id == "pgn.open":
             return self._open_pgn()
         if action_id == "pgn.cancel_open":
