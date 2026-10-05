@@ -351,7 +351,7 @@ class Version2WindowsFileActionDelegate:
     def _emit(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
         try:
             self._event_sink(event)
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
         return event
 
@@ -360,7 +360,7 @@ class Version2WindowsFileActionDelegate:
 
         try:
             self._owner_async_event_sink(event)
-        except Exception:
+        except BaseException:
             _LOG.warning(
                 "Version 2 owner asynchronous file event sink failed",
                 exc_info=True,
