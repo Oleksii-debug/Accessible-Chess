@@ -1,0 +1,62 @@
+name: W5 Portable Package Contract
+
+on:
+  pull_request:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+    paths:
+      - acs/version2_portable_package.py
+      - packaging/portable_launcher.c
+      - tests/test_version2_portable_package.py
+      - tests/test_portable_launcher_contract.py
+      - tests/test_portable_launcher_window_readiness.py
+      - tests/test_portable_localappdata_persistence_binding.py
+      - .github/workflows/post-freeze-v2-windows-package-qualification.yml
+      - .github/workflows/w5-portable-package-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  portable-package-contract:
+    name: Portable package contract on Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out qualification successor
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prove W5 qualification ancestry
+        shell: pwsh
+        run: |
+          $ExpectedW5 = 'b789448a573657b97cf535eb3e399e04990bbe46'
+          git cat-file -e "$ExpectedW5^{commit}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Expected W5 commit is not present: $ExpectedW5"
+          }
+          git merge-base --is-ancestor $ExpectedW5 HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw "Candidate does not descend from exact W5 qualification head $ExpectedW5"
+          }
+          Write-Host "W5_PORTABLE_PACKAGE_BASE=$ExpectedW5"
+
+      - name: Compile portable package authority
+        run: python -m py_compile acs/version2_portable_package.py
+
+      - name: Run canonical portable outer-package contract
+        run: python -m unittest -v tests.test_version2_portable_package
+
+      - name: Run native launcher and package-local persistence contracts
+        run: >-
+          python -m unittest -v
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
