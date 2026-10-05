@@ -5,13 +5,10 @@ on:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
     paths:
-      - 'acs/full_product_actions.py'
-      - 'acs/full_product_native_menu.py'
       - 'acs/version2_application.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_windows_book_open_worker.py'
       - 'tests/test_book_open_preparation.py'
-      - 'tests/test_full_product_native_menu.py'
       - 'tests/test_version2_windows_book_open_worker.py'
       - '.github/workflows/current-book-open-background-preparation.yml'
   workflow_dispatch:
@@ -46,7 +43,7 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
-          PINNED_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc
+          PINNED_PRODUCT_SHA: 5e257a008da11fbc6149a73ec7e34dbb5ee3c1d5
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -78,13 +75,10 @@ jobs:
           changed="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-book-open-background-preparation.yml' \
-            'acs/full_product_actions.py' \
-            'acs/full_product_native_menu.py' \
             'acs/version2_application.py' \
             'acs/version2_release_app.py' \
             'acs/version2_windows_book_open_worker.py' \
             'tests/test_book_open_preparation.py' \
-            'tests/test_full_product_native_menu.py' \
             'tests/test_version2_windows_book_open_worker.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Book Open worker scope:\n%s\n' "$changed" >&2
@@ -101,13 +95,10 @@ jobs:
       - name: Compile Book Open boundary
         run: >-
           python -m compileall -q
-          acs/full_product_actions.py
-          acs/full_product_native_menu.py
           acs/version2_application.py
           acs/version2_release_app.py
           acs/version2_windows_book_open_worker.py
           tests/test_book_open_preparation.py
-          tests/test_full_product_native_menu.py
           tests/test_version2_windows_book_open_worker.py
 
       - name: Execute Book Open transaction and semantic regressions

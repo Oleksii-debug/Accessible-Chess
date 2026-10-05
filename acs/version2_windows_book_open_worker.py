@@ -108,14 +108,14 @@ class Version2BookOpenWorker:
         try:
             self._emit(BookOpenWorkerEventKind.STARTED, focus_target)
             thread.start()
-        except BaseException:
+        except Exception:
             with self._lock:
                 if generation == self._generation and self._thread is thread:
                     self._cancel = None
                     self._thread = None
             try:
                 self._emit(BookOpenWorkerEventKind.FAILED, focus_target)
-            except BaseException:
+            except Exception:
                 pass
             raise
         return True
@@ -138,7 +138,7 @@ class Version2BookOpenWorker:
     ) -> None:
         try:
             prepared = self._prepare(source, cancel_check=cancel.is_set)
-        except BaseException as error:
+        except Exception as error:
             outcome = ("cancelled" if cancel.is_set() else "failed", error)
         else:
             outcome = ("cancelled", None) if cancel.is_set() else ("prepared", prepared)

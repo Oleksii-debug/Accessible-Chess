@@ -141,6 +141,7 @@ class Version2Application:
         self._progress = self._result = None
         self._files = None
         self._book_open_worker: Version2BookOpenWorker | None = None
+        self._pending_book_open_token: tuple[object, ...] | None = None
         self._focus = ""
         self.session = None
         self.pgn_board_active = False
@@ -310,6 +311,46 @@ class Version2Application:
             raise RuntimeError("Book Open worker is already bound")
         self._book_open_worker = worker
 
+    def _book_open_state_token(self) -> tuple[object, ...]:
+        """Identify the UI/Book owner that authorized one background open."""
+
+        self._assert_thread()
+        return (
+            self.shell.current_route.route_id,
+            id(self.reader),
+            id(self.books),
+            id(self.book_workflow),
+            bool(self.book_workflow is not None and self.book_workflow.active),
+        )
+
+    def begin_book_open(self, source: Path) -> bool:
+        """Start one owner-bound background Book preparation."""
+
+        self._assert_book_open_allowed()
+        if self._book_open_worker is None:
+            raise RuntimeError("Book Open worker is unavailable")
+        if self._book_open_worker.active:
+            raise ValueError("Book Open is already running")
+        token = self._book_open_state_token()
+        self._pending_book_open_token = token
+        try:
+            return self._book_open_worker.start(
+                source,
+                focus_target=str(self._focus),
+            )
+        except Exception:
+            self._pending_book_open_token = None
+            raise
+
+    def commit_background_prepared_book_open(self, prepared: PreparedBookOpen) -> int:
+        """Commit only while the UI/Book owner that started preparation is current."""
+
+        self._assert_thread()
+        expected = self._pending_book_open_token
+        if expected is None or self._book_open_state_token() != expected:
+            raise ValueError("Book Open request is stale")
+        return self.commit_prepared_book_open(prepared)
+
     def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
         self._assert_thread()
         if not isinstance(event, BookOpenWorkerEvent):
@@ -348,6 +389,12 @@ class Version2Application:
                 },
             }
         )
+        if event.kind in {
+            BookOpenWorkerEventKind.CANCELLED,
+            BookOpenWorkerEventKind.COMPLETED,
+            BookOpenWorkerEventKind.FAILED,
+        }:
+            self._pending_book_open_token = None
         return event
 
     def observe_progress(self, value: LibraryImportProgress):
@@ -572,6 +619,8 @@ class Version2Application:
         # callers. The commit repeats it because a future background preparation
         # can race with a modal or Book-Board owner becoming active.
         self._assert_book_open_allowed()
+        if self._book_open_worker is not None and self._book_open_worker.active:
+            raise ValueError("Book Open is already running")
         prepared = self.prepare_book_open(source)
         return self.commit_prepared_book_open(prepared)
 
@@ -1362,7 +1411,7 @@ class Version2Application:
             if source is None:
                 return None
             if self._book_open_worker is not None:
-                self._book_open_worker.start(source, focus_target=str(self._focus))
+                self.begin_book_open(source)
                 return None
             return self.open_book(source)
         if action.startswith("book."):
@@ -1962,6 +2011,7 @@ class Version2Application:
             and not self._book_open_worker.shutdown(timeout=timeout)
         ):
             return False
+        self._pending_book_open_token = None
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
         self.save_training_progress()
