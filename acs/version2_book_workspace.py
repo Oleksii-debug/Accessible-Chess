@@ -75,6 +75,7 @@ _SEMANTIC_LABELS = {
         "round": "Round", "eco": "ECO", "opening": "Opening",
         "reading_unavailable": "This game's moves cannot be displayed safely; the board remains available.",
         "content_unavailable": "This game's chess content is unavailable or invalid; opening it on the board is disabled.",
+        "recovery_warnings": "Chess text was recovered with warnings: {count}. Review the warnings before using it.",
     },
 }
 
