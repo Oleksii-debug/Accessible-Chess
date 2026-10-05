@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
+  push:
+    branches:
+      - converge/current-product-windows-evidence-20261005-zftrkmo
   workflow_dispatch:
 
 permissions:
