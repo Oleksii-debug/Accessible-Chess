@@ -116,9 +116,12 @@ class MediaApplicationService:
     def revision(self) -> int:
         return self._revision
 
-    def _resolution(self) -> TimelineResolution:
+    def _resolution(
+        self, session: MediaChessSession | None = None
+    ) -> TimelineResolution:
+        selected = self._session if session is None else session
         return self._timeline.resolve_at_or_before(
-            self._session.media_cursor.position_ms
+            selected.media_cursor.position_ms
         )
 
     @staticmethod
@@ -150,23 +153,35 @@ class MediaApplicationService:
             )
         return "No chess position is synchronized with the current media time."
 
-    def snapshot(self) -> MediaApplicationSnapshot:
-        resolution = self._resolution()
+    def _snapshot_for(
+        self, session: MediaChessSession
+    ) -> MediaApplicationSnapshot:
+        resolution = self._resolution(session)
         qualification = self._qualification(resolution)
         return MediaApplicationSnapshot(
             source_id=self._source.source_id,
             revision=self._revision,
-            position_ms=self._session.media_cursor.position_ms,
+            position_ms=session.media_cursor.position_ms,
             duration_ms=self._source.duration_ms,
-            analysis_chess_ref=self._session.chess_ref,
+            analysis_chess_ref=session.chess_ref,
             synchronized_chess_ref=resolution.chess_ref,
             anchor_timestamp_ms=resolution.anchor_timestamp_ms,
             qualification=qualification,
             can_restore=resolution.resolved,
             status_text=self._status_text(
-                qualification, self._session.media_cursor.position_ms
+                qualification, session.media_cursor.position_ms
             ),
         )
+
+    def snapshot(self) -> MediaApplicationSnapshot:
+        return self._snapshot_for(self._session)
+
+    def snapshot_at(self, position_ms: int) -> MediaApplicationSnapshot:
+        candidate = self._session.seek_media(
+            position_ms,
+            duration_ms=self._source.duration_ms,
+        )
+        return self._snapshot_for(candidate)
 
     def seek_media(self, position_ms: int) -> MediaApplicationSnapshot:
         candidate = self._session.seek_media(
