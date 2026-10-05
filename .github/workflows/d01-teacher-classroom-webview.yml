@@ -8,6 +8,7 @@ on:
       - 'acs/teacher_webview_bridge.py'
       - 'acs/teacher_webview_projection.py'
       - 'acs/version2_final_release.py'
+      - 'tests/js/classroom_surface_dom_test.js'
       - 'tests/js/teacher_surface_dom_test.js'
       - 'tests/test_d09_teacher_canonical_webview_composition.py'
       - 'tests/test_dev1_classroom_web_asset.py'
@@ -69,6 +70,8 @@ jobs:
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           d01_owner="ce5379cbdd4380fbe38d676efea5a24cec2e5825"
+          classroom_surface_successor="8776ff7770e27e8d9038ef2c26ab7267daef805a"
+          classroom_dom_successor="dc3a29c842762fcbbafdb7fdfdc062e010faf078"
           git cat-file -e "${d01_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$d01_owner" HEAD
@@ -86,7 +89,6 @@ jobs:
             tests/test_dev1_classroom_webview_projection.py \
             tests/test_dev1_teacher_webview_projection.py \
             tests/test_teacher_webview_bridge.py \
-            web/full_product_classroom.js \
             web/full_product_teacher.js
           do
             test "$(git rev-parse "HEAD:${path}")" = "$(git rev-parse "${d01_owner}:${path}")" || {
@@ -94,7 +96,16 @@ jobs:
               exit 1
             }
           done
-          printf 'D01 retained authority PASS: owner=%s base=%s\n' "$d01_owner" "$base"
+          test "$(git rev-parse HEAD:web/full_product_classroom.js)" = "$classroom_surface_successor" || {
+            printf 'D01 Classroom surface successor drift\n' >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:tests/js/classroom_surface_dom_test.js)" = "$classroom_dom_successor" || {
+            printf 'D01 Classroom DOM successor drift\n' >&2
+            exit 1
+          }
+          printf 'D01 retained authority PASS: owner=%s base=%s classroom_surface=%s classroom_dom=%s\n' \
+            "$d01_owner" "$base" "$classroom_surface_successor" "$classroom_dom_successor"
 
       - name: Compile Teacher and Classroom package
         run: >-
@@ -107,10 +118,12 @@ jobs:
           tests/test_dev1_teacher_webview_projection.py
           tests/test_teacher_webview_bridge.py
 
-      - name: Parse browser assets and run executable Teacher DOM contract
+      - name: Parse browser assets and run executable Teacher/Classroom DOM contracts
         run: |
           node --check web/full_product_classroom.js
           node --check web/full_product_teacher.js
+          node --check tests/js/classroom_surface_dom_test.js
+          node tests/js/classroom_surface_dom_test.js
           node tests/js/teacher_surface_dom_test.js
 
       - name: Teacher canonical-state focused tests
