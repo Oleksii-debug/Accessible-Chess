@@ -8,6 +8,7 @@ on:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
       - work/w5-release-receipt-20261005-a7f3
+      - fix/release-receipt-failed-create-cleanup-20261005-sol56x9q2
     paths:
       - acs/version2_release_receipt.py
       - tests/test_version2_release_receipt.py
