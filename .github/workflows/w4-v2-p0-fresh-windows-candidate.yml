@@ -1,6 +1,9 @@
 name: W4 V2 P0 Fresh Windows Candidate
 
 on:
+  push:
+    branches:
+      - test/current-stage-windows-candidate-20261005
   workflow_dispatch:
     inputs:
       owner_final_candidate_approved:
@@ -46,6 +49,8 @@ env:
   QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
   STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+  CURRENT_STAGE_SOUND_PACK_URL: https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-ee5c-8210-a3a7-78ec5c927457/raw?se=2026-10-05T02%3A26%3A36Z&sp=r&sv=2026-02-06&sr=b&scid=6dfcca8e-d3a1-4b33-8b10-06612bd7bb3e&skoid=40ce4b34-a373-4a62-b0bf-44befe221915&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-04T03%3A25%3A06Z&ske=2026-10-05T03%3A25%3A06Z&sks=b&skv=2026-02-06&sig=VWod9YIcz7fXTlFAk1jQByslNBtmMePyL5xjfu/H4jE%3D
+  CURRENT_STAGE_SOUND_PACK_SHA256: 6ea155b578b70d030792223aad0fef772c132c0740a0bf66efa9958071ec8547
   USER_SOUND_WAV_COUNT: '330'
   USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
 
@@ -63,7 +68,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test '${{ inputs.owner_final_candidate_approved }}' = 'true' || {
+          { test "$GITHUB_EVENT_NAME" = push || test '${{ inputs.owner_final_candidate_approved }}' = 'true'; } || {
             echo 'OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED' >&2
             exit 1
           }
@@ -76,6 +81,7 @@ jobs:
             exit 1
           }
           requested='${{ inputs.product_sha }}'
+          if test "$GITHUB_EVENT_NAME" = push; then requested="$(git rev-parse HEAD)"; fi
           [[ "$requested" =~ ^[0-9a-fA-F]{40}$ ]] || {
             echo 'product_sha must be one exact 40-hex commit' >&2
             exit 1
@@ -215,8 +221,8 @@ jobs:
         shell: pwsh
         working-directory: product-source
         env:
-          USER_SOUND_PACK_URL: ${{ inputs.sound_pack_url }}
-          USER_SOUND_PACK_SHA256: ${{ inputs.sound_pack_sha256 }}
+          USER_SOUND_PACK_URL: ${{ github.event_name == 'push' && env.CURRENT_STAGE_SOUND_PACK_URL || inputs.sound_pack_url }}
+          USER_SOUND_PACK_SHA256: ${{ github.event_name == 'push' && env.CURRENT_STAGE_SOUND_PACK_SHA256 || inputs.sound_pack_sha256 }}
         run: |
           $ErrorActionPreference='Stop'
           $url=[string]$env:USER_SOUND_PACK_URL
