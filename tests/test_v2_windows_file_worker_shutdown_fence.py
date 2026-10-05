@@ -8,6 +8,7 @@ from unittest import mock
 
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.version2_windows_file_workflows import (
+    FileWorkflowEvent,
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
     Version2WindowsFileActionDelegate,
@@ -59,6 +60,26 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             current_focus_provider=lambda: "pgn-tree",
             post_to_ui=post_to_ui,
         )
+
+    def test_file_workflow_event_rejects_derived_root_before_field_hooks(self) -> None:
+        touched = []
+
+        class ActiveEvent(FileWorkflowEvent):
+            def __getattribute__(self, name):
+                if name in {"kind", "action_id", "focus_target", "error_code"}:
+                    touched.append(name)
+                    raise AssertionError("derived event field hook executed")
+                return super().__getattribute__(name)
+
+        with self.assertRaisesRegex(TypeError, "exact passive DTO"):
+            ActiveEvent(
+                FileWorkflowEventKind.FAILED,
+                "pgn.open",
+                focus_target="pgn-tree",
+                error_code="pgn_open_failed",
+            )
+
+        self.assertEqual(touched, [])
 
     def test_focus_provider_base_exception_degrades_without_blocking_open(self) -> None:
         class FocusAbort(BaseException):
