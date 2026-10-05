@@ -51,8 +51,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" HEAD',
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
-            'test "$product_count" -eq 199',
-            'test "$candidate_count" -eq 201',
+            'test "$product_count" -eq 211',
+            'test "$candidate_count" -eq 213',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
@@ -82,9 +82,9 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 199',
+            'test "$product_count" -eq 211',
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 201',
+            'test "$candidate_count" -eq 213',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -96,11 +96,11 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 199',
+            'test "$product_count" -eq 211',
             "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 201',
+            'test "$candidate_count" -eq 213',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -162,6 +162,10 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "tests.test_d06_v2_gametree_resume_discard_guard",
             "tests.test_portable_launcher_contract",
             "tests.test_chessbase_manifest_legacy_cbf_pair",
+            "tests.test_pgn_conversion",
+            "tests.test_pgn_conversion_windows",
+            "tests.test_pgn_conversion_native_windows",
+            "tests.test_full_product_native_menu",
             "python -m acs.selftest",
         )
         for fragment in required:
