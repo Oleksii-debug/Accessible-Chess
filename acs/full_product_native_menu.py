@@ -284,13 +284,23 @@ class FullProductNativeMenuController:
                 show_pgn_conversion_dialog(language=self._adapter.shell.language.value, owner=self._conversion_owner)
             return None
         focus = self._focus_provider()
-        if not isinstance(focus, str):
+        if type(focus) is not str:
             raise TypeError("native menu focus provider must return text")
+        previous_shell = self._adapter.shell._capture_presentation_state()
         command = self._adapter.activate_action(
             item.action_id,
             current_focus_id=focus,
         )
-        self._command_sink(command)
+        try:
+            self._command_sink(command)
+        except Exception:
+            # The production sink publishes only after its fallible route/focus
+            # preparation succeeds. If delivery raises, the native host did not
+            # receive the command; restore the shell document/focus authority
+            # that was visible before this menu activation. Domain effects are
+            # intentionally outside this presentation-only rollback.
+            self._adapter.shell._restore_presentation_state(previous_shell)
+            raise
         return command
 
 
