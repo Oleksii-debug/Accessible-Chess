@@ -252,6 +252,25 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
 
             self.assertTrue(output.exists())
 
+    def test_failed_receipt_create_without_identity_is_reported_and_not_unlinked(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            with patch(
+                "acs.version2_release_receipt.os.fstat",
+                side_effect=OSError("simulated identity failure"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "cleanup could not be proven safe",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertTrue(output.exists())
+            self.assertEqual(output.stat().st_size, 0)
+
     def test_readback_rejects_duplicate_unknown_wrong_authority_and_reformatting(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
