@@ -459,6 +459,17 @@ class Version2WindowsLibraryExportDelegate:
             retry_timer.cancel()
         self._emit(terminal)
 
+    def recover_pending_terminal(self) -> bool:
+        """Publish an already-chosen terminal on the owner thread, if any."""
+
+        self._assert_ui_thread()
+        with self._lock:
+            if self._closed or self._terminal_pending is None:
+                return False
+            generation, terminal = self._terminal_pending
+        self._finish_export(generation, terminal)
+        return True
+
     def cancel_export(self) -> LibraryExportHostEvent:
         """Request cooperative cancellation without racing a chosen terminal result."""
 

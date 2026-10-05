@@ -6,7 +6,10 @@ import threading
 import unittest
 
 from acs.acsdb import AcsDatabase
-from acs.library_export_service import LibraryExportRequest
+from acs.library_export_service import (
+    LibraryExportRequest,
+    LibraryExportService,
+)
 from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
@@ -18,7 +21,10 @@ from acs.version2_windows_file_workflows import (
 )
 from acs.pgn_service import open_pgn
 from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
-from acs.version2_windows_library_export import LibraryExportHostEventKind
+from acs.version2_windows_library_export import (
+    LibraryExportHostEventKind,
+    LibraryExportWorkerServices,
+)
 from acs.version2_windows_pgn_export import PgnSelectionExportEventKind
 
 
@@ -88,6 +94,20 @@ class _Owner:
         return len(self.posted)
 
 
+class _FlakyOwner(_Owner):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.begin_invoke_calls = 0
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        self.begin_invoke_calls += 1
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("simulated BeginInvoke rejection")
+        return super().BeginInvoke(delegate)
+
+
 class _Library:
     def __init__(self) -> None:
         self.calls = 0
@@ -146,6 +166,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         export_events: list[object] | None = None,
         fallback_calls: list[tuple[str, dict[str, object]]] | None = None,
         closed_services: list[bool] | None = None,
+        library_export_worker_services_factory=None,
     ) -> Version2WindowsFileWorkflowRuntime:
         imported_events = imported_events if imported_events is not None else []
         export_calls = export_calls if export_calls is not None else []
@@ -180,6 +201,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             import_ui_ready=import_ui_ready,
             pgn_export_event_sink=export_events.append,
             next_delegate=fallback,
+            library_export_worker_services_factory=library_export_worker_services_factory,
             current_focus_provider=lambda: "stable-focus",
             ui_delegate_factory=lambda callback: callback,
             file_forms_loader=_forms_loader,
@@ -363,6 +385,82 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 callback()
             self.assertTrue(runtime.shutdown(5.0))
             self.assertTrue(runtime.closed)
+
+    def test_next_library_start_recovers_export_terminal_after_both_ui_posts_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                database.import_pgn_text(_PGN, source_name="export-source.pgn")
+                row = database.conn.execute(
+                    "SELECT id FROM games ORDER BY id LIMIT 1"
+                ).fetchone()
+                assert row is not None
+                game_id = int(row["id"])
+            finally:
+                database.close()
+
+            destination = Path(directory) / "recovered-export.pgn"
+            import_source = Path(directory) / "next-import.pgn"
+            import_source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            _OpenDialog.selected_paths.append(str(import_source))
+            owner = _FlakyOwner(2)
+            export_events: list[object] = []
+
+            def export_worker_factory() -> LibraryExportWorkerServices:
+                worker_db = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    LibraryExportService(worker_db),
+                    worker_db.close,
+                )
+
+            runtime = self._runtime(
+                owner,
+                export_events=export_events,
+                library_export_worker_services_factory=export_worker_factory,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+
+                deadline = threading.Event()
+                for _ in range(200):
+                    if owner.begin_invoke_calls >= 2:
+                        break
+                    deadline.wait(0.01)
+                self.assertEqual(owner.begin_invoke_calls, 2)
+                self.assertEqual(owner.posted, [])
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [LibraryExportHostEventKind.STARTED],
+                )
+
+                import_started = runtime("library.import", {})
+
+                self.assertEqual(
+                    import_started.kind,
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                )
+                self.assertFalse(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                self.assertTrue(destination.exists())
+                self.assertTrue(runtime.wait_for_import(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown(5.0))
 
     def test_import_running_rejects_export_before_save_dialog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

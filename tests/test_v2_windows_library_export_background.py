@@ -717,10 +717,11 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertTrue(retry_attempted.wait(timeout=2.0))
             self.assertTrue(delegate.export_running)
 
-            terminal = delegate.cancel_export()
+            self.assertTrue(delegate.recover_pending_terminal())
+            terminal = events[-1]
             self.assertEqual(terminal.kind, LibraryExportHostEventKind.EXPORTED)
-            self.assertEqual(events[-1], terminal)
             self.assertFalse(delegate.export_running)
+            self.assertFalse(delegate.recover_pending_terminal())
             self.assertEqual(post_attempts, 2)
             self.assertEqual(len(open_pgn(destination).games), 1)
 

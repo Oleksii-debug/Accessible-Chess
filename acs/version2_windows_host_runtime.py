@@ -258,6 +258,14 @@ class Version2WindowsFileWorkflowRuntime:
                     raise RuntimeError("Library import is already active")
                 raise RuntimeError("Library export is already active")
 
+        if library_start:
+            # A completed export whose two bounded BeginInvoke attempts both
+            # failed still owns an exact terminal result. A fresh owner-thread
+            # Library start is an explicit recovery opportunity: publish that
+            # terminal first, then arbitrate the new operation against real
+            # worker state instead of leaving the user trapped behind stale busy.
+            self._library_export_delegate.recover_pending_terminal()
+
         # Import and export share the Library database and the single
         # "Cancel library operation" command. Keep that user contract
         # unambiguous: a second long-running Library operation is rejected on
