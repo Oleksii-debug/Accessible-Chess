@@ -194,6 +194,71 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
         self.assertEqual(mailbox.pending_count, 1)
         self.assertEqual(mailbox.drain(), (event,))
 
+    def test_pgn_save_success_kind_must_match_action(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        errors: list[BaseException] = []
+
+        def produce() -> None:
+            for event in (
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED_AS,
+                    "pgn.save",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                ),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED,
+                    "pgn.save_as",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                ),
+            ):
+                try:
+                    mailbox(event)
+                except BaseException as exc:
+                    errors.append(exc)
+
+        _run_thread(produce)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all(isinstance(error, ValueError) for error in errors))
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_async_terminal_error_code_must_match_failure_kind(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        errors: list[BaseException] = []
+
+        def produce() -> None:
+            for event in (
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "pgn.save",
+                    focus_target="pgn-game-list",
+                ),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED,
+                    "pgn.save",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                    error_code="contradictory_success_error",
+                ),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_OPENED,
+                    "pgn.open",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                    error_code="contradictory_open_error",
+                ),
+            ):
+                try:
+                    mailbox(event)
+                except BaseException as exc:
+                    errors.append(exc)
+
+        _run_thread(produce)
+        self.assertEqual(len(errors), 3)
+        self.assertTrue(all(isinstance(error, ValueError) for error in errors))
+        self.assertEqual(mailbox.pending_count, 0)
+
     def test_unowned_worker_event_is_rejected(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
         errors: list[BaseException] = []
