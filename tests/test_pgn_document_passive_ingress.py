@@ -225,6 +225,56 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             PgnDocumentSession(workspace, source_overwrite_safe=ActiveBool())  # type: ignore[arg-type]
 
+    def test_direct_save_rejects_active_internal_source_without_text_hooks(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        internal = session._source
+        assert internal is not None
+        digest = GuardedText(internal.sha256)
+        digest.armed = True
+        object.__setattr__(internal, "sha256", digest)
+
+        with patch("acs.pgn_document.save_pgn_atomic") as writer:
+            with self.assertRaises(TypeError):
+                session.save()
+
+        writer.assert_not_called()
+
+    def test_direct_save_as_rejects_active_internal_source_without_text_hooks(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        internal = session._source
+        assert internal is not None
+        path = GuardedText(internal.path)
+        path.armed = True
+        object.__setattr__(internal, "path", path)
+
+        with patch("acs.pgn_document.save_pgn_atomic") as writer:
+            with self.assertRaises(TypeError):
+                session.save_as("other.pgn")
+
+        writer.assert_not_called()
+
     def test_direct_save_rejects_active_source_safety_without_truthiness(self) -> None:
         workspace = PgnWorkspace.from_text(PGN)
         source = SourceFingerprint(
