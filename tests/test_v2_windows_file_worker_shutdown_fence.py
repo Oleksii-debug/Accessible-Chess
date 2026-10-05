@@ -296,6 +296,60 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "library_import_failed")
 
+    def test_pgn_open_preparation_base_exception_reaches_owner_terminal(self) -> None:
+        class PreparationAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "open-preparation-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=posted.append,
+            )
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.PgnDocumentSession.open",
+                side_effect=PreparationAbort("preparation abort"),
+            ):
+                started = delegate("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(delegate.wait_for_pgn_open(2.0))
+
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.pgn_open_running)
+            posted.pop()()
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "pgn_open_failed")
+
+    def test_pgn_open_ui_post_base_exception_releases_shared_worker_slot(self) -> None:
+        class PosterAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "open-poster-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+
+            def aborting_post(callback):
+                raise PosterAbort("owner post abort")
+
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=aborting_post,
+            )
+            started = delegate("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(delegate.wait_for_pgn_open(2.0))
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "pgn_open_ui_post_failed")
+
     def test_pgn_open_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "open-shutdown.pgn"
