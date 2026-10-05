@@ -651,10 +651,42 @@
     if (restoreFocus) restoreStage1Focus(routeId, requestedFocus);
   }
 
+  function snapshotShellPublicationToken(snapshot) {
+    if (!plainObject(snapshot)) return 0;
+    const token = snapshot.shell_publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
   function refresh(restoreFocus) {
     const bridge = api();
     if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve();
-    return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
+    return bridge.v2_snapshot().then(function (snapshot) {
+      const orphanedToken = snapshotShellPublicationToken(snapshot);
+      if (
+        orphanedToken &&
+        !pendingShellPublicationToken &&
+        !pendingShellPublicationRequestId
+      ) {
+        // A WebView reload can erase the browser's request/token memory after
+        // Python already acquired the publication hold. Never render that
+        // unacknowledged candidate as committed state. Recover through the same
+        // idempotent rollback protocol, then read one canonical snapshot.
+        pendingShellPublicationToken = orphanedToken;
+        return recoverShellPublication(
+          bridge,
+          orphanedToken,
+          uiText(
+            "Відновлено попередній розділ після перезапуску подання.",
+            "Restored the previous section after the view restarted."
+          )
+        ).then(function (recovered) {
+          if (!recovered) {
+            throw new Error("orphaned shell publication recovery is still pending");
+          }
+        });
+      }
+      render(snapshot, !!restoreFocus);
+    });
   }
 
   function isVersion2DomainAction(actionId) {
