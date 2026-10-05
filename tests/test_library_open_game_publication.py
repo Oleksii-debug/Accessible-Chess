@@ -9,6 +9,8 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_actions import build_full_product_action_registry
+from acs.keybindings import BindingContext
 from acs.library_webview_projection import LibraryWebViewEvent
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_application import Version2Application
@@ -27,6 +29,35 @@ PGN_TEMPLATE = """[Event "{event}"]
 
 
 class LibraryOpenGamePublicationTests(unittest.TestCase):
+    def test_library_home_end_are_central_remappable_actions(self) -> None:
+        registry = build_full_product_action_registry()
+
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.LIBRARY_RESULTS, "Home").action_id,
+            "library.first_result",
+        )
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.LIBRARY_RESULTS, "End").action_id,
+            "library.last_result",
+        )
+
+        registry.set_binding("library.first_result", "Ctrl+Home")
+        registry.set_binding("library.last_result", "Ctrl+End")
+        self.assertIsNone(
+            registry.resolve_binding(BindingContext.LIBRARY_RESULTS, "Home")
+        )
+        self.assertIsNone(
+            registry.resolve_binding(BindingContext.LIBRARY_RESULTS, "End")
+        )
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.LIBRARY_RESULTS, "Ctrl+Home").action_id,
+            "library.first_result",
+        )
+        self.assertEqual(
+            registry.resolve_binding(BindingContext.LIBRARY_RESULTS, "Ctrl+End").action_id,
+            "library.last_result",
+        )
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
