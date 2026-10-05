@@ -381,6 +381,18 @@ class LibraryView:
     message: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class _LibraryPresenterState:
+    """Rollback-only snapshot of presentation state, never domain/search state."""
+
+    language: UILanguage
+    pages: tuple[tuple[GameSearchQuery, GameSearchPage], ...]
+    page_index: int
+    selected_game_id: int | None
+    status: SurfaceStatus
+    message: str
+
+
 class LibraryPresenter:
     """Keyboard-stable page/selection projection over :class:`GameSearchService`."""
 
@@ -401,6 +413,27 @@ class LibraryPresenter:
     @property
     def selected_game_id(self) -> int | None:
         return self._selected_game_id
+
+    def _capture_presentation_state(self) -> _LibraryPresenterState:
+        """Capture only browser-visible mutable state for failed-render rollback."""
+        return _LibraryPresenterState(
+            language=self._language,
+            pages=tuple(self._pages),
+            page_index=self._page_index,
+            selected_game_id=self._selected_game_id,
+            status=self._status,
+            message=self._message,
+        )
+
+    def _restore_presentation_state(self, state: _LibraryPresenterState) -> None:
+        if type(state) is not _LibraryPresenterState:
+            raise TypeError("library presentation rollback state is invalid")
+        self._language = state.language
+        self._pages = list(state.pages)
+        self._page_index = state.page_index
+        self._selected_game_id = state.selected_game_id
+        self._status = state.status
+        self._message = state.message
 
     def set_language(self, language: UILanguage) -> None:
         self._language = language
