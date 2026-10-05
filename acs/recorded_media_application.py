@@ -102,6 +102,15 @@ class CanonicalRecordedFrameApplicationAdapter:
             raise RecordedMediaApplicationAdapterError(
                 "speech_context must contain exact SpeechEvidence values"
             )
+        for item in speech_context:
+            if item.source_id != frame.source_id:
+                raise RecordedMediaApplicationAdapterError(
+                    "speech_context belongs to a different recorded source"
+                )
+            if item.source_revision != frame.source_revision:
+                raise RecordedMediaApplicationAdapterError(
+                    "speech_context belongs to a stale recorded source revision"
+                )
         if frame.disposition in (FrameDisposition.TRANSITION, FrameDisposition.OCCLUDED):
             raise RecordedMediaApplicationAdapterError(
                 "non-resolvable frame disposition reached canonical application adapter"
