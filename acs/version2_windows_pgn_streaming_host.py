@@ -3,11 +3,11 @@ from __future__ import annotations
 """Current-runtime Windows composition for large PGN Library imports.
 
 The trusted Windows file host continues to own file selection, threading,
-cancellation, bounded path-free events and shutdown.  This successor changes
+cancellation, bounded path-free events and shutdown. This successor changes
 only the ``.pgn`` worker path: it delegates incremental framing/parsing to the
 canonical D06 ``StreamingPgnLibraryImporter`` and publication to the same D07
-Library service supplied by the existing worker factory.  CBH/CBV and ordinary
-PGN Open/Save remain owned by their existing delegates.
+Library service supplied by the existing worker factory. CBH/CBV remain owned
+by the base delegate; PGN Open shares that delegate's single worker authority.
 
 No PGN semantics, chess rules, database transaction semantics or browser path
 authority are implemented here.
@@ -99,7 +99,7 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
             if cancelled():
                 raise StreamingPgnImportCancelledError()
 
-            # Preserve the existing host's zero-byte empty-source UX.  Non-empty
+            # Preserve the existing host's zero-byte empty-source UX. Non-empty
             # malformed or whitespace-only sources remain canonical D06 failures;
             # no permissive fallback is introduced.
             try:
@@ -153,7 +153,7 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                 ),
             )
         except StreamingPgnImportError:
-            # Error text can contain parser/source details.  The user-facing
+            # Error text can contain parser/source details. The user-facing
             # boundary receives only the existing stable path-free host code.
             self._emit_if_current(
                 generation,
@@ -182,9 +182,8 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                 except Exception:
                     _LOG.warning("Version 2 streaming PGN worker cleanup failed", exc_info=True)
             with self._lock:
-                if generation == self._generation:
-                    self._worker = None
-                    self._cancel_event = None
+                if generation == self._generation and self._worker_kind == "import":
+                    self._clear_worker_locked()
 
 
 __all__ = ["Version2WindowsStreamingFileActionDelegate"]
