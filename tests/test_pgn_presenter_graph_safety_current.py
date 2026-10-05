@@ -47,6 +47,19 @@ class PgnPresenterGraphSafetyTests(unittest.TestCase):
             PgnTreePresenter(games)
         self.assertFalse(_ExplodingList.touched)
 
+    def test_game_collection_count_is_bounded_before_snapshot_copy(self) -> None:
+        game, _, _ = self._game_with_move()
+        with patch.object(
+            pgn_presenter_graph_guard,
+            "MAX_PGN_PRESENTATION_GAMES",
+            1,
+        ):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "game collection exceeds the presentation limit",
+            ):
+                PgnTreePresenter([game, game])
+
     def test_nested_hostile_move_container_is_rejected_before_iteration(self) -> None:
         game, line, move = self._game_with_move()
         line.moves = _ExplodingList([move])
