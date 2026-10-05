@@ -296,6 +296,27 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.report_open)
 
+    def test_report_body_writes_and_flushes_fail_closed(self):
+        write_start = self.source.index("static void ac_write_utf8(HANDLE handle")
+        write_end = self.source.index("static void ac_write_line(HANDLE handle", write_start)
+        write_body = self.source[write_start:write_end]
+        for token in (
+            "if (!WriteFile(",
+            "written != (DWORD)(bytes - 1)",
+            "ac_report_write_fail(handle, ERROR_WRITE_FAULT)",
+            "ERROR_NO_UNICODE_TRANSLATION",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, write_body)
+        self.assertIn("static void ac_flush_report(HANDLE report)", self.source)
+        self.assertIn("if (!FlushFileBuffers(report))", self.source)
+        self.assertEqual(self.source.count("FlushFileBuffers(report)"), 1)
+        self.assertGreaterEqual(self.source.count("ac_flush_report(report);"), 5)
+        self.assertIn(
+            "incomplete report must not be treated as valid evidence",
+            self.source,
+        )
+
     def test_windows_workflow_exercises_overlapping_root_launchers(self):
         for token in (
             "$first = Start-Process -FilePath $launcher",
