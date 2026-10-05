@@ -6,7 +6,7 @@ on:
       - integration/current-product-main-candidate-20261004-c2mbezb
   push:
     branches:
-      - integrate/current-product-to-shipping-20261005-sol56r5
+      - integrate/current-product-to-shipping-refresh-20261005-sol56r6
   workflow_dispatch:
 
 permissions:
