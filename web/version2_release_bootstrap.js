@@ -340,13 +340,29 @@
         return false;
       });
     }, function (error) {
-      // A host-level rejection means Python definitely answered and the token
-      // no longer identifies a rollbackable pending route (normally because a
-      // previously uncertain commit actually completed). Re-read canonical
-      // authority before allowing another route. A pure transport rejection
-      // remains uncertain, so retain the token for the next interaction.
+      // A host-level rejection proves only that Python answered. It does not
+      // prove that Python forgot this token: rollback/commit cleanup can fail
+      // internally while the exact publication remains pending and retryable.
+      // Read host authority directly and publish only a snapshot that carries no
+      // pending token. If a token is still present, keep recovery fenced.
       if (error && error.hostResponded) {
-        return refresh(true).then(function () {
+        if (!bridge || typeof bridge.v2_snapshot !== "function") {
+          announce(failedMessage);
+          return Promise.resolve(false);
+        }
+        return bridge.v2_snapshot().then(function (snapshot) {
+          const hostToken = snapshotShellPublicationToken(snapshot);
+          if (hostToken) {
+            if (hostToken !== token) pendingShellPublicationToken = hostToken;
+            announce(failedMessage);
+            return false;
+          }
+          try {
+            render(snapshot, true);
+          } catch (_) {
+            announce(failedMessage);
+            return false;
+          }
           clearPendingShellPublication(token);
           announce(failedMessage);
           return true;
