@@ -3,10 +3,10 @@ name: Owner Physical Acceptance + Release Receipt Contract
 on:
   push:
     branches:
-      - converge/release-receipt-physical-acceptance-20261005-zftrkmo
+      - fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
   pull_request:
     branches:
-      - converge/package-pe-release-receipt-20261005-zftrkmo
+      - converge/release-receipt-physical-acceptance-20261005-zftrkmo
     paths:
       - scripts/record_owner_physical_acceptance.py
       - tests/test_owner_physical_acceptance.py
@@ -21,15 +21,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_RELEASE_HEAD: 88f478e3c6cd1f6a9bfa49efd9cb56a25394784d
-  RELEASE_BRANCH: converge/package-pe-release-receipt-20261005-zftrkmo
+  EXPECTED_RELEASE_HEAD: 0e9538438f664d925109ebc99c96098fef12ce47
+  RELEASE_BRANCH: converge/release-receipt-physical-acceptance-20261005-zftrkmo
   EXPECTED_PHYSICAL_PARENT: e8a23625dcb9f3ab759878c4b007af4801dc170e
   EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
   EXPECTED_RELEASE_RECEIPT_BLOB: 290e653ef5d4998189b7b61df1add8882d80ffcd
   EXPECTED_PE_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
-  EXPECTED_PHYSICAL_SOURCE_BLOB: 0f4bfcdc01bf77e6ca5fac604e34e6f2e9b57f70
+  EXPECTED_PHYSICAL_SOURCE_BLOB: 24942b10f90a25b228d171625a957884ca10725b
   EXPECTED_PHYSICAL_TEST_BLOB: 966c223f884e56ec241d66e73e4829de619f62d2
-  EXPECTED_PHYSICAL_JSON_TEST_BLOB: d52dd5ed647d20142e493538b1e7a6aa405133b7
+  EXPECTED_PHYSICAL_JSON_TEST_BLOB: b199977cd5e2fef480905a14812015840d24411f
 
 jobs:
   contract:
@@ -73,7 +73,6 @@ jobs:
           expected=(
             ".github/workflows/owner-physical-acceptance-record.yml"
             "scripts/record_owner_physical_acceptance.py"
-            "tests/test_owner_physical_acceptance.py"
             "tests/test_owner_physical_acceptance_json_hardening.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
