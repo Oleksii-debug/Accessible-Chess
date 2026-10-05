@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-product-shipping-integration-${{ github.event.pull_request.number || github.ref }}
+  group: current-product-shipping-integration-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -39,9 +39,11 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
-          PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
+          PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
-          PINNED_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          PINNED_PRODUCT_SHA: 0c18ee1baa5bec8c9d75656597723bd94785df25
+          PRIOR_SHIPPING_HEAD: e77b8f1ee2b2a4e46e990c6117b348f8004880d1
+          PRODUCT_SHIPPING_MERGE: a22b06f4331a786f5df5f8f8182c24a48ac995be
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
@@ -64,6 +66,8 @@ jobs:
           git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
           live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
           test "$live_product" = "$PINNED_PRODUCT_SHA"
+          git merge-base --is-ancestor "$PRODUCT_SHIPPING_MERGE" HEAD
+          test "$(git show -s --format=%P "$PRODUCT_SHIPPING_MERGE")" = "$PRIOR_SHIPPING_HEAD $PINNED_PRODUCT_SHA"
 
           git merge-base --is-ancestor "$live_shipping" "$live_product"
           test "$(git merge-base "$live_shipping" "$live_product")" = "$live_shipping"
@@ -74,7 +78,7 @@ jobs:
           product_paths="$(git diff --name-only "$live_shipping"..."$live_product" | sort)"
           test -n "$product_paths"
           product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$product_count" -eq 64
+          test "$product_count" -eq 199
 
           extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected_extra="$(printf '%s\n' \
@@ -95,7 +99,7 @@ jobs:
             exit 1
           }
           candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$candidate_count" -eq 66
+          test "$candidate_count" -eq 201
 
           echo "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS"
           echo "SHIPPING_BASE=$live_shipping"
@@ -134,6 +138,7 @@ jobs:
           node tests/js/dynamic_keymap_help_test.js
           node tests/js/classroom_surface_dom_test.js
           node tests/js/pgn_remaining_keybindings_test.js
+          node tests/js/p0g_event_aware_announcement_test.js
 
       - name: Run current resource and persistence regressions
         run: >-
@@ -148,6 +153,9 @@ jobs:
           tests.test_bookreader
           tests.test_w2_training_progress_crash_recovery
           tests.test_version2_training_current_runtime
+          tests.test_d06_v2_gametree_resume_discard_guard
+          tests.test_local_profile_recursion_boundary
+          tests.test_local_profile_path_identity
 
       - name: Run current accessibility formats and chess-authority regressions
         run: >-
@@ -164,6 +172,9 @@ jobs:
           tests.test_book_training_variant_authority
           tests.test_pgn_board_start_authority
           tests.test_full_product_book_command_authority
+          tests.test_notation
+          tests.test_pgn_presenter_graph_safety_current
+          tests.test_book_lookup_detached_canonicalization
 
       - name: Run shipping integration qualification contracts
         run: >-
