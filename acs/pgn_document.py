@@ -317,23 +317,26 @@ class PgnDocumentSession:
         if source is not None:
             if type(source) is not SourceFingerprint:
                 raise TypeError("source must be SourceFingerprint or None")
+            # Snapshot caller-owned fields once. Frozen dataclasses can still be
+            # mutated through low-level object APIs; validation and detachment
+            # must therefore consume the same passive values rather than
+            # re-reading a possibly changed object after validation.
+            source_path = source.path
+            source_size = source.size
+            source_sha256 = source.sha256
+            source_suffix = source.suffix
             if (
-                type(source.path) is not str
-                or type(source.size) is not int
-                or type(source.sha256) is not str
-                or type(source.suffix) is not str
+                type(source_path) is not str
+                or type(source_size) is not int
+                or type(source_sha256) is not str
+                or type(source_suffix) is not str
             ):
                 raise TypeError("source fingerprint fields must be passive built-in scalars")
-            # Frozen dataclasses can still be mutated through low-level object
-            # APIs by a caller retaining the original instance. Detach source
-            # provenance at ingress so later caller mutation cannot silently
-            # rewrite this session's path/CAS identity without a document
-            # revision or canonical save/open transition.
             source = SourceFingerprint(
-                path=source.path,
-                size=source.size,
-                sha256=source.sha256,
-                suffix=source.suffix,
+                path=source_path,
+                size=source_size,
+                sha256=source_sha256,
+                suffix=source_suffix,
             )
         if type(global_warnings) is not tuple or any(
             type(item) is not str for item in global_warnings
@@ -472,17 +475,23 @@ class PgnDocumentSession:
     def restore_context(self, context: PgnDocumentContext) -> PgnWorkspaceView:
         if type(context) is not PgnDocumentContext:
             raise TypeError("context must be the canonical PgnDocumentContext")
+        # Snapshot the exact dataclass once; all later validation/mutation uses
+        # these passive locals so low-level caller mutation cannot change the
+        # restore target between validation and canonical navigation.
+        content_digest = context.content_digest
+        selected_game_index = context.selected_game_index
+        context_cursor = context.cursor
         if (
-            type(context.content_digest) is not str
-            or type(context.selected_game_index) is not int
-            or context.selected_game_index < 0
+            type(content_digest) is not str
+            or type(selected_game_index) is not int
+            or selected_game_index < 0
         ):
             raise _error(
                 "saved PGN context is not canonical",
                 PgnDocumentErrorCode.CONTEXT_STALE,
             )
-        cursor = _passive_context_cursor(context.cursor)
-        if self._workspace.content_digest != context.content_digest:
+        cursor = _passive_context_cursor(context_cursor)
+        if self._workspace.content_digest != content_digest:
             raise _error(
                 "PGN content changed; exact saved context is stale",
                 PgnDocumentErrorCode.CONTEXT_STALE,
@@ -496,7 +505,7 @@ class PgnDocumentSession:
         # cross into canonical GameTree navigation.
         probe = PgnWorkspace(self._workspace.games())
         try:
-            probe.select_game(context.selected_game_index)
+            probe.select_game(selected_game_index)
             probe.set_cursor(cursor)
         except (TypeError, ValueError) as exc:
             raise _error(
@@ -504,7 +513,7 @@ class PgnDocumentSession:
                 PgnDocumentErrorCode.CONTEXT_STALE,
             ) from exc
 
-        self._workspace.select_game(context.selected_game_index)
+        self._workspace.select_game(selected_game_index)
         return self._workspace.set_cursor(cursor)
 
     def copy_pgn(self) -> str:
