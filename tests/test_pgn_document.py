@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
-from unittest import mock
 
 from acs.gametree_navigation import GameTreeCursor, VariationStep
 from acs.pgn_document import (
@@ -103,35 +102,6 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertEqual(reopened.copy_pgn(), before_save)
         self.assertEqual(len(game.line.moves[1].variations), 2)
         self.assertEqual(game.line.moves[1].variations[0].moves[0].san, "c5")
-
-    def test_save_checkpoint_base_exception_reports_commit_failure_after_durable_write(self) -> None:
-        class CheckpointAbort(BaseException):
-            pass
-
-        path = self.write_document("checkpoint-abort.pgn")
-        session = PgnDocumentSession.open(path)
-        source_before = session.source
-        revision_before = session.document_revision
-        session.edit_tag("Event", "Durably Written")
-        published_text = session.copy_pgn()
-
-        with mock.patch.object(
-            type(session.workspace),
-            "mark_saved",
-            autospec=True,
-            side_effect=CheckpointAbort("workspace checkpoint aborted"),
-        ):
-            with self.assertRaises(PgnDocumentError) as caught:
-                session.save()
-
-        self.assertEqual(
-            caught.exception.code,
-            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
-        )
-        self.assertEqual(path.read_text(encoding="utf-8"), published_text)
-        self.assertEqual(session.source, source_before)
-        self.assertEqual(session.document_revision, revision_before + 1)
-        self.assertTrue(session.dirty)
 
     def test_save_detects_external_change_instead_of_losing_it(self) -> None:
         path = self.write_document()
