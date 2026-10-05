@@ -12,6 +12,7 @@
   let currentRouteId = "board";
   let eventDrainInFlight = false;
   let eventDrainPending = false;
+  let shellPublicationRequestSequence = 0;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
   const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
@@ -227,6 +228,33 @@
     return Number.isSafeInteger(token) && token > 0 ? token : 0;
   }
 
+  function nextShellPublicationRequestId() {
+    if (shellPublicationRequestSequence >= Number.MAX_SAFE_INTEGER - 1) return 0;
+    shellPublicationRequestSequence += 1;
+    return shellPublicationRequestSequence;
+  }
+
+  function startShellPublication(bridge, actionId, requestId) {
+    function attempt() {
+      return bridge.v2_browser_command(
+        "shell",
+        actionId,
+        { publication_protocol: "ack-v1", request_id: requestId }
+      ).then(function (result) {
+        if (result && result.kind === "error") return result;
+        if (!shellPublicationToken(result)) {
+          throw new TypeError("invalid shell publication start");
+        }
+        return result;
+      });
+    }
+
+    // Python binds request_id to the exact pending route candidate. Reusing it
+    // once closes the same response-loss window as commit/rollback replay
+    // without applying the route transition twice.
+    return attempt().catch(function () { return attempt(); });
+  }
+
   function finishShellPublication(bridge, command, token) {
     const expectedKind =
       command === "shell.presentation_commit"
@@ -311,10 +339,15 @@
           "Не вдалося відкрити розділ.",
           "Could not open the section."
         );
-        bridge.v2_browser_command(
-          "shell",
+        const requestId = nextShellPublicationRequestId();
+        if (!requestId) {
+          announce(failedMessage);
+          return;
+        }
+        startShellPublication(
+          bridge,
           actionId,
-          { publication_protocol: "ack-v1" }
+          requestId
         ).then(function (result) {
           if (result && result.kind === "error") {
             if (result.payload) announce(result.payload.message || "");
