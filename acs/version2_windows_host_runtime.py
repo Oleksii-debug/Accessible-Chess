@@ -256,7 +256,7 @@ class Version2WindowsFileWorkflowRuntime:
         if action_id == "library.import" and self.export_running:
             raise RuntimeError("Library export is already active")
         if action_id == "library.cancel_import" and self.export_running:
-            if payload:
+            if payload is not None and not (type(payload) is dict and not payload):
                 raise ValueError("Library cancellation accepts no payload")
             return self._library_export_delegate.cancel_export()
         return self._file_delegate(action_id, payload)
