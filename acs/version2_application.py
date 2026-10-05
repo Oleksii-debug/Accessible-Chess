@@ -1567,11 +1567,21 @@ class Version2Application:
                 if status not in {"ready", "empty"}:
                     raise ValueError("invalid Library projection status")
                 route_focus = self.shell.open_route("library")
-            except BaseException:
-                projection._restore_native_navigation_state(projection_state)
-                self.shell._restore_presentation_state(shell_state)
+            except BaseException as primary_error:
+                primary_traceback = primary_error.__traceback__
+                rollback_failed = False
+                try:
+                    projection._restore_native_navigation_state(projection_state)
+                except BaseException:
+                    rollback_failed = True
+                try:
+                    self.shell._restore_presentation_state(shell_state)
+                except BaseException:
+                    rollback_failed = True
                 self._focus = prior_focus
-                raise
+                if rollback_failed:
+                    raise RuntimeError("Library navigation rollback failed") from primary_error
+                raise primary_error.with_traceback(primary_traceback)
             self._focus = route_focus
             return result
         if (
