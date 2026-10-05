@@ -6,6 +6,10 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
+from acs.chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
@@ -681,6 +685,126 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.import_running)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_chessbase_worker_rejects_derived_report_before_field_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActiveReport(ChessBaseLibraryImportReport):
+            def __getattribute__(self, name: str):
+                if name in {
+                    "status",
+                    "decoded_game_count",
+                    "warnings",
+                    "library_result",
+                }:
+                    touched.append(name)
+                    raise AssertionError("derived ChessBase report hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveReport.__new__(ActiveReport)
+        object.__setattr__(
+            hostile,
+            "status",
+            ChessBaseLibraryImportStatus.IMPORTED,
+        )
+        object.__setattr__(hostile, "source_name", "private-source.cbh")
+        object.__setattr__(hostile, "source_sha256", "a" * 64)
+        object.__setattr__(hostile, "backend_name", "test-backend")
+        object.__setattr__(hostile, "backend_commit", "b" * 40)
+        object.__setattr__(hostile, "decoded_game_count", 1)
+        object.__setattr__(hostile, "warnings", ())
+        object.__setattr__(
+            hostile,
+            "library_result",
+            LibraryImportResult(1, 1, 1, 0, 1, 1),
+        )
+        object.__setattr__(hostile, "source_format", "cbh")
+        object.__setattr__(hostile, "archive_backend_name", None)
+        object.__setattr__(hostile, "archive_backend_sha256", None)
+
+        class ChessBaseService:
+            def import_database(self, *_args, **_kwargs):
+                return hostile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "private-active-report.cbh"
+            source.write_bytes(b"fixture placeholder")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), ChessBaseService(), lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "library-import-file",
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "chessbase_import_failed")
+            self.assertNotIn(str(source), repr(events[-1]))
+
+    def test_chessbase_worker_revalidates_mutated_result_without_numeric_coercion(self) -> None:
+        touched: list[str] = []
+
+        class ActiveInt(int):
+            def __int__(self):
+                touched.append("int")
+                raise AssertionError("worker numeric coercion executed")
+
+            def __index__(self):
+                touched.append("index")
+                raise AssertionError("worker index coercion executed")
+
+        result = LibraryImportResult(1, 1, 1, 0, 1, 1)
+        report = ChessBaseLibraryImportReport(
+            status=ChessBaseLibraryImportStatus.IMPORTED,
+            source_name="private-source.cbh",
+            source_sha256="a" * 64,
+            backend_name="test-backend",
+            backend_commit="b" * 40,
+            decoded_game_count=1,
+            warnings=(),
+            library_result=result,
+        )
+        object.__setattr__(result, "game_count", ActiveInt(1))
+
+        class ChessBaseService:
+            def import_database(self, *_args, **_kwargs):
+                return report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "private-mutated-result.cbh"
+            source.write_bytes(b"fixture placeholder")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), ChessBaseService(), lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "library-import-file",
+            )
+
+            delegate("library.import", {})
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "chessbase_import_failed")
+            self.assertNotIn(str(source), repr(events[-1]))
 
     def test_worker_services_constructor_rejects_derived_dto_before_field_hooks(self) -> None:
         touched = []
