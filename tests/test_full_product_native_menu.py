@@ -238,6 +238,27 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
         self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
 
+    def test_books_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        cancel_item = next(
+            item for item in books_menu.items
+            if item.action_id == "book.cancel_open"
+        )
+        self.assertEqual("Cancel book opening", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("book.cancel_open", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_cancel = next(item for item in ua_books.items if item.action_id == "book.cancel_open")
+        self.assertEqual("Скасувати відкриття книги", ua_cancel.label)
+
     def test_shipping_version2_menu_inherits_reverse_book_navigation(self) -> None:
         registry = build_version2_action_registry()
         menus = build_version2_menu_spec(registry, language=UILanguage.EN)
