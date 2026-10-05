@@ -712,6 +712,8 @@ class PgnDocumentSession:
         self._document_revision = document_revision + 1
 
     def save(self) -> SourceFingerprint:
+        if type(self._source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety flag is invalid")
         if self._source is None:
             raise _error("document has no source; use Save As", PgnDocumentErrorCode.NO_SOURCE)
         if not self._source_overwrite_safe:
@@ -757,6 +759,8 @@ class PgnDocumentSession:
         overwrite: bool = False,
         expected_sha256: str | None = None,
     ) -> SourceFingerprint:
+        if type(self._source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety flag is invalid")
         destination = Path(path)
         expected = self._destination_expectation(
             destination,
