@@ -249,11 +249,15 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
 
 
 def _require_session(session: object) -> PgnDocumentSession:
-    # This is an authority boundary.  Executable subclasses must not be able to
-    # redefine workspace/source access while a supposedly detached snapshot is
-    # being created or committed.
+    # This is an authority boundary. Executable subclasses must not be able to
+    # redefine session or workspace behavior while a supposedly detached
+    # snapshot is being created or committed. Current Product still permits a
+    # PgnWorkspace subclass at the document constructor, so enforce the exact
+    # canonical workspace here as well until/after that ingress is converged.
     if type(session) is not PgnDocumentSession:
         raise TypeError("PGN save snapshot requires an exact PgnDocumentSession")
+    if type(session.workspace) is not PgnWorkspace:
+        raise TypeError("PGN save snapshot requires an exact PgnWorkspace")
     return session
 
 
