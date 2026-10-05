@@ -161,6 +161,37 @@ class PgnConversionTests(unittest.TestCase):
         self.assertFalse(self.destination.exists())
         self.assertEqual(list(self.root.glob("*.tmp")), [])
 
+    def test_cancellation_after_fsync_still_prevents_publication(self):
+        self.write()
+        plan = preview_conversion(self.source)
+        from acs.pgn_service import save_pgn_atomic as real_save
+        cancelled = False
+
+        def cancel_at_pre_publish(*args, **kwargs):
+            original_check = kwargs.get("pre_publish_check")
+            self.assertIsNotNone(original_check)
+
+            def force_cancel_now():
+                nonlocal cancelled
+                cancelled = True
+                original_check()
+
+            kwargs["pre_publish_check"] = force_cancel_now
+            return real_save(*args, **kwargs)
+
+        with patch("acs.pgn_conversion.save_pgn_atomic", side_effect=cancel_at_pre_publish):
+            with self.assertRaises(PgnConversionError) as raised:
+                convert_pgn(
+                    self.source,
+                    self.destination,
+                    reviewed_plan=plan,
+                    cancel_check=lambda: cancelled,
+                )
+
+        self.assertEqual(raised.exception.code, "cancelled")
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(self.root.glob("*.tmp")), [])
+
     def test_review_digest_cannot_be_changed(self):
         self.write()
         plan = preview_conversion(self.source)
@@ -199,6 +230,19 @@ class PgnConversionTests(unittest.TestCase):
         saved = run_conversion_job(self.source, "utf-16", self.destination, plan, lambda: False)
         self.assertEqual(saved.sha256, plan.output_sha256)
 
+    def test_cli_plain_preview_exposes_both_publication_digests(self):
+        original = self.write(codec="cp1251")
+        plan = preview_conversion(self.source)
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.assertEqual(main([str(self.source)]), 0)
+
+        review = output.getvalue()
+        self.assertIn("SHA-256 джерела: " + hashlib.sha256(original).hexdigest(), review)
+        self.assertIn("SHA-256 UTF-8 результату: " + plan.output_sha256, review)
+        self.assertNotIn(str(self.root), review)
+
     def test_cli_preview_review_bound_write_and_stale_digest(self):
         original = self.write(codec="cp1251")
         output = io.StringIO()
@@ -207,9 +251,57 @@ class PgnConversionTests(unittest.TestCase):
         report = json.loads(output.getvalue())
         self.assertEqual(report["source_sha256"], hashlib.sha256(original).hexdigest())
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(main([str(self.source), "--json", "--output", str(self.destination), "--expect-sha256", report["source_sha256"]]), 0)
-            self.assertEqual(main([str(self.source), "--output", str(self.root / "stale.pgn"), "--expect-sha256", "0" * 64]), 1)
+            self.assertEqual(
+                main([
+                    str(self.source),
+                    "--json",
+                    "--output",
+                    str(self.destination),
+                    "--expect-sha256",
+                    report["source_sha256"],
+                    "--expect-output-sha256",
+                    report["output_sha256"],
+                ]),
+                0,
+            )
+            self.assertEqual(
+                main([
+                    str(self.source),
+                    "--output",
+                    str(self.root / "stale.pgn"),
+                    "--expect-sha256",
+                    "0" * 64,
+                    "--expect-output-sha256",
+                    report["output_sha256"],
+                ]),
+                1,
+            )
         self.assertFalse((self.root / "stale.pgn").exists())
+
+    def test_cli_publication_is_bound_to_reviewed_decoding_result(self):
+        self.source.write_bytes(b'[Event "\xc9"]\n[Result "*"]\n\n1. e4 *\n')
+        reviewed = preview_conversion(self.source, encoding="windows-1251")
+        self.assertIn("Й", reviewed.first_game_preview)
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = main([
+                str(self.source),
+                "--encoding",
+                "windows-1252",
+                "--json",
+                "--output",
+                str(self.destination),
+                "--expect-sha256",
+                reviewed.source.sha256,
+                "--expect-output-sha256",
+                reviewed.output_sha256,
+            ])
+
+        self.assertEqual(result, 1)
+        error = json.loads(output.getvalue())
+        self.assertEqual(error["error_code"], "review_changed")
+        self.assertFalse(self.destination.exists())
 
     def test_converted_collection_reopens_in_book_and_library(self):
         self.write(codec="cp1251")

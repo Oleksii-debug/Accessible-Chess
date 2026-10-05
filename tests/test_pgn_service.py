@@ -171,6 +171,40 @@ class PgnFileServiceTests(unittest.TestCase):
                     save_pgn_atomic(path, games, overwrite=False)
             self.assertIn("Created by another writer", path.read_text(encoding="utf-8"))
 
+    def test_pre_publish_check_aborts_after_fsync_without_publication(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cancel-before-publish.pgn"
+            observed_sizes = []
+
+            def abort_after_fsync():
+                temps = list(Path(tmp).glob("*.tmp"))
+                self.assertEqual(len(temps), 1)
+                observed_sizes.append(temps[0].stat().st_size)
+                self.assertGreater(observed_sizes[-1], 0)
+                self.assertFalse(path.exists())
+                raise RuntimeError("cancel before publication")
+
+            with self.assertRaisesRegex(RuntimeError, "cancel before publication"):
+                save_pgn_atomic(
+                    path,
+                    games,
+                    pre_publish_check=abort_after_fsync,
+                )
+
+            self.assertTrue(observed_sizes)
+            self.assertFalse(path.exists())
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
+    def test_invalid_pre_publish_check_fails_before_filesystem_mutation(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp) / "not-created"
+            path = parent / "out.pgn"
+            with self.assertRaisesRegex(TypeError, "pre_publish_check must be callable"):
+                save_pgn_atomic(path, games, pre_publish_check=object())
+            self.assertFalse(parent.exists())
+
     def test_importer_reports_warning_and_blank_damage(self):
         with tempfile.TemporaryDirectory() as tmp:
             warning = Path(tmp) / "warning.pgn"
