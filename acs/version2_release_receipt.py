@@ -178,7 +178,7 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
 def read_version2_release_receipt(
     receipt_path: str | Path,
 ) -> Version2ReleaseReceipt:
-    """Read one bounded strict receipt without accepting duplicate/extra keys."""
+    """Read one bounded, byte-canonical receipt with a strict JSON schema."""
 
     path = Path(receipt_path)
     try:
@@ -211,7 +211,12 @@ def read_version2_release_receipt(
         raise
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise Version2ReleaseReceiptError("release receipt is not valid JSON") from exc
-    return _receipt_from_mapping(payload)
+    receipt = _receipt_from_mapping(payload)
+    if raw != receipt.to_json().encode("utf-8"):
+        raise Version2ReleaseReceiptError(
+            "release receipt bytes are not in canonical serialization"
+        )
+    return receipt
 
 
 def build_version2_release_receipt(
