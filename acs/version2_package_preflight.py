@@ -138,6 +138,21 @@ _PROVENANCE_PLACEHOLDERS = frozenset({"unknown", "unlicensed", "tbd", "todo", "n
 _REQUIRED_STOCKFISH_SOURCE = "THIRD_PARTY_NOTICES/Stockfish-18-source.zip"
 _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 _REQUIRED_WINFORMS_APPCONFIG = "AccessibleChess/AccessibleChess.exe.config"
+# Minimal desktop startup closure for the pinned Windows standalone stack.
+# These files are all present in the successful W5 one-click artifact and are
+# loaded before/while pythonnet + pywebview create the first accessible window.
+_REQUIRED_DESKTOP_RUNTIME_FILES = (
+    "AccessibleChess/python312.dll",
+    "AccessibleChess/_cffi_backend.pyd",
+    "AccessibleChess/libffi-8.dll",
+    "AccessibleChess/vcruntime140.dll",
+    "AccessibleChess/vcruntime140_1.dll",
+    "AccessibleChess/pythonnet/runtime/Python.Runtime.dll",
+    "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
+    "AccessibleChess/webview/lib/Microsoft.Web.WebView2.Core.dll",
+    "AccessibleChess/webview/lib/Microsoft.Web.WebView2.WinForms.dll",
+    "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll",
+)
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -1168,6 +1183,20 @@ def _validate_required_runtime_resources(
         label="WinForms accessibility app-config",
     )
     validate_winforms_accessibility_app_config(app_config)
+
+    for relative in _REQUIRED_DESKTOP_RUNTIME_FILES:
+        runtime_binary = _require_package_file(
+            root,
+            inventory,
+            relative,
+            label=f"packaged desktop runtime {relative}",
+            min_bytes=64,
+        )
+        _validate_windows_pe_executable(
+            runtime_binary,
+            label=f"packaged desktop runtime {relative}",
+        )
+
     for relative in _REQUIRED_WEB_FILES:
         _require_package_file(
             root,
