@@ -121,6 +121,11 @@ def parse_san(san: str) -> ParsedSan:
         if promotion is None and promotion_rank:
             raise NotationError(f"pawn promotion piece is required: {san!r}")
     else:
+        # A legal chess position has exactly one king of each colour, so SAN
+        # never needs file/rank/source-square disambiguation for a king.  This
+        # is a notation-grammar invariant, not a move-legality decision.
+        if piece == "K" and disamb:
+            raise NotationError(f"king SAN cannot be disambiguated: {san!r}")
         if promotion is not None:
             raise NotationError(f"only pawns can promote in SAN: {san!r}")
         if len(disamb) == 2 and not (
@@ -210,6 +215,8 @@ def format_accessible_compact_san(san: str, lang: str = "uk") -> str:
     English profiles remain available through :func:`format_san`.
     """
 
+    if type(lang) is not str:
+        raise NotationError("compact SAN language must be text")
     language = "en" if lang == "en" else "uk"
     token = format_san(san, "san")
 
