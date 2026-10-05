@@ -114,6 +114,11 @@ class Version2WindowsFileWorkflowRuntime:
         self._ui_thread_id = threading.get_ident()
         self._lock = threading.RLock()
         self._closed = False
+        # Native file dialogs pump the owner message loop. Reserve the exact
+        # Library operation during modal pre-worker setup so a re-entrant
+        # Import/Export command cannot slip past the counterpart busy check
+        # before either delegate has published its worker-running state.
+        self._library_modal_operation = ""
 
         self._mailbox = Version2ImportUiEventMailbox(max_events=mailbox_max_events)
         self._poster = Version2WinFormsUiPoster(
@@ -242,15 +247,23 @@ class Version2WindowsFileWorkflowRuntime:
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow actions require UI thread")
+
+        library_start = action_id in {"library.import", "library.export"}
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+            modal_operation = self._library_modal_operation
+            if library_start and modal_operation:
+                if modal_operation == "library.import":
+                    raise RuntimeError("Library import is already active")
+                raise RuntimeError("Library export is already active")
 
         # Import and export share the Library database and the single
         # "Cancel library operation" command. Keep that user contract
         # unambiguous: a second long-running Library operation is rejected on
         # the owner thread before it can open another native dialog or start a
-        # worker.
+        # worker. The modal reservation closes the earlier pre-worker window in
+        # which a WinForms dialog could pump a nested counterpart command.
         if action_id == "library.export" and self.import_running:
             raise RuntimeError("Library import is already active")
         if action_id == "library.import" and self.export_running:
@@ -259,6 +272,30 @@ class Version2WindowsFileWorkflowRuntime:
             if payload is not None and not (type(payload) is dict and not payload):
                 raise ValueError("Library cancellation accepts no payload")
             return self._library_export_delegate.cancel_export()
+
+        if library_start:
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+                if self._library_modal_operation:
+                    if self._library_modal_operation == "library.import":
+                        raise RuntimeError("Library import is already active")
+                    raise RuntimeError("Library export is already active")
+                # Re-check the counterpart after acquiring the reservation lock.
+                # All starts are UI-thread affine, so this reservation remains
+                # authoritative until the delegate returns from its native dialog.
+                if action_id == "library.export" and self.import_running:
+                    raise RuntimeError("Library import is already active")
+                if action_id == "library.import" and self.export_running:
+                    raise RuntimeError("Library export is already active")
+                self._library_modal_operation = action_id
+            try:
+                return self._file_delegate(action_id, payload)
+            finally:
+                with self._lock:
+                    if self._library_modal_operation == action_id:
+                        self._library_modal_operation = ""
+
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:

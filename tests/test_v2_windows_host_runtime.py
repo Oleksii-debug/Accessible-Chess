@@ -230,6 +230,80 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(fallback_calls, [])
         self.assertTrue(runtime.shutdown())
 
+    def test_export_save_dialog_rejects_reentrant_import_before_open_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "outer-export.pgn"
+            source = Path(directory) / "nested-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            nested_errors: list[BaseException] = []
+            original_show = _SaveDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                try:
+                    runtime("library.import", {})
+                except BaseException as exc:
+                    nested_errors.append(exc)
+                return original_show(dialog, dialog_owner)
+
+            try:
+                with patch.object(_SaveDialog, "ShowDialog", new=reentrant_show):
+                    started = runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertEqual(len(nested_errors), 1)
+                self.assertIsInstance(nested_errors[0], RuntimeError)
+                self.assertIn("export is already active", str(nested_errors[0]))
+                self.assertEqual(_OpenDialog.owners, [])
+                self.assertEqual(_SaveDialog.owners, [owner])
+                self.assertTrue(runtime.wait_for_export(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+    def test_import_open_dialog_rejects_reentrant_export_before_save_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "outer-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            destination = Path(directory) / "nested-export.pgn"
+            _OpenDialog.selected_paths.append(str(source))
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            nested_errors: list[BaseException] = []
+            original_show = _OpenDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                try:
+                    runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                except BaseException as exc:
+                    nested_errors.append(exc)
+                return original_show(dialog, dialog_owner)
+
+            try:
+                with patch.object(_OpenDialog, "ShowDialog", new=reentrant_show):
+                    started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertEqual(len(nested_errors), 1)
+                self.assertIsInstance(nested_errors[0], RuntimeError)
+                self.assertIn("import is already active", str(nested_errors[0]))
+                self.assertEqual(_SaveDialog.owners, [])
+                self.assertEqual(_OpenDialog.owners, [owner])
+                self.assertTrue(runtime.wait_for_import(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown())
+
     def test_import_running_rejects_export_before_save_dialog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "busy-import.pgn"
