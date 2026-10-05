@@ -37,7 +37,9 @@ class FakeElement {
   }
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   addEventListener(name, listener) { this.listeners[String(name)] = listener; }
-  focus() { document.activeElement = this; }
+  focus() {
+    if (!this.disabled) document.activeElement = this;
+  }
   contains(candidate) {
     if (candidate === this) return true;
     return this.children.some((child) => child.contains(candidate));
@@ -200,7 +202,7 @@ function snapshot(checked) {
           { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: true }
         ]
       },
-      focus_target: "",
+      focus_target: "library-import-cancel",
       announcement: ""
     }
   }, invoke, announce);
@@ -209,7 +211,13 @@ function snapshot(checked) {
     root.replaceChildrenCalls === beforePartialRenderCalls,
     "Library operation event triggered a full DOM repaint"
   );
-  check(document.activeElement === focusedBeforeBusy, "Library operation event moved existing focus");
+  const cancelDuringExport = root.querySelector("#library-import-cancel");
+  check(cancelDuringExport !== null, "Library export cancel control is missing");
+  check(!cancelDuringExport.disabled, "Library export cancel control is disabled");
+  check(
+    document.activeElement === cancelDuringExport,
+    "Library export start did not move focus to the keyboard-reachable Cancel control"
+  );
   check(actionButton("library.export_selected").disabled, "busy export action stayed enabled");
   check(actionButton("library.export_filtered").disabled, "busy filtered export action stayed enabled");
   check(actionButton("library.clear_export_selection").disabled, "busy clear action stayed enabled");
@@ -236,7 +244,10 @@ function snapshot(checked) {
     }
   }, invoke, announce);
 
-  check(document.activeElement === focusedBeforeBusy, "Library terminal operation event moved existing focus");
+  check(
+    document.activeElement !== focusedBeforeBusy,
+    "partial terminal projection restored the pre-dialog export control too early"
+  );
   check(!actionButton("library.export_selected").disabled, "selected export action was not restored");
   check(!actionButton("library.export_filtered").disabled, "filtered export action was not restored");
   check(!actionButton("library.clear_export_selection").disabled, "clear export action was not restored");
