@@ -183,6 +183,7 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
     content_chars = 0
     warning_chars = 0
     lexical_items = 0
+    serialized_header_chars = 0
 
     def charge_text(
         value: object,
@@ -221,6 +222,11 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
                 "canonical provider game exceeds the PGN lexical resource limit"
             )
 
+    def escaped_tag_value_chars(value: str) -> int:
+        # gametree._escape_tag doubles only backslashes and quotes. Count that
+        # exact serialized expansion without materializing another large string.
+        return len(value) + value.count("\\") + value.count('"')
+
     if type(game.tags) is not dict:
         raise TypeError("game tags must use the built-in dictionary")
     if len(game.tags) > MAX_PGN_TAGS_PER_GAME:
@@ -231,12 +237,14 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
         # D06 counts one complete tag-pair as one lexical unit and bounds the
         # full decoded source plus tag value, but it does not impose the movetext
         # token-size ceiling on a tag name. Preserve that canonical compatibility.
-        charge_text(key, field="game tag name", limit=MAX_PGN_TEXT_CHARS)
-        charge_text(
+        key = charge_text(key, field="game tag name", limit=MAX_PGN_TEXT_CHARS)
+        value = charge_text(
             value,
             field="game tag value",
             limit=MAX_PGN_TAG_VALUE_CHARS,
         )
+        # `[Key "Value"]\n` = key + escaped value + six framing characters.
+        serialized_header_chars += len(key) + escaped_tag_value_chars(value) + 6
         if key == "Result":
             has_result_tag = True
     if not has_result_tag:
@@ -275,13 +283,13 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
         if count > MAX_TREE_NODES:
             raise ValueError("canonical GameTree exceeds the node safety limit")
 
-    def check_comment(comment: object) -> None:
+    def check_comment(comment: object) -> int:
         if type(comment) is not Comment:
             raise TypeError("canonical comments must use exact Comment values")
         # Comment identity is not part of GameTree graph topology. The canonical
         # serializer permits one passive Comment value to be referenced from
         # multiple lists, and detachment will materialize independent copies.
-        charge_text(
+        text = charge_text(
             comment.text,
             field="canonical comment text",
             limit=MAX_PGN_COMMENT_CHARS,
@@ -294,15 +302,18 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
             )
         elif type(comment.style) is not CommentStyle:
             raise TypeError("canonical comment style must be passive scalar data")
+        # Both canonical comment spellings add two characters: `{...}` or
+        # `;...\n`. Semantic style validity remains serialize_game() authority.
+        return len(text) + 2
 
-    def check_comments(value: object) -> None:
+    def check_comments(value: object, *, add_part) -> None:
         if type(value) is not list:
             raise TypeError("canonical comment containers must be built-in lists")
         claim_lexical_items(len(value), field="canonical comments")
         for comment in value:
-            check_comment(comment)
+            add_part(check_comment(comment))
 
-    def check_line(line: object, *, depth: int) -> None:
+    def check_line(line: object, *, depth: int) -> int:
         if type(line) is not VariationLine:
             raise TypeError(
                 "canonical variation lines must use exact VariationLine values"
@@ -316,51 +327,64 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
             raise ValueError("canonical GameTree contains a variation cycle")
         claim(line)
         active_lines.add(line_id)
+        serialized_chars = 0
+        serialized_parts = 0
+
+        def add_part(length: int) -> None:
+            nonlocal serialized_chars, serialized_parts
+            if type(length) is not int or length < 0:
+                raise TypeError("canonical serialized part length is invalid")
+            if length == 0:
+                return
+            if serialized_parts:
+                serialized_chars += 1  # `_serialize_line` joins parts with one space.
+            serialized_chars += length
+            serialized_parts += 1
+            if serialized_chars > MAX_PGN_TEXT_CHARS:
+                raise ValueError(
+                    "canonical provider game exceeds the PGN text resource limit"
+                )
+
         try:
             if type(line.moves) is not list:
                 raise TypeError("canonical move containers must be built-in lists")
             if len(line.moves) > MAX_TREE_NODES:
                 raise ValueError("canonical move container exceeds the node safety limit")
-            check_comments(line.leading_comments)
-            check_comments(line.trailing_comments)
-            if line.result is not None:
-                charge_text(
-                    line.result,
-                    field="canonical variation result",
-                    limit=MAX_PGN_TOKEN_CHARS,
-                )
-                claim_lexical_items(1, field="canonical variation result")
+            check_comments(line.leading_comments, add_part=add_part)
 
             for move in line.moves:
                 if type(move) is not MoveNode:
                     raise TypeError("canonical moves must use exact MoveNode values")
                 claim(move)
-                charge_text(
-                    move.san,
-                    field="canonical SAN",
-                    limit=MAX_PGN_TOKEN_CHARS,
-                )
-                claim_lexical_items(1, field="canonical SAN")
                 if move.move_number is not None:
-                    charge_text(
+                    move_number = charge_text(
                         move.move_number,
                         field="canonical move number",
                         limit=MAX_PGN_TOKEN_CHARS,
                     )
                     claim_lexical_items(1, field="canonical move number")
+                    add_part(len(move_number))
+                check_comments(move.comments_before, add_part=add_part)
+                san = charge_text(
+                    move.san,
+                    field="canonical SAN",
+                    limit=MAX_PGN_TOKEN_CHARS,
+                )
+                claim_lexical_items(1, field="canonical SAN")
+                add_part(len(san))
                 if type(move.nags) is not list:
                     raise TypeError(
                         "canonical NAGs must be a built-in list of exact text"
                     )
                 claim_lexical_items(len(move.nags), field="canonical NAGs")
                 for nag in move.nags:
-                    charge_text(
+                    nag = charge_text(
                         nag,
                         field="canonical NAG",
                         limit=MAX_PGN_TOKEN_CHARS,
                     )
-                check_comments(move.comments_before)
-                check_comments(move.comments_after)
+                    add_part(len(nag))
+                check_comments(move.comments_after, add_part=add_part)
                 if type(move.variations) is not list:
                     raise TypeError(
                         "canonical variation containers must be built-in lists"
@@ -376,11 +400,40 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
                     field="canonical variation delimiters",
                 )
                 for variation in move.variations:
-                    check_line(variation, depth=depth + 1)
+                    add_part(check_line(variation, depth=depth + 1) + 2)
+
+            if line.result is not None:
+                result = charge_text(
+                    line.result,
+                    field="canonical variation result",
+                    limit=MAX_PGN_TOKEN_CHARS,
+                )
+                claim_lexical_items(1, field="canonical variation result")
+                add_part(len(result))
+            check_comments(line.trailing_comments, add_part=add_part)
+            return serialized_chars
         finally:
             active_lines.remove(line_id)
 
-    check_line(game.line, depth=0)
+    serialized_movetext_chars = check_line(game.line, depth=0)
+    if not has_result_tag:
+        # PgnGame.result uses line.result when truthy and otherwise `*` because
+        # there is no provider Result tag. Exact line text has already been
+        # validated above, so this is passive scalar selection, not chess logic.
+        effective_result = game.line.result or "*"
+        serialized_header_chars += (
+            len("Result") + escaped_tag_value_chars(effective_result) + 6
+        )
+
+    # Header rows already include their trailing newlines. serialize_game adds
+    # one extra blank-line newline, strips only boundary whitespace from the
+    # movetext, then adds the final newline. Not subtracting a possible stripped
+    # semicolon-comment newline is a safe one-character upper bound.
+    serialized_total_chars = serialized_header_chars + 1 + serialized_movetext_chars + 1
+    if serialized_total_chars > MAX_PGN_TEXT_CHARS:
+        raise ValueError(
+            "canonical provider serialization exceeds the PGN text resource limit"
+        )
 
 
 def _detached_comment(comment: Comment) -> Comment:

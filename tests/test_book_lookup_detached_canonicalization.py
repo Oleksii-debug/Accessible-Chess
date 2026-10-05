@@ -286,6 +286,38 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
             BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
 
+    def test_provider_text_budget_counts_serialized_pgn_framing(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(moves=[MoveNode("e4")]),
+        )
+        # Raw provider scalars contain only two characters, but serialize_game
+        # must also emit the synthetic Result header, blank line and final newline.
+        with patch.object(book_game_content, "MAX_PGN_TEXT_CHARS", 2):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=41), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_text_budget_counts_tag_escape_expansion(self) -> None:
+        source = PgnGame(
+            tags={"Event": '"', "Result": "*"},
+            line=VariationLine(),
+        )
+        # The raw key/value payload is 13 characters. The canonical header must
+        # additionally escape the quote and include PGN framing/newlines.
+        with patch.object(book_game_content, "MAX_PGN_TEXT_CHARS", 13):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=42), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
     def test_exact_graph_is_detached_and_preserves_provider_metadata(self) -> None:
         source = parse_games(PGN)[0]
         source.source_index = 7
