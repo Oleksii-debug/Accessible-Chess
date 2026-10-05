@@ -209,6 +209,62 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
             BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
 
+    def test_provider_lexical_budget_counts_serializer_emitted_move_tokens(self) -> None:
+        source = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        # D06 sees four lexical units: Result tag, move number, SAN and result.
+        with patch.object(book_game_content, "MAX_PGN_LEXICAL_TOKENS", 3):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=38), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_lexical_budget_counts_synthesized_result_tag(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(moves=[MoveNode("e4")], result=None),
+        )
+        # serialize_game injects [Result "*"] even when the provider omitted it.
+        # The synthetic header plus SAN therefore exceed a one-token D06 budget.
+        with patch.object(book_game_content, "MAX_PGN_LEXICAL_TOKENS", 1):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=39), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_lexical_budget_counts_variation_parentheses(self) -> None:
+        source = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        variations=[VariationLine(moves=[MoveNode("e5")])],
+                    )
+                ]
+            ),
+        )
+        # Result tag + root SAN + '(' + child SAN + ')' = five D06 tokens.
+        with patch.object(book_game_content, "MAX_PGN_LEXICAL_TOKENS", 4):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=40), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
     def test_provider_content_text_has_one_aggregate_d06_budget(self) -> None:
         source = PgnGame(
             tags={},
@@ -253,6 +309,7 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
         self.assertEqual(resolved.game.line.moves[0].san, "e4")
         self.assertEqual(resolved.game.warnings, ["recovered source warning"])
         self.assertIn("e4", serialize_game(resolved.game))
+
     def test_shared_exact_comment_identity_remains_valid_and_detaches(self) -> None:
         source = parse_games(PGN)[0]
         shared = Comment("shared annotation")
