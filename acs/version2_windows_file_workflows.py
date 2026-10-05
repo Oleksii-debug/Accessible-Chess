@@ -924,7 +924,7 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 "pgn.save", "pgn_save_failed", focus_target=previous_focus
             )
-        except Exception:
+        except BaseException:
             return self._failed(
                 "pgn.save", "pgn_save_failed", focus_target=previous_focus
             )
@@ -1097,7 +1097,7 @@ class Version2WindowsFileActionDelegate:
                 current,
                 mode=PgnSaveMode.SAVE_AS,
             )
-        except Exception:
+        except BaseException:
             return self._failed(
                 "pgn.save_as",
                 "pgn_save_as_failed",
