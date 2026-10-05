@@ -44,7 +44,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
             "PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75",
-            "PINNED_PRODUCT_SHA: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1",
+            "PINNED_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
             'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
             'test "$live_shipping" = "$PINNED_SHIPPING_SHA"',
             'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
@@ -61,8 +61,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" HEAD',
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
-            'test "$product_count" -eq 216',
-            'test "$candidate_count" -eq 227',
+            'test "$product_count" -eq 217',
+            'test "$candidate_count" -eq 228',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
@@ -116,14 +116,14 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_manifest_source_gate_retains_two_legacy_modes_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1",
+            "CURRENT_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=FOCUSED_SOURCE",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 216',
+            'test "$product_count" -eq 217',
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 227',
+            'test "$candidate_count" -eq 228',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -131,15 +131,15 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_inherited_package_gate_retains_legacy_mode_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1",
+            "CURRENT_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 216',
+            'test "$product_count" -eq 217',
             "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 227',
+            'test "$candidate_count" -eq 228',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -149,7 +149,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "SHIPPING_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
-            "SHIPPING_PRODUCT_SHA: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1",
+            "SHIPPING_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
             'test "$live_shipping_product" = "$SHIPPING_PRODUCT_SHA"',
@@ -202,6 +202,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "tests.test_book_lookup_detached_canonicalization",
             "tests.test_v2_book_game_content",
             "tests.test_notation",
+            "acs/full_product_presenters.py",
+            "acs/pgn_webview_projection.py",
             "tests.test_pgn_presenter_graph_safety_current",
             "tests.test_d06_v2_gametree_resume_discard_guard",
             "tests.test_portable_launcher_contract",
