@@ -6,7 +6,9 @@ on:
       - work/media-application-restore-position-20261005-sol56
     paths:
       - acs/media_accessibility.py
+      - web/media_accessible_restore.js
       - tests/test_media_accessibility.py
+      - tests/js/media_accessible_restore_dom_test.js
       - .github/workflows/media-accessible-restore-presentation.yml
   push:
     branches:
@@ -58,7 +60,9 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/media-accessible-restore-presentation.yml' \
             'acs/media_accessibility.py' \
-            'tests/test_media_accessibility.py' | LC_ALL=C sort)"
+            'tests/js/media_accessible_restore_dom_test.js' \
+            'tests/test_media_accessibility.py' \
+            'web/media_accessible_restore.js' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'UNEXPECTED_MEDIA_ACCESSIBILITY_SCOPE\n%s\n' "$changed" >&2
             exit 1
@@ -83,3 +87,6 @@ jobs:
           python -m unittest -v
           tests.test_media_application
           tests.test_media_accessibility
+
+      - name: Run keyboard and screen-reader DOM contract
+        run: node tests/js/media_accessible_restore_dom_test.js
