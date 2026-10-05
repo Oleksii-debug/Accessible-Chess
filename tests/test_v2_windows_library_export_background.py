@@ -587,6 +587,34 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_export_rejects_active_database_row_before_mapping_hooks(self) -> None:
+        touched: list[str] = []
+
+        class HostileRow(dict):
+            def get(self, *_args, **_kwargs):
+                touched.append("get")
+                raise AssertionError("rejected database row hook executed")
+
+        class RowDatabase(AcsDatabase):
+            def get_game(self, game_id):
+                return HostileRow({"pgn_text": _PGN})
+
+        database = RowDatabase()
+        try:
+            service = LibraryExportService(database)
+            request = LibraryExportRequest.selected([1])
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "active-row.pgn"
+                with self.assertRaisesRegex(
+                    LibraryExportError,
+                    "game record is invalid",
+                ):
+                    service.export_to(destination, request)
+                self.assertFalse(destination.exists())
+                self.assertEqual(touched, [])
+        finally:
+            database.close()
+
     def test_export_request_rejects_provider_containers_without_running_hooks(self) -> None:
         touched: list[str] = []
 
