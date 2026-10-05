@@ -77,8 +77,19 @@ class FullProductWebViewAdapter:
             parsed = UILanguage(language.strip().lower())
         except (AttributeError, ValueError):
             raise ValueError("unsupported UI language") from None
-        self._shell.set_language(parsed)
-        return WebViewCommand("render", self.snapshot())
+
+        previous_language = self._shell.language
+        try:
+            self._shell.set_language(parsed)
+            snapshot = self.snapshot()
+        except Exception:
+            # The shell is the application-wide locale authority. A failed
+            # semantic/navigation snapshot must not commit a language that the
+            # WebView never rendered, otherwise subsequent NVDA errors and route
+            # labels can disagree with the still-visible document.
+            self._shell.set_language(previous_language)
+            raise
+        return WebViewCommand("render", snapshot)
 
     def record_focus(self, element_id: str) -> WebViewCommand:
         self._shell.record_focus(element_id)
