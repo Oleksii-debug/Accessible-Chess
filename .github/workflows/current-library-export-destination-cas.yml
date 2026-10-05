@@ -15,7 +15,9 @@ on:
       - 'acs/version2_windows_library_export.py'
       - 'tests/test_v2_windows_library_export_background.py'
       - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/js/library_export_surface_dom_test.js'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'web/full_product_library.js'
       - 'web/version2_release_bootstrap.js'
       - '.github/workflows/current-library-export-destination-cas.yml'
   workflow_dispatch:
@@ -95,7 +97,9 @@ jobs:
             'acs/version2_windows_library_export.py' \
             'tests/test_v2_windows_library_export_background.py' \
             'tests/test_v2_windows_host_runtime.py' \
+            'tests/js/library_export_surface_dom_test.js' \
             'tests/js/version2_release_bootstrap_dom_test.js' \
+            'web/full_product_library.js' \
             'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Library export background/CAS scope:\n%s\n' "$changed" >&2
