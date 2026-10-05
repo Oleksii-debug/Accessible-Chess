@@ -246,6 +246,15 @@ class Version2WindowsFileWorkflowRuntime:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
 
+        # Import and export share the Library database and the single
+        # "Cancel library operation" command. Keep that user contract
+        # unambiguous: a second long-running Library operation is rejected on
+        # the owner thread before it can open another native dialog or start a
+        # worker.
+        if action_id == "library.export" and self.import_running:
+            raise RuntimeError("Library import is already active")
+        if action_id == "library.import" and self.export_running:
+            raise RuntimeError("Library export is already active")
         if action_id == "library.cancel_import" and self.export_running:
             if payload:
                 raise ValueError("Library cancellation accepts no payload")
