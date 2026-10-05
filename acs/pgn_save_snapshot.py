@@ -326,44 +326,57 @@ def capture_pgn_save_snapshot(
         raise TypeError("PGN save mode is invalid")
 
     source = _detached_source_fingerprint(current.source, allow_none=True)
-    view = current.view()
+    workspace = current.workspace
+    document_revision = current.document_revision
+    workspace_revision = workspace.content_revision
+    source_overwrite_safe = current._source_overwrite_safe
+    saved_digest = current._saved_digest
+    if type(source_overwrite_safe) is not bool:
+        raise TypeError("PGN save source safety flag is invalid")
+
     if mode is PgnSaveMode.SAVE:
         if source is None:
             raise PgnDocumentError(
                 "document has no source; use Save As",
                 code=PgnDocumentErrorCode.NO_SOURCE,
             )
-        if not view.source_overwrite_safe:
+        if not source_overwrite_safe:
             raise PgnDocumentError(
                 "source required recovery; use Save As to preserve the original",
                 code=PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
             )
 
-    before_digest = current.workspace.content_digest
-    games = current.workspace.games()
+    # The exact canonical workspace is already the content authority. Freeze its
+    # detached games once, then validate that detached graph canonically. Avoid
+    # materializing PgnDocumentView/PgnWorkspaceView or repeatedly serializing
+    # the live document merely to obtain presentation digests on the UI thread.
+    games = workspace.games()
     canonical_games, detached_digest = _canonical_detached_games(games)
-    after_digest = current.workspace.content_digest
-    if before_digest != after_digest or detached_digest != before_digest:
+    if (
+        current.workspace is not workspace
+        or current.document_revision != document_revision
+        or workspace.content_revision != workspace_revision
+    ):
         raise _stale("PGN content changed while the save snapshot was being captured")
 
     session_ref = ref(current)
     capture_binding = _PgnSaveSnapshotBinding(
         mode=mode,
-        document_revision=current.document_revision,
+        document_revision=document_revision,
         content_digest=detached_digest,
         source_before=_detached_source_fingerprint(source, allow_none=True),
-        source_overwrite_safe_before=view.source_overwrite_safe,
-        saved_digest_before=current._saved_digest,
+        source_overwrite_safe_before=source_overwrite_safe,
+        saved_digest_before=saved_digest,
         session_ref=session_ref,
     )
     return PgnSaveSnapshot(
         mode=mode,
-        document_revision=current.document_revision,
+        document_revision=document_revision,
         content_digest=detached_digest,
         games=canonical_games,
         source_before=source,
-        source_overwrite_safe_before=view.source_overwrite_safe,
-        _saved_digest_before=current._saved_digest,
+        source_overwrite_safe_before=source_overwrite_safe,
+        _saved_digest_before=saved_digest,
         _session_ref=session_ref,
         _capture_binding=capture_binding,
     )
