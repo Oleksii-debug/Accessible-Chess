@@ -480,6 +480,69 @@ function snapshot(checked) {
   refreshDeferred[1](null);
   await new Promise((resolve) => setImmediate(resolve));
 
+  // Partial operation publication replaces only Import/Cancel. Intent queued
+  // from an old operation button must not execute after that region changes
+  // enabled state, while a control from the fresh region remains usable.
+  const operationRoot = new FakeElement("div");
+  const operationCalls = [];
+  const operationDeferred = [];
+  const operationInvoke = (command, payload) => {
+    operationCalls.push([command, Object.assign({}, payload)]);
+    return new Promise((resolve) => operationDeferred.push(resolve));
+  };
+  window.AccessibleChessLibrarySurface.render(
+    operationRoot,
+    snapshot(false),
+    operationInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const operationCheckbox =
+    operationRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  const oldImportButton = operationRoot.querySelector("#library-import-file");
+  operationCheckbox.checked = true;
+  operationCheckbox.listeners.change({});
+  oldImportButton.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(operationCalls.length === 1,
+    "operation-region setup let queued Import enter before prior command settled");
+
+  window.AccessibleChessLibrarySurface.apply(operationRoot, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "idle", heading: "Import", description: "Import games",
+        processed_games: 0, total_games: 0, progress_label: "", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: true }
+        ]
+      },
+      focus_target: "library-import-cancel",
+      announcement: ""
+    }
+  }, operationInvoke, announce);
+  check(oldImportButton.parentNode === null,
+    "partial operation update did not detach the old Import region");
+  operationDeferred[0](null);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    operationCalls.length === 1,
+    "queued Import from detached operation region reached the canonical host"
+  );
+
+  const freshCancel = operationRoot.querySelector("#library-import-cancel");
+  freshCancel.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    operationCalls.length === 2 &&
+      operationCalls[1][0] === "library.cancel_import",
+    "fresh operation-region control was not usable after stale intent retired"
+  );
+  operationDeferred[1](null);
+  await new Promise((resolve) => setImmediate(resolve));
+
   // Key-repeat from the still-live selected option must not queue stale Open
   // Game intent while the authoritative first Enter remains unresolved.
   const keyRoot = new FakeElement("div");
