@@ -677,7 +677,7 @@ def _has_windows_clr_descriptor(path: Path) -> bool:
             optional_header[clr_directory_offset + 4:clr_directory_offset + 8],
             "little",
         )
-        if clr_rva == 0 or clr_size < 0x48:
+        if clr_rva == 0 or clr_size != 0x48:
             return False
 
         section_table_offset = pe_offset + 24 + optional_header_size
@@ -730,7 +730,7 @@ def _has_windows_clr_descriptor(path: Path) -> bool:
         metadata_size = int.from_bytes(clr_header[12:16], "little")
         if metadata_rva == 0 or metadata_size < 4:
             return False
-        metadata_offset = raw_offset_for(metadata_rva, 4)
+        metadata_offset = raw_offset_for(metadata_rva, metadata_size)
         if metadata_offset is None:
             return False
         handle.seek(metadata_offset)
@@ -742,6 +742,7 @@ def _validate_windows_pe_executable(
     *,
     label: str,
     expected_machine: int | None = None,
+    expected_optional_magic: int | None = None,
     require_clr: bool = False,
 ) -> None:
     """Require a bounded PE image plus requested CPU/managed-runtime identity."""
@@ -751,18 +752,36 @@ def _validate_windows_pe_executable(
         if expected_machine is not None:
             if type(expected_machine) is not int or not 0 < expected_machine <= 0xFFFF:
                 raise TypeError("expected_machine must be a positive 16-bit integer or null")
+        if expected_optional_magic is not None:
+            if expected_optional_magic not in {0x10B, 0x20B}:
+                raise TypeError("expected_optional_magic must be PE32, PE32+, or null")
+        if expected_machine is not None or expected_optional_magic is not None:
             with path.open("rb") as handle:
                 dos_header = handle.read(64)
                 pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
                 handle.seek(pe_offset + 4)
                 machine_bytes = handle.read(2)
+                handle.seek(pe_offset + 24)
+                optional_magic_bytes = handle.read(2)
             if len(machine_bytes) != 2:
                 _fail(f"{label} machine header is truncated")
+            if len(optional_magic_bytes) != 2:
+                _fail(f"{label} optional header is truncated")
             actual_machine = int.from_bytes(machine_bytes, "little")
-            if actual_machine != expected_machine:
+            actual_optional_magic = int.from_bytes(optional_magic_bytes, "little")
+            if expected_machine is not None and actual_machine != expected_machine:
                 _fail(
                     f"{label} has unexpected Windows PE machine "
                     f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
+                )
+            if (
+                expected_optional_magic is not None
+                and actual_optional_magic != expected_optional_magic
+            ):
+                _fail(
+                    f"{label} has unexpected Windows PE optional magic "
+                    f"0x{actual_optional_magic:04x}; "
+                    f"expected 0x{expected_optional_magic:04x}"
                 )
         if type(require_clr) is not bool:
             raise TypeError("require_clr must be bool")
@@ -1358,6 +1377,7 @@ def _validate_required_runtime_resources(
         product_executable,
         label="packaged AccessibleChess executable",
         expected_machine=0x8664,
+        expected_optional_magic=0x20B,
     )
 
     app_config = _require_package_file(
@@ -1386,6 +1406,13 @@ def _validate_required_runtime_resources(
                 if relative in _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
                 else None
             ),
+            expected_optional_magic=(
+                0x20B
+                if relative in _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES
+                else 0x10B
+                if relative in _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                else None
+            ),
             require_clr=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
         )
 
@@ -1408,6 +1435,7 @@ def _validate_required_runtime_resources(
         stockfish,
         label="packaged Stockfish 18 executable",
         expected_machine=0x8664,
+        expected_optional_magic=0x20B,
     )
 
     manifest_path = _require_package_file(
