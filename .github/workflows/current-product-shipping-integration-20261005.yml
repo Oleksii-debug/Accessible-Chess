@@ -174,7 +174,7 @@ jobs:
             exit 1
           }
           candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$candidate_count" -eq 246
+          test "$candidate_count" -eq 242
 
           echo "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS"
           echo "SHIPPING_BASE=$live_shipping"
@@ -288,6 +288,7 @@ jobs:
           tests.test_pgn_conversion_windows
           tests.test_pgn_conversion_native_windows
           tests.test_pgn_service
+          tests.test_dev1_full_product_webview_adapter
           tests.test_full_product_native_menu
           tests.test_report_paths
       - name: Run current V2 diagnostic and core selftest

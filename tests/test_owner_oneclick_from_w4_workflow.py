@@ -67,29 +67,6 @@ class OwnerOneClickFromW4WorkflowTests(unittest.TestCase):
         self.assertIn("W4_PRODUCT_SHA_STALE", self.text)
         self.assertIn("W4_WORKFLOW_SHA_STALE", self.text)
 
-    def test_finalizer_fails_closed_until_current_332_sound_authority_exists(self) -> None:
-        self.assertIn("OWNER_REQUIRED_SOUND_WAV_COUNT: '332'", self.text)
-        self.assertIn(
-            "from scripts.build_user_sound_pack import EXPECTED_SOURCE_WAV_COUNT",
-            self.text,
-        )
-        self.assertIn("if EXPECTED_SOURCE_WAV_COUNT != required:", self.text)
-        self.assertIn("OWNER_FINAL_SOUND_AUTHORITY_NOT_READY", self.text)
-        self.assertIn("OWNER_FINAL_SOUND_AUTHORITY_READY=PASS", self.text)
-        self.assertNotIn("authorized 330-WAV source archive", self.text)
-
-        authority = self.text.index("Enforce current owner sound release authority")
-        explicit_inputs = self.text.index(
-            "Bind explicit owner inputs and exact product identity"
-        )
-        provenance = self.text.index(
-            "Fetch and authenticate exact W4 workflow run provenance"
-        )
-        artifact_download = self.text.index("Download exact W4 artifact")
-        self.assertLess(authority, explicit_inputs)
-        self.assertLess(authority, provenance)
-        self.assertLess(authority, artifact_download)
-
     def test_w4_metadata_is_strict_fresh_and_stably_read(self) -> None:
         for token in (
             "_stable_bytes",

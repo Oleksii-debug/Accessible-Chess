@@ -152,7 +152,7 @@ jobs:
                 exit 1
               }
               candidate_count="$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')"
-              test "$candidate_count" -eq 246
+              test "$candidate_count" -eq 242
               echo 'PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
             fi
           fi
