@@ -42,6 +42,9 @@ class ActiveBytes(bytes):
     def __bytes__(self):
         raise AssertionError("active bytes subclass must not be converted")
 
+    def decode(self, *args, **kwargs):
+        raise AssertionError("active bytes subclass must not be decoded")
+
 
 class ActivePathLike:
     def __fspath__(self):
@@ -176,11 +179,42 @@ class ApplicationUpdateReuseTests(unittest.TestCase):
     def test_semver_rejects_active_text_and_derived_values(self):
         with self.assertRaises(ApplicationUpdateError):
             SemVer.parse(ActiveText("2.0.0"))
+        with self.assertRaises(TypeError):
+            DerivedSemVer.parse("2.0.0")
 
         exact = SemVer.parse("2.0.0")
         derived = DerivedSemVer(2, 0, 1)
         with self.assertRaises(TypeError):
             exact.compare_precedence(derived)
+        with self.assertRaises(TypeError):
+            derived.compare_precedence(exact)
+
+    def test_json_manifest_rejects_active_text_and_bytes_before_hooks(self):
+        exact_payload = json.dumps(
+            {
+                "schema": UPDATE_MANIFEST_SCHEMA,
+                "product_id": "accessible-chess",
+                "target_platform": "windows-x64",
+                "target_version": "2.0.0",
+                "source_head": self.SOURCE,
+                "artifact_name": "AccessibleChess-2.0.0.zip",
+                "artifact_size": 1,
+                "artifact_sha256": hashlib.sha256(b"x").hexdigest(),
+            }
+        )
+        for payload in (
+            ActiveText(exact_payload),
+            ActiveBytes(exact_payload.encode("utf-8")),
+        ):
+            with self.subTest(kind=type(payload).__name__):
+                with self.assertRaises(ApplicationUpdateError):
+                    ApplicationUpdateManifest.from_json(payload)
+
+    def test_manifest_parser_rejects_derived_parser_class(self):
+        with self.assertRaises(TypeError):
+            DerivedManifest.from_mapping({})
+        with self.assertRaises(TypeError):
+            DerivedManifest.from_json("{}")
 
     def test_verifier_rejects_derived_manifest_before_field_access(self):
         artifact = b"x"
