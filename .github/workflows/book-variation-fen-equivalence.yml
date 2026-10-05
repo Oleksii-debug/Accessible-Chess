@@ -12,6 +12,7 @@ on:
       - converge/current-product-position-root-atomicity-20261004-hy6ez0h
       - fix/books-nested-copy-hook-20261004-sol56k8m2
       - fix/stage1-review-navigation-atomicity-20261004-hy6ez0h
+      - fix/book-import-warning-cap-20261005-sol56
     paths:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
@@ -23,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: book-variation-fen-equivalence-${{ github.ref }}
+  group: book-variation-fen-equivalence-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -51,6 +52,22 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
           git checkout-index --force --all
+
+      - name: Reject superseded pull-request candidate
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/book-provider-live-pr-head"
+          live_head="$(git rev-parse refs/remotes/origin/book-provider-live-pr-head)"
+          test "$live_head" = "$EVENT_HEAD_SHA" || {
+            echo "BOOK_PROVIDER_SUPERSEDED event=$EVENT_HEAD_SHA live=$live_head" >&2
+            exit 1
+          }
 
       - uses: actions/setup-python@v5
         with:
@@ -87,6 +104,10 @@ jobs:
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
           expected="$(printf '%s\n'             '.github/workflows/book-variation-fen-equivalence.yml'             'acs/book_game_content.py'             'tests/test_book_lookup_detached_canonicalization.py' | sort)"
           test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_game_content.py)" = \
+            '5d7d76bc97a429abbb0ad5aab308c71f04b6e0ee'
+          test "$(git rev-parse HEAD:tests/test_book_lookup_detached_canonicalization.py)" = \
+            'b9e436e6ad5c555c55442a00af32e0102adc3490'
           git diff --quiet "$upstream" HEAD --             acs/chesscore.py             acs/gametree.py             acs/pgn_roundtrip.py             acs/bookdocument.py             acs/bookreader.py             acs/book_html_import.py             acs/book_epub_import.py
 
       - name: Compile focused Book game boundary

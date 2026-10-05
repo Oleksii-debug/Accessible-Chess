@@ -13,9 +13,14 @@
   }
 
   function safeInvoke(invoke, command, payload, onResult, announce, fallbackMessage) {
-    Promise.resolve(invoke(command, payload || {})).then(onResult).catch(function () {
+    function failed() {
       if (fallbackMessage) announce(String(fallbackMessage));
-    });
+    }
+    try {
+      Promise.resolve(invoke(command, payload || {})).then(onResult).catch(failed);
+    } catch (_error) {
+      failed();
+    }
   }
 
   function focusTarget(root, targetId) {

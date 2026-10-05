@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from acs.full_product_actions import build_full_product_action_registry
 from acs.version2_application import Version2Application
 
 
@@ -38,6 +39,10 @@ class FullProductBookCommandAuthorityTests(unittest.TestCase):
                 }
             ),
         )
+
+    def test_book_game_launch_is_registered_for_webview_dispatch(self):
+        action = build_full_product_action_registry().definition("book.open_game")
+        self.assertEqual("book.open_game", action.action_id)
 
 
 if __name__ == "__main__":

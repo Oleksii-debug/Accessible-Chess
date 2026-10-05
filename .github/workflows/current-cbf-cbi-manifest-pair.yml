@@ -1,0 +1,113 @@
+name: Current CBF CBI Manifest Pair
+
+on:
+  pull_request:
+    paths:
+      - 'acs/chessbase_manifest.py'
+      - 'tests/test_chessbase_manifest_legacy_cbf_pair.py'
+      - '.github/workflows/current-cbf-cbi-manifest-pair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-cbf-cbi-manifest-pair-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_CBF_CBI_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+
+      - name: Prove current Product ancestry and exact format scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CURRENT_PRODUCT: b43963c57764814894db5def6f86cec2ed0bc5c7
+          CURRENT_PRODUCT_REF: converge/current-launcher-report-data-identity-20261005-ooxple7
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          MANIFEST_BLOB: 7a91103062b76b541d370ec3a3247974d5cd0b80
+          PAIR_TEST_BLOB: c21b05edb1369abaecec2f9a365a3c901924a5d2
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF"
+          fi
+
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product="$(git rev-parse FETCH_HEAD)"
+          test "$live_product" = "$CURRENT_PRODUCT" || {
+            printf 'CURRENT_CBF_CBI_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT" "$live_product" >&2
+            exit 1
+          }
+
+          test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
+          git diff --check "$CURRENT_PRODUCT"...HEAD
+
+          changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-cbf-cbi-manifest-pair.yml' \
+            'acs/chessbase_manifest.py' \
+            'tests/test_chessbase_manifest_legacy_cbf_pair.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected CBF/CBI convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = "$MANIFEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_chessbase_manifest_legacy_cbf_pair.py)" = "$PAIR_TEST_BLOB"
+          echo 'CURRENT_CBF_CBI_GEOMETRY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile ChessBase manifest surfaces
+        run: >-
+          python -m compileall -q
+          acs/chessbase_manifest.py
+          tests/test_chessbase_manifest_legacy_cbf_pair.py
+
+      - name: Execute CBF pair and retained ChessBase integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_manifest_legacy_cbf_pair
+          tests.test_chessbase_integrity
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_dev4_chessbase_cross_platform_path_privacy
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_dev4_chessbase_manifest_io_observability
+          tests.test_dev4_chessbase_report_path_privacy
+          tests.test_dev4_chessbase_symlink_security
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_v2_chessbase_chess960_capability_boundary
+
+      - name: Core selftest
+        run: python -m acs.selftest

@@ -9,6 +9,7 @@ without importing Stage 2 services or changing the QA-owned Windows harness.
 
 from typing import Any
 
+from . import webapp as _webapp
 from . import webapp_keymap_core as _core
 from .webapp_keymap_core import *  # noqa: F401,F403 - compatibility surface
 from .webapp_keymap_core import AccessibleChessAPI, _asset_root, _shared_spoken_san
@@ -52,6 +53,30 @@ def _canonical_controllers(board: Board, target: int) -> tuple[int, ...]:
 class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
     """Complete the central board action surface declared by ActionRegistry."""
 
+    def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
+        """Resolve the WebView board focus hierarchy without duplicating rules in JS.
+
+        Board focus intentionally exposes board commands, Analysis commands, and
+        Global commands in that order. ``ActionRegistry`` keeps its presentation-
+        neutral ``context -> global`` fallback, so the WebView bridge composes the
+        additional Analysis layer here and remains the single authoritative
+        resolver for persisted remaps.
+        """
+
+        if context != "board":
+            return super().keymap_resolve_binding(context, binding)
+        try:
+            board_or_global = self.keymap_service.resolve_binding("board", binding)
+            if board_or_global is not None and board_or_global.get("context") == "board":
+                return board_or_global
+
+            analysis_or_global = self.keymap_service.resolve_binding("analysis", binding)
+            if analysis_or_global is not None and analysis_or_global.get("context") == "analysis":
+                return analysis_or_global
+            return board_or_global
+        except Exception:
+            return None
+
     def make_move(self, text: str) -> dict[str, Any]:
         # Canonical null moves are a notation/import pseudo-move, not a legal
         # end-user gameplay action. Keep the frozen Stage1 core and canonical
@@ -66,7 +91,23 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
                 if self.lang == "uk"
                 else "A null move cannot be played manually."
             )
-        return super().make_move(text)
+        normalized = text.strip()
+        resolution = self.keymap_service.resolve_alias(
+            BindingContext.MOVE_ENTRY.value,
+            normalized,
+        )
+        if resolution is not None:
+            return self._dispatch_move_entry_action(str(resolution["actionId"]))
+
+        # The legacy keymap implementation mutates the live board and move list
+        # before calling a removed _record_position_after_move hook. That
+        # exception is then reported as an illegal move while leaving partial
+        # state behind. Use the canonical release transaction for ordinary
+        # legal moves; aliases above still route through the keymap action table.
+        result = _webapp.AccessibleChessAPI.make_move(self, text)
+        if result.get("ok") is True:
+            self._reanchor_analysis_after_reset()
+        return result
 
     def _board_query_board(self) -> Board:
         exploration = self.analysis_ui.exploration

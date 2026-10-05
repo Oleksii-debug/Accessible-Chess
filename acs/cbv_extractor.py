@@ -9,7 +9,7 @@ temporary directory, and then hands the extracted classic ``.cbh`` family to
 the existing semantic decoder.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
@@ -228,10 +228,16 @@ def _run_uncbv(
     *,
     cwd: Path,
     monitor_directory: Path | None = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> bytes:
+    if control_checkpoint is not None:
+        control_checkpoint()
     creationflags = 0
     if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     try:
         process = subprocess.Popen(
             [os.fspath(executable), *arguments],
@@ -272,7 +278,15 @@ def _run_uncbv(
     timed_out = False
     overflow = False
     monitor_error: CbvExtractError | None = None
+    control_error: Exception | None = None
     while process.poll() is None:
+        if control_checkpoint is not None:
+            try:
+                control_checkpoint()
+            except Exception as exc:
+                control_error = exc
+                process.kill()
+                break
         if stdout.overflow.is_set() or stderr.overflow.is_set():
             overflow = True
             process.kill()
@@ -305,6 +319,10 @@ def _run_uncbv(
     for thread in threads:
         thread.join(timeout=2.0)
 
+    if control_error is not None:
+        raise control_error
+    if control_checkpoint is not None:
+        control_checkpoint()
     if monitor_error is not None:
         raise monitor_error
     if timed_out:
@@ -428,11 +446,23 @@ def extract_cbv_external(
     path: str | Path,
     output_directory: str | Path,
     config: ExternalCbvExtractorConfig,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> CbvExtraction:
-    """Extract one immutable CBV archive into a fresh trusted-host directory."""
+    """Extract one immutable CBV archive into a fresh trusted-host directory.
+
+    The trusted host may provide a raising control checkpoint for cooperative
+    cancellation during listing/extraction. Running children are reaped before
+    control failure propagates; the caller still owns the output directory and
+    its cleanup, as with every other failed extraction.
+    """
 
     if not isinstance(config, ExternalCbvExtractorConfig):
         raise TypeError("config must be an ExternalCbvExtractorConfig")
+    if control_checkpoint is not None:
+        if not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable")
+        control_checkpoint()
     source_path = Path(path)
     if source_path.suffix.lower() != ".cbv":
         raise _error(
@@ -461,11 +491,13 @@ def extract_cbv_external(
     output = _validate_real_directory(Path(output_directory), must_be_empty=True)
     executable = Path(backend.path)
     source_absolute = Path(source.path)
+    control = {} if control_checkpoint is None else {"control_checkpoint": control_checkpoint}
     listed = _run_uncbv(
         executable,
         ["list", os.fspath(source_absolute)],
         config,
         cwd=output,
+        **control,
     )
     entries = _parse_entry_list(listed, max_entries=config.max_entries)
     if not verify_source_unchanged(source, source_absolute):
@@ -485,6 +517,7 @@ def extract_cbv_external(
         config,
         cwd=output,
         monitor_directory=output,
+        **control,
     )
     if not verify_source_unchanged(source, source_absolute):
         raise _error(
@@ -521,6 +554,8 @@ def extract_cbv_external(
             CbvExtractCode.OUTPUT_INVALID,
         )
     primary = output.joinpath(*PurePosixPath(primary_names[0]).parts)
+    if control_checkpoint is not None:
+        control_checkpoint()
     return CbvExtraction(
         source=source,
         primary_path=primary,

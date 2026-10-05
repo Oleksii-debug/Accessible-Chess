@@ -20,6 +20,7 @@ from .bookdocument import BookDocument, Exercise
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
 from .gametree import MoveNode, PgnGame
+from .gametree_legality import supports_standard_variant
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 from .training import (
     ExerciseDefinition,
@@ -661,6 +662,11 @@ def _canonical_steps_from_pgn(start_board: Board, solution_pgn: str) -> tuple[Ex
             code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION_STRUCTURE,
         )
     game = games[0]
+    if not supports_standard_variant(game.tags.get("Variant")):
+        raise BookTrainingError(
+            "book exercise solution variant is not supported by the canonical Standard board",
+            code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION,
+        )
     if game.warnings:
         raise BookTrainingError(
             "book exercise solution_pgn contains recovery warnings",

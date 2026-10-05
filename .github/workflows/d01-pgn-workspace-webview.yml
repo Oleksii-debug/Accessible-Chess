@@ -18,7 +18,10 @@ on:
       - 'acs/version2_application.py'
       - 'acs/version2_pgn_commands.py'
       - 'tests/js/pgn_surface_dom_test.js'
+      - 'tests/js/toolbar_keymap_test_support.js'
       - 'tests/js/pgn_tree_keyboard_dom_test.js'
+      - 'tests/js/pgn_remaining_keybindings_test.js'
+      - 'tests/test_pgn_tree_remaining_keybindings.py'
       - 'tests/test_pgn_browser_presentation_lease_required.py'
       - 'tests/test_version2_pgn_commands.py'
       - 'tests/test_dev1_pgn_webview_atomicity.py'
@@ -174,7 +177,7 @@ jobs:
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
           case "$actions_actual" in
-            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|8f331bbf722e5e859a153ebd1582ed0711bc490b)
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|8f331bbf722e5e859a153ebd1582ed0711bc490b|1de880e5e03e9a838ea4c2c69b47111091982e81|52d9bc817359f3e281af8b8845a104b7f8e48a2c)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
@@ -186,7 +189,7 @@ jobs:
           native_menu_actual="$(git rev-parse HEAD:acs/ui_native_menu.py)"
           keymap_pair="$keybindings_actual:$native_menu_actual"
           case "$keymap_pair" in
-            b222f0d625999d8119cb3bb7cebffc961217f610:dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad|e3c398484cce2e191243528831319f30a36b8681:d1b456af0018499ff74c73b46f74b0ecc5913745)
+            b222f0d625999d8119cb3bb7cebffc961217f610:dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad|e3c398484cce2e191243528831319f30a36b8681:d1b456af0018499ff74c73b46f74b0ecc5913745|6a5564236a6ede60deafb199a4a7f3b39e870106:d1b456af0018499ff74c73b46f74b0ecc5913745|4726ec30d607487195056a9eb25ffc124f3db05e:d1b456af0018499ff74c73b46f74b0ecc5913745|267c7eb2914ba29f1cc7403536f1777896e00b27:d1b456af0018499ff74c73b46f74b0ecc5913745)
               ;;
             *)
               printf 'Protected blob mismatch: keybindings/native-menu pair=%s\n' "$keymap_pair" >&2
@@ -209,11 +212,12 @@ jobs:
 
           # The shared semantic document may be the pre-P0-G Product blob,
           # either reviewed event-aware P0-G predecessor, the exact current
-          # convergence blob, or the reviewed P0 document-copy polling repair.
-          # Every other identity remains fail-closed.
+          # convergence blob, the reviewed P0 document-copy polling repair, or
+          # the reviewed dynamic live-keymap Help successor. Every other
+          # identity remains fail-closed.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f)
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6)
               ;;
             *)
               printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
@@ -226,7 +230,7 @@ jobs:
           # frozen core; every other identity remains fail-closed.
           stage1_facade_actual="$(git rev-parse HEAD:acs/stage1_release_ui.py)"
           case "$stage1_facade_actual" in
-            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce|23e5bcdde11acdb963515bea4bc4a93473dbbd05)
+            16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce|23e5bcdde11acdb963515bea4bc4a93473dbbd05|af12ff28f83f118e81860c593bcf891d0937d566)
               ;;
             *)
               printf 'Protected blob mismatch: acs/stage1_release_ui.py actual=%s\n' "$stage1_facade_actual" >&2
@@ -298,7 +302,7 @@ jobs:
 
           dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
           case "$dom_test_actual" in
-            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140)
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b)
               ;;
             *)
               printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
@@ -346,7 +350,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
@@ -354,16 +358,23 @@ jobs:
               ;;
           esac
 
+          if [ "$pgn_surface_actual" = '9b266d037d16e5264ba3897fd00606e3a3b861d7' ]; then
+            test "$dom_test_actual" = '831ca1a6f3c685967c9e9f1c93cc622d6f864d4b'
+            test "$(git rev-parse HEAD:tests/js/toolbar_keymap_test_support.js)" = '17a0590cafb11e664bd88540d34e76594d5b0a5f'
+          fi
+
           test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$D06_WORKSPACE_TEST_BLOB"
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py acs/version2_application.py acs/version2_pgn_commands.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_pgn_browser_presentation_lease_required.py tests/test_version2_pgn_commands.py tests/test_v2_board_analysis_hotkey_feedback.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py acs/version2_application.py acs/version2_pgn_commands.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_pgn_browser_presentation_lease_required.py tests/test_version2_pgn_commands.py tests/test_v2_board_analysis_hotkey_feedback.py tests/test_pgn_tree_remaining_keybindings.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node --check tests/js/pgn_tree_keyboard_dom_test.js
+          node --check tests/js/pgn_remaining_keybindings_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_tree_keyboard_dom_test.js
+          node tests/js/pgn_remaining_keybindings_test.js
 
       - name: D01 PGN focused regressions
         run: >-
@@ -384,6 +395,7 @@ jobs:
           tests.test_version2_pgn_commands
           tests.test_whole_product_user_journey
           tests.test_keybindings
+          tests.test_pgn_tree_remaining_keybindings
           tests.test_v2_board_analysis_hotkey_feedback
           tests.test_d01_current_stage1_core_gate
 

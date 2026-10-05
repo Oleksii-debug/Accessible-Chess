@@ -27,6 +27,9 @@ class BindingContext(str, Enum):
     PGN_TREE = "pgn_tree"
     LIBRARY_RESULTS = "library_results"
     EDUCATION_LIST = "education_list"
+    CLASSROOM_LIST = "classroom_list"
+    TOOLBAR = "toolbar"
+    PROFILE_DIALOG = "profile_dialog"
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,17 @@ class Conflict:
     value: str
     message: str
     severity: str = "error"
+
+
+class KeymapProfileConflictError(ValueError):
+    """A rejected passive profile with canonical, UI-reportable conflicts."""
+
+    def __init__(self, conflicts: tuple[Conflict, ...]) -> None:
+        self.conflicts = conflicts
+        super().__init__(
+            "invalid keymap profile: "
+            + "; ".join(item.message for item in conflicts if item.severity == "error")
+        )
 
 
 @dataclass(frozen=True)
@@ -337,6 +351,8 @@ class ActionRegistry:
 
     def resolve_binding(self, context: BindingContext, binding: str) -> Resolution | None:
         normalized = normalize_binding(binding)
+        if normalized is None:
+            return None
         for ctx in (context, BindingContext.GLOBAL):
             for action_id, definition in self._definitions.items():
                 if definition.external or definition.context != ctx:
@@ -485,9 +501,7 @@ class ActionRegistry:
         conflicts = registry.validate()
         errors = tuple(item for item in conflicts if item.severity == "error")
         if errors:
-            raise ValueError(
-                "invalid keymap profile: " + "; ".join(item.message for item in errors)
-            )
+            raise KeymapProfileConflictError(conflicts)
         return registry
 
     @classmethod

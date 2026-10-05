@@ -98,6 +98,7 @@ class Version2TeacherSessionRuntimeBindingTests(unittest.TestCase):
         self.assertEqual(0, started.revision)
         self.assertEqual(Board.START, started.position_fen)
         self.assertTrue(self.app.snapshot()["product_status"]["teacher_session_active"])
+        self.app.shell.open_route("teacher")
 
         event = self.app.browser_command(
             "teacher",
@@ -129,6 +130,7 @@ class Version2TeacherSessionRuntimeBindingTests(unittest.TestCase):
             EducationWorkspace.empty(ClassroomSnapshot()),
             expected_revision=revision,
         )
+        self.app.shell.open_route("teacher")
 
         event = self.app.browser_command(
             "teacher",
@@ -142,6 +144,34 @@ class Version2TeacherSessionRuntimeBindingTests(unittest.TestCase):
         self.assertEqual(0, after.revision)
         self.assertEqual(Board.START, after.position_fen)
         self.assertIsNone(after.presentation.pointer.square)
+
+    def test_hidden_or_modal_teacher_commands_preserve_canonical_session(self) -> None:
+        self.app.start_teaching_session(self._plan())
+        before = self.app._owned_teaching_state()
+        commands = (
+            ("teacher.pointer_input", {"coordinate": "e4"}),
+            ("teacher.orientation.toggle", {}),
+            ("teacher.student_event", {"kind": "select", "square": "e4", "piece_name": ""}),
+        )
+        for route in ("board", "books", "training", "classes", "settings"):
+            self.app.shell.open_route(route)
+            for command, payload in commands:
+                self.assertEqual("error", self.app.browser_command("teacher", command, payload)["kind"])
+            self.assertIs(before, self.app._owned_teaching_state())
+            snapshot = self.app.browser_command("teacher", "teacher.snapshot")
+            self.assertEqual("render", snapshot["kind"])
+            self.assertEqual("white", snapshot["payload"]["snapshot"]["board"]["orientation"])
+            self.assertEqual((), snapshot["payload"]["snapshot"]["feedback"])
+        self.app.shell.open_route("teacher")
+        self.app.shell.open_dialog("settings-dialog", opener_focus_id="teacher-pointer-input", initial_focus_id="settings-list")
+        for command, payload in commands:
+            self.assertEqual("error", self.app.browser_command("teacher", command, payload)["kind"])
+        self.assertIs(before, self.app._owned_teaching_state())
+        self.app.shell.close_dialog()
+        event = self.app.browser_command("teacher", "teacher.pointer_input", {"coordinate": "e4"})
+        self.assertEqual("render-pointer", event["kind"])
+        self.assertEqual("Вказівник e4", event["payload"]["announcement"])
+        self.assertEqual(1, self.app._owned_teaching_state().revision)
 
     def test_stop_unbinds_teacher_and_discards_only_live_session_ownership(self) -> None:
         self.app.start_teaching_session(self._plan())

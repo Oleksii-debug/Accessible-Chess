@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const {shellForKeymap} = require('./keymap_shell_test_support');
 
 const root = path.join(__dirname, '..', '..');
 const html = fs.readFileSync(path.join(root, 'web', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
@@ -48,11 +49,19 @@ const actionBody = html.slice(actionStart, actionEnd);
 assert.ok(actionBody.includes("'move.submit':()=>submitMove()"));
 assert.ok(actionBody.includes("'history.commit_go_to_move':()=>apiAction('go_to_move',el('history-input').value)"));
 
-const helpStart = html.indexOf('function renderHelp(){');
-const helpEnd = html.indexOf('\nfunction editableShortcutTarget', helpStart);
-const help = html.slice(helpStart, helpEnd);
-assert.ok(help.includes("line('move.submit')"), 'live help must show the current move-submit binding');
-assert.ok(help.includes("line('history.commit_go_to_move')"), 'live help must show the current history-commit binding');
+for (const language of ['uk', 'en']) {
+  const shell = shellForKeymap(keymap.actions, language);
+  for (const id of ['move.submit', 'history.commit_go_to_move']) {
+    const row = shell.keymap.find(item => item.id === id);
+    row.binding = 'Alt+J';
+    shell.renderHelp();
+    assert.ok(shell.helpText.includes('Alt+J — ' + row[language === 'en' ? 'labelEn' : 'labelUk']),
+      'live help must show the current submit binding: ' + id);
+  }
+  shell.keymap = [];
+  shell.renderHelp();
+  assert.strictEqual(shell.helpText, '', 'empty snapshot must clear stale help');
+}
 
 const globalStart = html.indexOf("function editableShortcutTarget(node){");
 const globalEnd = html.indexOf("\nel('move-submit')", globalStart);

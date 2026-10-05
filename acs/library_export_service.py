@@ -17,6 +17,7 @@ from typing import Final
 
 from .acsdb import AcsDatabase
 from .gametree import PgnGame
+from .import_contract import fingerprint
 from .pgn_roundtrip import parse_pgn_text
 from .pgn_service import SourceFingerprint, save_pgn_atomic
 from .search_service import GameSearchQuery, GameSearchService
@@ -26,7 +27,7 @@ _MAX_SELECTED_GAMES: Final = 5000
 _EXPORT_PAGE_SIZE: Final = 200
 _SQLITE_INTEGER_MAX: Final = (1 << 63) - 1
 _FILTER_FIELDS: Final = frozenset(
-    {"player", "event", "eco", "opening", "result", "source_id", "source_name"}
+    {"player", "event", "eco", "opening", "result", "source_id", "source_name", "date_from", "date_to", "game_date"}
 )
 
 
@@ -103,6 +104,9 @@ class LibraryExportRequest:
                 result=filters.get("result"),
                 source_id=filters.get("source_id"),
                 source_name=filters.get("source_name"),
+                date_from=filters.get("date_from"),
+                date_to=filters.get("date_to"),
+                game_date=filters.get("game_date"),
                 limit=_EXPORT_PAGE_SIZE,
             )
             return cls.filtered(query)
@@ -126,6 +130,9 @@ class LibraryExportRequest:
                 "result": q.result,
                 "source_id": q.source_id,
                 "source_name": q.source_name,
+                "date_from": q.date_from,
+                "date_to": q.date_to,
+                "game_date": q.game_date,
             }.items()
             if value is not None
         }
@@ -153,6 +160,15 @@ class LibraryExportService:
             raise TypeError("search_service must be GameSearchService")
         self._database = database
         self._search = search_service or GameSearchService(database)
+
+    @staticmethod
+    def expected_destination_sha256(destination: str | Path) -> str | None:
+        """Bind an existing export target before a potentially long streamed export."""
+
+        path = Path(destination)
+        if not path.exists():
+            return None
+        return fingerprint(path).sha256
 
     def _iter_selected_ids(self, request: LibraryExportRequest) -> Iterator[int]:
         if request.scope is LibraryExportScope.SELECTED:
@@ -236,8 +252,16 @@ class LibraryExportService:
         self,
         destination: str | Path,
         request: LibraryExportRequest,
+        *,
+        expected_sha256: str | None = None,
     ) -> LibraryExportResult:
-        """Stream one stable Library snapshot into the canonical D06 writer."""
+        """Stream one stable Library snapshot into the canonical D06 writer.
+
+        A new destination is published no-clobber. Replacing an existing
+        destination requires the SHA-256 generation captured after the trusted
+        host's Save-dialog confirmation, so a later external edit cannot be
+        silently lost while a large Library export is still streaming.
+        """
 
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
@@ -258,14 +282,15 @@ class LibraryExportService:
         # iterable, so paging and row loads all observe one exact read snapshot.
         # D06 still owns temp-file writing, cleanup and atomic publication.
         with self._read_snapshot():
-            fingerprint = save_pgn_atomic(
+            published = save_pgn_atomic(
                 destination,
                 counted_games(),
-                overwrite=True,
+                overwrite=expected_sha256 is not None,
+                expected_sha256=expected_sha256,
             )
         return LibraryExportResult(
             game_count=game_count,
-            destination_fingerprint=fingerprint,
+            destination_fingerprint=published,
         )
 
 

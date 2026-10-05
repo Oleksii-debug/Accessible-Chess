@@ -86,6 +86,9 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                     "library.import",
                     processed_games=processed,
                     total_games=total_games,
+                    source_parsing=value.phase is StreamingPgnPhase.PARSING,
+                    source_bytes_read=value.bytes_read,
+                    source_total_bytes=value.total_bytes,
                 ),
             )
 

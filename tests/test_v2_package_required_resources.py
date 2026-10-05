@@ -128,7 +128,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
-    def test_preflight_rejects_duplicate_sound_asset_mapping(self):
+    def test_preflight_rejects_sound_alias_without_matching_event_provenance(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
             manifest_path = root / "AccessibleChess/assets/sounds/manifest.json"
@@ -141,7 +141,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             _write_checksums(root)
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
-                "distinct WAV",
+                "sound provenance file does not match manifest: capture",
             ):
                 _validate_tree(root)
 
@@ -156,19 +156,34 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
-    def test_preflight_rejects_non_16_bit_pcm_sound_asset(self):
+    def test_semantic_sound_alias_with_matching_event_provenance_is_valid(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            manifest_path = root / "AccessibleChess/assets/sounds/manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"]["capture"] = manifest["files"]["move"]
+            manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+            provenance_path = root / "THIRD_PARTY_NOTICES/SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"]["capture"]["file"] = manifest["files"]["move"]
+            provenance["events"]["capture"]["sha256"] = provenance["events"]["move"]["sha256"]
+            provenance_path.write_text(json.dumps(provenance, sort_keys=True) + "\n", encoding="utf-8")
+            _write_checksums(root)
+            _validate_tree(root)
+
+    def test_preflight_rejects_unsupported_24_bit_pcm_sound_asset(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
             sound = root / "AccessibleChess/assets/sounds/move.wav"
             with wave.open(str(sound), "wb") as writer:
                 writer.setnchannels(1)
-                writer.setsampwidth(1)
+                writer.setsampwidth(3)
                 writer.setframerate(8000)
-                writer.writeframes(b"\x00" * 16)
+                writer.writeframes(b"\x00\x00\x00" * 16)
             _write_checksums(root)
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
-                "16-bit PCM",
+                "8-bit/16-bit PCM",
             ):
                 _validate_tree(root)
 

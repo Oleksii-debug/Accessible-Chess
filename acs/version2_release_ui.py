@@ -357,11 +357,38 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
                     else "Version 2 action does not accept a board square."
                 )
             application = self._version2()
+            previous_shell = application.shell._capture_presentation_state()
+            previous_focus = getattr(application, "_focus", "")
+            if type(previous_focus) is not str:
+                previous_focus = ""
             command = application.adapter.activate_action(
                 action_id,
-                current_focus_id=str(getattr(application, "_focus", "")),
+                current_focus_id=previous_focus,
             )
-            application.native_command(command)
+            try:
+                published = application.native_command(command)
+            except Exception:
+                # The application event sink publishes only at its terminal
+                # queue append. An exception means the browser did not receive
+                # this command; restore the exact shell/focus authority that
+                # existed before adapter dispatch.
+                application.shell._restore_presentation_state(previous_shell)
+                application._focus = previous_focus
+                return self._error(
+                    "Не вдалося виконати дію."
+                    if self.lang == "uk"
+                    else "The action could not be completed."
+                )
+            if published is False:
+                # Training/native publication can reject a route after adapter
+                # dispatch and recover through its own canonical route + error
+                # events. Do not echo the rejected route back as a successful
+                # immediate V2 command.
+                return self._error(
+                    "Не вдалося виконати дію."
+                    if self.lang == "uk"
+                    else "The action could not be completed."
+                )
             payload = dict(command.payload)
             if command.kind == "error":
                 return self._error(str(payload.get("message", "")))
@@ -749,7 +776,8 @@ def run_version2_release_window(
                 application.adapter,
                 application.native_command,
                 exit_callback=exit_application,
-                current_focus_provider=lambda: str(getattr(application, "_focus", "")),
+                current_focus_provider=lambda: getattr(application, "_focus", ""),
+                focus_restore=lambda token: setattr(application, "_focus", token),
             )
             if not menu_installer(window, controller):
                 raise RuntimeError("Accessible Version 2 native Windows menu could not be attached.")

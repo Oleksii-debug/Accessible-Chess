@@ -4,6 +4,7 @@ from io import BytesIO
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.book_epub_import import import_epub_book
@@ -14,6 +15,7 @@ from acs.book_html_import import (
     BookHtmlImportErrorCode,
     SUPPORTED_HTML_BOOK_CAPABILITY,
     import_html_book,
+    _SemanticHtmlParser,
 )
 from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import Diagram, Game, Heading, Note, Paragraph, Position
@@ -59,6 +61,28 @@ def _html(*, fen: str | None = None, pgn: str = PGN) -> str:
 
 
 class BookHtmlImportTests(unittest.TestCase):
+    def test_warning_budget_includes_suppression_marker_without_losing_non_overflow_warnings(self) -> None:
+        with patch("acs.book_html_import.MAX_HTML_WARNINGS", 3):
+            exact = _SemanticHtmlParser(available_assets=None)
+            for index in range(3):
+                exact._warning(f"warning {index}")
+            self.assertEqual(
+                exact.warnings,
+                ["warning 0", "warning 1", "warning 2"],
+            )
+
+            overflow = _SemanticHtmlParser(available_assets=None)
+            for index in range(5):
+                overflow._warning(f"warning {index}")
+            self.assertEqual(
+                overflow.warnings,
+                [
+                    "warning 0",
+                    "warning 1",
+                    "additional HTML import warnings were suppressed",
+                ],
+            )
+
     def test_multilingual_structure_images_and_canonical_embedded_pgn(self) -> None:
         result = import_html_book(
             _html(),
@@ -119,9 +143,9 @@ class BookHtmlImportTests(unittest.TestCase):
   </rootfiles>
 </container>'''
         opf = b'''<?xml version="1.0" encoding="UTF-8"?>
-<package version="3.0" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <metadata><dc:title>Boundary EPUB</dc:title><dc:language>en</dc:language></metadata>
-  <manifest><item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
+<package version="3.0" unique-identifier="uid" xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <metadata><dc:identifier id="uid">urn:test:br-boundary</dc:identifier><dc:title>Boundary EPUB</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-05T00:00:00Z</meta></metadata>
+  <manifest><item id="c1" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest>
   <spine><itemref idref="c1"/></spine>
 </package>'''
         chapter = b"<html><body><h1>White<br>to move</h1><p>First<br/>Second</p></body></html>"
@@ -132,6 +156,7 @@ class BookHtmlImportTests(unittest.TestCase):
             archive.writestr("META-INF/container.xml", container, compress_type=zipfile.ZIP_DEFLATED)
             archive.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
             archive.writestr("OEBPS/Text/chapter.xhtml", chapter, compress_type=zipfile.ZIP_DEFLATED)
+            archive.writestr("OEBPS/nav.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="Text/chapter.xhtml">Chapter</a></li></ol></nav></body></html>', compress_type=zipfile.ZIP_DEFLATED)
 
         result = import_epub_book(buffer.getvalue(), source_name="breaks.epub")
         headings = [block.text for block in result.document.blocks if isinstance(block, Heading)]

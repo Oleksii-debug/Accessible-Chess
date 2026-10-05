@@ -306,6 +306,7 @@ class TeacherWebViewProjection:
         arrow_items = tuple(arrows)
         piece_items = self._piece_items(language=lang, fen=fen)
         return {
+            "language": lang,
             "board": {
                 "orientation": self._teacher.orientation.value,
                 "coordinates_visible": coordinates_visible,

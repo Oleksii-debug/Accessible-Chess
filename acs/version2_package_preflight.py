@@ -46,6 +46,9 @@ _WINFORMS_ACCESSIBILITY_SWITCHES = (
     "Switch.UseLegacyAccessibilityFeatures.5",
 )
 _MAX_APPCONFIG_BYTES = 64 * 1024
+_MAX_RELEASE_MANIFEST_BYTES = 64 * 1024
+_RELEASE_MANIFEST_MAX_OBJECT_MEMBERS = 64
+_RELEASE_MANIFEST_MAX_KEY_CHARS = 128
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -145,6 +148,8 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/full_product_teacher.js",
     "AccessibleChess/web/full_product_education.js",
     "AccessibleChess/web/version2_final_product_bootstrap.js",
+    "AccessibleChess/web/version2_local_profile.js",
+    "AccessibleChess/web/p0_accessibility_runtime.js",
     "AccessibleChess/web/version2_release_bootstrap.js",
     "AccessibleChess/web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
     "AccessibleChess/web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
@@ -481,10 +486,24 @@ def _validate_topology(root: Path, inventory: tuple[str, ...]) -> None:
         _fail("double AccessibleChess directory nesting is forbidden")
 
 
-def _json_no_duplicates(text: str, *, label: str) -> dict[str, object]:
+def _json_no_duplicates(
+    text: str,
+    *,
+    label: str,
+    max_object_members: int | None = None,
+    max_key_chars: int | None = None,
+) -> dict[str, object]:
     def hook(pairs):
         result = {}
+        member_count = 0
         for key, value in pairs:
+            member_count += 1
+            if max_object_members is not None and member_count > max_object_members:
+                _fail(f"{label} contains too many JSON object members")
+            if max_key_chars is not None and (
+                not isinstance(key, str) or len(key) > max_key_chars
+            ):
+                _fail(f"{label} JSON key is too long")
             if key in result:
                 _fail(f"{label} contains duplicate JSON keys")
             result[key] = value
@@ -501,7 +520,7 @@ def _json_no_duplicates(text: str, *, label: str) -> dict[str, object]:
         )
     except Version2PackagePreflightError:
         raise
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
         _fail(f"{label} is invalid JSON: {type(exc).__name__}")
     if not isinstance(value, dict):
         _fail(f"{label} must be a JSON object")
@@ -1258,11 +1277,28 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
     info = _safe_lstat(path, label="release manifest")
     if not stat.S_ISREG(info.st_mode):
         _fail("release manifest must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="release manifest",
+        max_bytes=_MAX_RELEASE_MANIFEST_BYTES,
+    )
     try:
-        text = path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(_MAX_RELEASE_MANIFEST_BYTES + 1)
+    except OSError as exc:
         _fail(f"release manifest is unreadable: {type(exc).__name__}")
-    data = _json_no_duplicates(text, label="release manifest")
+    if len(payload) > _MAX_RELEASE_MANIFEST_BYTES:
+        _fail("release manifest exceeds byte limit")
+    try:
+        text = payload.decode("utf-8-sig", errors="strict")
+    except UnicodeError as exc:
+        _fail(f"release manifest is unreadable: {type(exc).__name__}")
+    data = _json_no_duplicates(
+        text,
+        label="release manifest",
+        max_object_members=_RELEASE_MANIFEST_MAX_OBJECT_MEMBERS,
+        max_key_chars=_RELEASE_MANIFEST_MAX_KEY_CHARS,
+    )
 
     required = {
         "manifest_schema": V2_PACKAGE_MANIFEST_SCHEMA_VERSION,

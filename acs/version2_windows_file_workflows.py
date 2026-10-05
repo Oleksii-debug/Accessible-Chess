@@ -7,7 +7,9 @@ implements Library storage, or owns chess state.  Native Windows dialogs choose
 filesystem paths on the trusted host.  PGN operations delegate to
 ``PgnDocumentSession``; PGN Library import delegates to ``open_pgn`` plus the
 canonical ``LibraryImportService``; CBH/CBV delegates to
-``ChessBaseLibraryImportService``.
+``ChessBaseLibraryImportService``. EPUB/HTML book game collections delegate to
+the existing Book import/resolution path and that same LibraryImportService;
+narrative and diagrams remain in the original book with an explicit report.
 
 Long imports run on a dedicated worker so the Windows UI remains operable and a
 Cancel command can be delivered.  The worker-service factory is deliberately
@@ -29,6 +31,8 @@ from .library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
 )
+from .book_library_import import BOOK_LIBRARY_SUFFIXES, BookLibrarySourceReadError, open_book_library_source
+from .import_contract import SourceReadCancelledError
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from .pgn_service import PgnFileError, open_pgn
 from .report_paths import report_safe_name
@@ -63,16 +67,25 @@ class FileWorkflowEvent:
     game_count: int = 0
     warning_count: int = 0
     error_code: str = ""
+    source_bytes_read: int = 0
+    source_total_bytes: int = 0
+    source_parsing: bool = False
+    source_format: str = ""
+    retained_book_blocks: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, FileWorkflowEventKind):
             raise TypeError("file workflow event kind is invalid")
-        for name in ("action_id", "focus_target", "error_code"):
+        for name in ("action_id", "focus_target", "error_code", "source_format"):
             if type(getattr(self, name)) is not str:
                 raise TypeError(f"{name} must be text")
         if not self.action_id:
             raise ValueError("file workflow action id must not be empty")
-        for name in ("processed_games", "total_games", "game_count", "warning_count"):
+        if self.source_format not in {"", "epub", "html", "htm", "xhtml", "md", "markdown"}:
+            raise ValueError("source format is invalid")
+        if type(self.source_parsing) is not bool:
+            raise TypeError("source_parsing must be a boolean")
+        for name in ("processed_games", "total_games", "game_count", "warning_count", "source_bytes_read", "source_total_bytes", "retained_book_blocks"):
             value = getattr(self, name)
             if type(value) is not int:
                 raise TypeError(f"{name} must be an integer")
@@ -80,6 +93,8 @@ class FileWorkflowEvent:
                 raise ValueError(f"{name} must be non-negative")
         if self.total_games and self.processed_games > self.total_games:
             raise ValueError("processed_games must not exceed total_games")
+        if self.source_bytes_read > self.source_total_bytes:
+            raise ValueError("source_bytes_read must not exceed source_total_bytes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,10 +186,11 @@ class Version2WindowsFileDialogs:
         DialogResult, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
-            dialog.Title = "Import into Library"
+            dialog.Title = "Import games into Library (book text remains in its source file)"
             dialog.Filter = (
-                "Supported chess sources (*.pgn;*.cbh;*.cbv)|*.pgn;*.cbh;*.cbv|"
-                "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv"
+                "Supported chess sources and book games|*.pgn;*.cbh;*.cbv;*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown|"
+                "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv|"
+                "Book game collections (*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown)|*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown"
             )
             dialog.CheckFileExists = True
             dialog.CheckPathExists = True
@@ -196,7 +212,7 @@ class Version2WindowsFileActionDelegate:
             "library.cancel_import",
         }
     )
-    _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"})
+    _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"}) | BOOK_LIBRARY_SUFFIXES
     _IMPORT_TERMINAL_KINDS = frozenset(
         {
             FileWorkflowEventKind.IMPORT_COMPLETED,
@@ -575,6 +591,8 @@ class Version2WindowsFileActionDelegate:
     ) -> None:
         services: Version2ImportWorkerServices | None = None
         progress_started = False
+        book_source_format = ""
+        retained_book_blocks = 0
 
         def cancelled() -> bool:
             return cancel_event.is_set()
@@ -592,6 +610,8 @@ class Version2WindowsFileActionDelegate:
                         "library.import",
                         focus_target="library-import-cancel",
                         total_games=progress_value.total_games,
+                        source_format=book_source_format,
+                        retained_book_blocks=retained_book_blocks,
                     ),
                 )
             self._emit_if_current(
@@ -611,10 +631,16 @@ class Version2WindowsFileActionDelegate:
             if cancelled():
                 raise LibraryImportCancelledError("Library import cancelled")
 
-            if suffix == ".pgn":
-                opened = open_pgn(source_path)
+            if suffix == ".pgn" or suffix in BOOK_LIBRARY_SUFFIXES:
+                opened = (
+                    open_pgn(source_path) if suffix == ".pgn"
+                    else open_book_library_source(source_path, cancel_check=cancelled)
+                )
                 if cancelled():
                     raise LibraryImportCancelledError("Library import cancelled")
+                if suffix in BOOK_LIBRARY_SUFFIXES:
+                    book_source_format = suffix.lstrip(".")
+                    retained_book_blocks = opened.retained_book_blocks
                 if not opened.games:
                     self._emit_if_current(
                         generation,
@@ -622,15 +648,18 @@ class Version2WindowsFileActionDelegate:
                             FileWorkflowEventKind.IMPORT_EMPTY,
                             "library.import",
                             focus_target="library-import-file",
+                            warning_count=(0 if suffix == ".pgn" else len(opened.warnings)),
+                            source_format=book_source_format,
+                            retained_book_blocks=retained_book_blocks,
                         ),
                     )
                     return
                 imported = services.library.import_games(
                     opened.games,
                     source_name=report_safe_name(opened.source.path),
-                    source_format="pgn",
+                    source_format="pgn" if suffix == ".pgn" else suffix.lstrip("."),
                     source_sha256=opened.source.sha256,
-                    source_warning_count=len(opened.global_warnings),
+                    source_warning_count=len(opened.global_warnings) if suffix == ".pgn" else len(opened.warnings),
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
@@ -677,10 +706,12 @@ class Version2WindowsFileActionDelegate:
                     processed_games=game_count,
                     total_games=game_count,
                     game_count=game_count,
+                    source_format=book_source_format,
+                    retained_book_blocks=retained_book_blocks,
                     warning_count=warning_count,
                 ),
             )
-        except LibraryImportCancelledError:
+        except (LibraryImportCancelledError, SourceReadCancelledError):
             self._emit_if_current(
                 generation,
                 FileWorkflowEvent(
@@ -689,6 +720,12 @@ class Version2WindowsFileActionDelegate:
                     focus_target="library-import-file",
                 ),
             )
+        except BookLibrarySourceReadError:
+            self._emit_if_current(
+                generation,
+                FileWorkflowEvent(FileWorkflowEventKind.FAILED, "library.import",
+                                  focus_target="library-import-file", error_code="book_source_read_failed"),
+            )
         except PgnFileError:
             self._emit_if_current(
                 generation,
@@ -696,7 +733,9 @@ class Version2WindowsFileActionDelegate:
                     FileWorkflowEventKind.FAILED,
                     "library.import",
                     focus_target="library-import-file",
-                    error_code="pgn_import_failed",
+                    error_code=("pgn_import_failed" if suffix == ".pgn"
+                                else "book_source_read_failed" if suffix in BOOK_LIBRARY_SUFFIXES
+                                else "chessbase_import_failed"),
                 ),
             )
         except Exception:

@@ -6,6 +6,7 @@ It never creates the legacy presenter's independent Board return point.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import re
 from typing import Any
 
 from .book_board_workflow import (
@@ -45,6 +46,10 @@ _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS = 1_200
 _MAX_BOOK_SEMANTIC_RESULT_UNITS = 16
 _MAX_BOOK_SEMANTIC_NODE_ID_CHARS = 4_096
 _BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
+_BOOK_SEMANTIC_METADATA = (
+    ("event", "Event"), ("site", "Site"), ("date", "Date"),
+    ("round", "Round"), ("eco", "ECO"), ("opening", "Opening"),
+)
 
 _SEMANTIC_LABELS = {
     UILanguage.UA: {
@@ -53,6 +58,8 @@ _SEMANTIC_LABELS = {
         "result": "Результат",
         "variation_depth": "Рівень варіанта",
         "unknown": "невідомо",
+        "event": "Подія", "site": "Місце", "date": "Дата",
+        "round": "Тур", "eco": "ECO", "opening": "Дебют",
         "reading_unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
         "content_unavailable": "Шаховий вміст цієї партії недоступний або невалідний; відкриття на шахівниці вимкнено.",
     },
@@ -62,6 +69,8 @@ _SEMANTIC_LABELS = {
         "result": "Result",
         "variation_depth": "Variation depth",
         "unknown": "unknown",
+        "event": "Event", "site": "Site", "date": "Date",
+        "round": "Round", "eco": "ECO", "opening": "Opening",
         "reading_unavailable": "This game's moves cannot be displayed safely; the board remains available.",
         "content_unavailable": "This game's chess content is unavailable or invalid; opening it on the board is disabled.",
     },
@@ -70,10 +79,6 @@ _SEMANTIC_LABELS = {
 
 class _BookSemanticProjectionError(ValueError):
     pass
-
-
-class Version2BookReaderPresenter(BookReaderPresenter):
-    """V2 presentation reuses the canonical BookReader semantic block projection."""
 
 
 class Version2BookWebViewProjection(BookWebViewProjection):
@@ -89,7 +94,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise TypeError("V2 Books requires the canonical reader and workflow")
         self._reader = reader
         self._workflow = workflow
-        super().__init__(Version2BookReaderPresenter(reader, language=language), dispatch, language=language)
+        # BookWebViewProjection deliberately accepts only the exact canonical
+        # presenter type so subclasses cannot override publication behavior. V2
+        # adds its GameTree projection here and needs no presenter subclass.
+        super().__init__(BookReaderPresenter(reader, language=language), dispatch, language=language)
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
@@ -156,6 +164,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 if type(comment) is not Comment:
                     raise _BookSemanticProjectionError("semantic raw comment is invalid")
                 claim_raw_text(comment.text)
+
+        # Only known chess metadata enters reading DTOs. Bound source scalars
+        # before presenter construction; paths are redacted by the same safe()
+        # authority as move comments when the public detail rows are rendered.
+        for _kind, tag in _BOOK_SEMANTIC_METADATA:
+            claim_raw_text(game.tags.get(tag, ""), max_units=1_200)
 
         white_raw = game.tags.get("White", "")
         black_raw = game.tags.get("Black", "")
@@ -408,6 +422,16 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # The browser renders the players label/value as one paragraph with
         # ": " between the already-counted serialized fields.
         account_visible_units(2)
+        details = []
+        for kind, tag in _BOOK_SEMANTIC_METADATA:
+            value = game.tags.get(tag, "")
+            if not value.strip():
+                continue
+            label = safe(labels[kind], allow_empty=False,
+                         max_units=_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS)
+            public_value = safe(value, allow_empty=False, max_units=1_200)
+            account_visible_units(2)
+            details.append({"kind": kind, "label": label, "value": public_value})
         result_label = safe(
             labels["result"],
             allow_empty=False,
@@ -630,6 +654,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "label": semantic_label,
             "players_label": players_label,
             "players": players,
+            "details": tuple(details),
             "result_label": result_label,
             "variation_depth_label": variation_depth_label,
             "result": result_text,
@@ -653,7 +678,26 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         snapshot = super()._snapshot_from_block(block)
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
-        semantic = self._reader.block_snapshot(block.index)
+        semantic, book_title, book_author, source_language = self._reader.block_reading_snapshot(block.index)
+        valid_source_language = (type(source_language) is str and len(source_language) <= 63
+                                 and re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", source_language))
+        def reading_metadata(value):
+            if value is None:
+                return ""
+            # Metadata stays complete in BookDocument; indicate the bounded
+            # presentation excerpt rather than scanning a source-sized scalar.
+            excerpt = value if len(value) <= 359 else value[:358] + "…"
+            return _safe_text(excerpt, language=self.language, limit=360)
+        snapshot["book_metadata"] = {
+            "title": reading_metadata(book_title),
+            "author": reading_metadata(book_author),
+            "language": source_language if valid_source_language else "",
+        }
+        if block.kind in {"Heading", "Paragraph", "List"}:
+            # Source metadata is not a UI locale. Publish a bounded language
+            # token only for narrative content; chess controls keep UI language.
+            if valid_source_language:
+                snapshot["block"]["content_language"] = source_language
         board_active, workflow_revision = self._workflow_presentation_state()
         can_open_position = isinstance(
             semantic,

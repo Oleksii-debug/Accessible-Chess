@@ -109,6 +109,8 @@ def _make_tree(root: Path) -> None:
         "full_product_teacher.js",
         "full_product_education.js",
         "version2_final_product_bootstrap.js",
+        "version2_local_profile.js",
+        "p0_accessibility_runtime.js",
         "version2_release_bootstrap.js",
         "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
         "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
@@ -531,7 +533,11 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 zip_report = _validate_zip(archive)
                 self.assertEqual(zip_report.integration_sha, _SHA)
 
-            _write_inventory_wave(alt, sample=778)
+            original_size = alt.stat().st_size
+            original_digest = _sha256(alt)
+            _write_inventory_wave(alt, sample=77, sample_width=1)
+            self.assertEqual(alt.stat().st_size, original_size)
+            self.assertNotEqual(_sha256(alt), original_digest)
             # Demonstrate that regenerating the package's generic checksum list
             # cannot legitimize a substituted non-default runtime WAV.
             _write_checksums(root)
@@ -778,6 +784,8 @@ class Version2PackagePreflightTests(unittest.TestCase):
             "full_product_teacher.js",
             "full_product_education.js",
             "version2_final_product_bootstrap.js",
+            "version2_local_profile.js",
+            "p0_accessibility_runtime.js",
             "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
             "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
         )
@@ -792,6 +800,12 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     Version2PackagePreflightError, "web resource is missing"
                 ):
                     _validate_tree(root)
+                archive = Path(td) / "missing-resource.zip"
+                _zip_tree(root, archive)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError, "web resource is missing"
+                ):
+                    _validate_zip(archive)
 
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:

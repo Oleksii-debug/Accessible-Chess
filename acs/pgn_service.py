@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterable, TextIO
+from typing import Callable, Iterable, TextIO
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .import_contract import (
@@ -176,6 +176,30 @@ def _bounded_source_size(path: Path) -> int | None:
 
 def _source_identity(st: os.stat_result) -> tuple[int, int]:
     return int(st.st_dev), int(st.st_ino)
+
+
+def _export_parent_identity(path: Path) -> tuple[int, int]:
+    """Bind publication to one direct destination-directory object."""
+
+    try:
+        current = path.lstat()
+    except OSError as exc:
+        raise PgnUnsafePathError("PGN export directory could not be bound safely") from exc
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or stat.S_ISLNK(current.st_mode)
+        or _is_reparse_point(current)
+    ):
+        raise PgnUnsafePathError("PGN export parent must be a direct directory")
+    return _source_identity(current)
+
+
+def _assert_bound_export_parent(
+    path: Path,
+    expected_identity: tuple[int, int],
+) -> None:
+    if _export_parent_identity(path) != expected_identity:
+        raise PgnUnsafePathError("PGN export directory changed during save")
 
 
 def _open_direct_source(path: Path):
@@ -588,12 +612,27 @@ def _write_games_incrementally(handle: TextIO, games: Iterable[PgnGame]) -> None
         handle.write("\n")
 
 
+def _validated_expected_sha256(value: object) -> str | None:
+    """Validate optimistic-CAS identity before any filesystem mutation."""
+
+    if value is None:
+        return None
+    # Digests cross CLI/application boundaries. Require passive canonical text
+    # before equality/hash work so a str subclass cannot execute provider hooks.
+    if type(value) is not str:
+        raise TypeError("expected_sha256 must be lowercase SHA-256 hex or None")
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("expected_sha256 must be lowercase SHA-256 hex")
+    return value
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
     *,
     overwrite: bool = False,
     expected_sha256: str | None = None,
+    pre_publish_check: Callable[[], None] | None = None,
 ) -> SourceFingerprint:
     """Serialize GameTree content and commit one complete PGN file safely.
 
@@ -608,8 +647,16 @@ def save_pgn_atomic(
     inode snapshot so an in-place writer racing at publication is detected and
     restored instead of silently lost. Plain ``overwrite=True`` without an
     expected digest intentionally requests unconditional replacement.
+
+    ``pre_publish_check`` runs after the temporary file has been completely
+    written, flushed and fsynced, but before any publication primitive can make
+    it visible at ``destination``. If it raises, the temporary file is
+    cleaned and the destination remains unchanged.
     """
 
+    if pre_publish_check is not None and not callable(pre_publish_check):
+        raise TypeError("pre_publish_check must be callable")
+    expected_sha256 = _validated_expected_sha256(expected_sha256)
     destination = Path(path)
     _reject_export_indirection(destination)
     if destination.exists() and not overwrite:
@@ -621,6 +668,7 @@ def save_pgn_atomic(
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_export_indirection(destination)
+    parent_identity = _export_parent_identity(destination.parent)
 
     tmp_path: Path | None = None
     try:
@@ -634,11 +682,20 @@ def save_pgn_atomic(
             delete=False,
         ) as handle:
             tmp_path = Path(handle.name)
+            # NamedTemporaryFile resolves the parent pathname again. Re-check
+            # the exact directory object before consuming any user chess data,
+            # so a direct-directory substitution cannot redirect the payload.
+            _assert_bound_export_parent(destination.parent, parent_identity)
             _write_games_incrementally(handle, games)
             handle.flush()
             os.fsync(handle.fileno())
 
         _reject_export_indirection(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
+        if pre_publish_check is not None:
+            pre_publish_check()
+        _reject_export_indirection(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
@@ -655,7 +712,14 @@ def save_pgn_atomic(
             except FileNotFoundError:
                 pass
 
-    return fingerprint(destination)
+    # Publication has committed. Bind the returned provenance to the same
+    # destination-directory object as the write; otherwise a post-commit
+    # directory substitution could make fingerprint() authenticate unrelated
+    # bytes at the same pathname and falsely report them as this save.
+    _assert_bound_export_parent(destination.parent, parent_identity)
+    published = fingerprint(destination)
+    _assert_bound_export_parent(destination.parent, parent_identity)
+    return published
 
 
 def export_game_atomic(

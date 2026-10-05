@@ -57,6 +57,7 @@ def _opf(*, version: str = "3.0", unique_identifier: str | None = "bookid") -> b
   <metadata>
     <dc:identifier id="bookid">urn:uuid:test-book</dc:identifier>
     <dc:title>Package contract</dc:title>
+    <dc:language>uk</dc:language>
   </metadata>
   <manifest>
     <item id="chapter" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/>

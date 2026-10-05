@@ -79,6 +79,18 @@ class DialogFocusFrame:
     initial_focus_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ShellPresentationState:
+    """Rollback-only snapshot of browser-visible shell presentation state."""
+
+    language: UILanguage
+    route_id: str
+    focus_by_route: tuple[tuple[str, str], ...]
+    dialogs: tuple[DialogFocusFrame, ...]
+    focus_observation_sequence: int
+    last_observed_focus: tuple[int, str, str] | None
+
+
 class AccessibleShellState:
     """Deterministic presentation-only route, dialog and focus state.
 
@@ -101,6 +113,9 @@ class AccessibleShellState:
         self._route_id = initial_route
         self._focus_by_route: dict[str, str] = {}
         self._dialogs: list[DialogFocusFrame] = []
+        self._focus_observation_sequence = 0
+        self._last_observed_focus: tuple[int, str, str] | None = None
+        self._publication_hold_active = False
 
     @property
     def language(self) -> UILanguage:
@@ -114,14 +129,50 @@ class AccessibleShellState:
     def active_dialog_id(self) -> str | None:
         return self._dialogs[-1].dialog_id if self._dialogs else None
 
+    def _capture_presentation_state(self) -> _ShellPresentationState:
+        """Capture only transient route/focus/locale state for publication rollback."""
+        return _ShellPresentationState(
+            language=self._language,
+            route_id=self._route_id,
+            focus_by_route=tuple(self._focus_by_route.items()),
+            dialogs=tuple(self._dialogs),
+            focus_observation_sequence=self._focus_observation_sequence,
+            last_observed_focus=self._last_observed_focus,
+        )
+
+    def _restore_presentation_state(self, state: _ShellPresentationState) -> None:
+        if type(state) is not _ShellPresentationState:
+            raise TypeError("shell presentation rollback state is invalid")
+        newer_observation = (
+            self._last_observed_focus
+            if self._focus_observation_sequence > state.focus_observation_sequence
+            else None
+        )
+        self._language = state.language
+        self._route_id = state.route_id
+        self._focus_by_route = dict(state.focus_by_route)
+        self._dialogs = list(state.dialogs)
+        self._focus_observation_sequence = state.focus_observation_sequence
+        self._last_observed_focus = state.last_observed_focus
+        if newer_observation is not None:
+            sequence, route_id, focus_id = newer_observation
+            self._focus_observation_sequence = sequence
+            self._last_observed_focus = newer_observation
+            if route_id == self._route_id and not self._dialogs:
+                self._focus_by_route[route_id] = focus_id
+
     def set_language(self, language: UILanguage) -> None:
+        self._assert_action_dispatch_ready()
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
         self._language = language
 
     @staticmethod
     def _clean_focus_id(element_id: str) -> str:
-        if not isinstance(element_id, str):
+        # Browser/native identifiers are passive JSON text. Reject subclasses
+        # before regex/string operations can execute provider-defined hooks or
+        # let an active object survive into the focus map/dialog stack.
+        if type(element_id) is not str:
             raise TypeError("focus target id must be text")
         if not element_id:
             return ""
@@ -129,18 +180,53 @@ class AccessibleShellState:
             raise ValueError("focus target id is invalid")
         return element_id
 
+    def _begin_publication_hold(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is already pending")
+        self._publication_hold_active = True
+
+    def _end_publication_hold(self) -> None:
+        if not self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is not pending")
+        self._publication_hold_active = False
+
+    def _assert_action_dispatch_ready(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is pending")
+
     def record_focus(self, element_id: str) -> None:
         clean = self._clean_focus_id(element_id)
         if clean:
             self._focus_by_route[self._route_id] = clean
 
+    def record_observed_focus(self, element_id: str) -> None:
+        """Record focus supplied by the already-visible browser/native host.
+
+        Publication rollback may discard speculative route/dialog changes, but it
+        must not forget a newer focus value that the host had already exposed to
+        the user before dispatch began. Internal/delegate focus mutations use
+        ``record_focus`` and therefore never acquire this preservation marker.
+        """
+        clean = self._clean_focus_id(element_id)
+        if not clean:
+            return
+        self._focus_by_route[self._route_id] = clean
+        if not self._dialogs:
+            self._focus_observation_sequence += 1
+            self._last_observed_focus = (
+                self._focus_observation_sequence,
+                self._route_id,
+                clean,
+            )
+
     def open_route(self, route_id: str, *, current_focus_id: str = "") -> str:
+        self._assert_action_dispatch_ready()
         if route_id not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
         if self._dialogs:
             raise RuntimeError("close active dialog before changing application route")
         if self._clean_focus_id(current_focus_id):
-            self.record_focus(current_focus_id)
+            self.record_observed_focus(current_focus_id)
         self._route_id = route_id
         return self.restore_focus_target()
 
@@ -157,6 +243,7 @@ class AccessibleShellState:
         opener_focus_id: str,
         initial_focus_id: str,
     ) -> str:
+        self._assert_action_dispatch_ready()
         dialog = self._clean_focus_id(dialog_id)
         opener = self._clean_focus_id(opener_focus_id)
         initial = self._clean_focus_id(initial_focus_id)
@@ -168,6 +255,7 @@ class AccessibleShellState:
         return initial
 
     def close_dialog(self, dialog_id: str | None = None) -> str:
+        self._assert_action_dispatch_ready()
         if not self._dialogs:
             raise LookupError("no dialog is open")
         frame = self._dialogs[-1]

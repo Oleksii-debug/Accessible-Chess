@@ -13,7 +13,7 @@ _BROWSER_MAX_SAFE_INTEGER = (1 << 53) - 1
 
 class LibraryWebViewBridge:
     _SEARCH_FIELDS = frozenset(
-        {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit"}
+        {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit", "date_from", "date_to"}
     )
 
     def __init__(self, projection: LibraryWebViewProjection) -> None:
@@ -37,7 +37,7 @@ class LibraryWebViewBridge:
             return {}
         if type(value) is not dict:
             raise ValueError("invalid library browser payload")
-        if len(value) > 8:
+        if len(value) > 10:
             raise ValueError("invalid library browser payload")
         result: dict[str, object] = {}
         for key, item in value.items():
@@ -134,6 +134,8 @@ class LibraryWebViewBridge:
             result=self._result(data.get("result")),
             source_id=self._positive_int(data.get("source_id"), "source_id"),
             source_name=self._text(data.get("source_name"), "source_name"),
+            date_from=self._text(data.get("date_from"), "date_from"),
+            date_to=self._text(data.get("date_to"), "date_to"),
             limit=self._limit(data.get("limit")),
         ).normalized()
 

@@ -1,0 +1,109 @@
+name: Current BookDocument Training Resource Convergence
+
+on:
+  pull_request:
+    branches:
+      - fix/current-bookdocument-total-text-budget-20261004-zftrkmo
+    paths:
+      - '.github/workflows/current-bookdocument-training-resource-convergence.yml'
+      - '.github/workflows/current-training-progress-json-prehash-bounds.yml'
+      - 'acs/training_progress_store.py'
+      - 'tests/test_training_progress_json_prehash_bounds_current.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-bookdocument-training-resource-convergence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact convergence candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove live two-parent Product geometry and bounded scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          TRAINING_BRANCH: fix/training-progress-json-prehash-bounds-20261004-sol56t8k4
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test -n "${EVENT_BASE_REF:-}"
+          test -n "${EVENT_BASE_SHA:-}"
+
+          git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
+          live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
+          test "$EVENT_BASE_SHA" = "$live_base"
+
+          git fetch --no-tags origin "+refs/heads/$TRAINING_BRANCH:refs/remotes/origin/$TRAINING_BRANCH"
+          live_training="$(git rev-parse "refs/remotes/origin/$TRAINING_BRANCH")"
+
+          git merge-base --is-ancestor "$live_base" HEAD
+          git merge-base --is-ancestor "$live_training" HEAD
+
+          convergence="$(git rev-parse HEAD^)"
+          parents="$(git show -s --format=%P "$convergence")"
+          test "$parents" = "$live_base $live_training"
+
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-bookdocument-training-resource-convergence.yml' \
+            '.github/workflows/current-training-progress-json-prehash-bounds.yml' \
+            'acs/training_progress_store.py' \
+            'tests/test_training_progress_json_prehash_bounds_current.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected BookDocument/Training resource convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          echo "BOOKDOCUMENT_TRAINING_CONVERGENCE_BASE=$live_base"
+          echo "BOOKDOCUMENT_TRAINING_CONVERGENCE_TRAINING=$live_training"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile converged resource-safety surfaces
+        run: >-
+          python -m compileall -q
+          acs/bookdocument.py
+          acs/training_progress_store.py
+          tests/test_bookdocument_total_text_budget_current.py
+          tests/test_training_progress_json_prehash_bounds_current.py
+
+      - name: Execute focused BookDocument and TrainingProgress resource regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument_total_text_budget_current
+          tests.test_training_progress_json_prehash_bounds_current
+
+      - name: Execute retained semantic reading and durable Training regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_book_training_passive_roots_current
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_version2_training_current_runtime
+          tests.test_pgn_presenter_graph_safety_current
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest

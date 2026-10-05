@@ -380,7 +380,10 @@ class BookReaderTests(unittest.TestCase):
             nonlocal checks
             checks += 1
             original_check()
-            if checks == 3:
+            if checks == 1:
+                # Mutate immediately after the operation's preflight. The
+                # final barrier, not a redundant intermediate whole-book hash,
+                # must reject publication and preserve rollback semantics.
                 book.blocks[2].text = "Concurrent chapter"
 
         reader._require_indexed_revision = mutate_after_target_validation
@@ -407,7 +410,10 @@ class BookReaderTests(unittest.TestCase):
             nonlocal checks
             checks += 1
             original_check()
-            if checks == 3:
+            if checks == 1:
+                # Mutate immediately after the operation's preflight. The
+                # final barrier, not a redundant intermediate whole-book hash,
+                # must reject publication and preserve rollback semantics.
                 book.blocks[2].text = "Concurrent chapter"
 
         reader._require_indexed_revision = mutate_after_target_validation

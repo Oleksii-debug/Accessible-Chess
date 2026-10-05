@@ -28,16 +28,19 @@ _CONTAINER = b'''<?xml version="1.0" encoding="UTF-8"?>
 
 def _epub(chapter: bytes) -> bytes:
     opf = b'''<?xml version="1.0" encoding="UTF-8"?>
-<package version="3.0"
+<package version="3.0" unique-identifier="bookid"
  xmlns="http://www.idpf.org/2007/opf"
  xmlns:dc="http://purl.org/dc/elements/1.1/">
   <metadata>
+    <dc:identifier id="bookid">urn:acs:application-reachability-fixture</dc:identifier>
     <dc:title>Application EPUB</dc:title>
     <dc:language>uk</dc:language>
     <dc:rights>Test fixture</dc:rights>
+    <meta property="dcterms:modified">2026-10-05T00:00:00Z</meta>
   </metadata>
   <manifest>
     <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
   </manifest>
   <spine><itemref idref="c1"/></spine>
 </package>'''
@@ -49,6 +52,7 @@ def _epub(chapter: bytes) -> bytes:
         archive.writestr("META-INF/container.xml", _CONTAINER, compress_type=zipfile.ZIP_DEFLATED)
         archive.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
         archive.writestr("OEBPS/Text/ch1.xhtml", chapter, compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr("OEBPS/nav.xhtml", b'<html xmlns="http://www.w3.org/1999/xhtml"><body><nav/></body></html>', compress_type=zipfile.ZIP_DEFLATED)
     return buffer.getvalue()
 
 
@@ -198,7 +202,7 @@ class Version2EpubApplicationReachabilityTests(unittest.TestCase):
         oversize = self.root / "oversize.epub"
         oversize.write_bytes(b"x" * 17)
         with patch("acs.version2_application.MAX_EPUB_SOURCE_BYTES", 16):
-            with self.assertRaisesRegex(ValueError, "book source exceeds the supported limit"):
+            with self.assertRaisesRegex(ValueError, "source exceeds the supported byte limit"):
                 self.app.open_book(oversize)
 
         self.assertIs(self.app.reader, reader_before)

@@ -20,7 +20,7 @@ from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import Version2Application
-from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
+from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
@@ -228,7 +228,7 @@ class Version2ApplicationTests(unittest.TestCase):
 
         snapshot = self.app.snapshot()
         book = snapshot["books"]
-        tree = book["block"].get("semantic_tree")
+        tree = book.get("semantic_tree")
 
         self.assertIsInstance(tree, dict)
         self.assertEqual(tree["players"], "Петренко — Smith")
