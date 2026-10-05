@@ -797,6 +797,96 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             )
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_worker_start_base_exception_releases_reserved_slot_for_all_file_workers(self) -> None:
+        class StartAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "worker-start-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+
+            cases = []
+
+            open_events = []
+            open_delegate = self._delegate(
+                source,
+                event_sink=open_events.append,
+                post_to_ui=lambda callback: None,
+            )
+            cases.append(
+                (
+                    open_delegate,
+                    "pgn.open",
+                    "pgn_open_worker_unavailable",
+                    lambda: open_delegate.pgn_open_running,
+                    open_events,
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                )
+            )
+
+            import_events = []
+            import_delegate = self._delegate(
+                source,
+                event_sink=import_events.append,
+                post_to_ui=lambda callback: None,
+            )
+            cases.append(
+                (
+                    import_delegate,
+                    "library.import",
+                    "import_worker_unavailable",
+                    lambda: import_delegate.import_running,
+                    import_events,
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                )
+            )
+
+            session = PgnDocumentSession.open(source)
+            save_events = []
+            save_delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=save_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: None,
+            )
+            cases.append(
+                (
+                    save_delegate,
+                    "pgn.save",
+                    "pgn_save_worker_unavailable",
+                    lambda: save_delegate.pgn_save_running,
+                    save_events,
+                    FileWorkflowEventKind.PGN_SAVE_STARTED,
+                )
+            )
+
+            for delegate, action_id, error_code, running, events, started_kind in cases:
+                with self.subTest(action_id=action_id):
+                    with mock.patch.object(
+                        threading.Thread,
+                        "start",
+                        autospec=True,
+                        side_effect=StartAbort("thread start aborted"),
+                    ) as start:
+                        result = delegate(action_id, {})
+
+                    self.assertEqual(start.call_count, 1)
+                    self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+                    self.assertEqual(result.action_id, action_id)
+                    self.assertEqual(result.error_code, error_code)
+                    self.assertEqual(result.focus_target, "pgn-tree")
+                    self.assertFalse(running())
+                    self.assertEqual(
+                        [event.kind for event in events],
+                        [started_kind, FileWorkflowEventKind.FAILED],
+                    )
+
     def test_pgn_ui_post_failure_after_shutdown_does_not_publish_late_terminal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "late-post-failure.pgn"
