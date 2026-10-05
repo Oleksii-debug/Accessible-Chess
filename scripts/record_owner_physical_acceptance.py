@@ -362,6 +362,28 @@ def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
     )
 
 
+def _remove_owned_publication_file(
+    path: Path,
+    expected_identity: os.stat_result,
+) -> None:
+    """Remove a private publication pathname only while it still names our object."""
+
+    try:
+        current = path.lstat()
+    except OSError:
+        return
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or _is_reparse(current)
+        or not _same_file_identity(expected_identity, current)
+    ):
+        return
+    try:
+        path.unlink()
+    except (FileNotFoundError, OSError):
+        return
+
+
 def _publish_exclusive(path: Path, payload: bytes) -> None:
     """Publish exact fsynced acceptance bytes without a close-before-link race."""
 
@@ -369,8 +391,11 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
         _fail("physical acceptance record already exists")
 
     temporary: Path | None = None
+    staging_identity: os.stat_result | None = None
     fd: int | None = None
     cleanup_temporary = True
+    canonical_link_created = False
+    publication_accepted = False
     try:
         try:
             fd, temporary_name = tempfile.mkstemp(
@@ -388,6 +413,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
             with os.fdopen(fd, "wb") as stream:
                 fd = None
                 created = os.fstat(stream.fileno())
+                staging_identity = created
                 if not stat.S_ISREG(created.st_mode) or _is_reparse(created):
                     _fail(
                         "physical acceptance staging file must be a regular non-reparse file"
@@ -421,6 +447,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
 
                 try:
                     os.link(temporary, path, follow_symlinks=False)
+                    canonical_link_created = True
                 except FileExistsError as exc:
                     raise OwnerPhysicalAcceptanceError(
                         "physical acceptance record already exists"
@@ -470,6 +497,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                     ) from exc
                 if readback != payload:
                     _fail("physical acceptance published bytes do not match staged bytes")
+                publication_accepted = True
         except OwnerPhysicalAcceptanceError:
             raise
         except OSError as exc:
@@ -482,11 +510,21 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                 os.close(fd)
             except OSError:
                 pass
-        if temporary is not None and cleanup_temporary:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+        if (
+            canonical_link_created
+            and not publication_accepted
+            and staging_identity is not None
+        ):
+            # If this invocation created the canonical hard link but later
+            # validation rejected it, do not poison retry with our own bytes.
+            # A replaced pathname is foreign authority and must be preserved.
+            _remove_owned_publication_file(path, staging_identity)
+        if (
+            temporary is not None
+            and staging_identity is not None
+            and cleanup_temporary
+        ):
+            _remove_owned_publication_file(temporary, staging_identity)
 
 
 def record_owner_physical_acceptance(
