@@ -115,6 +115,7 @@ class AccessibleShellState:
         self._dialogs: list[DialogFocusFrame] = []
         self._focus_observation_sequence = 0
         self._last_observed_focus: tuple[int, str, str] | None = None
+        self._publication_hold_active = False
 
     @property
     def language(self) -> UILanguage:
@@ -177,6 +178,20 @@ class AccessibleShellState:
         if _FOCUS_ID_PATTERN.fullmatch(element_id) is None:
             raise ValueError("focus target id is invalid")
         return element_id
+
+    def _begin_publication_hold(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is already pending")
+        self._publication_hold_active = True
+
+    def _end_publication_hold(self) -> None:
+        if not self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is not pending")
+        self._publication_hold_active = False
+
+    def _assert_action_dispatch_ready(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is pending")
 
     def record_focus(self, element_id: str) -> None:
         clean = self._clean_focus_id(element_id)
