@@ -221,9 +221,26 @@ class PgnWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         else:
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        return PgnWebViewEvent("render", self.snapshot())
+
+        previous_language = self._language
+        presenter_changed = False
+        try:
+            # PgnTreePresenter stages the complete localized tree before it
+            # commits its own locale. Do not publish the WebView locale until
+            # that presenter transaction succeeds.
+            self._presenter.set_language(language)
+            presenter_changed = True
+            self._language = language
+            snapshot = self.snapshot()
+        except Exception:
+            self._language = previous_language
+            # If presenter rebuild itself failed, its transaction already left
+            # the previous locale/tree untouched. Only undo a committed presenter
+            # switch when later WebView projection failed.
+            if presenter_changed:
+                self._presenter.set_language(previous_language)
+            raise
+        return PgnWebViewEvent("render", snapshot)
 
     def _tree_item(
         self,
