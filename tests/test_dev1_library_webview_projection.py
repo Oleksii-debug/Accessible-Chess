@@ -128,7 +128,7 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         snapshot = projection.snapshot()
         ids = {field["id"] for field in snapshot["filters"]}
         self.assertEqual(
-            {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit"},
+            {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit", "date_from", "date_to"},
             ids,
         )
         self.assertNotIn("after_game_id", repr(snapshot))

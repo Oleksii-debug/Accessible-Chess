@@ -19,6 +19,7 @@ from hashlib import sha256
 from html.parser import HTMLParser
 import re
 from types import MappingProxyType
+from typing import Callable
 from urllib.parse import urlsplit
 
 from .bookdocument import (
@@ -194,7 +195,7 @@ def _source_text(source: object) -> tuple[str, bytes, bool]:
             decoded = decode_book_text_bytes(source, html=True)
         except LegacyTextEncodingError as exc:
             raise BookHtmlImportError(
-                "HTML book source must use UTF-8 or qualified Windows-1251 encoding",
+                "HTML book source must use UTF-8, BOM UTF-16 or qualified Windows-1251 encoding",
                 code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
         return decoded.text, source, decoded.legacy
@@ -1264,10 +1265,13 @@ def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
 def _canonical_pgn_games(
     candidates: list[_PgnCandidate],
     warnings: list[str],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> list[tuple[_PgnCandidate, Game]]:
     games: list[tuple[_PgnCandidate, Game]] = []
     identities: dict[str, int] = {}
     for candidate_index, candidate_record in enumerate(candidates, start=1):
+        if control_checkpoint is not None:
+            control_checkpoint()
         candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
             if len(warnings) < MAX_HTML_WARNINGS:
@@ -1303,6 +1307,8 @@ def _canonical_pgn_games(
                 f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized"
             )
         for game_index, (game, game_source) in enumerate(zip(parsed, sources), start=1):
+            if control_checkpoint is not None:
+                control_checkpoint()
             # Recovery is useful for reading damaged historical sources, but it
             # is not lossless conversion. Preserve canonical diagnostics.
             for warning in game.warnings:
@@ -1369,8 +1375,9 @@ def import_html_book(
     author: str | None = None,
     language: str | None = None,
     available_assets: object = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> BookHtmlImportResult:
-    """Import UTF-8 or qualified Windows-1251 HTML/XHTML into ``BookDocument``.
+    """Import UTF-8, BOM UTF-16 or qualified Windows-1251 into ``BookDocument``.
 
     Network/file access is deliberately outside this adapter.  A trusted host may
     provide a source byte string and, optionally, the names of assets it has
@@ -1381,6 +1388,10 @@ def import_html_book(
     validation before semantic publication.
     """
 
+    if control_checkpoint is not None:
+        if not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable")
+        control_checkpoint()
     display_source = _text(source_name, "source_name")
     override_title = _text(title, "title", optional=True)
     override_author = _text(author, "author", optional=True)
@@ -1389,8 +1400,26 @@ def import_html_book(
     assets = _asset_set(available_assets)
 
     parser = _SemanticHtmlParser(available_assets=assets)
+    # Keep trusted host control outside parser exception translation. A cancelled
+    # import must propagate to its transaction owner, never become damaged prose.
+    chunks = (text,) if control_checkpoint is None else (
+        text[offset:offset + 16_384] for offset in range(0, len(text), 16_384)
+    )
+    for chunk in chunks:
+        if control_checkpoint is not None:
+            control_checkpoint()
+        try:
+            parser.feed(chunk)
+        except BookHtmlImportError:
+            raise
+        except Exception as exc:
+            raise BookHtmlImportError(
+                "HTML book could not be parsed safely",
+                code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+            ) from exc
+    if control_checkpoint is not None:
+        control_checkpoint()
     try:
-        parser.feed(text)
         parser.close()
     except BookHtmlImportError:
         raise
@@ -1399,6 +1428,8 @@ def import_html_book(
             "HTML book could not be parsed safely",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         ) from exc
+    if control_checkpoint is not None:
+        control_checkpoint()
 
     visible_text = "".join(parser.visible_parts)
     warnings = list(parser.warnings)
@@ -1418,6 +1449,7 @@ def import_html_book(
     canonical_games = _canonical_pgn_games(
         sorted(candidates_by_marker.values(), key=lambda item: item.marker_offset),
         warnings,
+        control_checkpoint,
     )
     games_by_marker: dict[int, list[Game]] = {}
     for candidate, game in canonical_games:
@@ -1509,7 +1541,7 @@ def import_html_book(
 SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
     {
         "format": "HTML/XHTML",
-        "encoding": "UTF-8; evidence-gated Windows-1251",
+        "encoding": "UTF-8; BOM-declared UTF-16; evidence-gated Windows-1251",
         "semantic_blocks": (
             "Heading",
             "Paragraph",

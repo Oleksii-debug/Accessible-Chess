@@ -233,7 +233,7 @@ class DeterministicResumeTests(unittest.TestCase):
         definition = self.make_unambiguous_definition()
         snapshot = ExerciseSession(definition).snapshot()
         snapshot["future_hidden_state"] = "x"
-        with self.assertRaisesRegex(ValueError, "unknown fields"):
+        with self.assertRaisesRegex(ValueError, "invalid exercise snapshot field count|unknown fields"):
             ExerciseSession.restore(definition, snapshot)
 
     def test_noncanonical_recorded_san_is_rejected(self):

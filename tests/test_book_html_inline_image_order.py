@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from html.parser import HTMLParser
 from pathlib import Path
 import tempfile
 import unittest
@@ -181,14 +182,15 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
 
         self.assertEqual(result_inner.block_id, baseline_inner.block_id)
         self.assertEqual(result_outer.block_id, baseline_outer.block_id)
-        self.assertEqual(result_outer.text, "Outer InnerLine Tail")
+        self.assertEqual(result_outer.text, "Outer")
         self.assertEqual(
             _semantic_signature(result.document.blocks),
             [
+                ("Paragraph", "Outer"),
                 ("Paragraph", "Inner"),
                 ("ImageNote", "Board"),
                 ("Paragraph", "Line"),
-                ("Paragraph", "Outer InnerLine Tail"),
+                ("Paragraph", "Tail"),
             ],
         )
 
@@ -319,7 +321,7 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 ("Paragraph", "Before"),
                 ("ImageNote", "Board"),
                 ("Paragraph", "Inner"),
-                ("Paragraph", "Inner After"),
+                ("Paragraph", "After"),
             ],
         )
         outer = next(
@@ -564,7 +566,7 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
                 ("ImageNote", "One"),
                 ("Paragraph", "B"),
                 ("Paragraph", "C"),
-                ("Paragraph", "C D"),
+                ("Paragraph", "D"),
                 ("ImageNote", "Two"),
                 ("Paragraph", "E"),
             ],
@@ -1153,6 +1155,13 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(trailing.text, "After")
 
     def test_head_close_contains_all_nested_unclosed_titles_before_body_text(self) -> None:
+        if "title" in getattr(HTMLParser, "RCDATA_CONTENT_ELEMENTS", ()):
+            # Qualified newer parser treats all of this as unclosed title text.
+            # There is no deterministic readable BODY to invent or recover.
+            with self.assertRaises(BookHtmlImportError) as caught:
+                import_html_book('<html><head><title>Outer<title>Inner</head><body><p>Body text</p></body></html>', source_name='malformed-nested-title-close.html')
+            self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.NO_READABLE_CONTENT)
+            return
         result = import_html_book(
             '<html><head><title>Outer<title>Inner</head>'
             '<body><p id="body">Body text</p></body></html>',
@@ -1173,6 +1182,11 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         )
 
     def test_head_close_contains_unclosed_title_before_body_text(self) -> None:
+        if "title" in getattr(HTMLParser, "RCDATA_CONTENT_ELEMENTS", ()):
+            with self.assertRaises(BookHtmlImportError) as caught:
+                import_html_book('<html><head><title>Book title</head><body><p>Body text</p></body></html>', source_name='malformed-title-close.html')
+            self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.NO_READABLE_CONTENT)
+            return
         result = import_html_book(
             '<html><head><title>Book title</head>'
             '<body><p id="body">Body text</p></body></html>',
@@ -1718,7 +1732,7 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
 
     def test_nested_rich_list_split_restores_legacy_list_progress_identity(self) -> None:
         baseline = import_html_book(
-            '<html><body><ul id="choices"><li>Before Inner Tail After</li></ul>'
+            '<html><body><ul id="choices"><li>Before InnerTail After</li></ul>'
             '</body></html>',
             source_name="nested-rich-list-progress-baseline.html",
         )

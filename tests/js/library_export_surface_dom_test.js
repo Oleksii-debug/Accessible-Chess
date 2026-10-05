@@ -72,32 +72,59 @@ function check(condition, message) {
 
 function snapshot(checked) {
   return {
+    document: { lang: "en", landmark: "main" },
+    status: "ready",
+    import: {
+      phase: "idle", heading: "Import", description: "Import games",
+      processed_games: 0, total_games: 0, progress_label: "", message: "",
+      actions: [
+        { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: true },
+        { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel", enabled: false }
+      ]
+    },
     heading: "Library",
     description: "Search games",
     filters_heading: "Filters",
     results_heading: "Results",
     export_selection_heading: "Games to export",
+    export_selection_count: checked ? 1 : 0,
     search_label: "Search",
     transport_error_message: "Could not complete action.",
-    filters: [{ id: "player", kind: "text", label: "Player", value: "" }],
+    filters: [
+      { id: "player", kind: "text", label: "Player", value: "" },
+      { id: "event", kind: "text", label: "Event", value: "" },
+      { id: "eco", kind: "text", label: "ECO", value: "" },
+      { id: "opening", kind: "text", label: "Opening", value: "" },
+      { id: "result", kind: "select", label: "Result", value: "", options: ["", "1-0", "0-1", "1/2-1/2", "*"].map((value) => ({ value, label: value || "Any" })) },
+      { id: "source_id", kind: "number", label: "Source ID", value: "", minimum: 1 },
+      { id: "source_name", kind: "text", label: "Source name", value: "" },
+      { id: "limit", kind: "select", label: "Limit", value: "50", options: ["25", "50", "100", "200"].map((value) => ({ value, label: value })) },
+      { id: "date_from", kind: "text", label: "Date from", value: "" },
+      { id: "date_to", kind: "text", label: "Date to", value: "" }
+    ],
     rows: [{
       game_id: 7,
-      dom_id: "library-game-a1",
+      dom_id: "library-game-0123456789abcdefabcd",
       position: 1,
       selected: true,
       label: "Alpha — Beta",
       source_label: "library.pgn",
       result: "*",
       export_selected: checked,
-      export_dom_id: "library-game-a1-export",
+      export_dom_id: "library-game-0123456789abcdefabcd-export",
       export_label: "Include in export: Alpha — Beta"
     }],
     actions: [
+      { action: "library.previous_page", label: "Previous", enabled: false },
+      { action: "library.next_page", label: "Next", enabled: false },
+      { action: "library.open_game", label: "Open", enabled: true },
+      { action: "library.reset_filters", label: "Reset", enabled: true },
       { action: "library.export_selected", label: "Export selected games", enabled: checked },
-      { action: "library.export_filtered", label: "Export filtered results", enabled: true }
+      { action: "library.export_filtered", label: "Export filtered results", enabled: true },
+      { action: "library.clear_export_selection", label: "Clear export selection", enabled: checked }
     ],
     selected_game_id: 7,
-    focus_target: "library-game-a1",
+    focus_target: "library-game-0123456789abcdefabcd",
     summary: "1 game shown.",
     message: ""
   };
@@ -114,7 +141,7 @@ function snapshot(checked) {
         kind: "render",
         payload: {
           snapshot: snapshot(true),
-          focus_target: "library-game-a1-export",
+          focus_target: "library-game-0123456789abcdefabcd-export",
           announcement: "Added to export."
         }
       });
@@ -123,8 +150,8 @@ function snapshot(checked) {
   };
   const announce = (message) => announcements.push(message);
 
-  window.AccessibleChessLibrarySurface.render(root, snapshot(false), invoke, announce, "library-game-a1");
-  const checkbox = root.querySelector("#library-game-a1-export");
+  window.AccessibleChessLibrarySurface.render(root, snapshot(false), invoke, announce, "library-game-0123456789abcdefabcd");
+  const checkbox = root.querySelector("#library-game-0123456789abcdefabcd-export");
   check(checkbox !== null, "export checkbox missing");
   check(checkbox.tagName === "INPUT", "export selector is not a native input");
   check(checkbox.checked === false, "export checkbox should start unchecked");
@@ -138,7 +165,7 @@ function snapshot(checked) {
   check(calls.length === 1, "export toggle did not dispatch exactly once");
   check(calls[0][0] === "library.toggle_export_selection", "wrong export command");
   check(calls[0][1].game_id === 7, "wrong export game identity");
-  const replacement = root.querySelector("#library-game-a1-export");
+  const replacement = root.querySelector("#library-game-0123456789abcdefabcd-export");
   check(replacement !== checkbox, "export render did not replace stale checkbox state");
   check(replacement.checked === true, "export checkbox did not reflect canonical presentation state");
   check(document.activeElement === replacement, "export checkbox focus was not restored after render");

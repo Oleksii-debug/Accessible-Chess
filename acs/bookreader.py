@@ -87,6 +87,27 @@ class BookReader:
         self._require_indexed_revision()
         return len(self._indexed_document.warnings)
 
+    def document_language_snapshot(self) -> str | None:
+        """Source language from the same detached revision as readable blocks."""
+        self._require_indexed_revision()
+        return self._indexed_document.language
+
+    def document_title_author_snapshot(self) -> tuple[str, str | None]:
+        """Reading metadata from the immutable indexed document revision."""
+        self._require_indexed_revision()
+        return self._indexed_document.title, self._indexed_document.author
+
+    def block_reading_snapshot(self, index: int):
+        """One validated block plus its detached document reading metadata.
+
+        Sharing block_snapshot's revision check avoids rescanning a large book
+        separately for title, author and language. No live authoring metadata or
+        mutable indexed block is returned.
+        """
+        block = self.block_snapshot(index)
+        return (block, self._indexed_document.title, self._indexed_document.author,
+                self._indexed_document.language)
+
     def document_warnings_snapshot(
         self,
         *,

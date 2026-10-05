@@ -10,6 +10,7 @@ from typing import Callable
 
 from .book_epub_import import MAX_EPUB_SOURCE_BYTES, import_epub_book
 from .book_html_import import MAX_HTML_SOURCE_BYTES, import_html_book
+from .book_text_import import MAX_TEXT_SOURCE_BYTES, BookTextFormat, import_text_book
 from .book_game_content import resolve_book_game
 from .bookdocument import Game
 from .gametree import PgnGame
@@ -17,7 +18,11 @@ from .import_contract import SourceFingerprint, SourceReadCancelledError, read_s
 from .report_paths import report_safe_name
 
 
-BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.html', '.htm', '.xhtml'})
+BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.html', '.htm', '.xhtml', '.md', '.markdown'})
+
+
+class BookLibrarySourceReadError(ValueError):
+    """A bounded book source could not be read under the canonical authority."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +30,7 @@ class BookLibrarySource:
     source: SourceFingerprint
     games: tuple[PgnGame, ...]
     warnings: tuple[str, ...]
+    retained_book_blocks: int = 0
 
 
 def open_book_library_source(
@@ -34,8 +40,16 @@ def open_book_library_source(
     suffix = source_path.suffix.casefold()
     if suffix not in BOOK_LIBRARY_SUFFIXES:
         raise ValueError('book format is not supported for Library game import')
-    limit = MAX_EPUB_SOURCE_BYTES if suffix == '.epub' else MAX_HTML_SOURCE_BYTES
-    source, raw = read_source_snapshot(source_path, max_bytes=limit, cancel_check=cancel_check)
+    if suffix == '.epub':
+        limit = MAX_EPUB_SOURCE_BYTES
+    elif suffix in {'.md', '.markdown'}:
+        limit = MAX_TEXT_SOURCE_BYTES
+    else:
+        limit = MAX_HTML_SOURCE_BYTES
+    try:
+        source, raw = read_source_snapshot(source_path, max_bytes=limit, cancel_check=cancel_check)
+    except (OSError, ValueError):
+        raise BookLibrarySourceReadError('book source could not be read safely') from None
 
     def poll():
         if cancel_check is not None:
@@ -46,10 +60,13 @@ def open_book_library_source(
                 raise SourceReadCancelledError('book game import cancelled')
 
     poll()
+    control = {"control_checkpoint": poll} if cancel_check is not None else {}
     if suffix == '.epub':
-        imported = import_epub_book(raw, source_name=report_safe_name(source_path))
+        imported = import_epub_book(raw, source_name=report_safe_name(source_path), **control)
+    elif suffix in {'.md', '.markdown'}:
+        imported = import_text_book(raw, source_name=report_safe_name(source_path), source_format=BookTextFormat.MARKDOWN, **control)
     else:
-        imported = import_html_book(raw, source_name=report_safe_name(source_path), available_assets=())
+        imported = import_html_book(raw, source_name=report_safe_name(source_path), available_assets=(), **control)
     poll()
     games = []
     prose_blocks = 0
@@ -70,4 +87,4 @@ def open_book_library_source(
         warnings.append(
             f'Library imports games only; {prose_blocks} narrative/position blocks remain in the source book. Use Open Book to read them.'
         )
-    return BookLibrarySource(source, tuple(games), tuple(warnings))
+    return BookLibrarySource(source, tuple(games), tuple(warnings), prose_blocks)

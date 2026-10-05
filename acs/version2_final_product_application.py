@@ -969,9 +969,19 @@ class Version2FinalProductApplication(Version2Application):
         if area == "teacher":
             if self.teacher is None:
                 return self._error()
+            if command != "teacher.snapshot" and (
+                self.shell.current_route.route_id != "teacher"
+                or self.shell.active_dialog_id is not None
+            ):
+                return self._error()
             return asdict(self.teacher.dispatch(command, payload))
         if area in {"classes", "education"}:
             if self.education is None:
+                return self._error()
+            if command != "education.snapshot" and (
+                self.shell.current_route.route_id != "classes"
+                or self.shell.active_dialog_id is not None
+            ):
                 return self._error()
             return asdict(self.education.dispatch(command, payload))
         return super().browser_command(area, command, payload)

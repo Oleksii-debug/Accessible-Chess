@@ -384,6 +384,9 @@
       "kind", "label", "players_label", "players", "result_label",
       "variation_depth_label", "result", "intro_comments", "outro_comments", "items"
     ];
+    if (Object.prototype.hasOwnProperty.call(tree, "details")) {
+      expectedTreeFields.push("details");
+    }
     const treeFields = Object.keys(tree);
     if (treeFields.length !== expectedTreeFields.length ||
         expectedTreeFields.some(function (field) {
@@ -430,6 +433,28 @@
     semanticText(tree.players_label, "Book semantic players label", false, 120);
     semanticText(tree.players, "Book semantic players", false, 720);
     addVisibleUnits(2); // ": " between the visible players label and value.
+    if (tree.details !== undefined) {
+      const metadataKinds = ["event", "site", "date", "round", "eco", "opening"];
+      if (!Array.isArray(tree.details) || tree.details.length > metadataKinds.length) {
+        throw new TypeError("Book semantic metadata rows are invalid");
+      }
+      const seenMetadata = new Set();
+      for (let index = 0; index < tree.details.length; index += 1) {
+        const detail = tree.details[index];
+        if (!Object.prototype.hasOwnProperty.call(tree.details, index) ||
+            !detail || typeof detail !== "object" || Array.isArray(detail) ||
+            Object.keys(detail).length !== 3 ||
+            !["kind", "label", "value"].every(function (key) {
+              return Object.prototype.hasOwnProperty.call(detail, key);
+            }) || metadataKinds.indexOf(detail.kind) < 0 || seenMetadata.has(detail.kind)) {
+          throw new TypeError("Book semantic metadata row is invalid");
+        }
+        seenMetadata.add(detail.kind);
+        semanticText(detail.label, "Book semantic metadata label", false, 120);
+        semanticText(detail.value, "Book semantic metadata value", false, 1200);
+        addVisibleUnits(2);
+      }
+    }
     semanticText(tree.result_label, "Book semantic result label", false, 120, false);
     semanticText(
       tree.variation_depth_label,
@@ -572,6 +597,20 @@
       }
     }
     requireBookmarkSpec(snapshot);
+    if (snapshot.book_metadata !== undefined) {
+      const metadata = snapshot.book_metadata;
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+          Object.keys(metadata).length !== 3 ||
+          !["title", "author", "language"].every(function (key) { return Object.prototype.hasOwnProperty.call(metadata, key); })) {
+        throw new TypeError("Book reading metadata is invalid");
+      }
+      requireBoundedText(metadata.title, "Book title", false, 360);
+      requireBoundedText(metadata.author, "Book author", true, 360);
+      requireBoundedText(metadata.language, "Book source language", true, 63);
+      if (metadata.language && !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(metadata.language)) {
+        throw new TypeError("Book source language is invalid");
+      }
+    }
     requireStarterMaterials(snapshot);
     requireActions(
       snapshot.actions,
@@ -601,6 +640,13 @@
       throw new TypeError("Book snapshot block role is invalid");
     }
     requireBoundedText(block.kind, "Book snapshot block kind", false, 80);
+    if (block.content_language !== undefined) {
+      requireBoundedText(block.content_language, "Book content language", false, 63);
+      if (!["Heading", "Paragraph", "List"].includes(block.kind) ||
+          !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(block.content_language)) {
+        throw new TypeError("Book content language is invalid");
+      }
+    }
     const roleByKind = {
       Heading: "heading",
       Paragraph: "paragraph",
@@ -881,6 +927,9 @@
     section.setAttribute("aria-labelledby", heading.id);
     section.appendChild(heading);
     section.appendChild(node("p", tree.players_label + ": " + tree.players));
+    (tree.details || []).forEach(function (detail) {
+      section.appendChild(node("p", detail.label + ": " + detail.value));
+    });
     appendSemanticComments(section, tree.intro_comments);
 
     const children = tree.items.map(function () { return []; });
@@ -992,6 +1041,7 @@
       }
     }
     content.id = String(block.dom_id || "");
+    if (block.content_language) content.setAttribute("lang", block.content_language);
     content.tabIndex = -1;
 
     // Heading ancestry is reading context for the focused block, so keep the
@@ -1125,6 +1175,19 @@
     main.setAttribute("lang", snapshot.document.lang);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage);
+    if (snapshot.book_metadata) {
+      const metadata = snapshot.book_metadata;
+      const title = node("h3", metadata.title);
+      title.id = "book-document-title";
+      if (metadata.language) title.setAttribute("lang", metadata.language);
+      main.appendChild(title);
+      if (metadata.author) {
+        const author = node("p", metadata.author);
+        author.id = "book-document-author";
+        if (metadata.language) author.setAttribute("lang", metadata.language);
+        main.appendChild(author);
+      }
+    }
     const block = snapshot.block || {};
     renderBookBlock(main, block, snapshot.semantic_tree || null);
 

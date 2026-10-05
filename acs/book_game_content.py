@@ -33,6 +33,7 @@ from .gametree import (
     serialize_game,
 )
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
+from .game_identity import GameIdentityContractError, identity_for_game
 
 
 class BookGameContentErrorCode(str, Enum):
@@ -43,6 +44,7 @@ class BookGameContentErrorCode(str, Enum):
     LOOKUP_REQUIRED = "lookup_required"
     INVALID_LOOKUP = "invalid_lookup"
     GAME_NOT_FOUND = "game_not_found"
+    REFERENCE_CHANGED = "reference_changed"
     INVALID_CANONICAL_GAME = "invalid_canonical_game"
     MULTI_GAME_BLOCK = "multi_game_block"
     ROOT_FEN_CONFLICT = "root_fen_conflict"
@@ -421,6 +423,20 @@ def resolve_book_game(
             )
         assert isinstance(game_id, int) and not isinstance(game_id, bool)
         game = _reference_game(game_id, lookup)
+        expected_digest = snapshot.get("game_record_digest")
+        if expected_digest is not None:
+            try:
+                actual_digest = identity_for_game(game).record_digest
+            except GameIdentityContractError:
+                raise BookGameContentError(
+                    "referenced book game identity could not be verified",
+                    code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+                ) from None
+            if actual_digest != expected_digest:
+                raise BookGameContentError(
+                    "referenced book game no longer matches the book identity",
+                    code=BookGameContentErrorCode.REFERENCE_CHANGED,
+                )
     else:  # Enum exhaustiveness / defensive future schema boundary.
         raise BookGameContentError(
             "book game source selection is unsupported",

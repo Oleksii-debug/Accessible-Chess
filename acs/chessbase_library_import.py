@@ -142,13 +142,16 @@ class ChessBaseLibraryImportService:
         self._decoder_config = decoder_config
         self._cbv_extractor_config = cbv_extractor_config
 
-    def _decode_source(self, path: str | Path):
+    def _decode_source(self, path: str | Path, *, cancel_check: CancelCheck | None = None):
         """Return decoded games plus path-safe provenance for CBH or CBV."""
 
         source_path = Path(path)
+        control = {} if cancel_check is None else {
+            "control_checkpoint": lambda: _poll_cancel(cancel_check)
+        }
         suffix = source_path.suffix.lower()
         if suffix == ".cbh":
-            decoded = decode_chessbase_external(source_path, self._decoder_config)
+            decoded = decode_chessbase_external(source_path, self._decoder_config, **control)
             return (
                 decoded,
                 report_safe_name(decoded.source.primary_path),
@@ -173,10 +176,12 @@ class ChessBaseLibraryImportService:
                 source_path,
                 Path(temporary),
                 self._cbv_extractor_config,
+                **control,
             )
             decoded = decode_chessbase_external(
                 extracted.primary_path,
                 self._decoder_config,
+                **control,
             )
             if not verify_source_unchanged(extracted.source, source_path):
                 raise CbvExtractError(
@@ -201,8 +206,9 @@ class ChessBaseLibraryImportService:
     ) -> ChessBaseLibraryImportReport:
         """Decode fully, then atomically publish canonical games to the Library.
 
-        Cancellation is checked before external decoding and again before any
-        ACSDB attempt is created.  The existing Library transaction continues
+        Cancellation is checked before and during external listing/extraction/
+        decoding and again before any ACSDB attempt is created. The existing
+        Library transaction continues
         polling through staging and immediately before commit, so cancellation
         can never publish a partial source.
         """
@@ -215,7 +221,7 @@ class ChessBaseLibraryImportService:
             source_format,
             archive_backend_name,
             archive_backend_sha256,
-        ) = self._decode_source(path)
+        ) = self._decode_source(path, cancel_check=cancel_check)
         _poll_cancel(cancel_check)
 
         warnings = tuple(decoded.warnings)

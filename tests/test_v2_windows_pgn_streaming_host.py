@@ -119,6 +119,11 @@ class Version2WindowsPgnStreamingHostTests(unittest.TestCase):
             self.assertEqual(closed, [True])
             kinds = [event.kind for event in events]
             self.assertIn(FileWorkflowEventKind.IMPORT_PROGRESS, kinds)
+            reading = [event for event in events if event.source_parsing]
+            self.assertTrue(reading)
+            self.assertEqual(reading[-1].source_total_bytes, source.stat().st_size)
+            self.assertEqual(reading[-1].processed_games, 2)
+            self.assertEqual(reading[-1].total_games, 0)
             self.assertEqual(kinds[-1], FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertEqual(events[-1].game_count, 2)
             self.assertEqual(events[-1].total_games, 2)

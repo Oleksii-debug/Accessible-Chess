@@ -201,10 +201,17 @@ class Version2EducationMutationApplication(Version2FinalProductApplication):
             title=title,
             operation_id=operation_id,
         )
+        # Creation adds a record without replacing existing identities. Keep the
+        # current trusted projection so new_class() publishes its selection/page
+        # into the bridge that will handle the next keyboard command. A general
+        # workspace replacement still rebuilds and invalidates that projection.
+        active_bridge = self.education
         revision = self.replace_education_workspace(
             updated,
             expected_revision=self.education_revision,
         )
+        if active_bridge is not None:
+            self.education = active_bridge
         return {"class_id": class_id, "revision": revision}
 
     def _rebuild_education_bridge(self, language: UILanguage) -> None:
