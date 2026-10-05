@@ -72,11 +72,14 @@ jobs:
             "acs/version2_windows_import_event_mailbox.py"
             "acs/version2_windows_import_ui_pump.py"
             "acs/version2_windows_pgn_streaming_host.py"
+            "tests/test_dev4_pgn_export_concurrency_security.py"
             "tests/test_full_product_native_menu.py"
             "tests/test_import_contract.py"
+            "tests/test_pgn_concurrent_save.py"
             "tests/test_pgn_document_passive_ingress.py"
             "tests/test_pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot_cancel.py"
+            "tests/test_pgn_service.py"
             "tests/test_pgn_service_passive_overwrite.py"
             "tests/test_pgn_workspace.py"
             "tests/test_v2_windows_file_worker_preflight.py"
@@ -119,6 +122,8 @@ jobs:
           acs/version2_application.py
           acs/full_product_actions.py
           acs/full_product_native_menu.py
+          tests/test_dev4_pgn_export_concurrency_security.py
+          tests/test_pgn_concurrent_save.py
           tests/test_pgn_document.py
           tests/test_pgn_document_context_atomicity.py
           tests/test_pgn_document_setup_fen_integrity.py
@@ -147,8 +152,10 @@ jobs:
           tests.test_pgn_document_setup_fen_integrity
           tests.test_pgn_save_snapshot
           tests.test_pgn_save_snapshot_cancel
-          tests.test_pgn_service_passive_overwrite
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_pgn_concurrent_save
           tests.test_pgn_service
+          tests.test_pgn_service_passive_overwrite
           tests.test_pgn_workspace
           tests.test_v2_windows_pgn_save_terminal_truth
           tests.test_v2_windows_pgn_save_worker
@@ -169,6 +176,9 @@ jobs:
           tests/test_pgn_document_passive_ingress.py
           tests/test_pgn_save_snapshot.py
           tests/test_pgn_save_snapshot_cancel.py
+          tests/test_dev4_pgn_export_concurrency_security.py
+          tests/test_pgn_concurrent_save.py
+          tests/test_pgn_service.py
           tests/test_pgn_service_passive_overwrite.py
           tests/test_v2_windows_pgn_save_terminal_truth.py
           tests/test_v2_windows_pgn_save_worker.py
