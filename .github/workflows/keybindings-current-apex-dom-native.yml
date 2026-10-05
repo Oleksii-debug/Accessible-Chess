@@ -83,6 +83,8 @@ jobs:
           PLUS_MINUS_HEAD: dbfa010ed872f66c4cffb97b0e880f750847c2ad
           PLUS_MINUS_SERVICE_BLOB: cb203633dcb7645290b9eafa5d7f266e1043e63f
           PLUS_MINUS_SERVICE_TEST_BLOB: fe69226d35901b67a6fcbdf96e3c03534b3bb7d4
+          CURRENT_SERVICE_BLOB: 367ef1673a0bee8537d6165199fad1f629b4fc5f
+          CURRENT_SERVICE_TEST_BLOB: 4446a17f37b71f080621a83e50ab4f6cf2064b0c
           PLUS_MINUS_DOM_TEST_BLOB: 7838bc5eabcf3c77d153a7b39628039f0bbbe253
           PLUS_MINUS_WEB_INDEX_BLOB: a148d4414c378c3952ff273071e4ebfb0648721a
           KEYMAP_CONTEXT_WEB_INDEX_BLOB: 0b7cbf84cfe7b038084d2de9014594d6a45da548
@@ -104,8 +106,11 @@ jobs:
           git merge-base --is-ancestor "$live_base" HEAD
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
           git diff --check "$live_base"...HEAD
-          test "$(git hash-object acs/ui_keymap_service.py)" = "$PLUS_MINUS_SERVICE_BLOB"
-          test "$(git hash-object tests/test_ui_keymap_service.py)" = "$PLUS_MINUS_SERVICE_TEST_BLOB"
+          service_pair="$(git rev-parse HEAD:acs/ui_keymap_service.py):$(git rev-parse HEAD:tests/test_ui_keymap_service.py)"
+          case "$service_pair" in
+            "$PLUS_MINUS_SERVICE_BLOB:$PLUS_MINUS_SERVICE_TEST_BLOB"|"$CURRENT_SERVICE_BLOB:$CURRENT_SERVICE_TEST_BLOB") ;;
+            *) echo 'Unqualified keymap service/test pair' >&2; exit 1 ;;
+          esac
           case "$(git rev-parse HEAD:tests/js/stage1_terminal_keymap_dom_test.js)" in
             "$PLUS_MINUS_DOM_TEST_BLOB"|969215f9b2d0877929e9963ccf18ec52741af1f8) ;;
             *) echo 'Unqualified terminal keymap test identity' >&2; exit 1 ;;
@@ -242,6 +247,9 @@ jobs:
           tests.test_keymap_profile_ingress_current
           tests.test_version2_windows_composition_profile
           tests.test_current_remappable_surfaces_qualification
+          tests.test_ui_keymap_io_recovery
+          tests.test_keymap_import_warning_confirmation
+          tests.test_keymap_import_warning_confirmation_integration
 
       - name: Execute adjacent keyboard and accessibility regressions
         run: >-

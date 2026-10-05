@@ -179,10 +179,12 @@ class KeymapPersistedReadIORecoveryTests(unittest.TestCase):
                 ActionRegistry,
                 "save",
                 side_effect=PermissionError("write denied"),
-            ):
-                result = service.import_profile(json.dumps(imported))
+            ) as persist:
+                result = service.import_profile(json.dumps(imported), allow_warnings=True)
+                persist.assert_called_once()
 
             self.assertFalse(result["ok"])
+            self.assertIn("previous settings remain active", result["message"])
             self.assertIs(service.editor.registry, authority)
             self.assertEqual(authority.get_binding("history.go_to_move"), "Alt+J")
             self.assertEqual(path.read_bytes(), original)
@@ -196,6 +198,12 @@ class KeymapPersistedReadIORecoveryTests(unittest.TestCase):
             imported["bindings"]["history.go_to_move"] = "Alt+J"
 
             result = service.import_profile(json.dumps(imported))
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["requiresConfirmation"])
+            self.assertIs(service.editor.registry, authority)
+            self.assertFalse(path.exists())
+            result = service.import_profile(json.dumps(imported), allow_warnings=True)
 
             self.assertTrue(result["ok"])
             self.assertIs(service.editor.registry, authority)

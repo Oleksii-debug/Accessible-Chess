@@ -54,6 +54,17 @@ class Conflict:
     severity: str = "error"
 
 
+class KeymapProfileConflictError(ValueError):
+    """A rejected passive profile with canonical, UI-reportable conflicts."""
+
+    def __init__(self, conflicts: tuple[Conflict, ...]) -> None:
+        self.conflicts = conflicts
+        super().__init__(
+            "invalid keymap profile: "
+            + "; ".join(item.message for item in conflicts if item.severity == "error")
+        )
+
+
 @dataclass(frozen=True)
 class Resolution:
     action_id: str
@@ -490,9 +501,7 @@ class ActionRegistry:
         conflicts = registry.validate()
         errors = tuple(item for item in conflicts if item.severity == "error")
         if errors:
-            raise ValueError(
-                "invalid keymap profile: " + "; ".join(item.message for item in errors)
-            )
+            raise KeymapProfileConflictError(conflicts)
         return registry
 
     @classmethod

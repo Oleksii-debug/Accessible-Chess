@@ -11,7 +11,9 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from .keybindings import ActionRegistry, BindingContext, SCHEMA_VERSION, normalize_binding
+from .keybindings import (
+    ActionRegistry, BindingContext, KeymapProfileConflictError, SCHEMA_VERSION, normalize_binding,
+)
 from .ui_keymap_adapter import build_web_keymap
 from .ui_keymap_editor import KeymapEditorModel
 
@@ -447,6 +449,14 @@ class KeymapService:
             profile = _decode_user_keymap_profile(text)
             candidate = ActionRegistry.from_profile(profile, self.editor.registry.definitions())
             conflicts = candidate.validate()
+        except KeymapProfileConflictError as exc:
+            blocking = tuple(item for item in exc.conflicts if item.severity == "error")
+            return {
+                "ok": False,
+                "message": self.editor.conflict_summary(blocking),
+                "conflicts": [self._conflict(item) for item in exc.conflicts],
+                "requiresConfirmation": False,
+            }
         except (ValueError, TypeError, AttributeError):
             return _invalid_profile_response(self.editor.lang)
 

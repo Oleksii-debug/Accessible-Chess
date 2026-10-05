@@ -38,6 +38,34 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
             service = self._service(root)
             self.assertEqual(service.snapshot()["maxImportBytes"], MAX_KEYMAP_PROFILE_BYTES)
 
+    def test_blocking_import_conflicts_keep_shared_authority_and_disk_bytes(self):
+        for language in ("en", "uk"):
+            with self.subTest(language=language), TemporaryDirectory() as root:
+                path = Path(root) / "keymap.json"
+                service = KeymapService(path, lang=language)
+                service.adopt_registry(build_final_product_action_registry())
+                self.assertTrue(service.save("toolbar.next_control", "Ctrl+J")["ok"])
+                authority = service.editor.registry
+                before = service.snapshot()
+                original = path.read_bytes()
+                for field, action_id, value, kind in (
+                    ("bindings", "toolbar.next_control", "Left", "duplicate"),
+                    ("aliases", "move.undo", "y", "alias_duplicate"),
+                ):
+                    profile = json.loads(service.export_profile())
+                    profile[field][action_id] = value
+                    for confirmed in (False, True):
+                        result = service.import_profile(json.dumps(profile), allow_warnings=confirmed)
+                        self.assertFalse(result["ok"])
+                        self.assertFalse(result["requiresConfirmation"])
+                        self.assertNotIn("snapshot", result)
+                        self.assertTrue(any(item["severity"] == "error" and item["kind"] == kind
+                                            for item in result["conflicts"]), result)
+                        self.assertNotIn("invalid keymap profile:", result["message"])
+                        self.assertIs(service.editor.registry, authority)
+                        self.assertEqual(service.snapshot(), before)
+                        self.assertEqual(path.read_bytes(), original)
+
     def test_direct_import_rejects_active_text_before_any_text_hook(self):
         with TemporaryDirectory() as root:
             service = self._service(root)
@@ -119,7 +147,7 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
                     path.write_bytes(payload)
                     service = KeymapService(path, lang="en")
                     self.assertEqual(service.recovery_message, "invalid keymap profile")
-                    self.assertFalse(service.snapshot()["writeBlocked"])
+                    self.assertTrue(service.snapshot()["writeBlocked"])
                     self.assertEqual(path.read_bytes(), payload)
                     self.assertEqual(
                         service.editor.registry.get_binding("history.go_to_move"),

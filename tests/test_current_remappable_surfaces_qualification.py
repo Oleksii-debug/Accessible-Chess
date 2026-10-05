@@ -48,6 +48,24 @@ class CurrentRemappableSurfaceQualificationTests(unittest.TestCase):
                                "test_current_remappable_surfaces_qualification"):
                     self.assertIn("tests." + module, source)
                 self.assertNotIn("continue-on-error", source)
+                if filename.endswith("core.yml"):
+                    self.assertIn("python -m pytest -q", source)
+                    for path in ("tests/test_ui_keymap_service.py", "tests/test_version2_final_product_composition.py"):
+                        self.assertIn(path, source)
+
+    def test_service_successor_requires_paired_runtime_and_function_test_bytes(self):
+        source = (WORKFLOWS / "keybindings-current-apex-dom-native.yml").read_text(encoding="utf-8")
+        values = dict(re.findall(r"^          (\w+_BLOB): ([0-9a-f]{40})$", source, re.M))
+        self.assertEqual(values["CURRENT_SERVICE_BLOB"], _blob("acs/ui_keymap_service.py"))
+        self.assertEqual(values["CURRENT_SERVICE_TEST_BLOB"], _blob("tests/test_ui_keymap_service.py"))
+        match = re.search(r'case "\$service_pair" in\n.*?\n          esac', source, re.S)
+        self.assertIsNotNone(match)
+        valid = values["CURRENT_SERVICE_BLOB"] + ":" + values["CURRENT_SERVICE_TEST_BLOB"]
+        for pair, accepted in ((valid, True), (valid.split(":")[0] + ":" + "0" * 40, False)):
+            result = subprocess.run(["bash", "-c", "set -eu\n" + match.group(0)],
+                                    env={**os.environ, **values, "service_pair": pair},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_pgn_exact_successor_cases_accept_current_blobs_and_reject_unknown_bytes(self):
         source = (WORKFLOWS / "d01-pgn-workspace-webview.yml").read_text(encoding="utf-8")
@@ -93,6 +111,21 @@ class CurrentRemappableSurfaceQualificationTests(unittest.TestCase):
             self.assertIn(_blob(path), source)
         self.assertIn('test "$classroom_asset_test" = "$(git rev-parse "$d01_owner:', source)
         self.assertIn("node tests/js/classroom_surface_dom_test.js", source)
+
+    def test_persisted_recovery_source_is_retained_without_restricting_descendant_path_count(self):
+        source = (WORKFLOWS / "keymap-persisted-read-io-recovery.yml").read_text(encoding="utf-8")
+        script = _run_block(source, "Verify exact PR-head ancestry and bounded scope")
+        self.assertNotIn('git diff --name-only "$EVENT_BASE_SHA" HEAD', script)
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        env = {
+            **os.environ, "EVENT_HEAD_SHA": head, "GITHUB_SHA": head,
+            "EVENT_BASE_SHA": "6a59576a082bc5dcc6799f8bc7bc228e7a258160",
+            "RECOVERY_BASE_SHA": "59486e2c9eff903e416d59a0e7c349c22ee2111d",
+            "RECOVERY_SOURCE_SHA": "c2da619b14445056215f2eed35f531994a805064",
+        }
+        result = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("python -m pytest -q tests/test_ui_keymap_service.py", source)
 
 
 if __name__ == "__main__":

@@ -189,7 +189,7 @@ jobs:
           native_menu_actual="$(git rev-parse HEAD:acs/ui_native_menu.py)"
           keymap_pair="$keybindings_actual:$native_menu_actual"
           case "$keymap_pair" in
-            b222f0d625999d8119cb3bb7cebffc961217f610:dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad|e3c398484cce2e191243528831319f30a36b8681:d1b456af0018499ff74c73b46f74b0ecc5913745|6a5564236a6ede60deafb199a4a7f3b39e870106:d1b456af0018499ff74c73b46f74b0ecc5913745|4726ec30d607487195056a9eb25ffc124f3db05e:d1b456af0018499ff74c73b46f74b0ecc5913745)
+            b222f0d625999d8119cb3bb7cebffc961217f610:dabed76f2ad60ad0c1032b13ca353e4acc0bf2ad|e3c398484cce2e191243528831319f30a36b8681:d1b456af0018499ff74c73b46f74b0ecc5913745|6a5564236a6ede60deafb199a4a7f3b39e870106:d1b456af0018499ff74c73b46f74b0ecc5913745|4726ec30d607487195056a9eb25ffc124f3db05e:d1b456af0018499ff74c73b46f74b0ecc5913745|267c7eb2914ba29f1cc7403536f1777896e00b27:d1b456af0018499ff74c73b46f74b0ecc5913745)
               ;;
             *)
               printf 'Protected blob mismatch: keybindings/native-menu pair=%s\n' "$keymap_pair" >&2

@@ -60,3 +60,48 @@ INTEGRATED=OPEN_SERIAL_CANDIDATE_ONLY
 HUMAN_TESTED=NO
 NVDA_VERIFIED=NO
 FINAL_WINDOWS_ZIP=NO
+
+## Next checkpoint: persistence/import and package composition
+
+The current #1950 source at `c2da619b14445056215f2eed35f531994a805064`
+is retained by a history-preserving merge into this candidate, without modifying
+its owner branch. Read errors, malformed persisted data and write failures now
+retain the original authority/bytes until explicit recovery; failed writes roll
+back the shared registry identity and values. Its eight regressions pass locally.
+The import-write test now confirms warnings and asserts the writer was actually
+called: the older test could pass without ever reaching its injected I/O failure.
+
+Blocking import conflicts now use a ValueError-compatible typed result from
+the canonical registry. The UI gets localized structured duplicate/alias
+diagnostics, not raw exceptions, and cannot force the conflict with warning
+confirmation. New EN/UK tests prove unchanged shared identity, snapshot and
+persisted bytes for both rejected binding and alias collisions.
+
+Function-style tests are now explicitly executed by pinned pytest in CI;
+`unittest` alone does not run them. Local direct execution of all 51 functions
+in the selected composition/adapter/editor/service modules passed, including
+tmp_path cases. The 55 unittest cases across ingress, warnings, corruption,
+persistence and passive keybinding boundaries passed before the extra conflict
+matrix was added; subsequent focused package/keymap/resource-order run passed
+112 cases.
+
+Full discovery completed on the earlier candidate: 4618 tests, 157 failures,
+79 errors, 12 skips. This is NOT a full-suite pass. Many require isolated
+attribution; e.g. old PGN journey fixtures pass PgnOpenResult where the accepted
+application requires PgnDocumentSession, and other tests assert obsolete source
+spellings or bypass newly-required confirmation. No runtime protection is
+relaxed to accommodate these fixtures.
+
+Package preparation and canonical tree/ZIP preflight now require the local
+profile and P0 runtime scripts loaded by the actual launcher. Four negative
+checks reproduced acceptance of missing scripts before this repair. Missing
+resources now reject publication/readback, even after generic checksums are
+regenerated. A dynamic contract records every actual launcher resource read
+and requires it in both existing validators. No second package validator or
+synthetic final artifact is introduced.
+
+Sound-fixture repairs preserve the existing inventory hash checks: substitution
+uses the same PCM width/byte size to reach SHA-256 rejection, and synthetic
+semantic fixture counts follow the current SoundEvent set rather than a stale
+literal nine. These tests do not identify or substitute the user's latest
+332-file archive; that external archive remains unresolved.
