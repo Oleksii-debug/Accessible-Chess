@@ -82,7 +82,7 @@ class FullProductWebViewAdapter:
         try:
             self._shell.set_language(parsed)
             snapshot = self.snapshot()
-        except Exception:
+        except BaseException:
             # The shell is the application-wide locale authority. A failed
             # semantic/navigation snapshot must not commit a language that the
             # WebView never rendered, otherwise subsequent NVDA errors and route
@@ -98,7 +98,7 @@ class FullProductWebViewAdapter:
         # canonical browser identity. Do not invoke it again after mutation.
         return WebViewCommand("focus-recorded", {"element_id": element_id})
 
-    def _safe_error(self, exc: Exception) -> WebViewCommand:
+    def _safe_error(self, exc: BaseException) -> WebViewCommand:
         # Registry misses and non-domain exceptions are implementation details,
         # not user-facing messages. In particular, OSError text can expose local
         # paths or storage state. Only a plain ValueError is an intentional
@@ -123,7 +123,7 @@ class FullProductWebViewAdapter:
                 payload,
                 current_focus_id=current_focus_id,
             )
-        except Exception as exc:  # UI boundary: sanitize before user projection.
+        except BaseException as exc:  # UI boundary: sanitize before user projection.
             # Dispatch may already have recorded focus or a delegate may have
             # changed routes before failing.  Domain effects are not reversible
             # here, but unpublished presentation state must stay aligned with
@@ -133,7 +133,7 @@ class FullProductWebViewAdapter:
         if result.handled_by_shell:
             try:
                 snapshot = self.snapshot()
-            except Exception as exc:
+            except BaseException as exc:
                 self._shell._restore_presentation_state(previous_shell)
                 return self._safe_error(exc)
             return WebViewCommand(
@@ -159,13 +159,15 @@ class FullProductWebViewAdapter:
         opener_focus_id: str,
         initial_focus_id: str,
     ) -> WebViewCommand:
+        previous_shell = self._shell._capture_presentation_state()
         try:
             target = self._shell.open_dialog(
                 dialog_id,
                 opener_focus_id=opener_focus_id,
                 initial_focus_id=initial_focus_id,
             )
-        except Exception as exc:
+        except BaseException as exc:
+            self._shell._restore_presentation_state(previous_shell)
             return self._safe_error(exc)
         return WebViewCommand(
             "dialog-open",
@@ -175,9 +177,11 @@ class FullProductWebViewAdapter:
         )
 
     def close_dialog(self, dialog_id: str | None = None) -> WebViewCommand:
+        previous_shell = self._shell._capture_presentation_state()
         try:
             target = self._shell.close_dialog(dialog_id)
-        except Exception as exc:
+        except BaseException as exc:
+            self._shell._restore_presentation_state(previous_shell)
             return self._safe_error(exc)
         return WebViewCommand("dialog-close", {"focus_target": target})
 
