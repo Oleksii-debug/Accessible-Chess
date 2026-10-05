@@ -2391,8 +2391,19 @@ class Version2Application:
             and kind == "failed"
             and error_code in {"library_export_failed", "library_export_worker_failed"}
         )
+        inactive_host_failure = (
+            library_export
+            and kind == "failed"
+            and error_code in {
+                "file_dialog_failed",
+                "library_export_unavailable",
+                "no_library_export_running",
+            }
+        )
         terminal_export = library_export and (
-            kind in {"exported", "dialog_cancelled"} or active_worker_failure
+            kind in {"exported", "dialog_cancelled"}
+            or active_worker_failure
+            or inactive_host_failure
         )
 
         # Keep the visible Library operation controls aligned with the trusted
