@@ -38,7 +38,8 @@ jobs:
           PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
           INITIAL_PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20
           CAS_PRODUCT_HEAD: ee3fe93aa379284d8af0672ae0cafb9961e88152
-          PRODUCT_HEAD: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
+          PARENT_PRODUCT_HEAD: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
+          PRODUCT_HEAD: b3ccef128ff2f885d9c71cc036ab630533158f62
           ONECLICK_REF: fix/p0-oneclick-exact-head-concurrency-20261005-sol56r9k2
           ONECLICK_HEAD: 53123231abc76265e52b7d62832c9fb94adc0012
           LAUNCH_REPORT_REF: fix/portable-launch-report-ci-head-20261005-sol56h4q8
@@ -48,6 +49,8 @@ jobs:
           PRODUCT_RECONVERGENCE_MERGE: 8816ce114b07d7ced39b8b661f12d61fce2b0e6a
           PRE_PARENT_RECONVERGENCE: 1728432f216d4f6cdda9d2283bea89c242c89337
           PARENT_RECONVERGENCE_MERGE: 4808f82eaecfea1b0b9689b4beb4facee446d32a
+          PRE_PRESENTATION_RECONVERGENCE: 4c8be3939271b60fe242ac187401286140a5d78f
+          PRESENTATION_RECONVERGENCE_MERGE: 9195b8b2ebea1ff68285896e4e4a5872eea89623
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -78,8 +81,10 @@ jobs:
           git merge-base --is-ancestor "$INITIAL_CONVERGENCE_MERGE" HEAD
           test "$(git show -s --format=%P "$PRODUCT_RECONVERGENCE_MERGE")" = "$PRE_PRODUCT_RECONVERGENCE $CAS_PRODUCT_HEAD"
           git merge-base --is-ancestor "$PRODUCT_RECONVERGENCE_MERGE" HEAD
-          test "$(git show -s --format=%P "$PARENT_RECONVERGENCE_MERGE")" = "$PRE_PARENT_RECONVERGENCE $PRODUCT_HEAD"
+          test "$(git show -s --format=%P "$PARENT_RECONVERGENCE_MERGE")" = "$PRE_PARENT_RECONVERGENCE $PARENT_PRODUCT_HEAD"
           git merge-base --is-ancestor "$PARENT_RECONVERGENCE_MERGE" HEAD
+          test "$(git show -s --format=%P "$PRESENTATION_RECONVERGENCE_MERGE")" = "$PRE_PRESENTATION_RECONVERGENCE $PRODUCT_HEAD"
+          git merge-base --is-ancestor "$PRESENTATION_RECONVERGENCE_MERGE" HEAD
           for source in "$PRODUCT_HEAD" "$ONECLICK_HEAD" "$LAUNCH_REPORT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
