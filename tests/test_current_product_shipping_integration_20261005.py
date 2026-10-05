@@ -69,6 +69,20 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_gate_pins_evidence_stack_and_rejects_late_mutation(self) -> None:
+        required = (
+            "WINDOWS_EVIDENCE_SHA: 1728432f216d4f6cdda9d2283bea89c242c89337",
+            "TRAINING_DURABILITY_SHA: 5a22b18285fcc827f68f1aefaa7d19368654424a",
+            'git merge-base --is-ancestor "$live_product" "$WINDOWS_EVIDENCE_SHA"',
+            'git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"',
+            'git rev-parse "$TRAINING_DURABILITY_SHA:$evidence_path"',
+            "Evidence path mutated after convergence",
+            "EVIDENCE_STACK_PATHS_UNMODIFIED=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_exact_fifteen_qualification_and_evidence_files_may_differ_from_product(self) -> None:
         required = (
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
