@@ -120,6 +120,8 @@ let lastShellPublicationResolution = null;
 let nextShellPublicationToken = 1;
 let shellPublicationCommits = 0;
 let shellPublicationRollbacks = 0;
+let shellRouteEffects = 0;
+let dropRouteResponsesAfterEffect = 0;
 let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
 let failPublicationTransportBeforeEffect = 0;
@@ -260,20 +262,42 @@ const windowObject = {
           });
         }
 
-        const keys = Object.keys(payload);
-        if (keys.length !== 1 || keys[0] !== "publication_protocol" ||
+        const keys = Object.keys(payload).sort();
+        if (keys.length !== 2 || keys[0] !== "publication_protocol" ||
+            keys[1] !== "request_id" ||
             payload.publication_protocol !== "ack-v1" ||
-            String(command).indexOf("screen.") !== 0 ||
-            pendingShellPublication !== null) {
+            !Number.isSafeInteger(payload.request_id) || payload.request_id <= 0 ||
+            String(command).indexOf("screen.") !== 0) {
           return Promise.reject(new Error("unexpected browser route command"));
+        }
+        if (pendingShellPublication !== null) {
+          if (pendingShellPublication.requestId !== payload.request_id ||
+              pendingShellPublication.command !== String(command)) {
+            return Promise.reject(new Error("publication already pending"));
+          }
+          if (dropRouteResponsesAfterEffect > 0) {
+            dropRouteResponsesAfterEffect -= 1;
+            return Promise.reject(new Error("simulated lost route response"));
+          }
+          return Promise.resolve({
+            kind: "route",
+            payload: { publication_token: pendingShellPublication.token }
+          });
         }
         const token = nextShellPublicationToken++;
         const previousRoute = currentRoute;
         currentRoute = String(command).replace(/^screen\./, "");
+        shellRouteEffects += 1;
         pendingShellPublication = {
           token: token,
-          previousRoute: previousRoute
+          previousRoute: previousRoute,
+          requestId: payload.request_id,
+          command: String(command)
         };
+        if (dropRouteResponsesAfterEffect > 0) {
+          dropRouteResponsesAfterEffect -= 1;
+          return Promise.reject(new Error("simulated lost route response"));
+        }
         return Promise.resolve({
           kind: "route",
           payload: { publication_token: token }
@@ -457,9 +481,15 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 1, "malformed Training render incorrectly committed the route");
   check(pendingShellPublication === null, "malformed Training render left a pending publication");
 
+  const routeEffectsBeforeLostResponse = shellRouteEffects;
+  dropRouteResponsesAfterEffect = 1;
   dropNextCommitResponseAfterEffect = true;
   await clickRoute("board");
-  check(currentRoute === "board", "lost commit response changed the committed Board route");
+  check(currentRoute === "board", "lost route/commit response changed the committed Board route");
+  check(
+    shellRouteEffects === routeEffectsBeforeLostResponse + 1,
+    "route-start response replay executed the Board transition more than once"
+  );
   check(shellPublicationCommits === 2, "commit response retry duplicated or lost the Board commit");
   check(pendingShellPublication === null, "lost commit response left a pending route");
 
@@ -494,6 +524,34 @@ async function clickRoute(routeId) {
     "deferred native event batch was not drained exactly once after publication recovery"
   );
   check(eventQueue.length === 0, "deferred native event batch remained queued after recovery");
+
+  const routeEffectsBeforeUnknownToken = shellRouteEffects;
+  dropRouteResponsesAfterEffect = 2;
+  await clickRoute("teacher");
+  check(
+    currentRoute === "teacher",
+    "double route-response loss did not leave the one candidate Teacher route"
+  );
+  check(
+    pendingShellPublication !== null,
+    "double route-response loss forgot the host-side pending route"
+  );
+  check(
+    shellRouteEffects === routeEffectsBeforeUnknownToken + 1,
+    "double route-response loss executed the Teacher transition more than once"
+  );
+  check(shellPublicationCommits === 3, "unknown-token route loss incorrectly committed Teacher");
+  check(shellPublicationRollbacks === 3, "unknown-token route loss incorrectly rolled Teacher back");
+
+  await clickRoute("board");
+  check(currentRoute === "board", "next route did not recover unknown-token publication first");
+  check(pendingShellPublication === null, "unknown-token recovery left host publication pending");
+  check(shellPublicationRollbacks === 4, "unknown-token recovery did not roll Teacher back once");
+  check(shellPublicationCommits === 4, "unknown-token recovery did not commit Board once");
+  check(
+    shellRouteEffects === routeEffectsBeforeUnknownToken + 2,
+    "unknown-token recovery reran the stale Teacher transition"
+  );
 
   booksAvailable = false;
   trainingAvailable = false;
