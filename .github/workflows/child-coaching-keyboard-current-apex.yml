@@ -7,9 +7,12 @@ on:
     paths:
       - acs/full_product_actions.py
       - acs/version2_final_product_profile.py
+      - acs/child_coaching_rotation.py
+      - acs/child_coaching_rotation_store.py
       - acs/version2_final_product_application.py
       - web/keybindings.json
       - tests/test_child_coaching_keyboard_actions.py
+      - tests/test_version2_group_rotation_binding.py
       - tests/test_keybindings_current_apex_reconvergence.py
       - tests/test_version2_accessibility_convergence.py
       - tests/js/version2_library_open_route_refresh_dom_test.js
@@ -19,9 +22,12 @@ on:
     paths:
       - acs/full_product_actions.py
       - acs/version2_final_product_profile.py
+      - acs/child_coaching_rotation.py
+      - acs/child_coaching_rotation_store.py
       - acs/version2_final_product_application.py
       - web/keybindings.json
       - tests/test_child_coaching_keyboard_actions.py
+      - tests/test_version2_group_rotation_binding.py
       - tests/test_keybindings_current_apex_reconvergence.py
       - tests/test_version2_accessibility_convergence.py
       - tests/js/version2_library_open_route_refresh_dom_test.js
@@ -50,8 +56,12 @@ jobs:
       PROFILE_BLOB: a5331e752fd3b4338fd888894697b47bfceaea76
       WEB_KEYMAP_BLOB: b3690e67d17b6737b70bce9c75c2b68b149205aa
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
-      ROTATION_BLOB: 7fe9da7f1d687f4976c3b4a50652c4c4fa830633
+      ROTATION_BLOB: f7e0c146317c5b95d191b77302a4debf873682c9
       PREPARED_BLOB: 060fb8cee23c7fe22465208268b4b8fef5760d14
+      ROTATION_STORE_BLOB: 15b480f880992020cc7c8bdf10cf7b467e809cc2
+      FINAL_PRODUCT_APP_BLOB: 4f26456660bd8331e54de28dfa74db09f24f6c90
+      KEYBOARD_TEST_BLOB: 53212a6b4236423c6e99df78e87966e6adae6f58
+      GROUP_ROTATION_BINDING_TEST_BLOB: 3e42ed4f28b915ad9c71e591d6b1772dc31c7df2
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -69,6 +79,10 @@ jobs:
           test "$(git hash-object web/keybindings.json)" = "$WEB_KEYMAP_BLOB"
           test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
           test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
+          test "$(git hash-object acs/child_coaching_rotation_store.py)" = "$ROTATION_STORE_BLOB"
+          test "$(git hash-object acs/version2_final_product_application.py)" = "$FINAL_PRODUCT_APP_BLOB"
+          test "$(git hash-object tests/test_child_coaching_keyboard_actions.py)" = "$KEYBOARD_TEST_BLOB"
+          test "$(git hash-object tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
           test "$(git hash-object acs/child_coaching_prepared_positions.py)" = "$PREPARED_BLOB"
           git diff --check
 
@@ -81,8 +95,11 @@ jobs:
           python -m py_compile
           acs/full_product_actions.py
           acs/version2_final_product_profile.py
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
           acs/version2_final_product_application.py
           tests/test_child_coaching_keyboard_actions.py
+          tests/test_version2_group_rotation_binding.py
 
       - name: Run keyboard-only coaching and adjacent keymap contracts
         run: >-
