@@ -163,7 +163,7 @@ class LibraryExportRequest:
 
     @classmethod
     def filtered(cls, query: GameSearchQuery) -> "LibraryExportRequest":
-        if not isinstance(query, GameSearchQuery):
+        if type(query) is not GameSearchQuery:
             raise TypeError("filtered Library export requires GameSearchQuery")
         normalized = query.normalized()
         if normalized.after_game_id is not None:
@@ -270,6 +270,33 @@ class LibraryExportService:
             _poll_cancel(cancel_check)
             return None
         return _cancellable_fingerprint(path, cancel_check=cancel_check).sha256
+
+    @staticmethod
+    def _canonical_request(request: LibraryExportRequest) -> LibraryExportRequest:
+        """Validate direct construction through the same public request policy."""
+        if type(request) is not LibraryExportRequest:
+            raise TypeError("request must be LibraryExportRequest")
+        if type(request.scope) is not LibraryExportScope:
+            raise LibraryExportError("invalid Library export scope")
+        if request.scope is LibraryExportScope.SELECTED:
+            if request.query is not None:
+                raise LibraryExportError(
+                    "selected Library export cannot include a search query"
+                )
+            try:
+                return LibraryExportRequest.selected(request.game_ids)
+            except (TypeError, ValueError) as exc:
+                raise LibraryExportError("invalid selected Library export request") from exc
+        if request.scope is LibraryExportScope.FILTERED:
+            if type(request.game_ids) is not tuple or request.game_ids:
+                raise LibraryExportError(
+                    "filtered Library export cannot include selected game ids"
+                )
+            try:
+                return LibraryExportRequest.filtered(request.query)
+            except (TypeError, ValueError) as exc:
+                raise LibraryExportError("invalid filtered Library export request") from exc
+        raise LibraryExportError("invalid Library export scope")
 
     def _iter_selected_ids(self, request: LibraryExportRequest) -> Iterator[int]:
         if request.scope is LibraryExportScope.SELECTED:
@@ -385,8 +412,7 @@ class LibraryExportService:
 
     def resolve_games(self, request: LibraryExportRequest) -> tuple[PgnGame, ...]:
         """Resolve one immutable export snapshot in deterministic Library-id order."""
-        if not isinstance(request, LibraryExportRequest):
-            raise TypeError("request must be LibraryExportRequest")
+        request = self._canonical_request(request)
         with self._read_snapshot():
             games = tuple(self._iter_games(request))
             if len(games) > _MAX_SELECTED_GAMES and request.scope is LibraryExportScope.SELECTED:
@@ -407,12 +433,7 @@ class LibraryExportService:
         after the complete temporary file is flushed+fsynced but before D06 can
         publish it. Once D06 publication commits, success wins over a later Cancel.
         """
-        if not isinstance(request, LibraryExportRequest):
-            raise TypeError("request must be LibraryExportRequest")
-        if request.scope is LibraryExportScope.SELECTED and not request.game_ids:
-            raise LibraryExportError("selected Library export contains no games")
-        if request.scope is LibraryExportScope.SELECTED and len(request.game_ids) > _MAX_SELECTED_GAMES:
-            raise LibraryExportError("selected Library export is too large")
+        request = self._canonical_request(request)
         _poll_cancel(cancel_check)
         game_count = 0
 
