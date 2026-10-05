@@ -39,6 +39,11 @@ SECOND_DOCUMENT = '''[Event "Second Session"]
 '''
 
 
+class _ExplodingSessionRef:
+    def __call__(self):
+        raise AssertionError("tampered session reference executed")
+
+
 class PgnSaveSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -123,6 +128,35 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
         self.assertTrue(target.exists())
+
+    def test_tampered_snapshot_session_reference_is_rejected_before_callback(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "tampered-session-ref.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        object.__setattr__(snapshot, "_session_ref", _ExplodingSessionRef())
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
+
+    def test_tampered_snapshot_scalar_metadata_fails_closed(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        object.__setattr__(snapshot, "content_digest", object())
+
+        with self.assertRaises(TypeError):
+            publish_pgn_save_snapshot(
+                snapshot,
+                path=self.root / "must-not-publish-invalid-metadata.pgn",
+            )
+
+        self.assertFalse((self.root / "must-not-publish-invalid-metadata.pgn").exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
 
     def test_save_source_cas_failure_does_not_mutate_live_session(self) -> None:
         source = self.write_document()
