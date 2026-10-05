@@ -65,9 +65,12 @@ jobs:
           PRE_SERIALIZED_PRODUCT: 9edc0ab3ad0df9a927792dff2ab0838f614029d4
           SERIALIZED_MERGE: d4857fcaf1202b4cf59e7139a80f14241bf539dc
           FORMAT_REF: feature/formats-commercial-workflows-20261005
-          FORMAT_HEAD: b6d1ad20fcda7ccadba40bc39b7506df67d58c86
+          FORMAT_INITIAL_HEAD: b6d1ad20fcda7ccadba40bc39b7506df67d58c86
+          FORMAT_HEAD: 748ad707ce2c301a328e5a9858d3c8e0441e3e17
           PRE_FORMAT_PRODUCT: c1baa22b452dd8ef28fcf878814d174c1ca0f3bf
           FORMAT_MERGE: 22fcebaa7ccb2e07dea75a76b0f37eb985947193
+          PRE_FORMAT_ACCESSIBILITY_PRODUCT: fd9fe18ba9b5c7adc0fd5c9fec5bf0db712eff73
+          FORMAT_ACCESSIBILITY_MERGE: 997615e760cbd57a56191474ff88e417d02d1830
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -100,8 +103,10 @@ jobs:
           test "$(git show -s --format=%P "$SERIALIZED_MERGE")" = "$PRE_SERIALIZED_PRODUCT $BOOKS_HEAD"
           git merge-base --is-ancestor "$LEXICAL_MERGE" HEAD
           git merge-base --is-ancestor "$SERIALIZED_MERGE" HEAD
-          test "$(git show -s --format=%P "$FORMAT_MERGE")" = "$PRE_FORMAT_PRODUCT $FORMAT_HEAD"
+          test "$(git show -s --format=%P "$FORMAT_MERGE")" = "$PRE_FORMAT_PRODUCT $FORMAT_INITIAL_HEAD"
           git merge-base --is-ancestor "$FORMAT_MERGE" HEAD
+          test "$(git show -s --format=%P "$FORMAT_ACCESSIBILITY_MERGE")" = "$PRE_FORMAT_ACCESSIBILITY_PRODUCT $FORMAT_HEAD"
+          git merge-base --is-ancestor "$FORMAT_ACCESSIBILITY_MERGE" HEAD
 
           for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
@@ -154,7 +159,8 @@ jobs:
           test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = '7a91103062b76b541d370ec3a3247974d5cd0b80'
           test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = '94c56b2edbe4b865126b665a899830f8a6298be4'
           test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '6d680b0faea0eaab1bf5d784dd202eeafb9fb9ca'
-          test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = 'b551e93cb734a432ba6f7e9692b0c31b45062322'
+          test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = '554ebeb16278999a84295dcf71f082c9b6f9ea7b'
+          test "$(git rev-parse HEAD:tests/test_pgn_conversion_windows.py)" = 'e15bf4c37f81b1897e2a6575982195f725bf87bc'
           test "$(git rev-parse HEAD:.github/workflows/pgn-reviewed-encoding-conversion.yml)" = '90494595a4158d302999575601a76440a7e1b9f4'
           grep -F 'function announceUserAction(message)' web/index.html >/dev/null
           echo 'CURRENT_PRODUCT_COMPLETE_GEOMETRY=PASS'

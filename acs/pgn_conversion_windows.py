@@ -213,6 +213,10 @@ def show_pgn_conversion_dialog(*, language: str = "uk", owner=None) -> None:
             control.Enabled = False
         close.Text = text["cancel"]
         set_status(text["busy"])
+        # Preview/save controls are disabled while the worker runs. Move keyboard
+        # focus to the one remaining action so screen-reader users do not stay
+        # stranded on a disabled control and can cancel immediately with Enter.
+        close.Focus()
         worker.RunWorkerAsync()
 
     def do_work(sender, event):

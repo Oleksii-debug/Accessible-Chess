@@ -168,6 +168,8 @@ class PgnConversionNativeLifecycleTests(unittest.TestCase):
             c.preview.Click.fire()
             self.assertFalse(c.browse.Enabled)
             self.assertFalse(c.encoding.Enabled)
+            self.assertTrue(c.close.focused)
+            self.assertIn("Скасувати", c.close.Text)
             form.Close()
             self.assertFalse(form.closed)
             self.assertTrue(workers[0].IsBusy)
