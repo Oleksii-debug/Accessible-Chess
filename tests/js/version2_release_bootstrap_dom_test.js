@@ -698,6 +698,97 @@ async function clickRoute(routeId) {
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
 
+  const beforeExportTerminalSnapshots = snapshotCalls;
+  live.focus();
+  check(
+    !workspace.contains(documentRef.activeElement),
+    "export terminal recovery precondition did not move focus outside the active workspace"
+  );
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    snapshotCalls === beforeExportTerminalSnapshots,
+    "Library export terminal focus triggered an unnecessary V2 snapshot"
+  );
+  check(
+    live.textContent === "Export completed.",
+    "Library export terminal announcement did not reach the live region"
+  );
+  check(
+    documentRef.activeElement === libraryInput,
+    "Library export terminal event did not restore the pre-dialog Library focus"
+  );
+
+  const newerLibraryFocus = new FakeElement("button");
+  newerLibraryFocus.id = "library-newer-user-focus";
+  workspace.appendChild(newerLibraryFocus);
+  newerLibraryFocus.focus();
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed after user moved.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === newerLibraryFocus,
+    "late Library export terminal event stole a newer visible workspace focus"
+  );
+  check(
+    live.textContent === "Export completed after user moved.",
+    "late Library export terminal announcement was lost while preserving newer focus"
+  );
+
+  live.focus();
+  eventQueue = [{
+    kind: "error",
+    payload: {
+      message: "The action could not be completed.",
+      focus_target: "malformed.focus"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === live,
+    "malformed Library export terminal focus reached the DOM focus boundary"
+  );
+  check(
+    live.textContent === "The action could not be completed.",
+    "Library export terminal error was not announced"
+  );
+
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Missing target ignored.",
+      focus_target: "missing-export-focus"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === live,
+    "missing Library export terminal target changed keyboard focus"
+  );
+  check(
+    snapshotCalls === beforeExportTerminalSnapshots,
+    "Library export terminal focus-only events unexpectedly rerendered the V2 product"
+  );
+
   const beforeOversizedEventSnapshots = snapshotCalls;
   const beforeOversizedEventRefreshes = stage1RefreshCalls;
   moveInput.focus();
