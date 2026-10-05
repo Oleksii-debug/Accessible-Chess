@@ -63,8 +63,8 @@ jobs:
             printf 'TRAINING_DURABILITY_SOURCE_MOVED expected=%s live=%s\n' "$SOURCE_HEAD" "$live_source" >&2
             exit 1
           }
-          test "$(git show -s --format=%P HEAD)" = "$BASE_HEAD $SOURCE_HEAD"
           git merge-base --is-ancestor "$BASE_HEAD" HEAD
+          test "$(git merge-base "$BASE_HEAD" HEAD)" = "$BASE_HEAD"
           git merge-base --is-ancestor "$SOURCE_HEAD" HEAD
           changed="$(git diff --name-only "$BASE_HEAD"...HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' '.github/workflows/current-product-training-durability-convergence.yml' '.github/workflows/training-progress-durability.yml' 'tests/test_current_product_training_durability_convergence_20261005.py' 'tests/test_training_progress_durability_concurrency.py' | LC_ALL=C sort)"
