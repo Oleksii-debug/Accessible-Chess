@@ -60,6 +60,87 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             post_to_ui=post_to_ui,
         )
 
+    def test_file_action_rejects_active_action_id_before_hash_or_equality(self) -> None:
+        touched = []
+
+        class ActiveActionId(str):
+            def __hash__(self):
+                touched.append("hash")
+                raise AssertionError("active action-id hash executed")
+
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action-id equality executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "passive-action.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            delegate = self._delegate(source, event_sink=lambda _event: None)
+
+            with self.assertRaisesRegex(TypeError, "file action id must be exact text"):
+                delegate(ActiveActionId("pgn.open"), {})
+
+            self.assertEqual(touched, [])
+
+    def test_file_action_rejects_active_owned_payload_before_truthiness(self) -> None:
+        touched = []
+
+        class ActivePayload(dict):
+            def __bool__(self):
+                touched.append("bool")
+                raise AssertionError("active payload truthiness executed")
+
+            def __len__(self):
+                touched.append("len")
+                raise AssertionError("active payload length executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "passive-payload.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            delegate = self._delegate(source, event_sink=lambda _event: None)
+
+            with self.assertRaisesRegex(TypeError, "file action payload must be an exact object"):
+                delegate("pgn.open", ActivePayload())
+
+            self.assertEqual(touched, [])
+
+    def test_file_action_preserves_unknown_exact_string_fallback_without_payload_probe(self) -> None:
+        forwarded = []
+        marker = object()
+
+        class OpaquePayload(dict):
+            def __bool__(self):
+                raise AssertionError("unknown-action payload must not be probed")
+
+            def __len__(self):
+                raise AssertionError("unknown-action payload must not be probed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "fallback.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=lambda _event: None,
+                next_delegate=lambda action_id, payload: (
+                    forwarded.append((action_id, payload)),
+                    marker,
+                )[1],
+                current_focus_provider=lambda: "pgn-tree",
+            )
+            payload = OpaquePayload({"opaque": object()})
+
+            result = delegate("screen.home", payload)
+
+            self.assertIs(result, marker)
+            self.assertEqual(len(forwarded), 1)
+            self.assertEqual(forwarded[0][0], "screen.home")
+            self.assertIs(forwarded[0][1], payload)
+
     def test_import_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "import-shutdown.pgn"
