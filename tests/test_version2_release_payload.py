@@ -60,6 +60,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         (self.standalone / "AccessibleChess.exe.config").write_text(
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
+        for relative in package_preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
+            runtime = self.standalone.joinpath(*relative.split("/")[1:])
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            runtime.write_bytes(self._windows_x64_pe(b"runtime"))
         for name in _REQUIRED_WEB_FILES:
             path = self.standalone / "web" / name
             path.parent.mkdir(parents=True, exist_ok=True)
