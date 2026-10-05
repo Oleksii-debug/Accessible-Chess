@@ -254,3 +254,32 @@ Keep these states separate:
 - NVDA_VERIFIED.
 
 Existing WebView use inside the Windows application does not count as a Web product.
+
+## 18. Active parallel product expansion — 2026-10-05
+
+Binding authority:
+- `docs/CANONICAL_PRODUCT_VISION_AMENDMENT_2026-10-05.md`;
+- `docs/MEDIA_INTELLIGENCE_AND_CHESS_AGENT_ARCHITECTURE.md`.
+
+The older dependency-order wording in section 16 remains useful for true technical dependencies, but it is **not** a worker-idling or serial-development rule. Media Intelligence and the Universal Chess Agent are active implementation scope now and may proceed in parallel with Formats/Library/ChessBase, packaging/accessibility and simplified Classroom work.
+
+Active architectural boundaries include:
+- `MediaSession` / `MediaClock`;
+- typed `MediaEvidence`;
+- `BoardVisionPort`;
+- `SpeechContextPort`;
+- `StructuredBroadcastProvider`;
+- `ChessStateReconciler`;
+- durable `MediaPositionTimeline`;
+- distinct media-synchronized and user-analysis cursors;
+- `RestoreMediaPosition`;
+- one `UniversalChessAgent` / Chess tool registry over existing typed application services.
+
+A structured authoritative chess feed is preferred to computer vision when available. Vision, speech, provider metadata and AI output are evidence only. Accepted state remains canonical Board/GameTree state after validation.
+
+Recorded-media qualification must cover timestamp alignment, seek/pause/rate changes, rewind/variations, ambiguity and restart/resume. Live qualification must cover structured broadcast synchronization and media/feed delay.
+
+The Universal Chess Agent must reuse canonical application commands/queries and may reuse first-party agent-runtime patterns from Nika Core / ChatGPT Autopilot under the cross-project reuse policy. It must not introduce a second chess-rules authority or a second product-wide orchestration stack without demonstrated need.
+
+Provider-specific media integration is capability/policy gated. Generic Media Core must remain testable with lawful local/user-owned/permitted fixtures even if a particular third-party provider requires additional compliance approval.
+
