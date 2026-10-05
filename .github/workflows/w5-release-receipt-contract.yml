@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: w5-release-receipt-${{ github.head_ref || github.ref_name }}-${{ matrix.os }}
+  group: w5-release-receipt-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
