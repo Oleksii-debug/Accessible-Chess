@@ -907,9 +907,18 @@ class Version2FinalProductApplication(Version2Application):
             }.get(activity, "round")
             index = int(snapshot["round_index"]) + 1
             count = int(snapshot["round_count"])
+            pair_suffix_uk = ""
+            pair_suffix_en = ""
+            if activity == RotationActivity.PAIR_PLAY.value:
+                if bool(snapshot["pair_play_bound"]):
+                    pair_suffix_uk = ", пари прив’язано"
+                    pair_suffix_en = ", pairing bound"
+                else:
+                    pair_suffix_uk = ", пари не прив’язано"
+                    pair_suffix_en = ", pairing not bound"
             announcement = self._teacher_keyboard_announcement(
-                f"Ротація: етап {index} з {count}, {activity_uk}.",
-                f"Rotation: round {index} of {count}, {activity_en}.",
+                f"Ротація: етап {index} з {count}, {activity_uk}{pair_suffix_uk}.",
+                f"Rotation: round {index} of {count}, {activity_en}{pair_suffix_en}.",
             )
         return {
             "kind": "group-rotation",
