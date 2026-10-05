@@ -44,6 +44,11 @@ class _ExplodingSessionRef:
         raise AssertionError("tampered session reference executed")
 
 
+class _ExplodingTruth:
+    def __bool__(self):
+        raise AssertionError("active overwrite truthiness executed")
+
+
 class PgnSaveSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -54,6 +59,31 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         path = self.root / name
         path.write_text(text, encoding="utf-8", newline="\n")
         return path
+
+    def test_active_overwrite_control_is_rejected_without_truthiness_or_io(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "active-overwrite.pgn"
+
+        with self.assertRaises(TypeError):
+            publish_pgn_save_snapshot(
+                snapshot,
+                path=target,
+                overwrite=_ExplodingTruth(),  # type: ignore[arg-type]
+            )
+
+        self.assertFalse(target.exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_capture_requires_exact_save_mode_enum(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+
+        with self.assertRaises(TypeError):
+            capture_pgn_save_snapshot(session, mode="save_as")  # type: ignore[arg-type]
+
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
 
     def test_save_of_older_snapshot_advances_source_but_keeps_newer_edit_dirty(self) -> None:
         source = self.write_document()
