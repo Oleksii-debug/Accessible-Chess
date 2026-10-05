@@ -88,6 +88,84 @@ class KeymapPersistedReadIORecoveryTests(unittest.TestCase):
             self.assertEqual(snapshot["recoveryMessage"], "invalid keymap profile")
             self.assertFalse(snapshot["writeBlocked"])
 
+    def test_incremental_write_failure_rolls_back_live_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            authority = service.editor.registry
+
+            with patch.object(
+                ActionRegistry,
+                "save",
+                side_effect=PermissionError("disk is read-only"),
+            ):
+                result = service.save("history.go_to_move", "Alt+J")
+
+            self.assertFalse(result["ok"])
+            self.assertIn("previous settings remain active", result["message"])
+            self.assertIs(service.editor.registry, authority)
+            self.assertEqual(authority.get_binding("history.go_to_move"), "Ctrl+G")
+            self.assertFalse(path.exists())
+
+    def test_reset_write_failure_restores_live_and_persisted_value(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            saved = service.save("history.go_to_move", "Alt+J")
+            self.assertTrue(saved["ok"])
+            original = path.read_bytes()
+            authority = service.editor.registry
+
+            with patch.object(
+                ActionRegistry,
+                "save",
+                side_effect=OSError("device unavailable"),
+            ):
+                result = service.reset_action("history.go_to_move")
+
+            self.assertFalse(result["ok"])
+            self.assertIs(service.editor.registry, authority)
+            self.assertEqual(authority.get_binding("history.go_to_move"), "Alt+J")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_import_write_failure_restores_shared_registry_identity_and_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            self.assertTrue(service.save("history.go_to_move", "Alt+J")["ok"])
+            original = path.read_bytes()
+            authority = service.editor.registry
+            imported = json.loads(service.export_profile())
+            imported["bindings"]["history.go_to_move"] = "Alt+K"
+
+            with patch.object(
+                ActionRegistry,
+                "save",
+                side_effect=PermissionError("write denied"),
+            ):
+                result = service.import_profile(json.dumps(imported))
+
+            self.assertFalse(result["ok"])
+            self.assertIs(service.editor.registry, authority)
+            self.assertEqual(authority.get_binding("history.go_to_move"), "Alt+J")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_successful_import_keeps_shared_registry_object_authoritative(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            authority = service.editor.registry
+            imported = json.loads(service.export_profile())
+            imported["bindings"]["history.go_to_move"] = "Alt+J"
+
+            result = service.import_profile(json.dumps(imported))
+
+            self.assertTrue(result["ok"])
+            self.assertIs(service.editor.registry, authority)
+            self.assertEqual(authority.get_binding("history.go_to_move"), "Alt+J")
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["bindings"]["history.go_to_move"], "Alt+J")
+
 
 if __name__ == "__main__":
     unittest.main()
