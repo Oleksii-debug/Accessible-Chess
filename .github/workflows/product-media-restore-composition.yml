@@ -1,0 +1,118 @@
+name: Product Media Restore Composition
+
+on:
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+    paths:
+      - acs/media_core.py
+      - acs/media_application.py
+      - acs/media_accessibility.py
+      - acs/version2_final_release.py
+      - web/media_accessible_restore.js
+      - web/version2_media_restore_bootstrap.js
+      - tests/test_media_core.py
+      - tests/test_media_application.py
+      - tests/test_media_accessibility.py
+      - tests/test_version2_final_media_restore_composition.py
+      - tests/js/media_accessible_restore_dom_test.js
+      - tests/js/version2_media_restore_bootstrap_dom_test.js
+      - tests/test_architecture.py
+      - .github/workflows/media-application-restore-position.yml
+      - .github/workflows/media-accessible-restore-presentation.yml
+      - .github/workflows/product-media-restore-composition.yml
+  push:
+    branches:
+      - feat/product-media-restore-composition-20261005-sol56v8k3-r2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-media-restore-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact Product Media candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact current Product ancestry and bounded scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PRODUCT_BASE: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+          PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/current-product"
+          live_product="$(git rev-parse refs/remotes/origin/current-product)"
+          test "$live_product" = "$PRODUCT_BASE" || {
+            printf 'PRODUCT_BASE_MOVED expected=%s live=%s\n' "$PRODUCT_BASE" "$live_product" >&2
+            exit 1
+          }
+          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          git diff --check "$PRODUCT_BASE"...HEAD
+          changed="$(git diff --name-only "$PRODUCT_BASE"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/media-accessible-restore-presentation.yml' \
+            '.github/workflows/media-application-restore-position.yml' \
+            '.github/workflows/product-media-restore-composition.yml' \
+            'acs/media_accessibility.py' \
+            'acs/media_application.py' \
+            'acs/media_core.py' \
+            'acs/version2_final_release.py' \
+            'tests/js/media_accessible_restore_dom_test.js' \
+            'tests/js/version2_media_restore_bootstrap_dom_test.js' \
+            'tests/test_architecture.py' \
+            'tests/test_media_accessibility.py' \
+            'tests/test_media_application.py' \
+            'tests/test_media_core.py' \
+            'tests/test_version2_final_media_restore_composition.py' \
+            'web/media_accessible_restore.js' \
+            'web/version2_media_restore_bootstrap.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'UNEXPECTED_PRODUCT_MEDIA_SCOPE\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Product Media composition
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/media_application.py
+          acs/media_accessibility.py
+          acs/version2_final_release.py
+          tests/test_version2_final_media_restore_composition.py
+
+      - name: Run Media and final-Product regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_core
+          tests.test_media_application
+          tests.test_media_accessibility
+          tests.test_version2_final_media_restore_composition
+          tests.test_version2_final_release_binding
+
+      - name: Run Media accessibility DOM contracts
+        run: |
+          node tests/js/media_accessible_restore_dom_test.js
+          node tests/js/version2_media_restore_bootstrap_dom_test.js
