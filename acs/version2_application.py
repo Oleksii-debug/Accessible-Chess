@@ -2113,7 +2113,10 @@ class Version2Application:
             if (
                 type(candidate) is str
                 and 0 < len(candidate) <= 160
-                and all(char.isalnum() or char in "-_" for char in candidate)
+                and all(
+                    char in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+                    for char in candidate
+                )
             ):
                 focus_target = candidate
 
