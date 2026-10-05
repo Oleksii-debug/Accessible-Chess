@@ -3,59 +3,42 @@ name: W5 Portable Package Contract
 on:
   push:
     branches:
-      - qa/w5-portable-package-contract-20261005-sol56f2q9
+      - converge/w5-hardened-package-preflight-20261005-zftrkmo
   pull_request:
     branches:
-      - work/post-freeze-v2-windows-package-qualification-20260911
+      - qa/w5-portable-package-contract-20261005-sol56f2q9
     paths:
-      - run_accessible_chess.py
-      - acs/acsdb.py
-      - acs/book_progress_store.py
-      - acs/bookdocument.py
-      - acs/bookreader.py
-      - acs/chesscore.py
-      - acs/settings.py
-      - acs/sound_events.py
-      - acs/sound_windows.py
-      - acs/stockfish_runtime.py
-      - acs/training.py
-      - acs/training_progress_store.py
-      - acs/version2_upgrade.py
-      - acs/stage1_release_ui.py
-      - acs/version2_application.py
-      - acs/version2_package_assembler.py
       - acs/version2_package_preflight.py
-      - acs/version2_portable_package.py
-      - acs/version2_release_app.py
-      - packaging/portable_launcher.c
-      - tests/test_version2_package_assembler.py
-      - tests/test_version2_package_preflight.py
       - tests/test_v2_package_required_resources.py
-      - tests/test_version2_portable_package.py
-      - tests/test_portable_launcher_contract.py
-      - tests/test_portable_launcher_window_readiness.py
-      - tests/test_portable_localappdata_persistence_binding.py
-      - .github/workflows/p0-user-oneclick-portable-launcher.yml
-      - .github/workflows/post-freeze-v2-windows-package-qualification.yml
+      - tests/test_version2_package_assembler.py
+      - tests/test_version2_package_pe_identity.py
+      - tests/test_version2_package_preflight.py
+      - tests/test_version2_release_payload.py
       - .github/workflows/w5-portable-package-contract.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: w5-portable-package-contract-${{ github.head_ref || github.ref_name }}
+  group: w5-portable-hardened-package-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
-  EXPECTED_W5_SHA: b789448a573657b97cf535eb3e399e04990bbe46
-  W5_BRANCH: work/post-freeze-v2-windows-package-qualification-20260911
-  CONTRACT_PATH: .github/workflows/w5-portable-package-contract.yml
+  EXPECTED_W5_QUALIFICATION_PARENT: 89a07f079f55e99f77dd67a8067ccc526972c045
+  W5_QUALIFICATION_BRANCH: qa/w5-portable-package-contract-20261005-sol56f2q9
+  EXPECTED_HARDENED_PACKAGE_PARENT: 1e4f197f3a157412b3ef22b555f30b6ff3f105cb
+  EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  EXPECTED_REQUIRED_RESOURCES_TEST_BLOB: 9ea7b3b07a9df59092fad8679b6ec9e38eed144a
+  EXPECTED_ASSEMBLER_TEST_BLOB: a946d2da1742177d3caa0b07cbc7508eeb98afbe
+  EXPECTED_PE_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  EXPECTED_PREFLIGHT_TEST_BLOB: 01b7c32311bd231684cf9ece9481609a20267610
+  EXPECTED_RELEASE_PAYLOAD_TEST_BLOB: d5585a6f31e66c34142dccd73cc11984a964224e
 
 jobs:
   portable-package-contract:
-    name: Portable package contract on Windows
+    name: Portable package + hardened preflight on Windows
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 35
 
     steps:
       - name: Check out exact qualification successor
@@ -65,40 +48,58 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact live W5 base and qualification-only scope
+      - name: Prove exact dual-parent convergence and seven-path scope
         shell: bash
         run: |
           set -euo pipefail
           expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$expected_head"
 
-          git fetch --no-tags origin "+refs/heads/$W5_BRANCH:refs/remotes/origin/w5-contract-base"
-          live_w5="$(git rev-parse refs/remotes/origin/w5-contract-base)"
-          test "$live_w5" = "$EXPECTED_W5_SHA" || {
-            echo "W5_PORTABLE_BASE_MOVED expected=$EXPECTED_W5_SHA live=$live_w5" >&2
+          git fetch --no-tags origin "+refs/heads/$W5_QUALIFICATION_BRANCH:refs/remotes/origin/w5-qualification-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/w5-qualification-parent)"
+          test "$live_parent" = "$EXPECTED_W5_QUALIFICATION_PARENT" || {
+            echo "W5_QUALIFICATION_PARENT_MOVED expected=$EXPECTED_W5_QUALIFICATION_PARENT live=$live_parent" >&2
             exit 1
           }
 
-          git cat-file -e "$EXPECTED_W5_SHA^{commit}"
-          test "$(git merge-base "$EXPECTED_W5_SHA" HEAD)" = "$EXPECTED_W5_SHA"
-          git diff --check "$EXPECTED_W5_SHA"...HEAD
+          git cat-file -e "$EXPECTED_HARDENED_PACKAGE_PARENT^{commit}"
+          git merge-base --is-ancestor "$EXPECTED_W5_QUALIFICATION_PARENT" HEAD
+          git merge-base --is-ancestor "$EXPECTED_HARDENED_PACKAGE_PARENT" HEAD
+          git diff --check "$EXPECTED_W5_QUALIFICATION_PARENT"...HEAD
 
-          mapfile -t paths < <(git diff --name-only "$EXPECTED_W5_SHA"...HEAD | sort)
+          mapfile -t paths < <(git diff --name-only "$EXPECTED_W5_QUALIFICATION_PARENT"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
-          test "${#paths[@]}" -eq 1
-          test "${paths[0]}" = "$CONTRACT_PATH"
+          expected=(
+            ".github/workflows/w5-portable-package-contract.yml"
+            "acs/version2_package_preflight.py"
+            "tests/test_v2_package_required_resources.py"
+            "tests/test_version2_package_assembler.py"
+            "tests/test_version2_package_pe_identity.py"
+            "tests/test_version2_package_preflight.py"
+            "tests/test_version2_release_payload.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${paths[$index]}" = "${expected[$index]}"
+          done
 
-          WriteMarker="W5_PORTABLE_PACKAGE_BASE=$EXPECTED_W5_SHA"
-          echo "$WriteMarker"
-          echo "W5_PORTABLE_PACKAGE_HEAD=$expected_head"
-          echo "W5_PORTABLE_PACKAGE_SCOPE=$CONTRACT_PATH"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$EXPECTED_REQUIRED_RESOURCES_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "$EXPECTED_ASSEMBLER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$EXPECTED_PE_IDENTITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_payload.py)" = "$EXPECTED_RELEASE_PAYLOAD_TEST_BLOB"
+
+          echo "W5_QUALIFICATION_PARENT=$EXPECTED_W5_QUALIFICATION_PARENT"
+          echo "HARDENED_PACKAGE_PARENT=$EXPECTED_HARDENED_PACKAGE_PARENT"
+          echo "W5_HARDENED_PACKAGE_HEAD=$expected_head"
 
       - name: Set up canonical package-test Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
 
-      - name: Compile portable package authority and contract tests
+      - name: Compile portable and hardened package authorities
         run: >-
           python -m py_compile
           run_accessible_chess.py
@@ -123,19 +124,21 @@ jobs:
           tests/test_version2_package_assembler.py
           tests/test_version2_package_preflight.py
           tests/test_v2_package_required_resources.py
+          tests/test_version2_package_pe_identity.py
+          tests/test_version2_release_payload.py
           tests/test_version2_portable_package.py
           tests/test_portable_launcher_contract.py
           tests/test_portable_launcher_window_readiness.py
           tests/test_portable_localappdata_persistence_binding.py
 
-      - name: Run canonical package preflight and required-resource contracts
+      - name: Run hardened canonical package contracts
         run: >-
           python -m unittest -v
           tests.test_version2_package_preflight
           tests.test_v2_package_required_resources
-
-      - name: Run canonical inner-package assembly contract
-        run: python -m unittest -v tests.test_version2_package_assembler
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
 
       - name: Run canonical portable outer-package contract
         run: python -m unittest -v tests.test_version2_portable_package
