@@ -41,8 +41,8 @@ jobs:
           SOURCE_REF: feat/universal-agent-readonly-tools-20261005-sol56m7q2
           SOURCE_SHA: f0c429ab9863733d82f0fbc759af774f9cf080f9
           CONVERGENCE_SHA: 33e8e15c7ae456b1a3101bc303ba75f106b67901
-          AGENT_TOOLS_BLOB: c9522af3e41f148812021b0ccd352bfd6ef17a8d
-          TEST_BLOB: 24ac09ad6632cafc076c85450b5631371db57251
+          AGENT_TOOLS_BLOB: c692a47d848c5ea4fbf72e2f87c97fd5e3efee12
+          TEST_BLOB: cbef4d97a831716de27364b2827221c22e9ea074
         run: |
           set -euo pipefail
           candidate="$(git rev-parse HEAD)"
