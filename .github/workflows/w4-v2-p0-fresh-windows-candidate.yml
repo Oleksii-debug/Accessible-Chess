@@ -3,7 +3,7 @@ name: W4 V2 P0 Fresh Windows Candidate
 on:
   push:
     branches:
-      - test/current-stage-windows-candidate-20261005
+      - test/current-stage-windows-2022-20261005
   workflow_dispatch:
     inputs:
       owner_final_candidate_approved:
@@ -55,7 +55,7 @@ env:
 
 jobs:
   candidate:
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 110
     steps:
       - name: Checkout W4 workflow authority
