@@ -7,7 +7,10 @@ import unittest
 from unittest import mock
 
 from acs.pgn_document import PgnDocumentSession
-from acs.pgn_service import PgnConcurrentWriteError
+from acs.pgn_service import (
+    PgnConcurrentWriteError,
+    PgnPublicationUnverifiedError,
+)
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
     FileWorkflowEventKind,
@@ -60,6 +63,51 @@ class _OwnerPoster:
 
 
 class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
+    def test_post_publication_verification_failure_is_not_generic_save_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "post-publication-unverified.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Potentially published generation")
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.publish_pgn_save_snapshot",
+                side_effect=PgnPublicationUnverifiedError(
+                    "private post-publication verification detail"
+                ),
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+
+            poster.drain()
+
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(
+                terminal.error_code,
+                "pgn_save_publication_unverified",
+            )
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            self.assertNotIn("private post-publication", repr(terminal))
+            self.assertFalse(controller.pgn_save_running)
+
     def test_late_cancel_resolves_completed_worker_failure_without_false_cancelling(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "failure.pgn"
