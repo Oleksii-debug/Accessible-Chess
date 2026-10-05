@@ -17,7 +17,10 @@ class CurrentProductTrainingDurabilityConvergenceTests(unittest.TestCase):
         self.assertIn("TRAINING_DURABILITY_CANDIDATE_SUPERSEDED", text)
         self.assertIn("TRAINING_DURABILITY_BASE_MOVED", text)
         self.assertIn("TRAINING_DURABILITY_SOURCE_MOVED", text)
-        self.assertIn('test "$(git show -s --format=%P HEAD)" = "$BASE_HEAD $SOURCE_HEAD"', text)
+        self.assertIn('git merge-base --is-ancestor "$BASE_HEAD" HEAD', text)
+        self.assertIn('test "$(git merge-base "$BASE_HEAD" HEAD)" = "$BASE_HEAD"', text)
+        self.assertIn('git merge-base --is-ancestor "$SOURCE_HEAD" HEAD', text)
+        self.assertNotIn('git show -s --format=%P HEAD', text)
         self.assertNotIn("continue-on-error:", text)
 
     def test_source_exact_candidate_guard_is_retained(self) -> None:
