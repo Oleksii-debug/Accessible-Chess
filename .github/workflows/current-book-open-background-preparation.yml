@@ -5,8 +5,12 @@ on:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
     paths:
+      - 'acs/full_product_actions.py'
       - 'acs/version2_application.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_book_open_worker.py'
       - 'tests/test_book_open_preparation.py'
+      - 'tests/test_version2_windows_book_open_worker.py'
       - '.github/workflows/current-book-open-background-preparation.yml'
   workflow_dispatch:
 
@@ -70,9 +74,16 @@ jobs:
           git diff --check "$live_product"...HEAD
 
           changed="$(git diff --name-only "$live_product"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/current-book-open-background-preparation.yml'             'acs/version2_application.py'             'tests/test_book_open_preparation.py' | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-book-open-background-preparation.yml' \
+            'acs/full_product_actions.py' \
+            'acs/version2_application.py' \
+            'acs/version2_release_app.py' \
+            'acs/version2_windows_book_open_worker.py' \
+            'tests/test_book_open_preparation.py' \
+            'tests/test_version2_windows_book_open_worker.py' | sort)"
           test "$changed" = "$expected" || {
-            printf 'Unexpected Book Open preparation scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected Book Open worker scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
@@ -86,17 +97,24 @@ jobs:
       - name: Compile Book Open boundary
         run: >-
           python -m compileall -q
+          acs/full_product_actions.py
           acs/version2_application.py
+          acs/version2_release_app.py
+          acs/version2_windows_book_open_worker.py
           tests/test_book_open_preparation.py
+          tests/test_version2_windows_book_open_worker.py
 
       - name: Execute Book Open transaction and semantic regressions
         run: >-
           python -m unittest -v
           tests.test_book_open_preparation
+          tests.test_version2_windows_book_open_worker
           tests.test_book_open_source_authority
           tests.test_v2_book_transaction_current_runtime
           tests.test_version2_application
           tests.test_w3_p0f_starter_books_training_content
+          tests.test_full_product_actions
+          tests.test_version2_release_app
 
       - name: Core selftest
         run: python -m acs.selftest
