@@ -2023,60 +2023,149 @@ class Version2Application:
 
     def import_ui_ready(self, mailbox):
         self._assert_thread()
+        delivery_batch = getattr(mailbox, "delivery_batch", None)
+        if not callable(delivery_batch):
+            raise TypeError("Windows import UI mailbox must support transactional delivery")
+
         ui = self.library.projection.import_projection
         active = {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}
-        events = mailbox.drain()
-        with self._observation_lock:
-            progress, result = self._progress, self._result
-            self._progress = self._result = None
-        for event in events:
-            if event.action_id not in {"library.import", "library.cancel_import"}:
-                # Deferred PGN Open completion already committed the canonical
-                # document and shell route on the owner thread. Publish one
-                # route refresh so a retained WebView/NVDA presentation cannot
-                # remain on the document that was visible before the worker.
-                if event.kind is FileWorkflowEventKind.PGN_OPENED:
-                    self._events.append(
-                        {
-                            "kind": "route",
-                            "payload": {
-                                "route_id": "pgn",
-                                "focus_target": event.focus_target,
-                            },
+        ui_checkpoint = ui._capture_presentation_state()
+        application_events_checkpoint = tuple(self._events)
+
+        with delivery_batch() as events:
+            with self._observation_lock:
+                progress, result = self._progress, self._result
+
+            # Observer DTOs are published immediately before their corresponding
+            # worker callback/terminal. A worker can therefore update the
+            # observer slot and then block on the mailbox lease. Consume a DTO
+            # only when this exact leased batch already contains the matching
+            # path-free event; otherwise leave the newer observation pending.
+            progress_ready = (
+                progress is not None
+                and any(
+                    event.action_id == "library.import"
+                    and event.kind is FileWorkflowEventKind.IMPORT_PROGRESS
+                    and not event.source_parsing
+                    and event.processed_games == progress.processed_games
+                    and event.total_games == progress.total_games
+                    for event in events
+                )
+            )
+            result_ready = (
+                result is not None
+                and any(
+                    event.action_id == "library.import"
+                    and event.kind is FileWorkflowEventKind.IMPORT_COMPLETED
+                    and event.game_count == result.game_count
+                    and event.warning_count == result.warning_count
+                    for event in events
+                )
+            )
+
+            try:
+                for event in events:
+                    if event.action_id not in {"library.import", "library.cancel_import"}:
+                        # Deferred PGN Open completion already committed the canonical
+                        # document and shell route on the owner thread. Publish one
+                        # route refresh so a retained WebView/NVDA presentation cannot
+                        # remain on the document that was visible before the worker.
+                        if event.kind is FileWorkflowEventKind.PGN_OPENED:
+                            self._events.append(
+                                {
+                                    "kind": "route",
+                                    "payload": {
+                                        "route_id": "pgn",
+                                        "focus_target": event.focus_target,
+                                    },
+                                }
+                            )
+                        self._file_event(event)
+                        continue
+                    rendered = None
+                    if (
+                        event.kind
+                        in {
+                            FileWorkflowEventKind.IMPORT_COMPLETED,
+                            FileWorkflowEventKind.IMPORT_EMPTY,
                         }
-                    )
-                self._file_event(event)
-                continue
-            rendered = None
-            if (event.kind in {FileWorkflowEventKind.IMPORT_COMPLETED, FileWorkflowEventKind.IMPORT_EMPTY}
-                    and event.source_format and ui.phase in active):
-                ui.book_source_report(event.source_format, event.retained_book_blocks)
-            if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
-                if ui.phase not in active: rendered = ui.prepare()
-                if event.total_games and ui.snapshot()["total_games"] == 0: ui.begin(event.total_games)
-                if event.source_format:
-                    ui.book_source_report(event.source_format, event.retained_book_blocks)
-            elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING and ui.phase in active:
-                rendered = ui.host_cancelling()
-            elif (event.kind is FileWorkflowEventKind.IMPORT_PROGRESS and event.source_parsing
-                  and ui.phase is LibraryImportPhase.RUNNING and ui.snapshot()["total_games"] == 0):
-                rendered = ui.source_reading(event.source_bytes_read, event.source_total_bytes, event.processed_games)
-            elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
-                rendered = ui.empty(warning_count=event.warning_count)
-            elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLED and ui.phase in active:
-                rendered = ui.cancelled()
-            elif event.kind is FileWorkflowEventKind.FAILED:
-                if ui.phase not in active: ui.prepare()
-                rendered = ui.fail(self._native_file_error_message(event))
-            if rendered: self._events.append(asdict(rendered))
-        if progress is not None and ui.phase in active:
-            if ui.snapshot()["total_games"] == 0: ui.begin(progress.total_games)
-            self._events.append(asdict(ui.progress(progress)))
-        if result is not None and ui.phase in active:
-            if ui.snapshot()["total_games"] == 0: ui.begin(result.game_count)
-            self._events.append(asdict(ui.complete(result)))
-            # Update rows without moving focus from another surface.
-            self.library.projection.search(self.library.projection.query)
+                        and event.source_format
+                        and ui.phase in active
+                    ):
+                        ui.book_source_report(
+                            event.source_format,
+                            event.retained_book_blocks,
+                        )
+                    if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
+                        if ui.phase not in active:
+                            rendered = ui.prepare()
+                        if (
+                            event.total_games
+                            and ui.snapshot()["total_games"] == 0
+                        ):
+                            ui.begin(event.total_games)
+                        if event.source_format:
+                            ui.book_source_report(
+                                event.source_format,
+                                event.retained_book_blocks,
+                            )
+                    elif (
+                        event.kind is FileWorkflowEventKind.IMPORT_CANCELLING
+                        and ui.phase in active
+                    ):
+                        rendered = ui.host_cancelling()
+                    elif (
+                        event.kind is FileWorkflowEventKind.IMPORT_PROGRESS
+                        and event.source_parsing
+                        and ui.phase is LibraryImportPhase.RUNNING
+                        and ui.snapshot()["total_games"] == 0
+                    ):
+                        rendered = ui.source_reading(
+                            event.source_bytes_read,
+                            event.source_total_bytes,
+                            event.processed_games,
+                        )
+                    elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
+                        rendered = ui.empty(warning_count=event.warning_count)
+                    elif (
+                        event.kind is FileWorkflowEventKind.IMPORT_CANCELLED
+                        and ui.phase in active
+                    ):
+                        rendered = ui.cancelled()
+                    elif event.kind is FileWorkflowEventKind.FAILED:
+                        if ui.phase not in active:
+                            ui.prepare()
+                        rendered = ui.fail(
+                            self._native_file_error_message(event)
+                        )
+                    if rendered:
+                        self._events.append(asdict(rendered))
+
+                if progress_ready and progress is not None and ui.phase in active:
+                    if ui.snapshot()["total_games"] == 0:
+                        ui.begin(progress.total_games)
+                    self._events.append(asdict(ui.progress(progress)))
+
+                if result_ready and result is not None and ui.phase in active:
+                    if ui.snapshot()["total_games"] == 0:
+                        ui.begin(result.game_count)
+                    self._events.append(asdict(ui.complete(result)))
+                    # Update rows without moving focus from another surface.
+                    self.library.projection.search(self.library.projection.query)
+            except BaseException:
+                ui._restore_presentation_state(ui_checkpoint)
+                self._events.clear()
+                self._events.extend(application_events_checkpoint)
+                raise
+            else:
+                # A newer worker observation may have arrived while this owner
+                # batch was rendering. Clear only the exact DTOs actually
+                # consumed by this successful transaction.
+                with self._observation_lock:
+                    if progress_ready and self._progress is progress:
+                        self._progress = None
+                    if result_ready and self._result is result:
+                        self._result = None
 
     def _native_file_error_message(self, event):
         if type(event) is not FileWorkflowEvent:
