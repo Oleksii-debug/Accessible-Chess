@@ -801,6 +801,44 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertTrue(box["session"].view().source_overwrite_safe)
             self.assertFalse(box["session"].view().global_warnings)
 
+    def test_owner_commit_presentation_failure_does_not_partially_advance_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "owner-presentation-failure.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Durable before owner presentation failure")
+            source_before = session.source
+            saved_digest_before = session._saved_digest
+            revision_before = session.document_revision
+            baseline_before = session.workspace._baseline_digest
+            controller, _, poster, _, async_events, _, _ = self._controller(session)
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn(
+                "Durable before owner presentation failure",
+                source.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(async_events, [])
+
+            # The file is already durable, but owner-thread presentation state is
+            # now malformed. The host must report a commit failure without
+            # leaving the session/workspace persistence authority half-advanced.
+            session.workspace._cursor = object()  # type: ignore[assignment]
+            poster.drain()
+
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(session.source, source_before)
+            self.assertEqual(session._saved_digest, saved_digest_before)
+            self.assertEqual(session.document_revision, revision_before)
+            self.assertEqual(session.workspace._baseline_digest, baseline_before)
+            self.assertTrue(session.dirty)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertNotIn(str(source), repr(terminal))
+
     def test_save_as_commit_preserves_newer_recovery_safety_generation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "owner-recovery-generation-source.pgn"
