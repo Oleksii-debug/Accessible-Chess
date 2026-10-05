@@ -30,6 +30,7 @@ from .version2_windows_native_dialog_ownership import Version2OwnedWindowsPgnExp
 
 _LOG = logging.getLogger(__name__)
 _LIBRARY_EXPORT_ACTION = "library.export"
+_AUTO_RETRY_DELAY_SECONDS = 0.05
 
 
 class LibraryExportHostEventKind(str, Enum):
@@ -136,6 +137,7 @@ class Version2WindowsLibraryExportDelegate:
         self._thread: threading.Thread | None = None
         self._cancel: threading.Event | None = None
         self._terminal_pending: tuple[int, LibraryExportHostEvent] | None = None
+        self._retry_timer: threading.Timer | None = None
         self._generation = 0
         self._closed = False
 
@@ -337,6 +339,23 @@ class Version2WindowsLibraryExportDelegate:
                 return
             self._terminal_pending = (generation, terminal)
 
+        self._post_terminal(generation, terminal)
+
+    def _post_terminal(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+        *,
+        schedule_retry: bool = True,
+    ) -> None:
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+            ):
+                return
+
         def finish() -> None:
             self._finish_export(generation, terminal)
 
@@ -344,11 +363,62 @@ class Version2WindowsLibraryExportDelegate:
             assert self._post_to_ui is not None
             self._post_to_ui(finish)
         except BaseException:
+            if schedule_retry:
+                self._schedule_terminal_retry(generation, terminal)
+            else:
+                # Keep the exact terminal event pending. The existing
+                # Ctrl+Shift+X Library cancel authority can consume it on the
+                # UI thread without changing the already chosen durable result.
+                _LOG.warning(
+                    "Version 2 Library export terminal UI retry failed",
+                    exc_info=True,
+                )
+
+    def _schedule_terminal_retry(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+    ) -> None:
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+                or self._retry_timer is not None
+            ):
+                return
+            timer = threading.Timer(
+                _AUTO_RETRY_DELAY_SECONDS,
+                self._retry_terminal,
+                args=(generation, terminal),
+            )
+            timer.daemon = True
+            self._retry_timer = timer
+        try:
+            timer.start()
+        except BaseException:
             with self._lock:
-                if generation == self._generation:
-                    self._terminal_pending = None
-                    self._cancel = None
-                    self._thread = None
+                if self._retry_timer is timer:
+                    self._retry_timer = None
+            _LOG.warning(
+                "Version 2 Library export terminal UI retry could not start",
+                exc_info=True,
+            )
+
+    def _retry_terminal(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+    ) -> None:
+        with self._lock:
+            self._retry_timer = None
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+            ):
+                return
+        self._post_terminal(generation, terminal, schedule_retry=False)
 
     def _finish_export(
         self,
@@ -362,9 +432,13 @@ class Version2WindowsLibraryExportDelegate:
             pending = self._terminal_pending
             if pending != (generation, terminal):
                 return
+            retry_timer = self._retry_timer
+            self._retry_timer = None
             self._terminal_pending = None
             self._cancel = None
             self._thread = None
+        if retry_timer is not None:
+            retry_timer.cancel()
         self._emit(terminal)
 
     def cancel_export(self) -> LibraryExportHostEvent:
@@ -375,12 +449,22 @@ class Version2WindowsLibraryExportDelegate:
         with self._lock:
             if self._closed:
                 return self._failed("library_export_unavailable", focus)
-            if self._terminal_pending is not None:
-                return self._terminal_pending[1]
-            cancel = self._cancel
-            if cancel is None:
-                return self._failed("no_library_export_running", focus)
-            cancel.set()
+            pending = self._terminal_pending
+            if pending is not None:
+                generation, terminal = pending
+            else:
+                generation = 0
+                terminal = None
+                cancel = self._cancel
+                if cancel is None:
+                    return self._failed("no_library_export_running", focus)
+                cancel.set()
+        if terminal is not None:
+            # The worker already chose a durable terminal result. Consume that
+            # exact result on the owner thread; never overwrite it with a late
+            # cancellation and never emit it twice if a queued callback follows.
+            self._finish_export(generation, terminal)
+            return terminal
         return self._emit(
             LibraryExportHostEvent(
                 LibraryExportHostEventKind.CANCELLING,
@@ -420,11 +504,15 @@ class Version2WindowsLibraryExportDelegate:
             if thread.is_alive():
                 return False
         with self._lock:
+            retry_timer = self._retry_timer
+            self._retry_timer = None
             self._closed = True
             self._generation += 1
             self._terminal_pending = None
             self._cancel = None
             self._thread = None
+        if retry_timer is not None:
+            retry_timer.cancel()
         return True
 
 
