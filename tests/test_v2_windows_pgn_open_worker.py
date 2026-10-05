@@ -659,6 +659,42 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertEqual(events[-1].error_code, "pgn_open_stale")
             self.assertFalse(controller.pgn_open_running)
 
+    def test_owner_stale_check_rejects_active_previous_revision_and_releases_worker(self) -> None:
+        class ActiveInt(int):
+            def __lt__(self, other):
+                raise AssertionError("active previous revision ordering executed")
+
+            def __ne__(self, other):
+                raise AssertionError("active previous revision comparison executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-active-revision.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous-active-revision.pgn"
+            previous_path.write_text(
+                PGN_TEXT.replace("Async open", "Previous"),
+                encoding="utf-8",
+            )
+            previous = PgnDocumentSession.open(previous_path)
+            controller, _, poster, events, session_box, publications = self._controller(
+                source,
+                previous=previous,
+            )
+
+            started = controller("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            previous._document_revision = ActiveInt(previous._document_revision)
+
+            poster.drain()
+
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(publications, [])
+            self.assertFalse(controller.pgn_open_running)
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_open_stale")
+
     def test_prepared_open_does_not_overwrite_replaced_current_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "replacement.pgn"
