@@ -41,11 +41,13 @@ jobs:
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
-          PINNED_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95
+          PINNED_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2
           WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
-          WINDOWS_EVIDENCE_SHA: 0569c17efa3b798fa11edb69549e0f380de02224
+          WINDOWS_EVIDENCE_SHA: 298a3d982f79caf126560a7017a7a1b65e25816a
           TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo
-          TRAINING_DURABILITY_SHA: 42fe13e70dc71d52cf54b930e12c05ce0fb3ff20
+          TRAINING_DURABILITY_SHA: b6444f6fb17238c24a193a03461e9dc8cf1bd235
+          PRE_FOCUS_SHIPPING_HEAD: 42145bb7684249e07946c02dda5b28223f1e0caa
+          TRAINING_RECONVERGENCE_MERGE: c65f0641a866744c583ea21f7b2baa7ec8c5d53e
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
@@ -84,6 +86,8 @@ jobs:
           git merge-base --is-ancestor "$live_product" "$WINDOWS_EVIDENCE_SHA"
           git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"
           test "$(git merge-base "$live_product" "$TRAINING_DURABILITY_SHA")" = "$live_product"
+          test "$(git show -s --format=%P "$TRAINING_RECONVERGENCE_MERGE")" = "$PRE_FOCUS_SHIPPING_HEAD $TRAINING_DURABILITY_SHA"
+          git merge-base --is-ancestor "$TRAINING_RECONVERGENCE_MERGE" HEAD
 
           git merge-base --is-ancestor "$live_shipping" "$live_product"
           test "$(git merge-base "$live_shipping" "$live_product")" = "$live_shipping"
