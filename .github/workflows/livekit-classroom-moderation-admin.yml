@@ -192,14 +192,88 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq 'LIVEKIT_API_VERSION = "1.2.1"' acs/livekit_classroom_moderation_admin.py
-          grep -Fq 'can_publish_data' acs/livekit_classroom_moderation_admin.py
-          grep -Fq 'can_publish_sources' acs/livekit_classroom_moderation_admin.py
-          grep -Fq 'SCREEN_SHARE_AUDIO' tests/test_livekit_classroom_moderation_admin.py
-          grep -Fq 'value is False' acs/livekit_classroom_moderation_admin.py
-          ! grep -Eq 'os\.(environ|getenv)|LIVEKIT_API_SECRET|LIVEKIT_API_KEY' \
-            acs/livekit_classroom_moderation_admin.py
-          ! grep -Eq 'http://|https://|requests|aiohttp' acs/livekit_classroom_moderation_admin.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          source_path = Path("acs/livekit_classroom_moderation_admin.py")
+          test_path = Path("tests/test_livekit_classroom_moderation_admin.py")
+          source = source_path.read_text(encoding="utf-8")
+          tests = test_path.read_text(encoding="utf-8")
+
+          required_source = (
+              'LIVEKIT_API_VERSION = "1.2.1"',
+              "can_publish_data",
+              "can_publish_sources",
+          )
+          missing_source = [token for token in required_source if token not in source]
+          if missing_source:
+              raise SystemExit(f"missing least-privilege source contract: {missing_source}")
+          if "SCREEN_SHARE_AUDIO" not in tests:
+              raise SystemExit("missing screen-share-audio fail-closed regression")
+
+          forbidden_text = (
+              "LIVEKIT_API_SECRET",
+              "LIVEKIT_API_KEY",
+              "http://",
+              "https://",
+          )
+          leaked = [token for token in forbidden_text if token in source]
+          if leaked:
+              raise SystemExit(f"ambient credential/network surface detected: {leaked}")
+
+          tree = ast.parse(source, filename=str(source_path))
+          imported_roots = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  imported_roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+              elif isinstance(node, ast.ImportFrom) and node.module:
+                  imported_roots.add(node.module.split(".", 1)[0])
+          forbidden_imports = {"os", "requests", "aiohttp", "urllib", "http", "socket"}
+          overlap = sorted(imported_roots & forbidden_imports)
+          if overlap:
+              raise SystemExit(f"ambient network/secret import detected: {overlap}")
+
+          owner = next(
+              node
+              for node in tree.body
+              if isinstance(node, ast.ClassDef)
+              and node.name == "LiveKitClassroomModerationAdmin"
+          )
+
+          def has_explicit_false_guard(function_name: str) -> bool:
+              function = next(
+                  node
+                  for node in owner.body
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and node.name == function_name
+              )
+              for node in ast.walk(function):
+                  if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+                      continue
+                  if not isinstance(node.ops[0], ast.Is) or len(node.comparators) != 1:
+                      continue
+                  left = node.left
+                  right = node.comparators[0]
+                  if (
+                      isinstance(left, ast.Attribute)
+                      and isinstance(left.value, ast.Name)
+                      and left.value.id == "command"
+                      and left.attr == "value"
+                      and isinstance(right, ast.Constant)
+                      and right.value is False
+                  ):
+                      return True
+              return False
+
+          for function_name in ("moderation_effect_matches", "_set_soft_mute"):
+              if not has_explicit_false_guard(function_name):
+                  raise SystemExit(
+                      f"{function_name} lacks explicit soft-mute false/release guard"
+                  )
+
+          print("LIVEKIT_SERVER_ONLY_LEAST_PRIVILEGE=PASS")
+          PY
 
       - name: Core selftest
         run: python -m acs.selftest
