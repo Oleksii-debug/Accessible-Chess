@@ -1251,7 +1251,7 @@ class Version2WindowsFileActionDelegate:
         game_count: int,
         *,
         allow_shutdown_commit: bool = False,
-    ) -> None:
+    ) -> FileWorkflowEvent | None:
         with self._lock:
             current = (
                 generation == self._generation
@@ -1260,7 +1260,7 @@ class Version2WindowsFileActionDelegate:
                 and (allow_shutdown_commit or not self._shutdown_requested)
             )
             if not current:
-                return
+                return None
 
         # Terminal truth is fixed by the worker result. A Cancel click that
         # arrives after publication success or a completed worker failure must
@@ -1331,11 +1331,12 @@ class Version2WindowsFileActionDelegate:
                     and not allow_shutdown_commit
                 )
             ):
-                return
+                return None
             self._clear_worker_locked()
-        self._emit_owner_async(terminal)
+        return self._emit_owner_async(terminal)
 
     def _cancel_pgn_save(self) -> FileWorkflowEvent:
+        pending: tuple[object, ...] | None = None
         with self._lock:
             worker = self._worker
             cancel_event = self._cancel_event
@@ -1345,7 +1346,24 @@ class Version2WindowsFileActionDelegate:
                 and cancel_event is not None
             )
             if running:
-                cancel_event.set()
+                candidate = self._pending_save_result
+                if (
+                    candidate is not None
+                    and candidate[0] == self._generation
+                    and candidate[3] is None
+                    and bool(candidate[4])
+                ):
+                    # The worker has already classified a terminal cancellation
+                    # or failure. Resolve that exact result now instead of
+                    # announcing a new cancellation request that can no longer
+                    # affect publication truth.
+                    pending = candidate
+                else:
+                    cancel_event.set()
+        if pending is not None:
+            terminal = self._finish_pgn_save_on_owner(*pending)
+            if terminal is not None:
+                return terminal
         if not running:
             return self._failed(
                 "pgn.cancel_save",
