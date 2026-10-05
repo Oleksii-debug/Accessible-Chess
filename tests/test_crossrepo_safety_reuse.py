@@ -4,6 +4,12 @@ import asyncio
 import unittest
 from decimal import Decimal
 
+from acs.assistive_announcements import (
+    AnnouncementPriority,
+    ChessAnnouncementEvent,
+    ChessAnnouncementGate,
+    ChessAnnouncementKind,
+)
 from acs.agent_accessibility import format_agent_status, format_media_status
 from acs.agent_budget import AgentBudgetLedger
 from acs.keyed_async_lock import KeyedAsyncLock
@@ -214,6 +220,54 @@ class AutopilotContractReuseTests(unittest.TestCase):
                 status=AgentVerificationStatus.VERIFIED,
                 reason_code="verified",
             )
+
+class AutosportAnnouncementReuseTests(unittest.TestCase):
+    def test_high_frequency_progress_is_silent(self):
+        gate = ChessAnnouncementGate()
+        decision = gate.decide(
+            ChessAnnouncementEvent(
+                ChessAnnouncementKind.MEDIA_PROGRESS,
+                "Processing frame 100",
+                "media-1:frame-100",
+            )
+        )
+        self.assertFalse(decision.emit)
+        self.assertEqual(decision.priority, AnnouncementPriority.SILENT)
+
+    def test_polite_transition_is_deduplicated_without_focus_move(self):
+        gate = ChessAnnouncementGate()
+        event = ChessAnnouncementEvent(
+            ChessAnnouncementKind.MEDIA_POSITION_CHANGED,
+            "Knight g1 to f3",
+            "media-1:node-42",
+        )
+        first = gate.decide(event)
+        second = gate.decide(event)
+        self.assertTrue(first.emit)
+        self.assertFalse(first.move_focus)
+        self.assertFalse(second.emit)
+        self.assertEqual(second.reason, "DUPLICATE_STATE_TRANSITION")
+
+    def test_assertive_ambiguity_deduplicates_by_episode(self):
+        gate = ChessAnnouncementGate()
+        event = ChessAnnouncementEvent(
+            ChessAnnouncementKind.MEDIA_AMBIGUOUS,
+            "Media position is ambiguous",
+            "media-1:ambiguous-state",
+            episode_id="ambiguity-episode-1",
+        )
+        first = gate.decide(event)
+        second = gate.decide(
+            ChessAnnouncementEvent(
+                ChessAnnouncementKind.MEDIA_AMBIGUOUS,
+                "Still ambiguous",
+                "media-1:another-state",
+                episode_id="ambiguity-episode-1",
+            )
+        )
+        self.assertEqual(first.priority, AnnouncementPriority.ASSERTIVE)
+        self.assertFalse(second.emit)
+        self.assertEqual(second.reason, "DUPLICATE_CRITICAL_EPISODE")
 
 
 if __name__ == "__main__":
