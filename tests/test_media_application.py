@@ -94,6 +94,24 @@ class MediaApplicationTests(unittest.TestCase):
         self.assertEqual(service.session.chess_ref, "opaque:not-a-fen")
         self.assertIn("Restored the chess position", result.accessible_text)
 
+    def test_snapshot_at_provider_time_is_side_effect_free(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1", (link(20_000, "tree:provider-view"),)
+        )
+        service = self.service(
+            timeline,
+            MediaChessSession(MediaCursor("lesson-1", 0), "tree:analysis"),
+        )
+
+        snapshot = service.snapshot_at(20_500)
+
+        self.assertEqual(snapshot.position_ms, 20_500)
+        self.assertEqual(snapshot.synchronized_chess_ref, "tree:provider-view")
+        self.assertEqual(snapshot.analysis_chess_ref, "tree:analysis")
+        self.assertEqual(service.session.media_cursor.position_ms, 0)
+        self.assertEqual(service.session.chess_ref, "tree:analysis")
+        self.assertEqual(service.revision, 0)
+
     def test_restore_can_use_explicit_provider_timestamp_atomically(self):
         timeline = MediaPositionTimeline(
             "lesson-1", (link(20_000, "tree:provider-time"),)
