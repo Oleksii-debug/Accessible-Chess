@@ -1010,7 +1010,7 @@ class Version2WindowsFileActionDelegate:
         # document that was replaced or edited while the picker was open.
         try:
             live_session = self._get_pgn_session()
-        except Exception:
+        except BaseException:
             return self._failed(
                 "pgn.save_as", "pgn_session_unavailable", focus_target=previous_focus
             )
