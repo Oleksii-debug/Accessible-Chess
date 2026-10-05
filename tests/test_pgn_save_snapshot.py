@@ -399,6 +399,59 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(session._saved_digest, original_saved_digest)
         self.assertEqual(Path(session.source.path), source)
 
+    def test_commit_checkpoint_failure_does_not_partially_rebind_session(self) -> None:
+        source = self.write_document("checkpoint-failure.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Durably published before checkpoint failure")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+        publication = publish_pgn_save_snapshot(snapshot)
+
+        self.assertIn(
+            "Durably published before checkpoint failure",
+            source.read_text(encoding="utf-8"),
+        )
+        with patch.object(
+            PgnWorkspace,
+            "mark_saved",
+            autospec=True,
+            side_effect=RuntimeError("workspace checkpoint unavailable"),
+        ):
+            with self.assertRaises(RuntimeError):
+                commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertTrue(session.dirty)
+
+    def test_commit_rejects_active_live_document_revision_before_increment(self) -> None:
+        source = self.write_document("active-live-revision.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Published before active revision")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        publication = publish_pgn_save_snapshot(snapshot)
+        touched: list[str] = []
+
+        class ActiveInt(int):
+            def __add__(self, other):
+                touched.append("add")
+                raise AssertionError("active revision addition executed")
+
+        session._document_revision = ActiveInt(session.document_revision)
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual([], touched)
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertTrue(session.dirty)
+
     def test_committed_publication_does_not_alias_worker_fingerprint(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
