@@ -6,6 +6,10 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
+from acs.chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
@@ -283,6 +287,104 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(result.focus_target, "pgn-tree")
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_unsaved_confirmation_rejects_active_truthiness_without_hook(self) -> None:
+        touched: list[str] = []
+
+        class ActiveTruth:
+            def __bool__(self):
+                touched.append("bool")
+                raise AssertionError("confirmation truthiness hook executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-confirmation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Dirty before active confirmation")
+
+            class ActiveConfirmationDialogs(_Dialogs):
+                def confirm_discard_unsaved_pgn(self):
+                    return ActiveTruth()
+
+                def open_pgn(self):
+                    raise AssertionError(
+                        "open dialog must not run after malformed confirmation"
+                    )
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=ActiveConfirmationDialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=lambda event: event,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            result = delegate("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "unsaved_confirmation_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.pgn_open_running)
+
+    def test_native_dialog_results_reject_active_path_protocol_without_hook(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path protocol executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-dialog-result.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            active = ActivePath()
+
+            class ActiveResultDialogs(_Dialogs):
+                def open_pgn(self):
+                    return active
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return active
+
+                def select_library_import(self):
+                    return active
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=ActiveResultDialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=lambda event: event,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            opened = delegate("pgn.open", {})
+            saved_as = delegate("pgn.save_as", {})
+            imported = delegate("library.import", {})
+
+            for event, action in (
+                (opened, "pgn.open"),
+                (saved_as, "pgn.save_as"),
+                (imported, "library.import"),
+            ):
+                self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(event.action_id, action)
+                self.assertEqual(event.error_code, "file_dialog_failed")
+                self.assertEqual(event.focus_target, "pgn-tree")
+
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertFalse(delegate.pgn_save_running)
+            self.assertFalse(delegate.import_running)
+
     def test_file_workflow_event_rejects_derived_root_before_field_hooks(self) -> None:
         touched = []
 
@@ -511,6 +613,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
 
         class SuccessfulLibrary:
             def import_games(self, *args, **kwargs):
+                progress = kwargs["progress_callback"]
+                progress(LibraryImportProgress(1, 0, 1))
+                progress(LibraryImportProgress(1, 1, 1))
                 return LibraryImportResult(
                     attempt_id=1,
                     source_id=1,
@@ -583,6 +688,126 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.import_running)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_chessbase_worker_rejects_derived_report_before_field_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActiveReport(ChessBaseLibraryImportReport):
+            def __getattribute__(self, name: str):
+                if name in {
+                    "status",
+                    "decoded_game_count",
+                    "warnings",
+                    "library_result",
+                }:
+                    touched.append(name)
+                    raise AssertionError("derived ChessBase report hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveReport.__new__(ActiveReport)
+        object.__setattr__(
+            hostile,
+            "status",
+            ChessBaseLibraryImportStatus.IMPORTED,
+        )
+        object.__setattr__(hostile, "source_name", "private-source.cbh")
+        object.__setattr__(hostile, "source_sha256", "a" * 64)
+        object.__setattr__(hostile, "backend_name", "test-backend")
+        object.__setattr__(hostile, "backend_commit", "b" * 40)
+        object.__setattr__(hostile, "decoded_game_count", 1)
+        object.__setattr__(hostile, "warnings", ())
+        object.__setattr__(
+            hostile,
+            "library_result",
+            LibraryImportResult(1, 1, 1, 0, 1, 1),
+        )
+        object.__setattr__(hostile, "source_format", "cbh")
+        object.__setattr__(hostile, "archive_backend_name", None)
+        object.__setattr__(hostile, "archive_backend_sha256", None)
+
+        class ChessBaseService:
+            def import_database(self, *_args, **_kwargs):
+                return hostile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "private-active-report.cbh"
+            source.write_bytes(b"fixture placeholder")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), ChessBaseService(), lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "library-import-file",
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "chessbase_import_failed")
+            self.assertNotIn(str(source), repr(events[-1]))
+
+    def test_chessbase_worker_revalidates_mutated_result_without_numeric_coercion(self) -> None:
+        touched: list[str] = []
+
+        class ActiveInt(int):
+            def __int__(self):
+                touched.append("int")
+                raise AssertionError("worker numeric coercion executed")
+
+            def __index__(self):
+                touched.append("index")
+                raise AssertionError("worker index coercion executed")
+
+        result = LibraryImportResult(1, 1, 1, 0, 1, 1)
+        report = ChessBaseLibraryImportReport(
+            status=ChessBaseLibraryImportStatus.IMPORTED,
+            source_name="private-source.cbh",
+            source_sha256="a" * 64,
+            backend_name="test-backend",
+            backend_commit="b" * 40,
+            decoded_game_count=1,
+            warnings=(),
+            library_result=result,
+        )
+        object.__setattr__(result, "game_count", ActiveInt(1))
+
+        class ChessBaseService:
+            def import_database(self, *_args, **_kwargs):
+                return report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "private-mutated-result.cbh"
+            source.write_bytes(b"fixture placeholder")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), ChessBaseService(), lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "library-import-file",
+            )
+
+            delegate("library.import", {})
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "chessbase_import_failed")
+            self.assertNotIn(str(source), repr(events[-1]))
 
     def test_worker_services_constructor_rejects_derived_dto_before_field_hooks(self) -> None:
         touched = []

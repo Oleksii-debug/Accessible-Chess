@@ -19,6 +19,7 @@ from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.library_webview_projection import LibraryImportPhase
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
@@ -388,7 +389,9 @@ class Version2ApplicationTests(unittest.TestCase):
             game_count=1,
         )
 
-        self.app.import_ui_ready(SimpleNamespace(drain=lambda: (saved,)))
+        mailbox = Version2ImportUiEventMailbox()
+        mailbox.put_async_owner(saved)
+        self.app.import_ui_ready(mailbox)
 
         events = self.app.drain_events()
         self.assertFalse(any(event["kind"] == "route" for event in events))
@@ -456,7 +459,9 @@ class Version2ApplicationTests(unittest.TestCase):
             warning_count=2,
         )
 
-        self.app.import_ui_ready(SimpleNamespace(drain=lambda: (opened,)))
+        mailbox = Version2ImportUiEventMailbox()
+        mailbox.put_async_owner(opened)
+        self.app.import_ui_ready(mailbox)
 
         events = self.app.drain_events()
         self.assertEqual(events[0]["kind"], "route")
@@ -485,7 +490,9 @@ class Version2ApplicationTests(unittest.TestCase):
             game_count=1,
         )
 
-        self.app.import_ui_ready(SimpleNamespace(drain=lambda: (opened,)))
+        mailbox = Version2ImportUiEventMailbox()
+        mailbox.put_async_owner(opened)
+        self.app.import_ui_ready(mailbox)
 
         events = self.app.drain_events()
         self.assertEqual(events[0]["kind"], "route")
@@ -493,6 +500,198 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[0]["payload"]["focus_target"], "pgn-game-list")
         self.assertEqual(events[1]["kind"], "status")
         self.assertEqual(events[1]["payload"]["announcement"], "PGN відкрито.")
+
+    def test_native_import_cannot_restart_before_prior_terminal_is_presented(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+
+        ui = self.app.library.projection.import_projection
+        self.assertIn(
+            ui.phase,
+            {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING},
+        )
+        pending_before = self.mailbox.pending_count
+        attempts_before = tuple(self.database.list_import_attempts())
+        with self.app._observation_lock:
+            result_before = self.app._result
+            progress_before = self.app._progress
+        self.assertIsNotNone(result_before)
+
+        blocked = self.app._delegate("library.import", {})
+
+        self.assertIsInstance(blocked, FileWorkflowEvent)
+        self.assertEqual(blocked.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(blocked.error_code, "import_already_running")
+        self.assertFalse(self.files.import_running)
+        self.assertEqual(self.mailbox.pending_count, pending_before)
+        self.assertEqual(tuple(self.database.list_import_attempts()), attempts_before)
+        with self.app._observation_lock:
+            self.assertIs(self.app._result, result_before)
+            self.assertIs(self.app._progress, progress_before)
+        self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
+
+        refusal_events = self.app.drain_events()
+        self.assertTrue(refusal_events)
+        self.assertEqual(refusal_events[-1]["kind"], "error")
+        self.assertNotIn(str(self.root), repr(refusal_events[-1]))
+
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
+        self.assertEqual(self.mailbox.pending_count, 0)
+
+        retry = self.app._delegate("library.import", {})
+        self.assertIsInstance(retry, FileWorkflowEvent)
+        self.assertEqual(retry.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
+
+    def test_failed_terminal_retires_structurally_valid_stale_observers(self):
+        ui = self.app.library.projection.import_projection
+        ui.prepare()
+        stale_progress = LibraryImportProgress(701, 1, 2)
+        stale_result = LibraryImportResult(701, 41, 2, 0, 1, 2)
+        self.app.observe_progress(stale_progress)
+        self.app.observe_result(stale_result)
+        failed = FileWorkflowEvent(
+            FileWorkflowEventKind.FAILED,
+            "library.import",
+            focus_target="library-import-file",
+            error_code="library_import_failed",
+        )
+        self.mailbox.put_async_owner(failed)
+
+        self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.phase, LibraryImportPhase.ERROR)
+        self.assertEqual(self.mailbox.pending_count, 0)
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
+    def test_failed_terminal_keeps_observers_until_projection_retry_commits(self):
+        ui = self.app.library.projection.import_projection
+        ui.prepare()
+        stale_progress = LibraryImportProgress(711, 1, 2)
+        stale_result = LibraryImportResult(711, 42, 2, 0, 3, 4)
+        self.app.observe_progress(stale_progress)
+        self.app.observe_result(stale_result)
+        failed = FileWorkflowEvent(
+            FileWorkflowEventKind.FAILED,
+            "library.import",
+            focus_target="library-import-file",
+            error_code="library_import_failed",
+        )
+        self.mailbox.put_async_owner(failed)
+        before = ui.snapshot()
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        original_fail = ui.fail
+
+        def fail_then_abort(message):
+            original_fail(message)
+            raise ProjectionAbort()
+
+        with patch.object(ui, "fail", side_effect=fail_then_abort):
+            with self.assertRaises(ProjectionAbort):
+                self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.snapshot(), before)
+        self.assertEqual(self.mailbox.pending_count, 1)
+        with self.app._observation_lock:
+            self.assertIs(self.app._progress, stale_progress)
+            self.assertIs(self.app._result, stale_result)
+
+        self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.phase, LibraryImportPhase.ERROR)
+        self.assertEqual(self.mailbox.pending_count, 0)
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
+    def test_import_ui_delivery_rolls_back_terminal_projection_and_retries(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+
+        ui = self.app.library.projection.import_projection
+        before_ui = ui.snapshot()
+        before_events = tuple(self.app._events)
+        before_pending = self.mailbox.pending_count
+        with self.app._observation_lock:
+            before_progress = self.app._progress
+            before_result = self.app._result
+        self.assertIsNotNone(before_result)
+        self.assertGreater(before_pending, 0)
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        original_complete = ui.complete
+
+        def complete_then_abort(value):
+            original_complete(value)
+            raise ProjectionAbort()
+
+        with patch.object(ui, "complete", side_effect=complete_then_abort):
+            with self.assertRaises(ProjectionAbort):
+                self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.snapshot(), before_ui)
+        self.assertEqual(tuple(self.app._events), before_events)
+        self.assertEqual(self.mailbox.pending_count, before_pending)
+        with self.app._observation_lock:
+            self.assertIs(self.app._progress, before_progress)
+            self.assertIs(self.app._result, before_result)
+
+        self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(self.mailbox.pending_count, 0)
+        self.assertEqual(ui.phase.value, "completed")
+        self.assertEqual(ui.snapshot()["processed_games"], 1)
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
+    def test_import_ui_delivery_rolls_back_pgn_terminal_event_and_retries(self):
+        saved = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.PGN_SAVED,
+            action_id="pgn.save",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+        mailbox = Version2ImportUiEventMailbox()
+        mailbox.put_async_owner(saved)
+        before_events = tuple(self.app._events)
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        original_file_event = self.app._file_event
+
+        def publish_then_abort(event):
+            original_file_event(event)
+            raise ProjectionAbort()
+
+        with patch.object(
+            self.app,
+            "_file_event",
+            side_effect=publish_then_abort,
+        ):
+            with self.assertRaises(ProjectionAbort):
+                self.app.import_ui_ready(mailbox)
+
+        self.assertEqual(tuple(self.app._events), before_events)
+        self.assertEqual(mailbox.pending_count, 1)
+
+        self.app.import_ui_ready(mailbox)
+
+        self.assertEqual(mailbox.pending_count, 0)
+        delivered = self.app.drain_events()
+        self.assertEqual(delivered[-1]["kind"], "status")
+        self.assertIn("збережено", delivered[-1]["payload"]["announcement"])
 
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")

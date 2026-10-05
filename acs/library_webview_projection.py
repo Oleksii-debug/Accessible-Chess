@@ -184,6 +184,46 @@ class LibraryImportWebViewProjection:
     def phase(self) -> LibraryImportPhase:
         return self._phase
 
+    def _capture_presentation_state(self) -> tuple[object, ...]:
+        """Capture the complete transient import presentation authority."""
+
+        return (
+            self._phase,
+            self._processed_games,
+            self._total_games,
+            self._warning_count,
+            self._attempt_id,
+            self._message,
+            self._source_reading,
+            self._book_source_report,
+        )
+
+    def _restore_presentation_state(self, state: tuple[object, ...]) -> None:
+        """Restore one state captured by _capture_presentation_state()."""
+
+        if type(state) is not tuple or len(state) != 8:
+            raise TypeError("invalid Library import presentation checkpoint")
+        (
+            phase,
+            processed_games,
+            total_games,
+            warning_count,
+            attempt_id,
+            message,
+            source_reading,
+            book_source_report,
+        ) = state
+        if not isinstance(phase, LibraryImportPhase):
+            raise TypeError("invalid Library import presentation phase")
+        self._phase = phase
+        self._processed_games = processed_games  # type: ignore[assignment]
+        self._total_games = total_games  # type: ignore[assignment]
+        self._warning_count = warning_count  # type: ignore[assignment]
+        self._attempt_id = attempt_id  # type: ignore[assignment]
+        self._message = message  # type: ignore[assignment]
+        self._source_reading = source_reading  # type: ignore[assignment]
+        self._book_source_report = book_source_report  # type: ignore[assignment]
+
     def _labels(self) -> Mapping[str, str]:
         return _IMPORT_LABELS[self._language]
 

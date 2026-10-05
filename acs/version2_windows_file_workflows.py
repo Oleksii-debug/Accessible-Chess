@@ -32,6 +32,10 @@ from .library_import_service import (
     LibraryImportProgress,
     LibraryImportResult,
 )
+from .chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from .book_library_import import (
     BOOK_LIBRARY_SUFFIXES,
     BookLibrarySourceReadError,
@@ -65,6 +69,18 @@ from .report_paths import report_safe_name
 
 
 _LOG = logging.getLogger(__name__)
+_PLATFORM_PATH_TYPE = type(Path("."))
+
+
+def _safe_warning(message: str) -> None:
+    """Best-effort fixed telemetry that can never alter workflow authority."""
+
+    try:
+        _LOG.warning(message)
+    except BaseException:
+        # Diagnostics are secondary. A broken/hostile handler must never replace
+        # an already selected path-free terminal or strand worker ownership.
+        pass
 
 
 class FileWorkflowEventKind(str, Enum):
@@ -145,6 +161,26 @@ class FileWorkflowEvent:
             raise ValueError("processed_games must not exceed total_games")
         if self.source_bytes_read > self.source_total_bytes:
             raise ValueError("source_bytes_read must not exceed source_total_bytes")
+
+
+def _snapshot_file_workflow_event(value: FileWorkflowEvent) -> FileWorkflowEvent:
+    if type(value) is not FileWorkflowEvent:
+        raise TypeError("file workflow event must be an exact passive DTO")
+    return FileWorkflowEvent(
+        kind=value.kind,
+        action_id=value.action_id,
+        focus_target=value.focus_target,
+        processed_games=value.processed_games,
+        total_games=value.total_games,
+        game_count=value.game_count,
+        warning_count=value.warning_count,
+        error_code=value.error_code,
+        source_bytes_read=value.source_bytes_read,
+        source_total_bytes=value.source_total_bytes,
+        source_parsing=value.source_parsing,
+        source_format=value.source_format,
+        retained_book_blocks=value.retained_book_blocks,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,6 +387,14 @@ class Version2WindowsFileActionDelegate:
             return "pgn-save-cancel"
         return ""
 
+    @staticmethod
+    def _passive_dialog_path(value: object) -> Path | None:
+        if value is None:
+            return None
+        if type(value) is not _PLATFORM_PATH_TYPE:
+            raise TypeError("native file dialog path must be an exact platform Path")
+        return value
+
     def _focus(self) -> str:
         try:
             value = self._focus_provider()
@@ -359,21 +403,22 @@ class Version2WindowsFileActionDelegate:
         return value if type(value) is str else ""
 
     def _emit(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        observer_event = _snapshot_file_workflow_event(event)
         try:
-            self._event_sink(event)
+            self._event_sink(observer_event)
         except BaseException:
-            _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
+            _safe_warning("Version 2 file workflow event sink failed")
         return event
 
     def _emit_owner_async(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
         """Publish one async terminal already executing on the owner UI thread."""
 
+        observer_event = _snapshot_file_workflow_event(event)
         try:
-            self._owner_async_event_sink(event)
+            self._owner_async_event_sink(observer_event)
         except BaseException:
-            _LOG.warning(
-                "Version 2 owner asynchronous file event sink failed",
-                exc_info=True,
+            _safe_warning(
+                "Version 2 owner asynchronous file event sink failed"
             )
         return event
 
@@ -517,9 +562,7 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open", previous_focus
                     ), previous_focus, current, current_generation
         try:
-            path = self._dialogs.open_pgn()
-            if path is not None:
-                path = Path(path)
+            path = self._passive_dialog_path(self._dialogs.open_pgn())
         except BaseException:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
@@ -714,7 +757,7 @@ class Version2WindowsFileActionDelegate:
                     if cancel_event.is_set():
                         error_code = "pgn_open_cancelled"
         except BaseException:
-            _LOG.warning("Version 2 PGN Open preparation failed", exc_info=True)
+            _safe_warning("Version 2 PGN Open preparation failed")
             error_code = "pgn_open_failed"
 
         def finish_on_owner() -> None:
@@ -733,7 +776,7 @@ class Version2WindowsFileActionDelegate:
             assert self._post_to_ui is not None
             self._post_to_ui(finish_on_owner)
         except BaseException:
-            _LOG.warning("Version 2 PGN Open UI publication post failed", exc_info=True)
+            _safe_warning("Version 2 PGN Open UI publication post failed")
             with self._lock:
                 current = (
                     generation == self._generation
@@ -807,10 +850,7 @@ class Version2WindowsFileActionDelegate:
                     raise TypeError("prepared PGN warnings are invalid")
                 warning_count = len(global_warnings)
             except BaseException:
-                _LOG.warning(
-                    "Version 2 PGN Open prepared result rejected",
-                    exc_info=True,
-                )
+                _safe_warning("Version 2 PGN Open prepared result rejected")
                 terminal = FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     "pgn.open",
@@ -840,9 +880,8 @@ class Version2WindowsFileActionDelegate:
                                 "PGN Open unexpected generation without session"
                             )
                     except BaseException:
-                        _LOG.warning(
-                            "Version 2 PGN Open stale-generation check failed",
-                            exc_info=True,
+                        _safe_warning(
+                            "Version 2 PGN Open stale-generation check failed"
                         )
                         stale = True
                     if stale:
@@ -862,9 +901,8 @@ class Version2WindowsFileActionDelegate:
                             # owner-thread poster supplied by the production Windows runtime.
                             self._set_pgn_session(session)
                         except BaseException:
-                            _LOG.warning(
-                                "Version 2 PGN Open session publication failed",
-                                exc_info=True,
+                            _safe_warning(
+                                "Version 2 PGN Open session publication failed"
                             )
                             terminal = FileWorkflowEvent(
                                 FileWorkflowEventKind.FAILED,
@@ -1109,9 +1147,9 @@ class Version2WindowsFileActionDelegate:
                     focus_target=previous_focus,
                 )
         try:
-            destination = self._dialogs.save_pgn_as(suggested)
-            if destination is not None:
-                destination = Path(destination)
+            destination = self._passive_dialog_path(
+                self._dialogs.save_pgn_as(suggested)
+            )
         except BaseException:
             return self._failed(
                 "pgn.save_as", "file_dialog_failed", focus_target=previous_focus
@@ -1382,10 +1420,10 @@ class Version2WindowsFileActionDelegate:
             ):
                 error_code = "pgn_save_as_preserve_original"
             else:
-                _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
+                _safe_warning("Version 2 PGN save publication failed")
                 error_code = ordinary_failure_code
         except BaseException:
-            _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
+            _safe_warning("Version 2 PGN save publication failed")
             error_code = ordinary_failure_code
 
         pending = (
@@ -1409,7 +1447,7 @@ class Version2WindowsFileActionDelegate:
             assert self._post_to_ui is not None
             self._post_to_ui(finish_on_owner)
         except BaseException:
-            _LOG.warning("Version 2 PGN save UI publication post failed", exc_info=True)
+            _safe_warning("Version 2 PGN save UI publication post failed")
             # Keep the result recoverable. A durable publication must be
             # committed on the owner thread during shutdown or the next posted
             # owner callback; do not clear its worker authority here.
@@ -1497,9 +1535,8 @@ class Version2WindowsFileActionDelegate:
                     try:
                         commit_pgn_save_publication(session, publication)
                     except BaseException:
-                        _LOG.warning(
-                            "Version 2 PGN save owner commit failed",
-                            exc_info=True,
+                        _safe_warning(
+                            "Version 2 PGN save owner commit failed"
                         )
                         terminal = FileWorkflowEvent(
                             FileWorkflowEventKind.FAILED,
@@ -1592,9 +1629,9 @@ class Version2WindowsFileActionDelegate:
                 focus_target=self._worker_focus_target(active_kind),
             )
         try:
-            source_path = self._dialogs.select_library_import()
-            if source_path is not None:
-                source_path = Path(source_path)
+            source_path = self._passive_dialog_path(
+                self._dialogs.select_library_import()
+            )
         except BaseException:
             return self._failed(
                 "library.import", "file_dialog_failed", focus_target=previous_focus
@@ -1710,16 +1747,78 @@ class Version2WindowsFileActionDelegate:
     ) -> None:
         services: Version2ImportWorkerServices | None = None
         progress_started = False
+        progress_attempt_id: int | None = None
+        progress_total_games: int | None = None
+        progress_processed_games: int | None = None
         book_source_format = ""
         retained_book_blocks = 0
 
         def cancelled() -> bool:
             return cancel_event.is_set()
 
+        def snapshot_result(value: LibraryImportResult) -> LibraryImportResult:
+            if type(value) is not LibraryImportResult:
+                raise TypeError("canonical Library import result is invalid")
+            return LibraryImportResult(
+                value.attempt_id,
+                value.source_id,
+                value.game_count,
+                value.warning_count,
+                value.first_game_id,
+                value.last_game_id,
+                value.reused,
+            )
+
+        def validate_result_trace(value: LibraryImportResult) -> LibraryImportResult:
+            if (
+                progress_attempt_id is None
+                or progress_total_games is None
+                or progress_processed_games is None
+            ):
+                raise TypeError("Library import result has no canonical progress trace")
+            if value.attempt_id != progress_attempt_id:
+                raise TypeError("Library import result attempt id changed")
+            if value.game_count != progress_total_games:
+                raise TypeError("Library import result game count changed")
+            if value.reused:
+                if progress_processed_games != 0:
+                    raise TypeError("reused Library import reported staged progress")
+            elif progress_processed_games != value.game_count:
+                raise TypeError("Library import progress did not reach completion")
+            return value
+
         def progress(progress_value: LibraryImportProgress) -> None:
             nonlocal progress_started
+            nonlocal progress_attempt_id, progress_total_games, progress_processed_games
             if type(progress_value) is not LibraryImportProgress:
                 raise TypeError("canonical import progress object is invalid")
+            canonical = LibraryImportProgress(
+                progress_value.attempt_id,
+                progress_value.processed_games,
+                progress_value.total_games,
+            )
+            attempt_id = canonical.attempt_id
+            processed_games = canonical.processed_games
+            total_games = canonical.total_games
+
+            if progress_attempt_id is None:
+                if processed_games != 0:
+                    raise TypeError("Library import progress must start at zero")
+                progress_attempt_id = attempt_id
+                progress_total_games = total_games
+                progress_processed_games = processed_games
+            else:
+                if attempt_id != progress_attempt_id:
+                    raise TypeError("Library import progress attempt id changed")
+                if total_games != progress_total_games:
+                    raise TypeError("Library import progress total changed")
+                if (
+                    progress_processed_games is None
+                    or processed_games <= progress_processed_games
+                ):
+                    raise TypeError("Library import progress is not strictly increasing")
+                progress_processed_games = processed_games
+
             if not progress_started:
                 progress_started = True
                 self._emit_if_current(
@@ -1728,7 +1827,7 @@ class Version2WindowsFileActionDelegate:
                         FileWorkflowEventKind.IMPORT_STARTED,
                         "library.import",
                         focus_target="library-import-cancel",
-                        total_games=progress_value.total_games,
+                        total_games=total_games,
                         source_format=book_source_format,
                         retained_book_blocks=retained_book_blocks,
                     ),
@@ -1738,8 +1837,8 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEvent(
                     FileWorkflowEventKind.IMPORT_PROGRESS,
                     "library.import",
-                    processed_games=progress_value.processed_games,
-                    total_games=progress_value.total_games,
+                    processed_games=processed_games,
+                    total_games=total_games,
                 ),
             )
 
@@ -1796,8 +1895,7 @@ class Version2WindowsFileActionDelegate:
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
-                if type(imported) is not LibraryImportResult:
-                    raise TypeError("canonical Library import result is invalid")
+                imported = validate_result_trace(snapshot_result(imported))
                 game_count = imported.game_count
                 warning_count = imported.warning_count
             else:
@@ -1817,22 +1915,72 @@ class Version2WindowsFileActionDelegate:
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
-                library_result = getattr(report, "library_result", None)
+                # The trusted backend has one canonical bounded report DTO.
+                # Do not structurally probe arbitrary provider objects or coerce
+                # active scalars through getattr/int on this worker boundary.
+                if type(report) is not ChessBaseLibraryImportReport:
+                    raise TypeError(
+                        "canonical ChessBase import report is invalid"
+                    )
+                status = report.status
+                decoded_game_count = report.decoded_game_count
+                warnings = report.warnings
+                library_result = report.library_result
+                if type(status) is not ChessBaseLibraryImportStatus:
+                    raise TypeError("ChessBase import report status is invalid")
+                if type(decoded_game_count) is not int or decoded_game_count < 0:
+                    raise TypeError(
+                        "ChessBase import decoded game count is invalid"
+                    )
+                if type(warnings) is not tuple:
+                    raise TypeError("ChessBase import warnings are invalid")
+                warning_count = len(warnings)
+
                 if library_result is None:
+                    if (
+                        status is not ChessBaseLibraryImportStatus.NO_GAMES
+                        or decoded_game_count != 0
+                    ):
+                        raise TypeError(
+                            "ChessBase empty import report is inconsistent"
+                        )
                     self._emit_if_current(
                         generation,
                         FileWorkflowEvent(
                             FileWorkflowEventKind.IMPORT_EMPTY,
                             "library.import",
                             focus_target="library-import-file",
-                            warning_count=int(
-                                getattr(report, "warning_count", 0)
-                            ),
+                            warning_count=warning_count,
                         ),
                     )
                     return
-                game_count = int(library_result.game_count)
-                warning_count = int(library_result.warning_count)
+
+                library_result = validate_result_trace(
+                    snapshot_result(library_result)
+                )
+                game_count = library_result.game_count
+                warning_count = library_result.warning_count
+                if type(game_count) is not int or game_count < 1:
+                    raise TypeError(
+                        "ChessBase Library result game count is invalid"
+                    )
+                if type(warning_count) is not int or warning_count < 0:
+                    raise TypeError(
+                        "ChessBase Library result warning count is invalid"
+                    )
+                if decoded_game_count != game_count:
+                    raise TypeError(
+                        "ChessBase decoded/imported game counts differ"
+                    )
+                expected_status = (
+                    ChessBaseLibraryImportStatus.IMPORTED_WITH_WARNINGS
+                    if warning_count
+                    else ChessBaseLibraryImportStatus.IMPORTED
+                )
+                if status is not expected_status:
+                    raise TypeError(
+                        "ChessBase import status does not match warning count"
+                    )
 
             self._emit_if_current(
                 generation,
@@ -1884,7 +2032,7 @@ class Version2WindowsFileActionDelegate:
                 ),
             )
         except BaseException:
-            _LOG.warning("Version 2 Library import failed", exc_info=True)
+            _safe_warning("Version 2 Library import failed")
             self._emit_if_current(
                 generation,
                 FileWorkflowEvent(
@@ -1905,9 +2053,7 @@ class Version2WindowsFileActionDelegate:
                 except BaseException:
                     # Cleanup is secondary to the already selected terminal and
                     # must never strand shared file-worker ownership.
-                    _LOG.warning(
-                        "Version 2 import worker cleanup failed", exc_info=True
-                    )
+                    _safe_warning("Version 2 import worker cleanup failed")
             with self._lock:
                 if (
                     generation == self._generation

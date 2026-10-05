@@ -25,6 +25,15 @@ _LOG = logging.getLogger(__name__)
 _AUTO_RETRY_DELAY_SECONDS = 0.05
 
 
+def _safe_warning(message: str) -> None:
+    """Best-effort telemetry that can never own UI delivery authority."""
+
+    try:
+        _LOG.warning(message)
+    except BaseException:
+        pass
+
+
 class Version2WinFormsUiPoster:
     """Adapt a WinForms Control.BeginInvoke boundary to a Python callback.
 
@@ -195,7 +204,7 @@ class Version2ImportUiWakeupPump:
             self._owner_wakeup_pending = True
         try:
             self._post_to_ui(self._run_owner_callback)
-        except Exception:
+        except BaseException:
             with self._lock:
                 self._owner_wakeup_pending = False
                 self._owner_post_failures += 1
@@ -219,7 +228,7 @@ class Version2ImportUiWakeupPump:
             if self._closed or self._owner_callback is None:
                 return
         if not self._request_owner_callback_wakeup(schedule_retry=False):
-            _LOG.warning("Version 2 owner callback UI wake-up retry failed")
+            _safe_warning("Version 2 owner callback UI wake-up retry failed")
 
     def _run_owner_callback(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -253,18 +262,19 @@ class Version2ImportUiWakeupPump:
 
         try:
             self._post_to_ui(self._run_ui_ready)
-        except Exception as exc:
+        except BaseException:
             with self._lock:
                 self._wakeup_pending = False
                 self._post_failures += 1
             # The exact event is still retained in the bounded mailbox. Raising
-            # here is safe: Version2WindowsFileActionDelegate isolates event_sink
-            # observer failures from canonical import/storage completion. A single
-            # delayed retry prevents a terminal event from remaining stranded when
-            # no later worker event exists, without creating a busy retry loop.
+            # a fresh path-free control error is safe: the file delegate isolates
+            # event-sink observer failures from canonical storage completion.
+            # Never chain the arbitrary poster exception into that control error.
             if schedule_retry:
                 self._schedule_retry()
-            raise RuntimeError("failed to post Library import event to UI thread") from exc
+            raise RuntimeError(
+                "failed to post Library import event to UI thread"
+            ) from None
 
     def _schedule_retry(self) -> None:
         with self._lock:
@@ -288,8 +298,8 @@ class Version2ImportUiWakeupPump:
             # One automatic attempt only. A second posting failure remains
             # observable and the mailbox retains the event for explicit recovery.
             self._request_wakeup(schedule_retry=False)
-        except RuntimeError:
-            _LOG.warning("Version 2 Library UI wake-up retry failed", exc_info=True)
+        except BaseException:
+            _safe_warning("Version 2 Library UI wake-up retry failed")
 
     def _run_ui_ready(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -304,12 +314,14 @@ class Version2ImportUiWakeupPump:
 
         try:
             self._ui_ready()
-        except Exception:
+        except BaseException:
             with self._lock:
                 self._ready_failures += 1
             # Presentation delivery is an observer boundary. Pending mailbox
-            # events remain available for explicit UI recovery/retry.
-            _LOG.warning("Version 2 Library UI-ready callback failed", exc_info=True)
+            # events remain available for explicit UI recovery/retry. Never let
+            # an abort-class presentation failure or diagnostic handler replace
+            # the retained canonical mailbox state.
+            _safe_warning("Version 2 Library UI-ready callback failed")
 
     def request_pending_wakeup(self) -> bool:
         """Request a UI wakeup for already-pending events after recoverable failure."""
