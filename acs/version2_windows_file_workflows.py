@@ -344,7 +344,7 @@ class Version2WindowsFileActionDelegate:
     def _focus(self) -> str:
         try:
             value = self._focus_provider()
-        except Exception:
+        except BaseException:
             return ""
         return value if type(value) is str else ""
 
