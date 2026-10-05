@@ -26,6 +26,7 @@ _EXPORT_LABELS = {
         "selected_on": "Додано до експорту.",
         "selected_off": "Вилучено з експорту.",
         "cleared": "Вибір для експорту очищено.",
+        "cancel": "Скасувати експорт",
     },
     UILanguage.EN: {
         "heading": "Games to export",
@@ -36,6 +37,7 @@ _EXPORT_LABELS = {
         "selected_on": "Added to export.",
         "selected_off": "Removed from export.",
         "cleared": "Export selection cleared.",
+        "cancel": "Cancel export",
     },
 }
 
@@ -49,10 +51,80 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._export_game_ids: set[int] = set()
+        self._export_running = False
+        self._export_cancelling = False
 
     @property
     def export_game_ids(self) -> tuple[int, ...]:
         return tuple(sorted(self._export_game_ids))
+
+    @property
+    def export_running(self) -> bool:
+        return self._export_running
+
+    def _operation_import_snapshot(self) -> dict[str, object]:
+        snapshot = dict(self._import.snapshot())
+        raw_actions = snapshot.get("actions")
+        if not isinstance(raw_actions, (tuple, list)):
+            raise ValueError("Library import actions are invalid")
+        actions: list[dict[str, object]] = []
+        for raw in raw_actions:
+            if not isinstance(raw, Mapping):
+                raise ValueError("Library import action is invalid")
+            action = dict(raw)
+            action_id = action.get("action")
+            if action_id == "library.import" and self._export_running:
+                action["enabled"] = False
+            elif action_id == "library.cancel_import" and self._export_running:
+                action["label"] = _EXPORT_LABELS[self.language]["cancel"]
+                action["enabled"] = not self._export_cancelling
+            actions.append(action)
+        snapshot["actions"] = tuple(actions)
+        return snapshot
+
+    def _operation_event(self, *, focus_target: str = "") -> LibraryWebViewEvent:
+        return LibraryWebViewEvent(
+            "render-import",
+            {
+                "import": self._operation_import_snapshot(),
+                "focus_target": focus_target,
+                "announcement": "",
+            },
+        )
+
+    def _operation_busy(self) -> bool:
+        phase = self._import.snapshot().get("phase")
+        return self._export_running or phase in {"running", "cancelling"}
+
+    def host_export_started(self) -> LibraryWebViewEvent:
+        self._export_running = True
+        self._export_cancelling = False
+        return self._operation_event()
+
+    def host_export_cancelling(self) -> LibraryWebViewEvent:
+        if self._export_running:
+            self._export_cancelling = True
+        return self._operation_event()
+
+    def host_export_finished(self) -> LibraryWebViewEvent:
+        self._export_running = False
+        self._export_cancelling = False
+        return self._operation_event()
+
+    def request_cancel_operation(self) -> LibraryWebViewEvent:
+        if not self._export_running:
+            return self._import.request_cancel()
+        if self._export_cancelling:
+            raise RuntimeError("library export cancellation is already pending")
+        self._export_cancelling = True
+        try:
+            self._dispatch("library.cancel_import", {})
+        except Exception:
+            self._export_cancelling = False
+            raise
+        return self._operation_event(
+            focus_target="library-import-cancel" if self._export_running else ""
+        )
 
     def _row(self, row: object, *, position: int) -> dict[str, object]:
         projected = super()._row(row, position=position)
@@ -70,23 +142,26 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
     def _snapshot_from_view(self, view) -> dict[str, object]:
         snapshot = super()._snapshot_from_view(view)
         labels = _EXPORT_LABELS[self.language]
+        import_snapshot = self._operation_import_snapshot()
+        snapshot["import"] = import_snapshot
+        busy = self._export_running or import_snapshot.get("phase") in {"running", "cancelling"}
         count = len(self._export_game_ids)
         existing = tuple(snapshot.get("actions", ()))
         export_actions = (
             {
                 "action": "library.export_selected",
                 "label": labels["selected"].format(count=count),
-                "enabled": count > 0,
+                "enabled": count > 0 and not busy,
             },
             {
                 "action": "library.export_filtered",
                 "label": labels["filtered"],
-                "enabled": bool(snapshot.get("rows")),
+                "enabled": bool(snapshot.get("rows")) and not busy,
             },
             {
                 "action": "library.clear_export_selection",
                 "label": labels["clear"],
-                "enabled": count > 0,
+                "enabled": count > 0 and not busy,
             },
         )
         snapshot["actions"] = existing + export_actions
@@ -158,6 +233,8 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             raise
 
     def request_export_selected(self) -> LibraryWebViewEvent:
+        if self._operation_busy():
+            raise RuntimeError("another Library operation is already running")
         request = LibraryExportRequest.selected(self.export_game_ids)
         self._dispatch("library.export", request.browser_payload())
         return LibraryWebViewEvent(
@@ -166,6 +243,8 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         )
 
     def request_export_filtered(self) -> LibraryWebViewEvent:
+        if self._operation_busy():
+            raise RuntimeError("another Library operation is already running")
         # The query's UI page limit/cursor do not define the filtered result set;
         # LibraryExportRequest.filtered strips that paging authority.
         request = LibraryExportRequest.filtered(self.query)
