@@ -255,7 +255,15 @@ class LivePositionRevision:
 class LivePositionHistory:
     """Bounded current/previous/next navigation without stealing the live cursor."""
 
-    __slots__ = ("provider_game_id", "_items", "_cursor", "_follow_live", "_truncated")
+    __slots__ = (
+        "provider_game_id",
+        "_items",
+        "_cursor",
+        "_follow_live",
+        "_truncated",
+        "_last_sequence",
+        "_last_observed_at_ms",
+    )
 
     def __init__(self, provider_game_id: str) -> None:
         self.provider_game_id = _exact_text(provider_game_id, "provider_game_id")
@@ -263,6 +271,8 @@ class LivePositionHistory:
         self._cursor = -1
         self._follow_live = True
         self._truncated = False
+        self._last_sequence: int | None = None
+        self._last_observed_at_ms: int | None = None
 
     @property
     def items(self) -> tuple[LivePositionRevision, ...]:
@@ -285,6 +295,8 @@ class LivePositionHistory:
     def record(self, result: BroadcastApplyResult) -> bool:
         if type(result) is not BroadcastApplyResult:
             raise TypeError("result must be an exact BroadcastApplyResult")
+        sequence = _nonnegative_int(result.sequence, "result.sequence")
+        observed_at_ms = _nonnegative_int(result.observed_at_ms, "result.observed_at_ms")
         if type(result.games) is not tuple or any(
             type(game) is not CanonicalBroadcastGame for game in result.games
         ):
@@ -301,42 +313,63 @@ class LivePositionHistory:
         )
         if game is None:
             return False
-        if self._items:
-            latest = self._items[-1]
-            if result.sequence < latest.sequence or result.observed_at_ms < latest.observed_at_ms:
+
+        if self._last_sequence is not None:
+            assert self._last_observed_at_ms is not None
+            if sequence < self._last_sequence or observed_at_ms < self._last_observed_at_ms:
                 raise BroadcastContractError(
                     "live position history moved backwards",
                     code=BroadcastErrorCode.OUT_OF_ORDER,
                 )
+            if sequence == self._last_sequence:
+                latest = self._items[-1]
+                if (
+                    latest.canonical_revision != game.canonical_revision
+                    or latest.chess_ref != game.chess_ref
+                ):
+                    raise BroadcastContractError(
+                        "one live sequence maps to conflicting canonical state",
+                        code=BroadcastErrorCode.REVISION_CONFLICT,
+                    )
+                self._last_observed_at_ms = observed_at_ms
+                return False
+
+        if self._items:
+            latest = self._items[-1]
             if latest.canonical_revision == game.canonical_revision:
                 if latest.chess_ref != game.chess_ref:
                     raise BroadcastContractError(
                         "one canonical revision maps to conflicting chess references",
                         code=BroadcastErrorCode.REVISION_CONFLICT,
                     )
+                self._last_sequence = sequence
+                self._last_observed_at_ms = observed_at_ms
                 return False
-            if result.sequence == latest.sequence:
-                raise BroadcastContractError(
-                    "one live sequence maps to conflicting canonical revisions",
-                    code=BroadcastErrorCode.REVISION_CONFLICT,
-                )
+
         revision = LivePositionRevision(
             provider_game_id=game.provider_game_id,
             chess_ref=game.chess_ref,
             canonical_revision=game.canonical_revision,
-            sequence=result.sequence,
-            observed_at_ms=result.observed_at_ms,
+            sequence=sequence,
+            observed_at_ms=observed_at_ms,
         )
         was_following = self._follow_live or self._cursor < 0
         self._items.append(revision)
         if len(self._items) > MAX_LIVE_POSITION_HISTORY:
-            self._items.pop(0)
+            if not was_following and self._cursor == 0:
+                # Keep the exact position the user is reading. Drop the next
+                # oldest item instead of silently moving the browse cursor.
+                self._items.pop(1)
+            else:
+                self._items.pop(0)
+                if self._cursor > 0:
+                    self._cursor -= 1
             self._truncated = True
-            if self._cursor > 0:
-                self._cursor -= 1
         if was_following:
             self._cursor = len(self._items) - 1
             self._follow_live = True
+        self._last_sequence = sequence
+        self._last_observed_at_ms = observed_at_ms
         return True
 
     def previous(self) -> LivePositionRevision:
@@ -420,5 +453,6 @@ def navigation_event(history: LivePositionHistory) -> AccessibleLiveEvent:
         raise LiveBroadcastError("live position history is empty", code=LiveBroadcastErrorCode.HISTORY_EMPTY)
     index = history.items.index(history.current) + 1
     suffix = " Following live." if history.follow_live else " Browsing earlier live position."
-    text = f"Live position {index} of {len(history.items)}.{suffix}"
+    truncation = " Older live history was truncated." if history.history_truncated else ""
+    text = f"Live position {index} of {len(history.items)}.{suffix}{truncation}"
     return AccessibleLiveEvent(LiveEventKind.NAVIGATION, text, text)
