@@ -4,6 +4,7 @@ from pathlib import Path
 import threading
 import time
 import unittest
+import unittest.mock
 
 from acs.version2_windows_book_open_worker import (
     BookOpenWorkerEventKind,
@@ -125,6 +126,37 @@ class BookOpenWorkerTests(unittest.TestCase):
         worker.start(Path("book.md"))
         self._wait(lambda: not worker.active)
         self.assertEqual(commits, [])
+
+    def test_thread_start_failure_does_not_leave_worker_busy(self) -> None:
+        events = []
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda value: None,
+            post_to_ui=lambda callback: None,
+            event_sink=events.append,
+        )
+        with unittest.mock.patch("threading.Thread.start", side_effect=RuntimeError("cannot start")):
+            with self.assertRaisesRegex(RuntimeError, "cannot start"):
+                worker.start(Path("book.md"), focus_target="book-open")
+        self.assertFalse(worker.active)
+        self.assertEqual(
+            [event.kind for event in events],
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+
+    def test_started_event_failure_does_not_leave_worker_busy(self) -> None:
+        def reject_event(_event):
+            raise RuntimeError("event sink failed")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda value: None,
+            post_to_ui=lambda callback: None,
+            event_sink=reject_event,
+        )
+        with self.assertRaisesRegex(RuntimeError, "event sink failed"):
+            worker.start(Path("book.md"))
+        self.assertFalse(worker.active)
 
     def test_control_methods_are_ui_thread_only(self) -> None:
         worker = Version2BookOpenWorker(
