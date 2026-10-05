@@ -38,6 +38,7 @@ from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.media_application import MediaApplicationService
 from acs.media_core import MediaPlaybackState, MediaSession
 from acs.universal_chess_agent import UniversalChessAgentTools
+from acs.media_timeline_store import MediaTimelineStore
 from acs.media_core import (
     ChessStateReconciler,
     MediaPositionTimeline,
@@ -450,6 +451,56 @@ class ProductCompositionTests(unittest.TestCase):
         self.assertEqual(result.output["position_id"], "position-1")
         self.assertEqual(published, ["position-1"])
         self.assertFalse(media.analysis_detached)
+
+class MediaTimelinePersistenceTests(unittest.TestCase):
+    def test_timeline_store_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MediaTimelineStore(tmp)
+            timeline = ProductCompositionTests._timeline()
+            store.save("media-1", timeline)
+            loaded = store.load("media-1")
+            self.assertIsNotNone(loaded)
+            self.assertEqual(
+                tuple((x.start_ms, x.position_id) for x in loaded.entries),
+                ((0, "position-0"), (1000, "position-1")),
+            )
+
+    def test_corrupt_current_recovers_last_valid_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MediaTimelineStore(tmp)
+            first = MediaPositionTimeline(
+                (
+                    TimelineEntry(
+                        0,
+                        1000,
+                        "main",
+                        "node-0",
+                        "position-0",
+                        ReconciliationStatus.VERIFIED,
+                    ),
+                )
+            )
+            second = ProductCompositionTests._timeline()
+            target = store.save("media-1", first)
+            store.save("media-1", second)
+            target.write_text("{broken", encoding="utf-8")
+            recovered = store.load("media-1")
+            self.assertIsNotNone(recovered)
+            self.assertEqual(len(recovered.entries), 1)
+            self.assertEqual(recovered.entries[0].position_id, "position-0")
+
+    def test_duplicate_json_keys_are_rejected_and_not_published_as_truth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MediaTimelineStore(tmp)
+            target = store.save("media-1", ProductCompositionTests._timeline())
+            raw = target.read_text(encoding="utf-8")
+            raw = raw.replace(
+                '"version":1',
+                '"version":1,"version":1',
+                1,
+            )
+            target.write_text(raw, encoding="utf-8")
+            self.assertIsNone(store.load("media-1"))
 
 
 if __name__ == "__main__":
