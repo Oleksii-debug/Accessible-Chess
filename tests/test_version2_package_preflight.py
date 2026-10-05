@@ -106,7 +106,12 @@ def _make_tree(root: Path) -> None:
         runtime.parent.mkdir(parents=True, exist_ok=True)
         runtime.write_bytes(
             _minimal_windows_pe(
-                managed=relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
+                machine=(
+                    0x014C
+                    if relative in preflight._REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                    else 0x8664
+                ),
+                managed=relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
             )
         )
 
