@@ -40,8 +40,8 @@ def _frame(disposition=FrameDisposition.STABLE):
     )
 
 
-def _speech():
-    return SpeechEvidence("media-1", "rev-1", 1000, 1200, "Knight f3", True, 0.8)
+def _speech(source_id="media-1", source_revision="rev-1"):
+    return SpeechEvidence(source_id, source_revision, 1000, 1200, "Knight f3", True, 0.8)
 
 
 class RecordedMediaApplicationAdapterTests(unittest.TestCase):
@@ -91,6 +91,21 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
                 with self.assertRaises(RecordedMediaApplicationAdapterError):
                     adapter.resolve_recorded_frame(
                         frame=_frame(disposition), speech_context=()
+                    )
+        self.assertEqual(application.calls, [])
+
+    def test_cross_source_or_stale_speech_fails_before_application_call(self):
+        application = _Application(None)
+        adapter = CanonicalRecordedFrameApplicationAdapter(application)
+        bad_contexts = (
+            (_speech(source_id="media-2"),),
+            (_speech(source_revision="rev-0"),),
+        )
+        for speech_context in bad_contexts:
+            with self.subTest(speech_context=speech_context):
+                with self.assertRaises(RecordedMediaApplicationAdapterError):
+                    adapter.resolve_recorded_frame(
+                        frame=_frame(), speech_context=speech_context
                     )
         self.assertEqual(application.calls, [])
 
