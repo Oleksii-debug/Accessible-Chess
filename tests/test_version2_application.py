@@ -89,6 +89,46 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(reopened.games[0].line.moves[0].comments_after[0].text, "новий коментар")
         self.assertEqual(len(reopened.games[0].line.moves[0].variations), 1)
 
+    def test_native_cancel_pgn_open_reaches_bound_file_runtime(self):
+        calls = []
+        cancelling = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+            action_id="pgn.cancel_open",
+            focus_target="pgn-open-cancel",
+        )
+
+        def files(action, payload):
+            calls.append((action, dict(payload)))
+            return cancelling
+
+        self.app.bind_files(files)
+        result = self.app._delegate("pgn.cancel_open", {})
+
+        self.assertIs(result, cancelling)
+        self.assertEqual(calls, [("pgn.cancel_open", {})])
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "status")
+        self.assertIn("Скасовую", events[-1]["payload"]["announcement"])
+
+    def test_async_pgn_open_completion_refreshes_route_and_announces(self):
+        self.app.set_document(PgnDocumentSession.open(self.source))
+        self.app.drain_events()
+        opened = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.PGN_OPENED,
+            action_id="pgn.open",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+
+        self.app.import_ui_ready(SimpleNamespace(drain=lambda: (opened,)))
+
+        events = self.app.drain_events()
+        self.assertEqual(events[0]["kind"], "route")
+        self.assertEqual(events[0]["payload"]["route_id"], "pgn")
+        self.assertEqual(events[0]["payload"]["focus_target"], "pgn-game-list")
+        self.assertEqual(events[1]["kind"], "status")
+        self.assertEqual(events[1]["payload"]["announcement"], "PGN відкрито.")
+
     def test_real_import_observer_search_open_detached_game(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
