@@ -48,7 +48,12 @@ from .pgn_save_snapshot import (
     expected_pgn_destination_sha256,
     publish_pgn_save_snapshot,
 )
-from .pgn_service import PgnConcurrentWriteError, PgnFileError, open_pgn
+from .pgn_service import (
+    PgnConcurrentWriteError,
+    PgnFileError,
+    PgnPublicationUnverifiedError,
+    open_pgn,
+)
 from .report_paths import report_safe_name
 
 
@@ -1203,6 +1208,12 @@ class Version2WindowsFileActionDelegate:
             error_code = "pgn_save_cancelled"
         except PgnConcurrentWriteError:
             error_code = "pgn_save_conflict"
+        except PgnPublicationUnverifiedError:
+            # The atomic writer already crossed its publication boundary but
+            # could not bind final provenance safely. This must not be reported
+            # as an ordinary save failure: a blind retry could overwrite the
+            # generation that may already be on disk.
+            error_code = "pgn_save_publication_unverified"
         except PgnDocumentError as exc:
             if (
                 exc.code
