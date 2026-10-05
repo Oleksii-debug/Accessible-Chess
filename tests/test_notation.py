@@ -60,6 +60,18 @@ class NotationFormatterTests(unittest.TestCase):
         self.assertEqual(format_accessible_compact_san("exd5", "uk"), "e б’є d 5")
         self.assertEqual(format_accessible_compact_san("O-O#", "uk"), "коротка рокіровка, мат")
 
+    def test_compact_language_is_passive_before_comparison(self):
+        class ActiveLanguage(str):
+            def __eq__(self, other):
+                raise AssertionError("language equality hook must not run")
+
+        with self.assertRaisesRegex(NotationError, "language must be text"):
+            format_accessible_compact_san("Nf3", ActiveLanguage("en"))
+
+        # Preserve the historical built-in-string fallback policy: only exact
+        # "en" selects English; other passive built-in strings use Ukrainian.
+        self.assertEqual(format_accessible_compact_san("Nf3", "unknown"), "N f 3")
+
     def test_coordinate_like_pawn_text_is_not_san(self):
         for token in ("e2e4", "ee4", "1e4"):
             with self.subTest(token=token):
@@ -86,6 +98,19 @@ class NotationFormatterTests(unittest.TestCase):
                 with self.assertRaises(NotationError):
                     parse_san(token)
         self.assertEqual(parse_san("Qh4e1").disambiguation, "h4")
+
+    def test_king_disambiguation_is_not_san_grammar(self):
+        for token in ("Kae2", "K1e2", "Ka1e2", "Kaxd2", "K1xd2"):
+            with self.subTest(token=token):
+                with self.assertRaisesRegex(NotationError, "king SAN cannot be disambiguated"):
+                    parse_san(token)
+                with self.assertRaises(NotationError):
+                    format_san(token, "san")
+                with self.assertRaises(NotationError):
+                    format_accessible_compact_san(token, "en")
+
+        self.assertEqual(format_san("Ke2", "san"), "Ke2")
+        self.assertEqual(format_san("Kxe2+", "en_literal"), "king takes e 2, check")
 
     def test_san_boundary_rejects_active_text_subclasses(self):
         class ActiveText(str):
