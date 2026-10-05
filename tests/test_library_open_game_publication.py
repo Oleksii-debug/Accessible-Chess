@@ -13,6 +13,7 @@ from acs.full_product_actions import build_full_product_action_registry
 from acs.keybindings import BindingContext
 from acs.library_webview_projection import LibraryWebViewEvent
 from acs.pgn_document import PgnDocumentSession
+from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
 
 
@@ -438,6 +439,67 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIs(result, ready)
         self.assertEqual(self.app.shell.current_route.route_id, "library")
         self.assertEqual(self.app._focus, self.app.shell.restore_focus_target())
+
+    def test_native_library_route_failure_rolls_back_real_keyset_page(self) -> None:
+        self.database.import_pgn_text(
+            PGN_TEMPLATE.format(event="Page One") + "\n" + PGN_TEMPLATE.format(event="Page Two"),
+            source_name="route-rollback.pgn",
+        )
+        projection = self.app.library.projection
+        projection.search(GameSearchQuery(limit=1))
+        before = projection.snapshot()
+        self.assertTrue(before["actions"][1]["enabled"])
+
+        self.app._focus = self.app.shell.open_route("board")
+        prior_focus = self.app._focus
+        open_route = self.app.shell.open_route
+
+        def partially_fail(route_id):
+            if route_id == "library":
+                open_route(route_id)
+                raise RuntimeError("simulated Library route publication failure")
+            return open_route(route_id)
+
+        with patch.object(self.app.shell, "open_route", side_effect=partially_fail):
+            with self.assertRaisesRegex(RuntimeError, "route publication failure"):
+                self.app._delegate("library.next_page", {})
+
+        self.assertEqual(projection.snapshot(), before)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, prior_focus)
+
+    def test_native_library_route_failure_restores_query_and_export_selection(self) -> None:
+        self.database.import_pgn_text(
+            PGN_TEMPLATE.format(event="Keep Filter"),
+            source_name="selection-rollback.pgn",
+        )
+        projection = self.app.library.projection
+        searched = projection.search(GameSearchQuery(event="Keep Filter"))
+        row = searched.payload["snapshot"]["rows"][0]
+        projection.toggle_export_selection(row["game_id"])
+        before = projection.snapshot()
+        before_ids = projection.export_game_ids
+        before_query = projection.query
+
+        self.app._focus = self.app.shell.open_route("board")
+        prior_focus = self.app._focus
+        open_route = self.app.shell.open_route
+
+        def partially_fail(route_id):
+            if route_id == "library":
+                open_route(route_id)
+                raise RuntimeError("simulated Library route publication failure")
+            return open_route(route_id)
+
+        with patch.object(self.app.shell, "open_route", side_effect=partially_fail):
+            with self.assertRaisesRegex(RuntimeError, "route publication failure"):
+                self.app._delegate("library.reset_filters", {})
+
+        self.assertEqual(projection.query, before_query)
+        self.assertEqual(projection.export_game_ids, before_ids)
+        self.assertEqual(projection.snapshot(), before)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, prior_focus)
 
     def test_full_native_event_queue_without_eviction_preserves_exact_order(self) -> None:
         expected = tuple(
