@@ -128,32 +128,18 @@ class ModelGateway:
                     provider.complete(attempt_request), timeout=remaining
                 )
             except TimeoutError:
-                # A hard-cancellation capability is an explicit adapter promise
-                # that caller cancellation/timeout terminates the provider-side
-                # inference, so a timeout is then safe to classify NO_EFFECT and
-                # may use an explicitly configured fallback. Without that proof,
-                # effect state remains UNKNOWN and fallback is forbidden.
-                hard_cancelled = capabilities.supports_hard_cancellation
+                # This is the gateway's total-route deadline, so no budget is
+                # left for a fallback attempt. Preserve UNKNOWN effect state;
+                # provider-origin typed TIMEOUT + NO_EFFECT may still fall back
+                # before this outer deadline when hard cancellation is pinned.
                 error = ModelGatewayError(
                     ModelErrorCode.TIMEOUT,
                     "model request exceeded its deadline",
                     provider_id=capabilities.provider_id,
-                    retryable=hard_cancelled,
-                    failure_effect=(
-                        ModelFailureEffect.NO_EFFECT
-                        if hard_cancelled
-                        else ModelFailureEffect.UNKNOWN
-                    ),
+                    retryable=False,
+                    failure_effect=ModelFailureEffect.UNKNOWN,
                 )
                 self._audit_failure(request, capabilities.provider_id, error)
-                if self._can_fallback(error=error, index=index, providers=providers):
-                    self._audit_fallback(
-                        request,
-                        capabilities,
-                        providers[index + 1][1],
-                        error,
-                    )
-                    continue
                 terminal_error = error
             except asyncio.CancelledError:
                 # A provider coroutine may itself raise CancelledError. That is
