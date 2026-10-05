@@ -65,6 +65,7 @@ from .report_paths import report_safe_name
 
 
 _LOG = logging.getLogger(__name__)
+_PLATFORM_PATH_TYPE = type(Path("."))
 
 
 class FileWorkflowEventKind(str, Enum):
@@ -351,6 +352,14 @@ class Version2WindowsFileActionDelegate:
             return "pgn-save-cancel"
         return ""
 
+    @staticmethod
+    def _passive_dialog_path(value: object) -> Path | None:
+        if value is None:
+            return None
+        if type(value) is not _PLATFORM_PATH_TYPE:
+            raise TypeError("native file dialog path must be an exact platform Path")
+        return value
+
     def _focus(self) -> str:
         try:
             value = self._focus_provider()
@@ -517,9 +526,7 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open", previous_focus
                     ), previous_focus, current, current_generation
         try:
-            path = self._dialogs.open_pgn()
-            if path is not None:
-                path = Path(path)
+            path = self._passive_dialog_path(self._dialogs.open_pgn())
         except BaseException:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
@@ -1109,9 +1116,9 @@ class Version2WindowsFileActionDelegate:
                     focus_target=previous_focus,
                 )
         try:
-            destination = self._dialogs.save_pgn_as(suggested)
-            if destination is not None:
-                destination = Path(destination)
+            destination = self._passive_dialog_path(
+                self._dialogs.save_pgn_as(suggested)
+            )
         except BaseException:
             return self._failed(
                 "pgn.save_as", "file_dialog_failed", focus_target=previous_focus
@@ -1592,9 +1599,9 @@ class Version2WindowsFileActionDelegate:
                 focus_target=self._worker_focus_target(active_kind),
             )
         try:
-            source_path = self._dialogs.select_library_import()
-            if source_path is not None:
-                source_path = Path(source_path)
+            source_path = self._passive_dialog_path(
+                self._dialogs.select_library_import()
+            )
         except BaseException:
             return self._failed(
                 "library.import", "file_dialog_failed", focus_target=previous_focus
