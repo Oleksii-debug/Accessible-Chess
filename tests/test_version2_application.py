@@ -150,6 +150,22 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertNotIn("уже записано", preflight_message)
         self.assertIn("уже записано", durable_message)
 
+    def test_pgn_save_conflict_announces_no_clobber_truth(self):
+        conflict = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save",
+            focus_target="pgn-game-list",
+            error_code="pgn_save_conflict",
+        )
+
+        self.app._file_event(conflict)
+
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "error")
+        message = events[-1]["payload"]["message"]
+        self.assertIn("не перезаписано", message)
+        self.assertNotIn(str(self.root), message)
+
     def test_async_pgn_save_completion_announces_without_route_replacement(self):
         saved = FileWorkflowEvent(
             kind=FileWorkflowEventKind.PGN_SAVED,
