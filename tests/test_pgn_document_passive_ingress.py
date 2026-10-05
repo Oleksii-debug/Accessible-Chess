@@ -1,0 +1,444 @@
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from acs.gametree_navigation import GameTreeCursor, VariationStep
+from acs.import_contract import SourceFingerprint
+from acs.pgn_document import (
+    PgnDocumentContext,
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+)
+from acs.pgn_workspace import PgnWorkspace
+from acs.position_editor import standard_position
+
+
+PGN = '''[Event "Passive ingress"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "Alpha"]
+[Black "Beta"]
+[Result "*"]
+
+1. e4 e5 *
+'''
+
+
+class GuardedText(str):
+    """String subclass whose active hooks prove the boundary stayed passive."""
+
+    def __new__(cls, value: str) -> "GuardedText":
+        instance = super().__new__(cls, value)
+        instance.armed = False
+        return instance
+
+    def _guard(self, operation: str) -> None:
+        if self.armed:
+            raise AssertionError(f"active text hook executed: {operation}")
+
+    def __hash__(self) -> int:
+        self._guard("hash")
+        return super().__hash__()
+
+    def __eq__(self, other: object) -> bool:
+        self._guard("eq")
+        return super().__eq__(other)
+
+    def __len__(self) -> int:
+        self._guard("len")
+        return super().__len__()
+
+    def strip(self, *args: object, **kwargs: object) -> str:
+        self._guard("strip")
+        return super().strip(*args, **kwargs)
+
+    def __format__(self, format_spec: str) -> str:
+        self._guard("format")
+        return super().__format__(format_spec)
+
+
+class ActiveMapping(dict[str, str]):
+    def __iter__(self):  # type: ignore[override]
+        raise AssertionError("active mapping iteration executed")
+
+    def keys(self):  # type: ignore[override]
+        raise AssertionError("active mapping keys executed")
+
+    def items(self):  # type: ignore[override]
+        raise AssertionError("active mapping items executed")
+
+    def __len__(self) -> int:
+        raise AssertionError("active mapping length executed")
+
+    def __getitem__(self, key: str) -> str:
+        raise AssertionError("active mapping item lookup executed")
+
+
+class ActiveBool:
+    def __bool__(self) -> bool:
+        raise AssertionError("active boolean hook executed")
+
+
+class AlternateWorkspace(PgnWorkspace):
+    pass
+
+
+class AlternateCursor(GameTreeCursor):
+    pass
+
+
+class ActiveVariationStep(VariationStep):
+    def __getattribute__(self, name: str):
+        if name in {"parent_move_index", "variation_index"}:
+            armed = object.__getattribute__(self, "__dict__").get("armed", False)
+            if armed:
+                raise AssertionError("active variation-step attribute hook executed")
+        return super().__getattribute__(name)
+
+
+class ActivePath(tuple):
+    def __iter__(self):
+        raise AssertionError("active variation-path iteration executed")
+
+
+class ActiveContext(PgnDocumentContext):
+    def __getattribute__(self, name: str):
+        if name in {"content_digest", "selected_game_index", "cursor"}:
+            raise AssertionError("active context attribute hook executed")
+        return super().__getattribute__(name)
+
+
+class PgnDocumentPassiveIngressTests(unittest.TestCase):
+    def session(self) -> PgnDocumentSession:
+        return PgnDocumentSession.from_text(PGN)
+
+    def assert_document_error(
+        self,
+        code: PgnDocumentErrorCode,
+        callback,
+    ) -> None:
+        with self.assertRaises(PgnDocumentError) as caught:
+            callback()
+        self.assertEqual(caught.exception.code, code)
+
+    def test_new_game_rejects_active_mapping_before_mapping_hooks(self) -> None:
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_TAG,
+            lambda: PgnDocumentSession.new_game(ActiveMapping({"Event": "X"})),
+        )
+
+    def test_new_game_rejects_active_key_before_hash_or_comparison(self) -> None:
+        key = GuardedText("Event")
+        tags = {key: "X"}
+        key.armed = True
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_TAG,
+            lambda: PgnDocumentSession.new_game(tags),
+        )
+
+    def test_new_game_rejects_active_value_before_string_hooks(self) -> None:
+        value = GuardedText("X")
+        value.armed = True
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_TAG,
+            lambda: PgnDocumentSession.new_game({"Event": value}),
+        )
+
+    def test_new_game_from_position_rejects_tampered_nested_text_before_format_hook(self) -> None:
+        position = standard_position()
+        castling = GuardedText("KQkq")
+        castling.armed = True
+        object.__setattr__(position, "castling", castling)
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_POSITION,
+            lambda: PgnDocumentSession.new_game_from_position(position),
+        )
+
+    def test_edit_tag_rejects_active_name_before_hash_or_equality(self) -> None:
+        session = self.session()
+        name = GuardedText("Event")
+        name.armed = True
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_TAG,
+            lambda: session.edit_tag(name, "X"),
+        )
+
+    def test_edit_tag_rejects_active_value_before_canonical_rebuild(self) -> None:
+        session = self.session()
+        value = GuardedText("X")
+        value.armed = True
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_TAG,
+            lambda: session.edit_tag("Event", value),
+        )
+
+    def test_delete_tag_rejects_active_name_before_comparison(self) -> None:
+        session = self.session()
+        name = GuardedText("Annotator")
+        name.armed = True
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_TAG,
+            lambda: session.delete_tag(name),
+        )
+
+    def test_result_rejects_active_text_before_result_set_membership(self) -> None:
+        session = self.session()
+        result = GuardedText("1-0")
+        result.armed = True
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_RESULT,
+            lambda: session.set_result(result),
+        )
+
+    def test_session_rejects_alternate_workspace_root(self) -> None:
+        workspace = AlternateWorkspace.from_text(PGN)
+        with self.assertRaises(TypeError):
+            PgnDocumentSession(workspace)
+
+    def test_session_rejects_active_boolean_before_bool_coercion(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        with self.assertRaises(TypeError):
+            PgnDocumentSession(workspace, source_overwrite_safe=ActiveBool())  # type: ignore[arg-type]
+
+    def test_session_rejects_active_warning_and_saved_digest_scalars(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        warning = GuardedText("warning")
+        warning.armed = True
+        with self.assertRaises(TypeError):
+            PgnDocumentSession(workspace, global_warnings=(warning,))
+
+        digest = GuardedText(workspace.content_digest)
+        digest.armed = True
+        with self.assertRaises(TypeError):
+            PgnDocumentSession(workspace, saved_digest=digest)
+
+    def test_session_rejects_nonpassive_source_fingerprint_fields(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        path = GuardedText("source.pgn")
+        path.armed = True
+        source = SourceFingerprint(
+            path=path,
+            size=1,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        with self.assertRaises(TypeError):
+            PgnDocumentSession(workspace, source=source)
+
+    def test_session_rejects_noncanonical_source_fingerprint_values(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        invalid_sources = (
+            SourceFingerprint(path="", size=1, sha256="0" * 64, suffix=""),
+            SourceFingerprint(path="source.pgn", size=-1, sha256="0" * 64, suffix=".pgn"),
+            SourceFingerprint(path="source.pgn", size=1, sha256="not-a-digest", suffix=".pgn"),
+            SourceFingerprint(path="source.pgn", size=1, sha256="A" * 64, suffix=".pgn"),
+            SourceFingerprint(path="source.pgn", size=1, sha256="0" * 64, suffix=".txt"),
+        )
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    PgnDocumentSession(
+                        workspace,
+                        source=source,
+                        saved_digest=workspace.content_digest,
+                    )
+
+    def test_session_detaches_valid_source_fingerprint_from_caller_mutation(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=123,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        accepted = session.source
+        self.assertIsNotNone(accepted)
+        self.assertIsNot(accepted, source)
+        self.assertEqual(accepted, source)
+
+        object.__setattr__(source, "path", "attacker-replaced.pgn")
+        object.__setattr__(source, "sha256", "f" * 64)
+        object.__setattr__(source, "size", 999999)
+
+        self.assertEqual(session.source, accepted)
+        view = session.view()
+        self.assertEqual(view.source_path, "source.pgn")
+        self.assertEqual(view.source_sha256, "0" * 64)
+        self.assertEqual(session.document_revision, 0)
+        self.assertFalse(session.dirty)
+
+        assert accepted is not None
+        object.__setattr__(accepted, "path", "mutated-returned-source.pgn")
+        object.__setattr__(accepted, "sha256", "e" * 64)
+        exposed_again = session.source
+        self.assertIsNotNone(exposed_again)
+        self.assertEqual(exposed_again.path, "source.pgn")
+        self.assertEqual(exposed_again.sha256, "0" * 64)
+        self.assertEqual(session.document_revision, 0)
+
+    def test_view_and_bookmark_detach_cursor_from_live_workspace(self) -> None:
+        session = self.session()
+        live_cursor = session.workspace.cursor
+        view = session.view()
+        bookmark = session.bookmark()
+
+        self.assertEqual(view.cursor, live_cursor)
+        self.assertEqual(bookmark.cursor, live_cursor)
+        self.assertIsNot(view.cursor, live_cursor)
+        self.assertIsNot(bookmark.cursor, live_cursor)
+        self.assertIsNot(view.cursor, bookmark.cursor)
+
+        object.__setattr__(view.cursor, "next_move_index", 999)
+        object.__setattr__(bookmark.cursor, "line_path", (VariationStep(0, 0),))
+
+        self.assertEqual(session.workspace.cursor, live_cursor)
+        self.assertEqual(session.workspace.cursor.next_move_index, 0)
+        self.assertEqual(session.workspace.cursor.line_path, ())
+
+    def test_save_returned_fingerprint_cannot_mutate_session_provenance(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        session.edit_tag("Event", "Changed")
+        published = SourceFingerprint(
+            path="source.pgn",
+            size=101,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+        with patch("acs.pgn_document.save_pgn_atomic", return_value=published):
+            returned = session.save()
+
+        self.assertIs(returned, published)
+        self.assertEqual(session.source, published)
+        object.__setattr__(returned, "sha256", "f" * 64)
+        object.__setattr__(returned, "path", "attacker-save.pgn")
+        retained = session.source
+        self.assertIsNotNone(retained)
+        self.assertEqual(retained.path, "source.pgn")
+        self.assertEqual(retained.sha256, "1" * 64)
+        self.assertFalse(session.dirty)
+
+    def test_save_as_returned_fingerprint_cannot_mutate_session_provenance(self) -> None:
+        session = self.session()
+        published = SourceFingerprint(
+            path="fresh-passive-save-as.pgn",
+            size=101,
+            sha256="2" * 64,
+            suffix=".pgn",
+        )
+        with patch("acs.pgn_document.save_pgn_atomic", return_value=published):
+            returned = session.save_as("fresh-passive-save-as.pgn")
+
+        self.assertIs(returned, published)
+        self.assertEqual(session.source, published)
+        object.__setattr__(returned, "sha256", "e" * 64)
+        object.__setattr__(returned, "path", "attacker-save-as.pgn")
+        retained = session.source
+        self.assertIsNotNone(retained)
+        self.assertEqual(retained.path, "fresh-passive-save-as.pgn")
+        self.assertEqual(retained.sha256, "2" * 64)
+        self.assertFalse(session.dirty)
+
+    def test_restore_rejects_context_subclass_before_attribute_hooks(self) -> None:
+        session = self.session()
+        bookmark = session.bookmark()
+        hostile = ActiveContext(
+            bookmark.content_digest,
+            bookmark.selected_game_index,
+            bookmark.cursor,
+        )
+        with self.assertRaises(TypeError):
+            session.restore_context(hostile)
+
+    def test_restore_rejects_active_digest_without_comparison_hook(self) -> None:
+        session = self.session()
+        digest = GuardedText(session.workspace.content_digest)
+        digest.armed = True
+        context = PgnDocumentContext(digest, 0, GameTreeCursor())
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
+    def test_restore_rejects_noncanonical_cursor_root(self) -> None:
+        session = self.session()
+        context = PgnDocumentContext(
+            session.workspace.content_digest,
+            0,
+            AlternateCursor(),
+        )
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
+    def test_restore_rejects_nested_variation_step_subclass_before_attribute_hooks(self) -> None:
+        session = self.session()
+        step = ActiveVariationStep(0, 0)
+        step.armed = True
+        cursor = GameTreeCursor(line_path=(step,), next_move_index=0)
+        context = PgnDocumentContext(
+            session.workspace.content_digest,
+            0,
+            cursor,
+        )
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
+    def test_restore_rejects_tampered_path_container_before_iteration_hook(self) -> None:
+        session = self.session()
+        cursor = GameTreeCursor()
+        object.__setattr__(
+            cursor,
+            "line_path",
+            ActivePath((VariationStep(0, 0),)),
+        )
+        context = PgnDocumentContext(
+            session.workspace.content_digest,
+            0,
+            cursor,
+        )
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
+    def test_exact_builtin_inputs_retain_normal_document_behavior(self) -> None:
+        session = PgnDocumentSession.new_game({"White": "Ada", "Black": "Boris"})
+        session.edit_tag("Event", "Final")
+        session.edit_tag("Annotator", "Accessible Chess")
+        session.delete_tag("Annotator")
+        session.set_result("1-0")
+        bookmark = session.bookmark()
+        session.workspace.document_end()
+        restored = session.restore_context(bookmark)
+
+        game = session.workspace.current_game()
+        self.assertEqual(game.tags["Event"], "Final")
+        self.assertEqual(game.tags["Result"], "1-0")
+        self.assertEqual(game.line.result, "1-0")
+        self.assertEqual(restored.cursor, bookmark.cursor)
+
+
+if __name__ == "__main__":
+    unittest.main()
