@@ -213,7 +213,7 @@ def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, A
 
 
 def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
-    if not isinstance(payload, dict):
+    if type(payload) is not dict:
         raise Version2ReleaseReceiptError("release receipt must be a JSON object")
     keys = frozenset(payload)
     if keys != _RECEIPT_FIELDS:
@@ -224,11 +224,17 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
         )
     if type(payload["schema_version"]) is not int or payload["schema_version"] != RELEASE_RECEIPT_SCHEMA_VERSION:
         raise Version2ReleaseReceiptError("unsupported release receipt schema_version")
-    if payload["product"] != "Accessible Chess":
+    if type(payload["product"]) is not str or payload["product"] != "Accessible Chess":
         raise Version2ReleaseReceiptError("release receipt product identity mismatch")
-    if payload["repository"] != REPOSITORY_FULL_NAME:
+    if (
+        type(payload["repository"]) is not str
+        or payload["repository"] != REPOSITORY_FULL_NAME
+    ):
         raise Version2ReleaseReceiptError("release receipt repository identity mismatch")
-    if payload["workflow_path"] != CANONICAL_W5_WORKFLOW:
+    if (
+        type(payload["workflow_path"]) is not str
+        or payload["workflow_path"] != CANONICAL_W5_WORKFLOW
+    ):
         raise Version2ReleaseReceiptError("release receipt workflow identity mismatch")
 
     return Version2ReleaseReceipt(
@@ -397,12 +403,35 @@ def write_version2_release_receipt(
 ) -> None:
     """Durably write one receipt without replacing existing release evidence."""
 
-    if not isinstance(receipt, Version2ReleaseReceipt):
-        raise TypeError("receipt must be Version2ReleaseReceipt")
+    if type(receipt) is not Version2ReleaseReceipt:
+        raise TypeError("receipt must be an exact Version2ReleaseReceipt")
+    # Revalidate a directly-constructed or post-construction-mutated dataclass
+    # before creating the no-overwrite pathname.  Never serialize the caller's
+    # object first: an invalid receipt must not poison the immutable retry path,
+    # and provider-defined scalar subclasses must not gain comparison hooks.
+    canonical = _receipt_from_mapping(
+        {
+            "schema_version": receipt.schema_version,
+            "product": receipt.product,
+            "repository": receipt.repository,
+            "workflow_path": receipt.workflow_path,
+            "workflow_run_id": receipt.workflow_run_id,
+            "workflow_run_attempt": receipt.workflow_run_attempt,
+            "qualification_head_sha": receipt.qualification_head_sha,
+            "artifact_id": receipt.artifact_id,
+            "artifact_name": receipt.artifact_name,
+            "integration_sha": receipt.integration_sha,
+            "package_sha256": receipt.package_sha256,
+            "inventory_sha256": receipt.inventory_sha256,
+            "inventory_files": receipt.inventory_files,
+            "total_bytes": receipt.total_bytes,
+            "checksums_verified": receipt.checksums_verified,
+        }
+    )
     path = Path(output_path)
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
-    payload = receipt.to_json()
+    payload = canonical.to_json()
     payload_bytes = payload.encode("utf-8")
     create_succeeded = False
     created: os.stat_result | None = None
