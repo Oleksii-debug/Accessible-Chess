@@ -150,6 +150,8 @@ class Version2ImportWorkerServices:
     close: Callable[[], Any]
 
     def __post_init__(self) -> None:
+        if type(self) is not Version2ImportWorkerServices:
+            raise TypeError("worker service bundle must be an exact passive DTO")
         if not callable(getattr(self.library, "import_games", None)):
             raise TypeError("worker library service must expose import_games")
         if self.chessbase is not None and not callable(
