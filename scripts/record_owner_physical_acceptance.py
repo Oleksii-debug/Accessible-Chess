@@ -18,7 +18,9 @@ import os
 from pathlib import Path
 import re
 import secrets
+import stat
 import sys
+import tempfile
 
 from acs.version2_portable_package import (
     Version2PortablePackageError,
@@ -302,29 +304,156 @@ def _final_zip_sha(path: Path) -> str:
         ) from exc
 
 
+def _is_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    try:
+        return bool(os.path.samestat(left, right))
+    except (AttributeError, OSError):
+        left_identity = (getattr(left, "st_dev", None), getattr(left, "st_ino", None))
+        right_identity = (getattr(right, "st_dev", None), getattr(right, "st_ino", None))
+        values = left_identity + right_identity
+        if any(value in (None, 0) for value in values):
+            return False
+        return left_identity == right_identity
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    return bool(
+        _same_file_identity(left, right)
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
 def _publish_exclusive(path: Path, payload: bytes) -> None:
+    """Publish exact fsynced acceptance bytes without a close-before-link race."""
+
     if path.exists():
         _fail("physical acceptance record already exists")
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+
+    temporary: Path | None = None
+    fd: int | None = None
+    cleanup_temporary = True
     try:
-        with temporary.open("xb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.link(temporary, path)
-    except FileExistsError as exc:
-        raise OwnerPhysicalAcceptanceError(
-            "physical acceptance record already exists"
-        ) from exc
-    except OSError as exc:
-        raise OwnerPhysicalAcceptanceError(
-            "physical acceptance record could not be published"
-        ) from exc
-    finally:
         try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{path.name}.physical-acceptance-",
+                suffix=".tmp",
+                dir=path.parent,
+            )
+            temporary = Path(temporary_name)
+        except OSError as exc:
+            raise OwnerPhysicalAcceptanceError(
+                "physical acceptance record staging file could not be created"
+            ) from exc
+
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                fd = None
+                created = os.fstat(stream.fileno())
+                if not stat.S_ISREG(created.st_mode) or _is_reparse(created):
+                    _fail(
+                        "physical acceptance staging file must be a regular non-reparse file"
+                    )
+
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+
+                staged = os.fstat(stream.fileno())
+                if (
+                    not _same_file_identity(created, staged)
+                    or int(staged.st_size) != len(payload)
+                ):
+                    _fail("physical acceptance staging file changed while being written")
+
+                try:
+                    staged_path = temporary.lstat()
+                except OSError as exc:
+                    cleanup_temporary = False
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance staging pathname cannot be inspected"
+                    ) from exc
+                if (
+                    not stat.S_ISREG(staged_path.st_mode)
+                    or _is_reparse(staged_path)
+                    or not _same_file_snapshot(staged, staged_path)
+                ):
+                    cleanup_temporary = False
+                    _fail("physical acceptance staging pathname changed before publication")
+
+                try:
+                    os.link(temporary, path, follow_symlinks=False)
+                except FileExistsError as exc:
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance record already exists"
+                    ) from exc
+                except OSError as exc:
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance record could not be published"
+                    ) from exc
+
+                after_link = os.fstat(stream.fileno())
+                try:
+                    current_staging = temporary.lstat()
+                    published = path.lstat()
+                except OSError as exc:
+                    cleanup_temporary = False
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance publication cannot be inspected"
+                    ) from exc
+
+                staging_still_owned = bool(
+                    stat.S_ISREG(current_staging.st_mode)
+                    and not _is_reparse(current_staging)
+                    and _same_file_snapshot(after_link, current_staging)
+                )
+                if not staging_still_owned:
+                    cleanup_temporary = False
+
+                if (
+                    not _same_file_snapshot(staged, after_link)
+                    or not staging_still_owned
+                    or not stat.S_ISREG(published.st_mode)
+                    or _is_reparse(published)
+                    or not _same_file_snapshot(after_link, published)
+                    or int(published.st_size) != len(payload)
+                ):
+                    _fail("physical acceptance record changed during atomic publication")
+
+                try:
+                    readback = _stable_bytes(
+                        path,
+                        label="physical acceptance record publication",
+                        maximum=MAX_ACCEPTANCE_BYTES,
+                    )
+                except Version2PortablePackageError as exc:
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance record cannot be read back stably"
+                    ) from exc
+                if readback != payload:
+                    _fail("physical acceptance published bytes do not match staged bytes")
+        except OwnerPhysicalAcceptanceError:
+            raise
+        except OSError as exc:
+            raise OwnerPhysicalAcceptanceError(
+                "physical acceptance record could not be published"
+            ) from exc
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if temporary is not None and cleanup_temporary:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def record_owner_physical_acceptance(
