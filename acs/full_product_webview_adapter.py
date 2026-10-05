@@ -93,7 +93,10 @@ class FullProductWebViewAdapter:
 
     def record_focus(self, element_id: str) -> WebViewCommand:
         self._shell.record_focus(element_id)
-        return WebViewCommand("focus-recorded", {"element_id": element_id.strip()})
+        # _clean_focus_id rejects surrounding whitespace and active str
+        # subclasses, so the exact validated built-in string is already the
+        # canonical browser identity. Do not invoke it again after mutation.
+        return WebViewCommand("focus-recorded", {"element_id": element_id})
 
     def _safe_error(self, exc: Exception) -> WebViewCommand:
         # Registry misses and non-domain exceptions are implementation details,
@@ -166,7 +169,9 @@ class FullProductWebViewAdapter:
             return self._safe_error(exc)
         return WebViewCommand(
             "dialog-open",
-            {"dialog_id": dialog_id.strip(), "focus_target": target},
+            # The shell accepted only an exact, regex-valid built-in string.
+            # Reuse it directly so no post-mutation string hook can run.
+            {"dialog_id": dialog_id, "focus_target": target},
         )
 
     def close_dialog(self, dialog_id: str | None = None) -> WebViewCommand:
