@@ -15,6 +15,7 @@ from acs.book_html_import import (
     BookHtmlImportErrorCode,
     SUPPORTED_HTML_BOOK_CAPABILITY,
     import_html_book,
+    _append_bounded_html_warning,
     _SemanticHtmlParser,
 )
 from acs.book_progress_store import BookProgressStore
@@ -82,6 +83,59 @@ class BookHtmlImportTests(unittest.TestCase):
                     "additional HTML import warnings were suppressed",
                 ],
             )
+
+    def test_shared_warning_sink_replaces_only_last_slot_on_overflow(self) -> None:
+        with patch("acs.book_html_import.MAX_HTML_WARNINGS", 2):
+            warnings = ["first", "second"]
+            retained = _append_bounded_html_warning(warnings, "overflow")
+
+        self.assertFalse(retained)
+        self.assertEqual(
+            warnings,
+            ["first", "additional HTML import warnings were suppressed"],
+        )
+
+    def test_legacy_encoding_notice_cannot_overflow_final_warning_budget(self) -> None:
+        source = """<html>
+<head><meta charset="windows-1251"><title>Шахова книга</title></head>
+<body><p>Текст</p><img src="board.png"></body>
+</html>""".encode("cp1251")
+
+        with patch("acs.book_html_import.MAX_HTML_WARNINGS", 1):
+            result = import_html_book(
+                source,
+                source_name="legacy.html",
+                available_assets=None,
+            )
+
+        self.assertEqual(len(result.warnings), 1)
+        self.assertEqual(
+            result.warnings,
+            ("additional HTML import warnings were suppressed",),
+        )
+        self.assertEqual(result.document.warnings, list(result.warnings))
+
+    def test_missing_asset_suppression_marker_stays_inside_final_warning_budget(self) -> None:
+        source = """<html><body><p>Readable</p>
+<img src="a.png" alt="A">
+<img src="b.png" alt="B">
+<img src="c.png" alt="C">
+</body></html>"""
+
+        with patch("acs.book_html_import.MAX_HTML_WARNINGS", 2):
+            result = import_html_book(
+                source,
+                source_name="assets.html",
+                available_assets=(),
+            )
+
+        self.assertEqual(len(result.warnings), 2)
+        self.assertIn("referenced asset is unavailable", result.warnings[0])
+        self.assertEqual(
+            result.warnings[-1],
+            "additional missing asset warnings were suppressed",
+        )
+        self.assertEqual(result.document.warnings, list(result.warnings))
 
     def test_multilingual_structure_images_and_canonical_embedded_pgn(self) -> None:
         result = import_html_book(
