@@ -568,5 +568,193 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
                 self.assertFalse(global_action.payload["editable"])
 
 
+    def test_language_ingress_rejects_active_text_without_string_hooks(self):
+        adapter, _ = self.make_adapter()
+
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("language len hook must not execute")
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("language strip hook must not execute")
+
+            def lower(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("language lower hook must not execute")
+
+        with self.assertRaisesRegex(ValueError, "unsupported UI language"):
+            adapter.set_language(HostileText("en"))
+        self.assertFalse(HostileText.touched)
+        self.assertEqual("uk", adapter.shell.language.value)
+
+    def test_action_ingress_rejects_active_action_focus_and_payload_without_hooks(self):
+        adapter, calls = self.make_adapter()
+
+        class HostileAction(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("action hash hook must not execute")
+
+        class HostileFocus:
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("focus truthiness hook must not execute")
+
+        class HostilePayload(dict):
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("payload truthiness hook must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("payload items hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("payload iteration hook must not execute")
+
+        cases = (
+            {
+                "action_id": HostileAction("teacher.highlight"),
+                "payload": {"square": "f3"},
+                "current_focus_id": "board-launcher",
+            },
+            {
+                "action_id": "teacher.highlight",
+                "payload": {"square": "f3"},
+                "current_focus_id": HostileFocus(),
+            },
+            {
+                "action_id": "teacher.highlight",
+                "payload": HostilePayload({"square": "f3"}),
+                "current_focus_id": "board-launcher",
+            },
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=repr(kwargs)):
+                failed = adapter.activate_action(**kwargs)
+                self.assertEqual("error", failed.kind)
+                self.assertEqual("board", adapter.shell.current_route.route_id)
+                self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+        self.assertFalse(HostileAction.touched)
+        self.assertFalse(HostileFocus.touched)
+        self.assertFalse(HostilePayload.touched)
+        self.assertEqual([], calls)
+
+    def test_action_ingress_rejects_nested_active_values_before_domain_dispatch(self):
+        adapter, calls = self.make_adapter()
+
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("nested text hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("nested text conversion must not execute")
+
+        failed = adapter.activate_action(
+            "teacher.highlight",
+            {"nested": [{"square": HostileText("f3")}]},
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostileText.touched)
+        self.assertEqual([], calls)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+    def test_action_ingress_rejects_non_json_numbers_cycles_and_excessive_depth(self):
+        adapter, calls = self.make_adapter()
+
+        cycle = []
+        cycle.append(cycle)
+        too_deep = value = []
+        for _ in range(20):
+            child = []
+            value.append(child)
+            value = child
+
+        for payload in (
+            {"score": float("nan")},
+            {"cycle": cycle},
+            {"deep": too_deep},
+        ):
+            with self.subTest(payload_type=next(iter(payload))):
+                failed = adapter.activate_action(
+                    "teacher.highlight",
+                    payload,
+                    current_focus_id="board-launcher",
+                )
+                self.assertEqual("error", failed.kind)
+
+        self.assertEqual([], calls)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+    def test_action_ingress_copies_valid_json_payload_before_delegation(self):
+        received = []
+        shell = AccessibleShellState(language=UILanguage.EN)
+
+        def delegate(action_id, payload):
+            received.append((action_id, payload))
+            payload["nested"][0]["square"] = "a1"
+            return {"ok": True}
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+        original = {
+            "nested": [{"square": "f3"}],
+            "count": 2,
+            "ratio": 0.5,
+            "enabled": True,
+            "note": None,
+        }
+        command = adapter.activate_action(
+            "teacher.highlight",
+            original,
+            current_focus_id="board-launcher",
+        )
+
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual("f3", original["nested"][0]["square"])
+        self.assertEqual("a1", received[0][1]["nested"][0]["square"])
+        self.assertIsNot(original, received[0][1])
+        self.assertIsNot(original["nested"], received[0][1]["nested"])
+
+    def test_action_ingress_bounds_action_id_payload_keys_collections_and_text(self):
+        adapter, calls = self.make_adapter()
+        cases = (
+            ("x" * 161, {}),
+            ("teacher.highlight", {"k" * 257: "v"}),
+            ("teacher.highlight", {"items": [0] * 513}),
+            ("teacher.highlight", {"text": "x" * 65537}),
+        )
+        for action_id, payload in cases:
+            with self.subTest(action_id_len=len(action_id), payload_keys=tuple(payload)):
+                failed = adapter.activate_action(
+                    action_id,
+                    payload,
+                    current_focus_id="board-launcher",
+                )
+                self.assertEqual("error", failed.kind)
+
+        self.assertEqual([], calls)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+
 if __name__ == "__main__":
     unittest.main()
