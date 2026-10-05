@@ -950,6 +950,10 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 "pgn.save_as", "pgn_session_invalid", focus_target=previous_focus
             )
+        if self._post_to_ui is not None and type(current) is not PgnDocumentSession:
+            return self._failed(
+                "pgn.save_as", "pgn_session_invalid", focus_target=previous_focus
+            )
 
         try:
             view = current.view()
