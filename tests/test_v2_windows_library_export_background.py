@@ -386,6 +386,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
 
             started = bridge.projection.host_export_started()
             self.assertEqual(started.kind, "render-import")
+            self.assertEqual(started.payload["focus_target"], "library-import-cancel")
             started_actions = started.payload["import"]["actions"]
             self.assertFalse(started_actions[0]["enabled"])
             self.assertTrue(started_actions[1]["enabled"])
@@ -460,6 +461,10 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             )
             Version2Application._file_event(fake, started)
             self.assertEqual(fake._events[0]["kind"], "render-import")
+            self.assertEqual(
+                fake._events[0]["payload"]["focus_target"],
+                "library-import-cancel",
+            )
             self.assertTrue(fake._events[0]["payload"]["import"]["actions"][1]["enabled"])
             self.assertEqual(fake._events[1]["kind"], "status")
 
