@@ -343,6 +343,58 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIs(self.app.session, replacement)
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
 
+    def test_pending_route_publication_blocks_direct_pgn_owner_replacement(self) -> None:
+        prior = self._session("publication-prior.pgn", "Prior")
+        self.app.set_document(prior)
+        self.app._focus = self.app.shell.open_route("board")
+        started = self.app.browser_command(
+            "shell",
+            "screen.library",
+            {"publication_protocol": "ack-v1", "request_id": 81},
+        )
+        token = started["payload"]["publication_token"]
+        replacement = self._session("publication-replacement.pgn", "Replacement")
+
+        with self.assertRaisesRegex(RuntimeError, "publication is pending"):
+            self.app.set_document(replacement)
+
+        self.assertIs(self.app.session, prior)
+        self.assertTrue(self.app.shell._publication_hold_active)
+        self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+        self.assertIs(self.app.session, prior)
+
+    def test_pending_route_publication_blocks_background_book_owner_commit(self) -> None:
+        source = self.root / "publication-book.txt"
+        source.write_text(
+            "Accessible Chess\n\nPublication fence paragraph.",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(source)
+        started = self.app.browser_command(
+            "shell",
+            "screen.library",
+            {"publication_protocol": "ack-v1", "request_id": 82},
+        )
+        token = started["payload"]["publication_token"]
+
+        with self.assertRaisesRegex(RuntimeError, "publication is pending"):
+            self.app.commit_prepared_book_open(prepared)
+
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.books)
+        self.assertTrue(self.app.shell._publication_hold_active)
+        self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+        self.assertIsNone(self.app.reader)
+        self.assertIsNone(self.app.books)
+
     def test_native_library_modal_preflight_rejects_before_state_or_file_work(self) -> None:
         self.app._focus = self.app.shell.open_route("library")
         self.app.shell.open_dialog(
