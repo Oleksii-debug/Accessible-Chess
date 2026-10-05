@@ -28,6 +28,9 @@ from .version2_windows_pgn_export import Version2WindowsPgnExportDelegate
 from .version2_windows_pgn_streaming_host import Version2WindowsStreamingFileActionDelegate
 
 
+_INVALID_PGN_SESSION = object()
+
+
 class Version2WindowsFileWorkflowRuntime:
     """Compose trusted file actions, async UI handoff and orderly shutdown.
 
@@ -117,9 +120,26 @@ class Version2WindowsFileWorkflowRuntime:
             next_delegate=next_delegate,
             current_focus_provider=current_focus_provider,
         )
+
+        # The production Windows runtime is a trusted application boundary. A
+        # PgnDocumentSession subclass is an active object: it may override
+        # properties such as ``dirty``/``document_revision`` or methods used by
+        # the file delegate. Never execute such caller-controlled hooks merely
+        # because ``isinstance`` accepts the object. Convert every non-canonical
+        # session to a passive sentinel before it reaches the delegate; the
+        # delegate then emits its existing path-free ``pgn_session_invalid``
+        # terminal without touching the foreign object. The lower-level direct
+        # delegate keeps its historical structural seam for non-Windows tests
+        # and embeddings.
+        def canonical_pgn_session():
+            session = get_pgn_session()
+            if session is None or type(session) is PgnDocumentSession:
+                return session
+            return _INVALID_PGN_SESSION
+
         self._file_delegate = Version2WindowsStreamingFileActionDelegate(
             dialogs=self._file_dialogs,
-            get_pgn_session=get_pgn_session,
+            get_pgn_session=canonical_pgn_session,
             set_pgn_session=set_pgn_session,
             import_services_factory=import_services_factory,
             event_sink=self._pump,
