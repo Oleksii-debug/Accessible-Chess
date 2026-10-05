@@ -158,6 +158,43 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
+    def test_capture_defers_detached_round_trip_off_owner_thread(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        expected_digest = session.workspace.content_digest
+
+        with (
+            patch(
+                "acs.pgn_workspace.serialize_pgn_text",
+                side_effect=AssertionError(
+                    "save snapshot capture must not serialize the full PGN"
+                ),
+            ),
+            patch(
+                "acs.pgn_save_snapshot._canonical_detached_games",
+                side_effect=AssertionError(
+                    "save snapshot capture must defer canonical detached validation"
+                ),
+            ) as canonical,
+        ):
+            snapshot = capture_pgn_save_snapshot(
+                session,
+                mode=PgnSaveMode.SAVE_AS,
+            )
+
+        canonical.assert_not_called()
+        self.assertEqual(snapshot.content_digest, expected_digest)
+        self.assertEqual(len(snapshot.games), 1)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+        # The worker half still performs exact canonical validation before any
+        # filesystem publication and can therefore consume the captured lease.
+        target = self.root / "deferred-round-trip.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        commit_pgn_save_publication(session, publication)
+        self.assertTrue(target.exists())
+        self.assertFalse(session.dirty)
+
     def test_save_of_older_snapshot_advances_source_but_keeps_newer_edit_dirty(self) -> None:
         source = self.write_document()
         session = PgnDocumentSession.open(source)
