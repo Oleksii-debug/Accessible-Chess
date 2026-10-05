@@ -2408,3 +2408,28 @@ Online lessons.
 
 
 Тільки Олексій має право сказати, що ці функції більше не потрібні.
+
+==================================================
+BINDING OWNER AMENDMENT — 2026-10-05 — ACTIVE MEDIA INTELLIGENCE + UNIVERSAL CHESS AGENT
+==================================================
+
+Нова обов'язкова продуктова директива зафіксована в:
+- `docs/CANONICAL_PRODUCT_VISION_AMENDMENT_2026-10-05.md`;
+- `docs/MEDIA_INTELLIGENCE_AND_CHESS_AGENT_ARCHITECTURE.md`.
+
+Вона скасовує старе трактування Media Intelligence та AI Coach/Agent як далекого фінального етапу, який не можна розробляти зараз.
+
+Formats / Library / ChessBase залишаються критичною основою поточного продукту. Одночасно дозволена й потрібна паралельна розробка:
+- синхронізації live/recorded chess media з канонічною дошкою/GameTree;
+- MediaPositionTimeline та Restore Media Position;
+- structured broadcast adapters;
+- board-vision і speech-context як замінних джерел evidence, але не chess truth;
+- одного Universal Chess Agent, який працює через типізовані Board/GameTree/Stockfish/Library/Formats/Books/Training/Media/Classroom tools;
+- спрощеного Classroom core та аудіозв'язку там, де це дає реальну навчальну цінність.
+
+Pointer/simulated mouse, складне highlight/arrow visual polish, integrated video calling і friends/social play можуть бути відкладені нижче цих напрямів, не видаляючи їх із кінцевого бачення.
+
+Media/AI ніколи не створюють окремі шахові правила. Будь-яка позиція/хід перед публікацією проходить через єдиний canonical chess/domain layer.
+
+Оскільки репозиторій публічний, приватні комерційні евристики source/game discovery та synchronization не повинні публікуватися в ньому без окремого рішення власника.
+
