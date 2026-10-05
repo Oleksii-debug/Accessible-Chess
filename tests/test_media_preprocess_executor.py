@@ -73,6 +73,62 @@ class ExecutorTests(unittest.TestCase):
         self.assertEqual(len(accepted), 2)
         self.assertEqual(executor.run.current_request, before)
 
+    def test_invalid_speech_batch_does_not_publish_partial_checkpoint_progress(self):
+        plan = self.plan()
+        boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+
+        class MixedSpeech:
+            revision_id = "speech-v1"
+            def evidence_for_range(self, source_ref, start_ms, end_ms):
+                return (
+                    SpeechEvidence("v1", "source-v1", 100, 200, "valid first", True, .9),
+                    SpeechEvidence("v1", "stale", 200, 300, "invalid second", True, .9),
+                )
+
+        executor = RecordedMediaPreprocessExecutor(plan, boards, speech_port=MixedSpeech())
+        before = executor.run.checkpoint()
+        with self.assertRaises(PreprocessContractError) as caught:
+            executor.collect_speech(0, 600)
+        self.assertEqual(caught.exception.code, PreprocessErrorCode.REVISION_MISMATCH)
+        self.assertEqual(executor.run.checkpoint(), before)
+
+    def test_interrupted_speech_provider_stream_does_not_publish_partial_progress(self):
+        plan = self.plan()
+        boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+
+        class InterruptedSpeech:
+            revision_id = "speech-v1"
+            def evidence_for_range(self, source_ref, start_ms, end_ms):
+                def stream():
+                    yield SpeechEvidence("v1", "source-v1", 100, 200, "valid first", True, .9)
+                    raise RuntimeError("provider stream interrupted")
+                return stream()
+
+        executor = RecordedMediaPreprocessExecutor(plan, boards, speech_port=InterruptedSpeech())
+        before = executor.run.checkpoint()
+        with self.assertRaisesRegex(RuntimeError, "provider stream interrupted"):
+            executor.collect_speech(0, 600)
+        self.assertEqual(executor.run.checkpoint(), before)
+
+    def test_cancelled_run_rejects_speech_before_provider_invocation(self):
+        plan = self.plan()
+        boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+
+        class ExplodingSpeech:
+            revision_id = "speech-v1"
+            called = False
+            def evidence_for_range(self, source_ref, start_ms, end_ms):
+                self.called = True
+                raise AssertionError("provider must not be called after cancellation")
+
+        speech = ExplodingSpeech()
+        executor = RecordedMediaPreprocessExecutor(plan, boards, speech_port=speech)
+        executor.cancel()
+        with self.assertRaises(PreprocessContractError) as caught:
+            executor.collect_speech(0, 600)
+        self.assertEqual(caught.exception.code, PreprocessErrorCode.INVALID_STATE)
+        self.assertFalse(speech.called)
+
     def test_invalid_speech_range_fails_before_provider_use(self):
         plan = self.plan()
         boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
