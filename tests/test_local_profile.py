@@ -407,12 +407,15 @@ class LocalProfileStoreTests(unittest.TestCase):
     def test_create_durability_barrier_failure_exposes_visible_profile_as_uncertain(self) -> None:
         with mock.patch(
             "acs.local_profile._sync_profile_publication",
-            side_effect=OSError("simulated profile durability failure"),
+            side_effect=OSError(r"SECRET-PROFILE-DURABILITY C:\\Users\\private\\profile.json"),
         ):
             with self.assertRaises(LocalProfileDurabilityUnknownError) as caught:
                 self.store.create("Alice")
 
-        self.assertIsInstance(caught.exception.__cause__, OSError)
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("SECRET-PROFILE-DURABILITY", rendered)
+        self.assertNotIn("Users", rendered)
         visible = self.store.load()
         self.assertIsNotNone(visible)
         self.assertEqual(visible.display_name, "Alice")
