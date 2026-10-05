@@ -15,7 +15,8 @@ from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
-from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
+from .media_core import MediaPositionTimeline
+from .media_foundation import MediaClock, MediaContractError
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
 
@@ -51,30 +52,48 @@ def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
 
 
 class MediaAgentBridge:
-    """Bind the media timeline to agent tools without making it chess truth."""
+    """Expose canonical Media Core synchronization to Agent tools.
+
+    The bridge consumes only opaque canonical chess references from the
+    Media Core timeline. It never parses FEN, reconstructs GameTree paths, or
+    mutates Board directly. Restore is delegated to the application-owned
+    restore_chess_ref command.
+    """
 
     def __init__(
         self,
         *,
         clock: MediaClock,
         timeline: MediaPositionTimeline,
-        board_set_fen: Callable[[str], None],
+        restore_chess_ref: Callable[[str], object],
         playback: MediaPlaybackPort | None = None,
     ) -> None:
         if type(clock) is not MediaClock:
             raise TypeError("clock must be MediaClock")
         if type(timeline) is not MediaPositionTimeline:
-            raise TypeError("timeline must be MediaPositionTimeline")
-        if not callable(board_set_fen):
-            raise TypeError("board_set_fen must be callable")
+            raise TypeError("timeline must be canonical media_core.MediaPositionTimeline")
+        if timeline.source_id != clock.state.source_id:
+            raise ChessAgentToolsError(
+                "media clock and canonical timeline source IDs differ"
+            )
+        if not callable(restore_chess_ref):
+            raise TypeError("restore_chess_ref must be callable")
         self.clock = clock
         self.timeline = timeline
-        self.board_set_fen = board_set_fen
+        self.restore_chess_ref = restore_chess_ref
         self.playback = playback
 
     def status(self) -> dict[str, object]:
         state = self.clock.state
-        binding = self.timeline.at(state.position_ms)
+        resolution = self.timeline.resolve_at_or_before(state.position_ms)
+        if resolution.anchor_timestamp_ms is None:
+            qualification = "unlinked"
+        elif resolution.ambiguous:
+            qualification = "ambiguous"
+        elif resolution.chess_ref is not None:
+            qualification = "confirmed"
+        else:
+            qualification = "candidate"
         return {
             "sessionId": state.session_id,
             "sourceId": state.source_id,
@@ -84,26 +103,26 @@ class MediaAgentBridge:
             "playbackState": state.playback_state.value,
             "playbackRate": state.playback_rate,
             "revision": state.revision,
-            "synchronizedFen": None if binding is None else binding.fen,
-            "synchronizedTreePath": (
-                None if binding is None else list(binding.tree_path)
-            ),
-            "qualification": None if binding is None else binding.state.value,
+            "synchronizedChessRef": resolution.chess_ref,
+            "synchronizedAnchorMs": resolution.anchor_timestamp_ms,
+            "synchronizationAmbiguous": resolution.ambiguous,
+            "qualification": qualification,
         }
 
     def restore(self) -> dict[str, object]:
         state = self.clock.state
-        fen = self.timeline.restore_fen(state.position_ms)
-        canonical = Board(fen).fen()
-        self.board_set_fen(canonical)
-        binding = self.timeline.at(state.position_ms)
-        assert binding is not None
+        resolution = self.timeline.resolve_at_or_before(state.position_ms)
+        if not resolution.resolved or resolution.chess_ref is None:
+            raise ChessAgentToolsError(
+                "media position has no unique confirmed canonical chess reference"
+            )
+        chess_ref = resolution.chess_ref
+        self.restore_chess_ref(chess_ref)
         return {
             "restored": True,
             "positionMs": state.position_ms,
-            "fen": canonical,
-            "treePath": list(binding.tree_path),
-            "qualification": binding.state.value,
+            "anchorPositionMs": resolution.anchor_timestamp_ms,
+            "chessRef": chess_ref,
         }
 
     def play(self) -> dict[str, object]:
@@ -392,14 +411,14 @@ class ChessAgentToolRegistry:
         self.executor.register(
             ToolSpec(
                 "media.status",
-                "Read media playback and synchronized-board state.",
+                "Read media playback and canonical synchronization-reference state.",
             ),
             status,
         )
         self.executor.register(
             ToolSpec(
                 "media.restore_position",
-                "Restore the board to the current media timeline position.",
+                "Restore canonical application chess state from the current media reference.",
                 risk=ToolRisk.LOCAL_WRITE,
             ),
             restore,
