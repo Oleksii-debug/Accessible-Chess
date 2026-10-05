@@ -72,6 +72,50 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             report = _validate_tree(root)
             self.assertIn(relative, report.inventory)
 
+    def test_native_pe_rejects_truncated_optional_header(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "runtime.dll"
+            payload = bytearray(_minimal_windows_pe(machine=0x8664))
+            pe_offset = int.from_bytes(payload[0x3C:0x40], "little")
+            coff = pe_offset + 4
+            payload[coff + 16:coff + 18] = (2).to_bytes(2, "little")
+            target.write_bytes(payload)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "not a valid Windows PE executable",
+            ):
+                preflight._validate_windows_pe_executable(
+                    target,
+                    label="test runtime",
+                    expected_machine=0x8664,
+                    expected_optional_magic=0x020B,
+                )
+
+    def test_native_pe_rejects_missing_section_table(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "runtime.dll"
+            payload = bytearray(_minimal_windows_pe(machine=0x8664))
+            pe_offset = int.from_bytes(payload[0x3C:0x40], "little")
+            coff = pe_offset + 4
+            optional_size = int.from_bytes(
+                payload[coff + 16:coff + 18],
+                "little",
+            )
+            section_table = coff + 20 + optional_size
+            target.write_bytes(bytes(payload[:section_table]))
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "not a valid Windows PE executable",
+            ):
+                preflight._validate_windows_pe_executable(
+                    target,
+                    label="test runtime",
+                    expected_machine=0x8664,
+                    expected_optional_magic=0x020B,
+                )
+
     def test_native_pe_validation_reads_machine_and_magic_from_one_open_handle(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "runtime.dll"
