@@ -91,6 +91,26 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
+    def test_capture_does_not_materialize_document_presentation_view(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+
+        with patch.object(
+            PgnDocumentSession,
+            "view",
+            autospec=True,
+            side_effect=AssertionError("snapshot capture must not build presentation view"),
+        ):
+            snapshot = capture_pgn_save_snapshot(
+                session,
+                mode=PgnSaveMode.SAVE_AS,
+            )
+
+        self.assertEqual(snapshot.mode, PgnSaveMode.SAVE_AS)
+        self.assertEqual(len(snapshot.games), 1)
+        self.assertEqual(snapshot.document_revision, session.document_revision)
+        self.assertIsNone(snapshot.source_before)
+        self.assertTrue(session.dirty)
+
     def test_capture_requires_exact_save_mode_enum(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
 
