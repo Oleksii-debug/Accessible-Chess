@@ -147,6 +147,8 @@ _REQUIRED_DESKTOP_RUNTIME_FILES = (
     "AccessibleChess/libffi-8.dll",
     "AccessibleChess/vcruntime140.dll",
     "AccessibleChess/vcruntime140_1.dll",
+    "AccessibleChess/_sqlite3.pyd",
+    "AccessibleChess/sqlite3.dll",
     "AccessibleChess/pythonnet/runtime/Python.Runtime.dll",
     "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
     "AccessibleChess/webview/lib/Microsoft.Web.WebView2.Core.dll",
@@ -160,6 +162,8 @@ _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES = frozenset(
         "AccessibleChess/libffi-8.dll",
         "AccessibleChess/vcruntime140.dll",
         "AccessibleChess/vcruntime140_1.dll",
+        "AccessibleChess/_sqlite3.pyd",
+        "AccessibleChess/sqlite3.dll",
         "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
         "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll",
     }
