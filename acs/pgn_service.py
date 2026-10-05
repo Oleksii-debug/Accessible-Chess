@@ -712,7 +712,14 @@ def save_pgn_atomic(
             except FileNotFoundError:
                 pass
 
-    return fingerprint(destination)
+    # Publication has committed. Bind the returned provenance to the same
+    # destination-directory object as the write; otherwise a post-commit
+    # directory substitution could make fingerprint() authenticate unrelated
+    # bytes at the same pathname and falsely report them as this save.
+    _assert_bound_export_parent(destination.parent, parent_identity)
+    published = fingerprint(destination)
+    _assert_bound_export_parent(destination.parent, parent_identity)
+    return published
 
 
 def export_game_atomic(
