@@ -1197,6 +1197,9 @@ class Version2WindowsFileActionDelegate:
     ) -> None:
         publication: PgnSavePublication | None = None
         error_code = ""
+        ordinary_failure_code = (
+            "pgn_save_as_failed" if action_id == "pgn.save_as" else "pgn_save_failed"
+        )
         try:
             if action_id == "pgn.save":
                 publication = publish_pgn_save_snapshot(
@@ -1234,10 +1237,10 @@ class Version2WindowsFileActionDelegate:
                 error_code = "pgn_save_as_preserve_original"
             else:
                 _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
-                error_code = "pgn_save_failed"
+                error_code = ordinary_failure_code
         except Exception:
             _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
-            error_code = "pgn_save_failed"
+            error_code = ordinary_failure_code
 
         pending = (
             generation,
