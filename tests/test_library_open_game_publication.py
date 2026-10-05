@@ -437,6 +437,109 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "library")
         self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
 
+    def test_native_library_open_rejects_noncanonical_identity_before_database_lookup(self) -> None:
+        class IntSubclass(int):
+            pass
+
+        class HostileDict(dict):
+            def __bool__(self):
+                raise AssertionError("payload truthiness must not run")
+
+            def __iter__(self):
+                raise AssertionError("payload iteration must not run")
+
+        malformed = (
+            HostileDict(game_id=1, source_id=1, source_index=0),
+            {"game_id": True, "source_id": 1, "source_index": 0},
+            {"game_id": IntSubclass(1), "source_id": 1, "source_index": 0},
+            {"game_id": 0, "source_id": 1, "source_index": 0},
+            {"game_id": 1 << 63, "source_id": 1, "source_index": 0},
+            {"game_id": 1, "source_id": False, "source_index": 0},
+            {"game_id": 1, "source_id": IntSubclass(1), "source_index": 0},
+            {"game_id": 1, "source_id": 0, "source_index": 0},
+            {"game_id": 1, "source_id": 1 << 63, "source_index": 0},
+            {"game_id": 1, "source_id": 1, "source_index": False},
+            {"game_id": 1, "source_id": 1, "source_index": IntSubclass(0)},
+            {"game_id": 1, "source_id": 1, "source_index": -1},
+            {"game_id": 1, "source_id": 1, "source_index": 1 << 63},
+        )
+
+        with patch.object(
+            self.database,
+            "get_game",
+            side_effect=AssertionError("database lookup must not run"),
+        ):
+            for payload in malformed:
+                with self.subTest(payload=repr(payload)):
+                    with self.assertRaisesRegex(ValueError, "invalid Library game request"):
+                        self.app._delegate("library.open_game", payload)
+
+    def test_native_library_navigation_rejects_payload_before_projection_mutation(self) -> None:
+        class HostileDict(dict):
+            def __bool__(self):
+                raise AssertionError("payload truthiness must not run")
+
+        projection = self.app.library.projection
+        with patch.object(
+            projection,
+            "_capture_native_navigation_state",
+            side_effect=AssertionError("Library state capture must not run"),
+        ):
+            for action in (
+                "library.search",
+                "library.reset_filters",
+                "library.next_page",
+                "library.previous_page",
+            ):
+                for payload in ({"unexpected": 1}, HostileDict(unexpected=1), 1):
+                    with self.subTest(action=action, payload=repr(payload)):
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            "Library navigation accepts no payload",
+                        ):
+                            self.app._delegate(action, payload)
+
+    def test_native_library_navigation_requires_exact_passive_render_envelope(self) -> None:
+        class EventLookalike:
+            kind = "render"
+            payload = {"snapshot": {"status": "ready"}}
+
+        class DictSubclass(dict):
+            pass
+
+        class StrSubclass(str):
+            pass
+
+        candidates = (
+            EventLookalike(),
+            LibraryWebViewEvent(
+                "render",
+                DictSubclass(snapshot={"status": "ready"}),
+            ),
+            LibraryWebViewEvent(
+                "render",
+                {"snapshot": DictSubclass(status="ready")},
+            ),
+            LibraryWebViewEvent(
+                "render",
+                {"snapshot": {"status": StrSubclass("ready")}},
+            ),
+        )
+
+        origin_focus = self.app.shell.open_route("board")
+        self.app._focus = origin_focus
+        for candidate in candidates:
+            with self.subTest(candidate=type(candidate).__name__):
+                with patch.object(
+                    self.app.library.projection,
+                    "next_page",
+                    return_value=candidate,
+                ):
+                    with self.assertRaises(ValueError):
+                        self.app._delegate("library.next_page", {})
+                self.assertEqual(self.app.shell.current_route.route_id, "board")
+                self.assertEqual(self.app._focus, origin_focus)
+
     def test_native_library_failed_or_malformed_pagination_preserves_route_and_focus(self) -> None:
         origin_focus = self.app.shell.open_route("board")
         self.app._focus = origin_focus
