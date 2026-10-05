@@ -26,6 +26,7 @@ class BookLibrarySource:
     source: SourceFingerprint
     games: tuple[PgnGame, ...]
     warnings: tuple[str, ...]
+    retained_book_blocks: int = 0
 
 
 def open_book_library_source(
@@ -78,4 +79,4 @@ def open_book_library_source(
         warnings.append(
             f'Library imports games only; {prose_blocks} narrative/position blocks remain in the source book. Use Open Book to read them.'
         )
-    return BookLibrarySource(source, tuple(games), tuple(warnings))
+    return BookLibrarySource(source, tuple(games), tuple(warnings), prose_blocks)

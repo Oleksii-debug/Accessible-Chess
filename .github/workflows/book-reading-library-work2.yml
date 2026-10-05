@@ -34,6 +34,7 @@ on:
       - 'tests/test_v2_book_html*.py'
       - 'tests/test_v2_html_semantic_lists.py'
       - 'tests/test_markdown_library_journey.py'
+      - 'tests/test_native_format_failure_feedback.py'
       - 'tests/test_education_create_resume_journey.py'
       - 'tests/test_version2_education*.py'
       - 'tests/test_version2_teacher*.py'
@@ -104,6 +105,8 @@ jobs:
             'test_version2_application.py', 'test_book_browser_presentation_lease_required.py',
             'test_version2_book_workspace.py', 'test_book_semantic_game_metadata.py',
             'test_book_library_reference_identity.py',
+            'test_book_library_conversion_feedback.py',
+            'test_native_format_failure_feedback.py',
             'test_bookdocument.py', 'test_bookdocument_deserialize_bounds_current.py',
             'test_bookdocument_identity_bounds_current.py', 'test_bookdocument_scalar_bounds_current.py',
             'test_bookdocument_total_text_budget_current.py', 'test_v2_book_game_content.py',

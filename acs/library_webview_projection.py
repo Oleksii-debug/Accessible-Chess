@@ -94,6 +94,8 @@ _IMPORT_LABELS = {
         "completed": "Імпортовано партій: {count}. Попереджень: {warnings}.",
         "cancelled": "Імпорт скасовано. Часткові партії не збережено.",
         "empty": "У джерелі немає партій для імпорту.",
+        "empty_warnings": "У джерелі немає партій для імпорту. Попереджень: {warnings}.",
+        "book_report": "Джерело: {format}. До бібліотеки імпортуються лише партії. Інших блоків книги: {blocks}; вони залишаються у вихідній книзі й доступні через «Відкрити книгу».",
     },
     UILanguage.EN: {
         "heading": "Import into library",
@@ -109,6 +111,8 @@ _IMPORT_LABELS = {
         "completed": "Imported {count} games. Warnings: {warnings}.",
         "cancelled": "Import cancelled. No partial games were saved.",
         "empty": "The source contains no games to import.",
+        "empty_warnings": "The source contains no games to import. Warnings: {warnings}.",
+        "book_report": "Source: {format}. Library imports games only. Other book blocks: {blocks}; they remain in the original book and are accessible through Open Book.",
     },
 }
 
@@ -174,6 +178,7 @@ class LibraryImportWebViewProjection:
         self._attempt_id: int | None = None
         self._message = ""
         self._source_reading: tuple[int, int, int] | None = None
+        self._book_source_report: tuple[str, int] | None = None
 
     @property
     def phase(self) -> LibraryImportPhase:
@@ -183,6 +188,13 @@ class LibraryImportWebViewProjection:
         return _IMPORT_LABELS[self._language]
 
     def _status_message(self) -> str:
+        message = self._base_status_message()
+        if self._book_source_report is not None and self._phase in {LibraryImportPhase.COMPLETED, LibraryImportPhase.EMPTY}:
+            source_format, blocks = self._book_source_report
+            message += " " + self._labels()["book_report"].format(format=source_format.upper(), blocks=blocks)
+        return message
+
+    def _base_status_message(self) -> str:
         labels = self._labels()
         if self._phase is LibraryImportPhase.IDLE:
             return labels["idle"]
@@ -206,6 +218,8 @@ class LibraryImportWebViewProjection:
         if self._phase is LibraryImportPhase.CANCELLED:
             return labels["cancelled"]
         if self._phase is LibraryImportPhase.EMPTY:
+            if self._warning_count:
+                return labels["empty_warnings"].format(warnings=self._warning_count)
             return labels["empty"]
         return self._message or concise_user_error("", language=self._language)
 
@@ -283,6 +297,7 @@ class LibraryImportWebViewProjection:
             raise RuntimeError("library import is already active")
         self._phase = LibraryImportPhase.RUNNING
         self._processed_games = 0
+        self._book_source_report = None
         self._total_games = total_games
         self._warning_count = 0
         self._attempt_id = None
@@ -298,7 +313,18 @@ class LibraryImportWebViewProjection:
         self._attempt_id = None
         self._message = ""
         self._source_reading = None
+        self._book_source_report = None
         return self._render(announce=True, focus_target="library-import-cancel")
+
+    def book_source_report(self, source_format: str, retained_blocks: int) -> None:
+        """Observe semantic source accounting without exposing file paths/text."""
+        if self._phase not in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
+            raise RuntimeError("library import is not active")
+        if type(source_format) is not str or source_format not in {"epub", "html", "htm", "xhtml", "md", "markdown"}:
+            raise ValueError("book source format is invalid")
+        if type(retained_blocks) is not int or not 0 <= retained_blocks <= _JS_MAX_SAFE_INTEGER:
+            raise ValueError("book source accounting is invalid")
+        self._book_source_report = (source_format, retained_blocks)
 
     def source_reading(self, bytes_read: int, total_bytes: int, accepted_games: int) -> LibraryWebViewEvent:
         """Show bounded D06 parsing counts without inventing a D07 attempt/result."""
@@ -326,12 +352,15 @@ class LibraryImportWebViewProjection:
         self._phase = LibraryImportPhase.CANCELLING
         return self._render(announce=changed)
 
-    def empty(self) -> LibraryWebViewEvent:
+    def empty(self, *, warning_count: int = 0) -> LibraryWebViewEvent:
         """Terminal zero-game source; no synthetic successful import result."""
         if self._phase not in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}:
             raise RuntimeError("library import is not active")
         if self._processed_games or self._total_games or self._attempt_id is not None:
             raise ValueError("an observed non-empty import cannot become empty")
+        if type(warning_count) is not int or not 0 <= warning_count <= _JS_MAX_SAFE_INTEGER:
+            raise ValueError("source warning count is invalid")
+        self._warning_count = warning_count
         self._phase = LibraryImportPhase.EMPTY
         self._message = ""
         return self._render(announce=True, focus_target="library-import-file")

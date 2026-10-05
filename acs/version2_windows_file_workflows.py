@@ -70,18 +70,22 @@ class FileWorkflowEvent:
     source_bytes_read: int = 0
     source_total_bytes: int = 0
     source_parsing: bool = False
+    source_format: str = ""
+    retained_book_blocks: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, FileWorkflowEventKind):
             raise TypeError("file workflow event kind is invalid")
-        for name in ("action_id", "focus_target", "error_code"):
+        for name in ("action_id", "focus_target", "error_code", "source_format"):
             if type(getattr(self, name)) is not str:
                 raise TypeError(f"{name} must be text")
         if not self.action_id:
             raise ValueError("file workflow action id must not be empty")
+        if self.source_format not in {"", "epub", "html", "htm", "xhtml", "md", "markdown"}:
+            raise ValueError("source format is invalid")
         if type(self.source_parsing) is not bool:
             raise TypeError("source_parsing must be a boolean")
-        for name in ("processed_games", "total_games", "game_count", "warning_count", "source_bytes_read", "source_total_bytes"):
+        for name in ("processed_games", "total_games", "game_count", "warning_count", "source_bytes_read", "source_total_bytes", "retained_book_blocks"):
             value = getattr(self, name)
             if type(value) is not int:
                 raise TypeError(f"{name} must be an integer")
@@ -587,6 +591,8 @@ class Version2WindowsFileActionDelegate:
     ) -> None:
         services: Version2ImportWorkerServices | None = None
         progress_started = False
+        book_source_format = ""
+        retained_book_blocks = 0
 
         def cancelled() -> bool:
             return cancel_event.is_set()
@@ -604,6 +610,8 @@ class Version2WindowsFileActionDelegate:
                         "library.import",
                         focus_target="library-import-cancel",
                         total_games=progress_value.total_games,
+                        source_format=book_source_format,
+                        retained_book_blocks=retained_book_blocks,
                     ),
                 )
             self._emit_if_current(
@@ -630,6 +638,9 @@ class Version2WindowsFileActionDelegate:
                 )
                 if cancelled():
                     raise LibraryImportCancelledError("Library import cancelled")
+                if suffix in BOOK_LIBRARY_SUFFIXES:
+                    book_source_format = suffix.lstrip(".")
+                    retained_book_blocks = opened.retained_book_blocks
                 if not opened.games:
                     self._emit_if_current(
                         generation,
@@ -638,6 +649,8 @@ class Version2WindowsFileActionDelegate:
                             "library.import",
                             focus_target="library-import-file",
                             warning_count=(0 if suffix == ".pgn" else len(opened.warnings)),
+                            source_format=book_source_format,
+                            retained_book_blocks=retained_book_blocks,
                         ),
                     )
                     return
@@ -693,6 +706,8 @@ class Version2WindowsFileActionDelegate:
                     processed_games=game_count,
                     total_games=game_count,
                     game_count=game_count,
+                    source_format=book_source_format,
+                    retained_book_blocks=retained_book_blocks,
                     warning_count=warning_count,
                 ),
             )

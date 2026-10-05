@@ -1705,21 +1705,26 @@ class Version2Application:
                 self._file_event(event)
                 continue
             rendered = None
+            if (event.kind in {FileWorkflowEventKind.IMPORT_COMPLETED, FileWorkflowEventKind.IMPORT_EMPTY}
+                    and event.source_format and ui.phase in active):
+                ui.book_source_report(event.source_format, event.retained_book_blocks)
             if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
                 if ui.phase not in active: rendered = ui.prepare()
                 if event.total_games and ui.snapshot()["total_games"] == 0: ui.begin(event.total_games)
+                if event.source_format:
+                    ui.book_source_report(event.source_format, event.retained_book_blocks)
             elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING and ui.phase in active:
                 rendered = ui.host_cancelling()
             elif (event.kind is FileWorkflowEventKind.IMPORT_PROGRESS and event.source_parsing
                   and ui.phase is LibraryImportPhase.RUNNING and ui.snapshot()["total_games"] == 0):
                 rendered = ui.source_reading(event.source_bytes_read, event.source_total_bytes, event.processed_games)
             elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
-                rendered = ui.empty()
+                rendered = ui.empty(warning_count=event.warning_count)
             elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLED and ui.phase in active:
                 rendered = ui.cancelled()
             elif event.kind is FileWorkflowEventKind.FAILED:
                 if ui.phase not in active: ui.prepare()
-                rendered = ui.fail("")
+                rendered = ui.fail(self._native_file_error_message(event))
             if rendered: self._events.append(asdict(rendered))
         if progress is not None and ui.phase in active:
             if ui.snapshot()["total_games"] == 0: ui.begin(progress.total_games)
@@ -1730,10 +1735,47 @@ class Version2Application:
             # Update rows without moving focus from another surface.
             self.library.projection.search(self.library.projection.query)
 
+    def _native_file_error_message(self, event):
+        if not isinstance(event, FileWorkflowEvent):
+            return concise_user_error("", language=self.shell.language)
+        language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
+        messages = {
+            "unsupported_import_source": (
+                "Імпорт підтримує PGN, EPUB, HTML, Markdown та CBH/CBV з підтримуваним декодером. Інші формати не можна імпортувати.",
+                "Import supports PGN, EPUB, HTML, Markdown and CBH/CBV with a supported decoder. Other formats cannot be imported.",
+            ),
+            "chessbase_backend_unavailable": (
+                "Для імпорту CBH/CBV потрібен налаштований підтримуваний декодер. Можна імпортувати PGN.",
+                "CBH/CBV import requires a configured supported decoder. You can import PGN instead.",
+            ),
+            "chessbase_import_failed": (
+                "Не вдалося імпортувати ChessBase. Перевірте повноту сімейства файлів і налаштування декодера.",
+                "ChessBase import failed. Check the complete file family and the decoder configuration.",
+            ),
+            "pgn_import_failed": (
+                "Не вдалося імпортувати PGN. Перевірте формат і коректність партій.",
+                "PGN import failed. Check the format and game validity.",
+            ),
+            "import_already_running": (
+                "Попередній імпорт ще завершується. Повторіть дію після завершення.",
+                "The previous import is still finishing. Retry after it completes.",
+            ),
+            "no_import_running": (
+                "Імпорт уже завершився або не був розпочатий.",
+                "The import has finished or has not started.",
+            ),
+        }
+        code = event.error_code
+        if type(code) is str and len(code) <= 64:
+            message = messages.get(code)
+            if message is not None:
+                return message[language is UILanguage.EN]
+        return concise_user_error("", language=language)
+
     def _file_event(self, event):
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
-            self._events.append(self._error())
+            self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
             return
         kind = getattr(event.kind, "value", "")
         messages = {
