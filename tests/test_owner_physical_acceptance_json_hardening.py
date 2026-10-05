@@ -122,6 +122,35 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
             self.assertTrue(output.is_file())
             self.assertEqual(output.read_bytes(), foreign)
 
+    def test_post_link_same_bytes_foreign_identity_is_rejected_and_preserved(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            foreign = root / "foreign.json"
+            payload = b'{"accepted":true}\n'
+            foreign.write_bytes(payload)
+
+            def substitute_same_bytes(path, **_kwargs):
+                current = Path(path)
+                current.unlink()
+                acceptance_module.os.link(foreign, current)
+                return payload
+
+            with mock.patch.object(
+                acceptance_module,
+                "_stable_bytes",
+                side_effect=substitute_same_bytes,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "changed during publication readback",
+                ):
+                    acceptance_module._publish_exclusive(output, payload)
+
+            self.assertTrue(output.is_file())
+            self.assertTrue(output.samefile(foreign))
+            self.assertEqual(output.read_bytes(), payload)
+
     def test_record_does_not_reopen_mutable_inputs_after_exclusive_publish(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
