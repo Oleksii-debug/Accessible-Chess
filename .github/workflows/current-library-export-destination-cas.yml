@@ -7,6 +7,8 @@ on:
     paths:
       - 'acs/full_product_actions.py'
       - 'acs/library_export_service.py'
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
       - 'acs/version2_application.py'
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
@@ -84,6 +86,8 @@ jobs:
             '.github/workflows/current-library-export-destination-cas.yml' \
             'acs/full_product_actions.py' \
             'acs/library_export_service.py' \
+            'acs/library_export_webview_projection.py' \
+            'acs/library_webview_bridge.py' \
             'acs/version2_application.py' \
             'acs/version2_windows_host_runtime.py' \
             'acs/version2_windows_library_export.py' \
@@ -112,14 +116,17 @@ jobs:
           python -m compileall -q
           acs/full_product_actions.py
           acs/library_export_service.py
+          acs/library_export_webview_projection.py
+          acs/library_webview_bridge.py
           acs/version2_application.py
           acs/version2_windows_host_runtime.py
           acs/version2_windows_library_export.py
           tests/test_v2_windows_library_export_background.py
           tests/test_v2_windows_host_runtime.py
 
-      - name: Execute release event/focus DOM oracle
-        run: >-
+      - name: Execute Library and release focus DOM oracles
+        run: |
+          node tests/js/library_export_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Execute Library export, host-runtime, and canonical writer regressions
@@ -129,6 +136,8 @@ jobs:
           tests.test_v2_windows_host_runtime
           tests.test_d07_library_export_reachability
           tests.test_d07_library_export_service
+          tests.test_d07_library_export_webview
+          tests.test_dev1_library_webview_projection
           tests.test_v2_windows_library_export
           tests.test_full_product_library_keybindings
           tests.test_version2_windows_composition_profile
