@@ -36,7 +36,9 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
-          BASE_HEAD: 2b5f20b22cc4ebbe6a7694c04dfc7f4c1c43a1b7
+          PRE_RECONVERGENCE_BASE_HEAD: d67ad2f5d389d36430ae1b155be77f1a1b6083b7
+          BASE_HEAD: 8a9583c366a18fa7e4b65418efe1a77667ac4abd
+          BASE_RECONVERGENCE_MERGE: ccdf122d51cbbf7b0588fd094255117250bee330
           SOURCE_REF: fix/training-progress-ci-head-concurrency-20261005-sol56k7m3
           SOURCE_HEAD: 9b2dceeb2ca6ebcea9cb558dfd2b9495b1e758e5
         run: |
@@ -63,6 +65,8 @@ jobs:
             printf 'TRAINING_DURABILITY_SOURCE_MOVED expected=%s live=%s\n' "$SOURCE_HEAD" "$live_source" >&2
             exit 1
           }
+          test "$(git show -s --format=%P "$BASE_RECONVERGENCE_MERGE")" = "$BASE_HEAD $PRE_RECONVERGENCE_BASE_HEAD"
+          git merge-base --is-ancestor "$BASE_RECONVERGENCE_MERGE" HEAD
           git merge-base --is-ancestor "$BASE_HEAD" HEAD
           test "$(git merge-base "$BASE_HEAD" HEAD)" = "$BASE_HEAD"
           git merge-base --is-ancestor "$SOURCE_HEAD" HEAD
