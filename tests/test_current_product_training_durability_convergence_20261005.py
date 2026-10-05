@@ -17,7 +17,7 @@ class CurrentProductTrainingDurabilityConvergenceTests(unittest.TestCase):
         self.assertIn("TRAINING_DURABILITY_CANDIDATE_SUPERSEDED", text)
         self.assertIn("TRAINING_DURABILITY_BASE_MOVED", text)
         self.assertIn("TRAINING_DURABILITY_SOURCE_MOVED", text)
-        self.assertIn("BASE_HEAD: 4326c3621fcfa95c32adb9bad2ac4d304f9c52a5", text)
+        self.assertIn("BASE_HEAD: 2b5f20b22cc4ebbe6a7694c04dfc7f4c1c43a1b7", text)
         self.assertIn('git merge-base --is-ancestor "$BASE_HEAD" HEAD', text)
         self.assertIn('test "$(git merge-base "$BASE_HEAD" HEAD)" = "$BASE_HEAD"', text)
         self.assertIn('git merge-base --is-ancestor "$SOURCE_HEAD" HEAD', text)
