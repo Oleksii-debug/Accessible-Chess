@@ -281,6 +281,51 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         )
         self.assertEqual(ua["focus_target"], en["focus_target"])
 
+    def test_failed_language_render_rolls_back_library_presenter_and_import_locale(self) -> None:
+        service = FakeSearchService()
+        service.pages[None] = GameSearchPage(
+            items=(
+                item(1, white=None, black=None),
+            ),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        _service, presenter, projection, bridge, _calls = self.build(
+            service,
+            language=UILanguage.UA,
+        )
+        projection.search(GameSearchQuery(limit=25))
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate library render rejected"),
+        ):
+            failed = bridge.dispatch("library.language", {"language": "en"})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(UILanguage.UA, projection.language)
+
+        # All three language owners must still describe the same previous
+        # locale after the failed browser transition.
+        after = projection.snapshot()
+        self.assertEqual(before["document"], after["document"])
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["import"]["document"], after["import"]["document"])
+        self.assertIn("невідомо", after["rows"][0]["label"])
+        self.assertIn("невідомо", presenter.view().rows[0].label)
+
+        # The rollback must be recoverable: a later valid transition can commit
+        # normally instead of inheriting a mixed or poisoned state.
+        committed = projection.set_language(UILanguage.EN).payload["snapshot"]
+        self.assertNotEqual(before["heading"], committed["heading"])
+        self.assertIn("unknown", committed["rows"][0]["label"])
+        self.assertNotEqual(
+            before["import"]["document"],
+            committed["import"]["document"],
+        )
+
     def test_presenter_subclass_is_rejected_before_presentation_hooks(self) -> None:
         service = FakeSearchService()
 

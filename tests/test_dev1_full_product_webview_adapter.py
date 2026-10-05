@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_actions import FullProductActionRouter
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
@@ -33,6 +34,27 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.kind, "render")
         self.assertEqual(command.payload["screen"]["route_id"], "board")
         self.assertEqual(command.payload["document"]["lang"], "en")
+
+    def test_failed_language_snapshot_restores_application_shell_locale(self):
+        adapter, _ = self.make_adapter()
+        before = adapter.snapshot()
+        self.assertEqual("uk", before["document"]["lang"])
+
+        with patch.object(
+            adapter,
+            "snapshot",
+            side_effect=RuntimeError("candidate semantic snapshot rejected"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "candidate semantic snapshot rejected"):
+                adapter.set_language("en")
+
+        restored = adapter.snapshot()
+        self.assertEqual("uk", restored["document"]["lang"])
+        self.assertEqual(before["screen"]["heading"], restored["screen"]["heading"])
+
+        committed = adapter.set_language("en")
+        self.assertEqual("en", committed.payload["document"]["lang"])
+        self.assertNotEqual(before["screen"]["heading"], committed.payload["screen"]["heading"])
 
     def test_unknown_language_fails_closed(self):
         adapter, _ = self.make_adapter()
