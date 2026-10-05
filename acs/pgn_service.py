@@ -619,14 +619,14 @@ def _cleanup_redundant_link_after_commit(path: Path) -> None:
         return
     except FileNotFoundError:
         return
-    except OSError:
+    except BaseException:
         pass
 
     try:
         os.unlink(path)
     except FileNotFoundError:
         pass
-    except OSError:
+    except BaseException:
         # The destination is already committed. Residual cleanup is maintenance,
         # not a reason to misreport the save as failed.
         pass
