@@ -284,6 +284,18 @@ class ChildCoachingRotationStore:
                         temporary = None
                         raise
 
+                    # The lock coordinates canonical writers, but the file can
+                    # still be changed by a non-cooperating process while this
+                    # writer prepares/fsyncs its private temp. Re-check the exact
+                    # target generation immediately before publication so stale
+                    # prepared state never silently replaces a newer/foreign one.
+                    latest = self._read_current()
+                    latest_revision = None if latest is None else _revision(latest)
+                    if latest_revision != expected:
+                        raise ChildCoachingRotationStoreConflictError(
+                            "rotation session changed since the caller last observed it"
+                        )
+
                     os.replace(temporary, self.path)
                     temporary = None
                     _sync_directory(self.path.parent)

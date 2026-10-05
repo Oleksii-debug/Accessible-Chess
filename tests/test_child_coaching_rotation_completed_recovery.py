@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.child_coaching import compile_lesson_session, preset_templates
 from acs.child_coaching_rotation import (
@@ -18,6 +20,7 @@ from acs.child_coaching_rotation import (
 )
 from acs.child_coaching_rotation_store import (
     ChildCoachingRotationStore,
+    ChildCoachingRotationStoreConflictError,
     ChildCoachingRotationStoreError,
 )
 from acs.teaching_session import PositionSourceKind, TeachingPositionSource
@@ -185,6 +188,76 @@ class CompletedRotationRecoveryTests(unittest.TestCase):
                 "rotation state revision is unreachable for the plan",
             ):
                 store.load()
+
+    def test_save_rechecks_existing_target_after_temp_fsync(self) -> None:
+        plan = self._plan()
+        planned = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+        )
+        active = start_rotation(plan)
+        foreign = b'{"external":"newer"}'
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            store = ChildCoachingRotationStore(path)
+            revision = store.save(plan, planned, expected_revision=None)
+            real_fsync = os.fsync
+            injected = False
+
+            def fsync_then_replace_target(fd: int) -> None:
+                nonlocal injected
+                real_fsync(fd)
+                if not injected:
+                    injected = True
+                    path.write_bytes(foreign)
+
+            with mock.patch(
+                "acs.child_coaching_rotation_store.os.fsync",
+                side_effect=fsync_then_replace_target,
+            ):
+                with self.assertRaisesRegex(
+                    ChildCoachingRotationStoreConflictError,
+                    "changed since the caller last observed",
+                ):
+                    store.save(plan, active, expected_revision=revision)
+
+            self.assertTrue(injected)
+            self.assertEqual(path.read_bytes(), foreign)
+            self.assertEqual(list(path.parent.glob(".rotation.json.*.tmp")), [])
+
+    def test_save_rechecks_absent_target_after_temp_fsync(self) -> None:
+        plan = self._plan()
+        state = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+        )
+        foreign = b'{"external":"created"}'
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            store = ChildCoachingRotationStore(path)
+            real_fsync = os.fsync
+            injected = False
+
+            def fsync_then_create_target(fd: int) -> None:
+                nonlocal injected
+                real_fsync(fd)
+                if not injected:
+                    injected = True
+                    path.write_bytes(foreign)
+
+            with mock.patch(
+                "acs.child_coaching_rotation_store.os.fsync",
+                side_effect=fsync_then_create_target,
+            ):
+                with self.assertRaisesRegex(
+                    ChildCoachingRotationStoreConflictError,
+                    "changed since the caller last observed",
+                ):
+                    store.save(plan, state, expected_revision=None)
+
+            self.assertTrue(injected)
+            self.assertEqual(path.read_bytes(), foreign)
+            self.assertEqual(list(path.parent.glob(".rotation.json.*.tmp")), [])
 
     def test_real_pair_play_revisions_round_trip_through_completion(self) -> None:
         plan = self._pair_plan()
