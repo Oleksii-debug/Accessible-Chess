@@ -404,7 +404,14 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
         target = self.root / "private-copy.pgn"
 
-        def writer(path, games, *, overwrite=False, expected_sha256=None):
+        def writer(
+            path,
+            games,
+            *,
+            overwrite=False,
+            expected_sha256=None,
+            pre_publish_check=None,
+        ):
             self.assertIsNot(games, snapshot.games)
             # Mutating the caller-retained public snapshot after the validation
             # point must not affect the graph being consumed by the writer.
@@ -414,6 +421,7 @@ class PgnSaveSnapshotTests(unittest.TestCase):
                 games,
                 overwrite=overwrite,
                 expected_sha256=expected_sha256,
+                pre_publish_check=pre_publish_check,
             )
 
         with patch("acs.pgn_save_snapshot.save_pgn_atomic", side_effect=writer):
