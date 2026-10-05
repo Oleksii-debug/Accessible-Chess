@@ -318,6 +318,13 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 return True
+            if self._library_modal_operation:
+                # A native Library dialog is still executing inside __call__ and
+                # may return to code that has not yet reserved/started its worker.
+                # Do not report successful teardown while that call frame can
+                # still continue. The owner can retry shutdown after the modal
+                # action unwinds, matching the existing retryable-timeout contract.
+                return False
 
         export_stopped = self._library_export_delegate.shutdown(timeout)
         import_stopped = self._file_delegate.shutdown(timeout)

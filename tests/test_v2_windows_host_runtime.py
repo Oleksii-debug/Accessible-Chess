@@ -304,6 +304,66 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             finally:
                 self.assertTrue(runtime.shutdown())
 
+    def test_reentrant_shutdown_during_import_dialog_is_retryable_not_false_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "modal-shutdown-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            shutdown_results: list[bool] = []
+            closed_during_dialog: list[bool] = []
+            original_show = _OpenDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                shutdown_results.append(runtime.shutdown(timeout=0.1))
+                closed_during_dialog.append(runtime.closed)
+                return original_show(dialog, dialog_owner)
+
+            with patch.object(_OpenDialog, "ShowDialog", new=reentrant_show):
+                started = runtime("library.import", {})
+
+            self.assertEqual(shutdown_results, [False])
+            self.assertEqual(closed_during_dialog, [False])
+            self.assertFalse(runtime.closed)
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+
+    def test_reentrant_shutdown_during_export_dialog_is_retryable_not_false_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "modal-shutdown-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            shutdown_results: list[bool] = []
+            closed_during_dialog: list[bool] = []
+            original_show = _SaveDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                shutdown_results.append(runtime.shutdown(timeout=0.1))
+                closed_during_dialog.append(runtime.closed)
+                return original_show(dialog, dialog_owner)
+
+            with patch.object(_SaveDialog, "ShowDialog", new=reentrant_show):
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+
+            self.assertEqual(shutdown_results, [False])
+            self.assertEqual(closed_during_dialog, [False])
+            self.assertFalse(runtime.closed)
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+
     def test_import_running_rejects_export_before_save_dialog(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "busy-import.pgn"
