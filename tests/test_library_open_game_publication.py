@@ -342,6 +342,21 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIs(self.app.session, replacement)
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
 
+    def test_full_native_event_queue_without_eviction_preserves_exact_order(self) -> None:
+        expected = tuple(
+            {
+                "kind": "status",
+                "payload": {"announcement": f"exact-{index}"},
+            }
+            for index in range(64)
+        )
+        for event in expected:
+            self.app._events.append(event)
+
+        self.assertFalse(self.app._events.overflowed)
+        self.assertEqual(self.app.drain_events(), expected)
+        self.assertFalse(self.app._events.overflowed)
+
     def test_saturated_native_event_queue_recovers_with_canonical_route_refresh(self) -> None:
         self.app._focus = self.app.shell.open_route("library")
         for index in range(65):
