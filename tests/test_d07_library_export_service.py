@@ -266,7 +266,7 @@ class LibraryExportServiceTests(unittest.TestCase):
                         consumed.extend(iterator)
                         self.assertEqual(_record_digests(consumed), starting_digests)
                         self.assertEqual(len(consumed), 3)
-                        self.assertTrue(overwrite)
+                        self.assertFalse(overwrite)
                         self.assertIsNone(expected_sha256)
                         return fingerprint
 
