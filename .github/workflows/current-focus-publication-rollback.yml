@@ -73,8 +73,6 @@ jobs:
           changed="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-focus-publication-rollback.yml' \
-            'acs/full_product_actions.py' \
-            'acs/full_product_ui_shell.py' \
             'acs/version2_application.py' \
             'tests/js/version2_release_bootstrap_dom_test.js' \
             'tests/test_v2_book_training_route_rollback.py' \

@@ -11,9 +11,14 @@
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
   let pendingShellPublicationToken = 0;
+  let shellPublicationRequestSequence = 0;
+  let pendingShellPublicationRequestId = 0;
+  let pendingShellPublicationActionId = "";
+  let shellRouteTransitionInFlight = false;
   let eventDrainInFlight = false;
   let eventDrainPending = false;
   let deferredNativeEventBatch = null;
+  let eventDrainIdleWaiters = [];
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
   const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
@@ -229,6 +234,36 @@
     return Number.isSafeInteger(token) && token > 0 ? token : 0;
   }
 
+  function nextShellPublicationRequestId() {
+    if (shellPublicationRequestSequence >= Number.MAX_SAFE_INTEGER - 1) return 0;
+    shellPublicationRequestSequence += 1;
+    return shellPublicationRequestSequence;
+  }
+
+  function clearPendingShellPublicationStart(requestId) {
+    if (pendingShellPublicationRequestId !== requestId) return;
+    pendingShellPublicationRequestId = 0;
+    pendingShellPublicationActionId = "";
+  }
+
+  function startShellPublication(bridge, actionId, requestId) {
+    function attempt() {
+      return bridge.v2_browser_command(
+        "shell",
+        actionId,
+        { publication_protocol: "ack-v1", request_id: requestId }
+      ).then(function (result) {
+        if (plainObject(result) && result.kind === "error") return result;
+        if (!shellPublicationToken(result)) {
+          throw new TypeError("invalid shell publication start");
+        }
+        return result;
+      });
+    }
+
+    return attempt().catch(function () { return attempt(); });
+  }
+
   function finishShellPublication(bridge, command, token) {
     const expectedKind =
       command === "shell.presentation_commit"
@@ -363,12 +398,21 @@
         );
 
         function requestRoute() {
-          return bridge.v2_browser_command(
-            "shell",
+          const requestId = nextShellPublicationRequestId();
+          if (!requestId) {
+            announce(failedMessage);
+            return Promise.resolve(false);
+          }
+          pendingShellPublicationRequestId = requestId;
+          pendingShellPublicationActionId = actionId;
+
+          return startShellPublication(
+            bridge,
             actionId,
-            { publication_protocol: "ack-v1" }
+            requestId
           ).then(function (result) {
             if (result && result.kind === "error") {
+              clearPendingShellPublicationStart(requestId);
               if (result.payload) announce(result.payload.message || "");
               return false;
             }
@@ -377,6 +421,7 @@
               announce(failedMessage);
               return false;
             }
+            clearPendingShellPublicationStart(requestId);
             pendingShellPublicationToken = token;
 
             return refresh(true).then(function () {
@@ -399,19 +444,59 @@
           });
         }
 
-        if (pendingShellPublicationToken) {
-          const previousToken = pendingShellPublicationToken;
-          recoverShellPublication(
+        function recoverPendingStart() {
+          const requestId = pendingShellPublicationRequestId;
+          const pendingActionId = pendingShellPublicationActionId;
+          if (!requestId || !pendingActionId) return Promise.resolve(true);
+          return startShellPublication(
             bridge,
-            previousToken,
-            failedMessage
-          ).then(function (recovered) {
+            pendingActionId,
+            requestId
+          ).then(function (result) {
+            if (result && result.kind === "error") {
+              clearPendingShellPublicationStart(requestId);
+              return true;
+            }
+            const token = shellPublicationToken(result);
+            if (!token) return false;
+            clearPendingShellPublicationStart(requestId);
+            pendingShellPublicationToken = token;
+            return recoverShellPublication(bridge, token, failedMessage);
+          }, function () {
+            announce(failedMessage);
+            return false;
+          });
+        }
+
+        function continueAfterKnownPublication() {
+          return recoverPendingStart().then(function (recovered) {
             if (recovered) return requestRoute();
             return false;
           });
-          return;
         }
-        requestRoute();
+
+        if (shellRouteTransitionInFlight) return;
+        shellRouteTransitionInFlight = true;
+        Promise.resolve()
+          .then(waitForEventDrainIdle)
+          .then(function () {
+            if (pendingShellPublicationToken) {
+              const previousToken = pendingShellPublicationToken;
+              return recoverShellPublication(
+                bridge,
+                previousToken,
+                failedMessage
+              ).then(function (recovered) {
+                if (recovered) return continueAfterKnownPublication();
+                return false;
+              });
+            }
+            return continueAfterKnownPublication();
+          })
+          .then(finishRouteTransition, function () {
+            announce(failedMessage);
+            finishRouteTransition();
+          });
       });
       row.appendChild(button);
       fragment.appendChild(row);
@@ -577,10 +662,42 @@
     if (restoreFocus) restoreStage1Focus(routeId, requestedFocus);
   }
 
+  function snapshotShellPublicationToken(snapshot) {
+    if (!plainObject(snapshot)) return 0;
+    const token = snapshot.shell_publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
   function refresh(restoreFocus) {
     const bridge = api();
     if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve();
-    return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
+    return bridge.v2_snapshot().then(function (snapshot) {
+      const orphanedToken = snapshotShellPublicationToken(snapshot);
+      if (
+        orphanedToken &&
+        !pendingShellPublicationToken &&
+        !pendingShellPublicationRequestId
+      ) {
+        // A WebView reload can erase the browser's request/token memory after
+        // Python already acquired the publication hold. Never render that
+        // unacknowledged candidate as committed state. Recover through the same
+        // idempotent rollback protocol, then read one canonical snapshot.
+        pendingShellPublicationToken = orphanedToken;
+        return recoverShellPublication(
+          bridge,
+          orphanedToken,
+          uiText(
+            "Відновлено попередній розділ після перезапуску подання.",
+            "Restored the previous section after the view restarted."
+          )
+        ).then(function (recovered) {
+          if (!recovered) {
+            throw new Error("orphaned shell publication recovery is still pending");
+          }
+        });
+      }
+      render(snapshot, !!restoreFocus);
+    });
   }
 
   function isVersion2DomainAction(actionId) {
@@ -643,15 +760,42 @@
     return event.kind !== "error" && event.kind !== "status";
   }
 
+  function waitForEventDrainIdle() {
+    if (!eventDrainInFlight) return Promise.resolve();
+    return new Promise(function (resolve) {
+      eventDrainIdleWaiters.push(resolve);
+    });
+  }
+
+  function browserOwnsPendingShellPublication() {
+    return !!pendingShellPublicationToken || !!pendingShellPublicationRequestId;
+  }
+
+  function finishRouteTransition() {
+    shellRouteTransitionInFlight = false;
+    if (
+      eventDrainPending &&
+      !browserOwnsPendingShellPublication() &&
+      !eventDrainInFlight
+    ) {
+      eventDrainPending = false;
+      drainEvents();
+    }
+  }
+
   function finishEventDrain() {
     eventDrainInFlight = false;
+    const waiters = eventDrainIdleWaiters;
+    eventDrainIdleWaiters = [];
+    waiters.forEach(function (resolve) { resolve(); });
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) return;
     if (!eventDrainPending) return;
     eventDrainPending = false;
     drainEvents();
   }
 
   function drainEvents() {
-    if (pendingShellPublicationToken) {
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) {
       eventDrainPending = true;
       return;
     }
@@ -677,7 +821,11 @@
     }
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
-      if (pendingShellPublicationToken) {
+      if (browserOwnsPendingShellPublication()) {
+        // A route-start response may be lost after Python acquired its hold but
+        // before this browser learned the token. Treat the retained request_id
+        // as the same publication fence so a previously started native-event
+        // drain cannot publish stale UI while route authority is unresolved.
         deferredNativeEventBatch = events;
         eventDrainPending = true;
         return;
