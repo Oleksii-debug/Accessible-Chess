@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.version2_package_preflight import Version2PackagePreflightError
@@ -157,6 +158,57 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 write_version2_release_receipt(output, receipt)
             self.assertEqual(output.read_text(encoding="utf-8"), raw)
+
+    def test_receipt_readback_rejects_symlink_and_path_identity_change(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            write_version2_release_receipt(output, receipt)
+
+            link = Path(td) / "receipt-link.json"
+            try:
+                link.symlink_to(output)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "must not be a symlink or reparse point",
+                ):
+                    read_version2_release_receipt(link)
+
+            with patch(
+                "acs.version2_release_receipt._same_file_snapshot",
+                side_effect=(True, True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed while being read",
+                ):
+                    read_version2_release_receipt(output)
+
+    def test_receipt_write_fsyncs_and_rechecks_path_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            with patch("acs.version2_release_receipt.os.fsync") as fsync:
+                write_version2_release_receipt(output, receipt)
+            fsync.assert_called_once()
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
+            swapped = Path(td) / "swapped.json"
+            with patch(
+                "acs.version2_release_receipt._same_file_snapshot",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed while being written",
+                ):
+                    write_version2_release_receipt(swapped, receipt)
 
     def test_readback_rejects_duplicate_unknown_wrong_authority_and_reformatting(self):
         with tempfile.TemporaryDirectory() as td:
