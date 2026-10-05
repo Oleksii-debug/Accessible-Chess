@@ -2,20 +2,20 @@ from __future__ import annotations
 
 """Trusted Windows host workflows for Version 2 file actions.
 
-This module is composition only.  It never parses PGN itself, decodes ChessBase,
-implements Library storage, or owns chess state.  Native Windows dialogs choose
-filesystem paths on the trusted host.  PGN operations delegate to
+This module is composition only. It never parses PGN itself, decodes ChessBase,
+implements Library storage, or owns chess state. Native Windows dialogs choose
+filesystem paths on the trusted host. PGN operations delegate to
 ``PgnDocumentSession``; PGN Library import delegates to ``open_pgn`` plus the
 canonical ``LibraryImportService``; CBH/CBV delegates to
 ``ChessBaseLibraryImportService``. EPUB/HTML book game collections delegate to
 the existing Book import/resolution path and that same LibraryImportService;
 narrative and diagrams remain in the original book with an explicit report.
 
-Long imports run on a dedicated worker so the Windows UI remains operable and a
-Cancel command can be delivered.  The worker-service factory is deliberately
-invoked *inside* that worker: SQLite connections are thread-affine by default,
-so a UI-thread ``AcsDatabase`` must never be smuggled into the background task.
-Only bounded, path-free events leave this host boundary.
+Long imports and production PGN Open preparation run on one shared non-daemon
+worker slot so WinForms keyboard/NVDA processing remains operable. PGN Open
+publication is marshalled back through an injected owner-thread poster before
+the active document can change. Only bounded, path-free events leave this host
+boundary.
 """
 
 from collections.abc import Callable, Mapping
@@ -31,7 +31,11 @@ from .library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
 )
-from .book_library_import import BOOK_LIBRARY_SUFFIXES, BookLibrarySourceReadError, open_book_library_source
+from .book_library_import import (
+    BOOK_LIBRARY_SUFFIXES,
+    BookLibrarySourceReadError,
+    open_book_library_source,
+)
 from .import_contract import SourceReadCancelledError
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from .pgn_service import PgnFileError, open_pgn
@@ -42,6 +46,9 @@ _LOG = logging.getLogger(__name__)
 
 
 class FileWorkflowEventKind(str, Enum):
+    PGN_OPEN_STARTED = "pgn_open_started"
+    PGN_OPEN_CANCELLING = "pgn_open_cancelling"
+    PGN_OPEN_CANCELLED = "pgn_open_cancelled"
     PGN_OPENED = "pgn_opened"
     PGN_SAVED = "pgn_saved"
     PGN_SAVED_AS = "pgn_saved_as"
@@ -81,11 +88,27 @@ class FileWorkflowEvent:
                 raise TypeError(f"{name} must be text")
         if not self.action_id:
             raise ValueError("file workflow action id must not be empty")
-        if self.source_format not in {"", "epub", "html", "htm", "xhtml", "md", "markdown"}:
+        if self.source_format not in {
+            "",
+            "epub",
+            "html",
+            "htm",
+            "xhtml",
+            "md",
+            "markdown",
+        }:
             raise ValueError("source format is invalid")
         if type(self.source_parsing) is not bool:
             raise TypeError("source_parsing must be a boolean")
-        for name in ("processed_games", "total_games", "game_count", "warning_count", "source_bytes_read", "source_total_bytes", "retained_book_blocks"):
+        for name in (
+            "processed_games",
+            "total_games",
+            "game_count",
+            "warning_count",
+            "source_bytes_read",
+            "source_total_bytes",
+            "retained_book_blocks",
+        ):
             value = getattr(self, name)
             if type(value) is not int:
                 raise TypeError(f"{name} must be an integer")
@@ -206,6 +229,7 @@ class Version2WindowsFileActionDelegate:
     OWNED_ACTIONS = frozenset(
         {
             "pgn.open",
+            "pgn.cancel_open",
             "pgn.save",
             "pgn.save_as",
             "library.import",
@@ -232,6 +256,7 @@ class Version2WindowsFileActionDelegate:
         event_sink: Callable[[FileWorkflowEvent], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
+        post_to_ui: Callable[[Callable[[], None]], Any] | None = None,
     ) -> None:
         for method in ("open_pgn", "save_pgn_as", "select_library_import"):
             if not callable(getattr(dialogs, method, None)):
@@ -247,6 +272,8 @@ class Version2WindowsFileActionDelegate:
                 raise TypeError(f"{name} must be callable")
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
+        if post_to_ui is not None and not callable(post_to_ui):
+            raise TypeError("post_to_ui must be callable")
         self._dialogs = dialogs
         self._get_pgn_session = get_pgn_session
         self._set_pgn_session = set_pgn_session
@@ -254,24 +281,25 @@ class Version2WindowsFileActionDelegate:
         self._event_sink = event_sink
         self._next_delegate = next_delegate
         self._focus_provider = current_focus_provider or (lambda: "")
+        self._post_to_ui = post_to_ui
         self._lock = threading.RLock()
         self._worker: threading.Thread | None = None
         self._worker_started = False
+        self._worker_kind = ""
         self._cancel_event: threading.Event | None = None
-        # A terminal outcome can be chosen by the worker just before its event
-        # reaches the observer. Keep that exact event as the cancellation
-        # linearization state so a concurrent UI-thread Cancel cannot insert a
-        # contradictory FAILED/CANCELLING event ahead of the terminal result.
         self._terminal_pending: tuple[int, FileWorkflowEvent] | None = None
         self._generation = 0
+        self._shutdown_requested = False
 
     @property
     def import_running(self) -> bool:
         with self._lock:
-            # Once STARTED publication begins the import is an accepted host
-            # operation even though worker.start() intentionally waits until
-            # that observer event has returned.
-            return self._worker is not None
+            return self._worker is not None and self._worker_kind == "import"
+
+    @property
+    def pgn_open_running(self) -> bool:
+        with self._lock:
+            return self._worker is not None and self._worker_kind == "pgn_open"
 
     def _focus(self) -> str:
         try:
@@ -284,8 +312,6 @@ class Version2WindowsFileActionDelegate:
         try:
             self._event_sink(event)
         except Exception:
-            # Event delivery is an observer boundary.  A WebView failure must not
-            # roll back a successful canonical PGN save or corrupt an ACSDB import.
             _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
         return event
 
@@ -302,6 +328,8 @@ class Version2WindowsFileActionDelegate:
         self._empty_payload(payload)
         if action_id == "pgn.open":
             return self._open_pgn()
+        if action_id == "pgn.cancel_open":
+            return self._cancel_pgn_open()
         if action_id == "pgn.save":
             return self._save_pgn()
         if action_id == "pgn.save_as":
@@ -310,7 +338,13 @@ class Version2WindowsFileActionDelegate:
             return self._start_import()
         return self._cancel_import()
 
-    def _failed(self, action_id: str, error_code: str, *, focus_target: str = "") -> FileWorkflowEvent:
+    def _failed(
+        self,
+        action_id: str,
+        error_code: str,
+        *,
+        focus_target: str = "",
+    ) -> FileWorkflowEvent:
         return self._emit(
             FileWorkflowEvent(
                 FileWorkflowEventKind.FAILED,
@@ -329,66 +363,304 @@ class Version2WindowsFileActionDelegate:
             )
         )
 
-    def _open_pgn(self) -> FileWorkflowEvent:
+    def _prepare_open_path(self) -> tuple[Path | None, FileWorkflowEvent | None, str]:
         previous_focus = self._focus()
         try:
             current = self._get_pgn_session()
         except Exception:
-            return self._failed("pgn.open", "pgn_session_unavailable", focus_target=previous_focus)
+            return None, self._failed(
+                "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
+            ), previous_focus
         if current is not None:
             if not isinstance(current, PgnDocumentSession):
-                return self._failed("pgn.open", "pgn_session_invalid", focus_target=previous_focus)
+                return None, self._failed(
+                    "pgn.open", "pgn_session_invalid", focus_target=previous_focus
+                ), previous_focus
             if current.dirty:
                 confirmation = getattr(self._dialogs, "confirm_discard_unsaved_pgn", None)
                 if not callable(confirmation):
-                    return self._failed(
+                    return None, self._failed(
                         "pgn.open",
                         "unsaved_confirmation_unavailable",
                         focus_target=previous_focus,
-                    )
+                    ), previous_focus
                 try:
                     discard = confirmation()
                 except Exception:
-                    return self._failed(
+                    return None, self._failed(
                         "pgn.open",
                         "unsaved_confirmation_failed",
                         focus_target=previous_focus,
-                    )
+                    ), previous_focus
                 if not discard:
-                    return self._dialog_cancelled("pgn.open", previous_focus)
+                    return None, self._dialog_cancelled(
+                        "pgn.open", previous_focus
+                    ), previous_focus
         try:
             path = self._dialogs.open_pgn()
         except Exception:
-            return self._failed("pgn.open", "file_dialog_failed", focus_target=previous_focus)
+            return None, self._failed(
+                "pgn.open", "file_dialog_failed", focus_target=previous_focus
+            ), previous_focus
         if path is None:
-            return self._dialog_cancelled("pgn.open", previous_focus)
+            return None, self._dialog_cancelled(
+                "pgn.open", previous_focus
+            ), previous_focus
+        return Path(path), None, previous_focus
+
+    def _open_pgn(self) -> FileWorkflowEvent:
+        source_path, early, previous_focus = self._prepare_open_path()
+        if early is not None:
+            return early
+        assert source_path is not None
+
+        # Legacy direct-controller tests and non-Windows embeddings do not own a
+        # UI poster. Keep their historical synchronous seam while the real
+        # Version2 Windows composition always injects the WinForms poster below.
+        if self._post_to_ui is None:
+            try:
+                session = PgnDocumentSession.open(source_path)
+                view = session.view()
+                self._set_pgn_session(session)
+            except Exception:
+                return self._failed(
+                    "pgn.open", "pgn_open_failed", focus_target=previous_focus
+                )
+            return self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_OPENED,
+                    "pgn.open",
+                    focus_target="pgn-game-list",
+                    game_count=view.game_count,
+                    warning_count=len(view.global_warnings),
+                )
+            )
+
+        with self._lock:
+            if self._shutdown_requested:
+                return self._failed(
+                    "pgn.open", "file_workflow_closed", focus_target=previous_focus
+                )
+            if self._worker is not None:
+                focus_target = (
+                    "library-import-cancel"
+                    if self._worker_kind == "import"
+                    else "pgn-open-cancel"
+                )
+                return self._failed(
+                    "pgn.open", "file_worker_busy", focus_target=focus_target
+                )
+            self._generation += 1
+            generation = self._generation
+            cancel_event = threading.Event()
+            worker = threading.Thread(
+                target=self._run_pgn_open,
+                args=(generation, source_path, previous_focus, cancel_event),
+                name=f"AccessibleChess-V2-PgnOpen-{generation}",
+                daemon=False,
+            )
+            self._worker = worker
+            self._worker_started = False
+            self._worker_kind = "pgn_open"
+            self._cancel_event = cancel_event
+            self._terminal_pending = None
+
+        started = self._emit(
+            FileWorkflowEvent(
+                FileWorkflowEventKind.PGN_OPEN_STARTED,
+                "pgn.open",
+                focus_target="pgn-open-cancel",
+            )
+        )
         try:
-            session = PgnDocumentSession.open(path)
-            # Materialize presentation state before publishing the replacement.
-            # A failed readback must leave the previous active document intact.
-            view = session.view()
-            self._set_pgn_session(session)
+            with self._lock:
+                if generation != self._generation or self._worker is not worker:
+                    raise RuntimeError("PGN Open worker ownership changed before start")
+                worker.start()
+                if self._worker is worker:
+                    self._worker_started = True
         except Exception:
-            return self._failed("pgn.open", "pgn_open_failed", focus_target=previous_focus)
+            with self._lock:
+                if generation == self._generation and self._worker is worker:
+                    self._clear_worker_locked()
+            return self._failed(
+                "pgn.open", "pgn_open_worker_unavailable", focus_target=previous_focus
+            )
+        return started
+
+    def _run_pgn_open(
+        self,
+        generation: int,
+        source_path: Path,
+        previous_focus: str,
+        cancel_event: threading.Event,
+    ) -> None:
+        session: PgnDocumentSession | None = None
+        view = None
+        error_code = ""
+        try:
+            if cancel_event.is_set():
+                error_code = "pgn_open_cancelled"
+            else:
+                session = PgnDocumentSession.open(source_path)
+                if cancel_event.is_set():
+                    error_code = "pgn_open_cancelled"
+                else:
+                    # Canonical initial presentation materialization can also be
+                    # substantial and therefore remains on the same worker.
+                    view = session.view()
+                    if cancel_event.is_set():
+                        error_code = "pgn_open_cancelled"
+        except Exception:
+            _LOG.warning("Version 2 PGN Open preparation failed", exc_info=True)
+            error_code = "pgn_open_failed"
+
+        def finish_on_owner() -> None:
+            self._finish_pgn_open_on_owner(
+                generation,
+                session,
+                view,
+                error_code,
+                previous_focus,
+                cancel_event,
+            )
+
+        try:
+            assert self._post_to_ui is not None
+            self._post_to_ui(finish_on_owner)
+        except Exception:
+            _LOG.warning("Version 2 PGN Open UI publication post failed", exc_info=True)
+            with self._lock:
+                current = (
+                    generation == self._generation
+                    and self._worker_kind == "pgn_open"
+                )
+                if current:
+                    self._clear_worker_locked()
+            if current:
+                self._emit(
+                    FileWorkflowEvent(
+                        FileWorkflowEventKind.FAILED,
+                        "pgn.open",
+                        focus_target=previous_focus,
+                        error_code="pgn_open_ui_post_failed",
+                    )
+                )
+
+    def _finish_pgn_open_on_owner(
+        self,
+        generation: int,
+        session: PgnDocumentSession | None,
+        view: object | None,
+        error_code: str,
+        previous_focus: str,
+        cancel_event: threading.Event,
+    ) -> None:
+        with self._lock:
+            current = (
+                generation == self._generation
+                and self._worker is not None
+                and self._worker_kind == "pgn_open"
+                and not self._shutdown_requested
+            )
+            cancelled = cancel_event.is_set()
+            if not current:
+                return
+
+        if cancelled or error_code == "pgn_open_cancelled":
+            terminal = FileWorkflowEvent(
+                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                "pgn.open",
+                focus_target=previous_focus,
+            )
+        elif error_code or session is None or view is None:
+            terminal = FileWorkflowEvent(
+                FileWorkflowEventKind.FAILED,
+                "pgn.open",
+                focus_target=previous_focus,
+                error_code=error_code or "pgn_open_failed",
+            )
+        else:
+            try:
+                # This is the only publication point and it executes through the
+                # owner-thread poster supplied by the production Windows runtime.
+                self._set_pgn_session(session)
+            except Exception:
+                _LOG.warning("Version 2 PGN Open session publication failed", exc_info=True)
+                terminal = FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "pgn.open",
+                    focus_target=previous_focus,
+                    error_code="pgn_open_publish_failed",
+                )
+            else:
+                terminal = FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_OPENED,
+                    "pgn.open",
+                    focus_target="pgn-game-list",
+                    game_count=int(getattr(view, "game_count", 0)),
+                    warning_count=len(getattr(view, "global_warnings", ())),
+                )
+
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._worker_kind != "pgn_open"
+                or self._shutdown_requested
+            ):
+                return
+            self._clear_worker_locked()
+        self._emit(terminal)
+
+    def _cancel_pgn_open(self) -> FileWorkflowEvent:
+        with self._lock:
+            worker = self._worker
+            cancel_event = self._cancel_event
+            running = (
+                worker is not None
+                and self._worker_kind == "pgn_open"
+                and cancel_event is not None
+            )
+            if running:
+                cancel_event.set()
+        if not running:
+            return self._failed(
+                "pgn.cancel_open",
+                "no_pgn_open_running",
+                focus_target="pgn-game-list",
+            )
         return self._emit(
             FileWorkflowEvent(
-                FileWorkflowEventKind.PGN_OPENED,
-                "pgn.open",
-                focus_target="pgn-game-list",
-                game_count=view.game_count,
-                warning_count=len(view.global_warnings),
+                FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                "pgn.cancel_open",
+                focus_target="pgn-open-cancel",
             )
         )
 
-    def _session_or_failure(self, action_id: str) -> PgnDocumentSession | FileWorkflowEvent:
+    def _clear_worker_locked(self) -> None:
+        self._worker = None
+        self._worker_started = False
+        self._worker_kind = ""
+        self._cancel_event = None
+        self._terminal_pending = None
+
+    def _session_or_failure(
+        self, action_id: str
+    ) -> PgnDocumentSession | FileWorkflowEvent:
         try:
             session = self._get_pgn_session()
         except Exception:
-            return self._failed(action_id, "pgn_session_unavailable", focus_target=self._focus())
+            return self._failed(
+                action_id, "pgn_session_unavailable", focus_target=self._focus()
+            )
         if session is None:
-            return self._failed(action_id, "no_pgn_document", focus_target=self._focus())
+            return self._failed(
+                action_id, "no_pgn_document", focus_target=self._focus()
+            )
         if not isinstance(session, PgnDocumentSession):
-            return self._failed(action_id, "pgn_session_invalid", focus_target=self._focus())
+            return self._failed(
+                action_id, "pgn_session_invalid", focus_target=self._focus()
+            )
         return session
 
     def _save_pgn(self) -> FileWorkflowEvent:
@@ -397,10 +669,6 @@ class Version2WindowsFileActionDelegate:
             return current
         previous_focus = self._focus()
         try:
-            # Capture presentation metadata before the atomic publication. Once
-            # save() returns, canonical PGN bytes and session provenance have
-            # committed; no fallible presentation readback may turn that
-            # durable success into a caller-visible failure.
             game_count = current.view().game_count
             current.save()
         except PgnDocumentError as exc:
@@ -408,10 +676,16 @@ class Version2WindowsFileActionDelegate:
                 PgnDocumentErrorCode.NO_SOURCE,
                 PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
             }:
-                return self._save_pgn_as(session=current, prior_focus=previous_focus)
-            return self._failed("pgn.save", "pgn_save_failed", focus_target=previous_focus)
+                return self._save_pgn_as(
+                    session=current, prior_focus=previous_focus
+                )
+            return self._failed(
+                "pgn.save", "pgn_save_failed", focus_target=previous_focus
+            )
         except Exception:
-            return self._failed("pgn.save", "pgn_save_failed", focus_target=previous_focus)
+            return self._failed(
+                "pgn.save", "pgn_save_failed", focus_target=previous_focus
+            )
         return self._emit(
             FileWorkflowEvent(
                 FileWorkflowEventKind.PGN_SAVED,
@@ -428,7 +702,11 @@ class Version2WindowsFileActionDelegate:
         prior_focus: str | None = None,
     ) -> FileWorkflowEvent:
         current: PgnDocumentSession | FileWorkflowEvent
-        current = session if session is not None else self._session_or_failure("pgn.save_as")
+        current = (
+            session
+            if session is not None
+            else self._session_or_failure("pgn.save_as")
+        )
         if isinstance(current, FileWorkflowEvent):
             return current
         previous_focus = self._focus() if prior_focus is None else prior_focus
@@ -447,7 +725,9 @@ class Version2WindowsFileActionDelegate:
         try:
             destination = self._dialogs.save_pgn_as(suggested)
         except Exception:
-            return self._failed("pgn.save_as", "file_dialog_failed", focus_target=previous_focus)
+            return self._failed(
+                "pgn.save_as", "file_dialog_failed", focus_target=previous_focus
+            )
         if destination is None:
             return self._dialog_cancelled("pgn.save_as", previous_focus)
         try:
@@ -458,7 +738,11 @@ class Version2WindowsFileActionDelegate:
                 expected_sha256=expected,
             )
         except Exception:
-            return self._failed("pgn.save_as", "pgn_save_as_failed", focus_target=previous_focus)
+            return self._failed(
+                "pgn.save_as",
+                "pgn_save_as_failed",
+                focus_target=previous_focus,
+            )
         return self._emit(
             FileWorkflowEvent(
                 FileWorkflowEventKind.PGN_SAVED_AS,
@@ -471,17 +755,32 @@ class Version2WindowsFileActionDelegate:
     def _start_import(self) -> FileWorkflowEvent:
         previous_focus = self._focus()
         with self._lock:
-            import_active = self._worker is not None
-        if import_active:
+            active_kind = self._worker_kind if self._worker is not None else ""
+            shutdown_requested = self._shutdown_requested
+        if shutdown_requested:
+            return self._failed(
+                "library.import", "file_workflow_closed", focus_target=previous_focus
+            )
+        if active_kind:
             return self._failed(
                 "library.import",
-                "import_already_running",
-                focus_target="library-import-cancel",
+                (
+                    "import_already_running"
+                    if active_kind == "import"
+                    else "file_worker_busy"
+                ),
+                focus_target=(
+                    "library-import-cancel"
+                    if active_kind == "import"
+                    else "pgn-open-cancel"
+                ),
             )
         try:
             source_path = self._dialogs.select_library_import()
         except Exception:
-            return self._failed("library.import", "file_dialog_failed", focus_target=previous_focus)
+            return self._failed(
+                "library.import", "file_dialog_failed", focus_target=previous_focus
+            )
         if source_path is None:
             return self._dialog_cancelled("library.import", previous_focus)
         suffix = Path(source_path).suffix.lower()
@@ -510,19 +809,19 @@ class Version2WindowsFileActionDelegate:
                 )
                 self._worker = worker
                 self._worker_started = False
+                self._worker_kind = "import"
 
         if import_conflict:
             return self._failed(
                 "library.import",
-                "import_already_running",
-                focus_target="library-import-cancel",
+                "file_worker_busy",
+                focus_target=(
+                    "library-import-cancel"
+                    if self._worker_kind == "import"
+                    else "pgn-open-cancel"
+                ),
             )
 
-        # Never invoke the observer while holding the host lock. An event sink
-        # may synchronously marshal to the UI thread, where Cancel/Shutdown can
-        # legitimately re-enter this delegate. The accepted worker is already
-        # visible as active, but cannot publish anything until STARTED has been
-        # delivered because worker.start() happens afterwards.
         started = self._emit(
             FileWorkflowEvent(
                 FileWorkflowEventKind.IMPORT_STARTED,
@@ -540,10 +839,7 @@ class Version2WindowsFileActionDelegate:
         except Exception:
             with self._lock:
                 if generation == self._generation and self._worker is worker:
-                    self._worker = None
-                    self._worker_started = False
-                    self._cancel_event = None
-                    self._terminal_pending = None
+                    self._clear_worker_locked()
             return self._failed(
                 "library.import",
                 "import_worker_unavailable",
@@ -553,21 +849,18 @@ class Version2WindowsFileActionDelegate:
 
     def _cancel_import(self) -> FileWorkflowEvent:
         with self._lock:
-            pending = self._terminal_pending
-            if pending is not None and pending[0] == self._generation:
-                # The worker has already chosen a terminal outcome, but the
-                # observer callback has not returned yet. Cancellation has lost
-                # that race. Return the exact pending outcome without emitting a
-                # second event; the worker remains the single publisher.
-                return pending[1]
-            worker = self._worker
-            cancel_event = self._cancel_event
-            no_import_running = worker is None or cancel_event is None
-            if not no_import_running:
-                # This also cancels an accepted import while its STARTED event is
-                # still being delivered, before worker.start(). The worker will
-                # observe the same canonical cancel event immediately on start.
-                cancel_event.set()
+            if self._worker_kind != "import":
+                no_import_running = True
+                pending = None
+                cancel_event = None
+            else:
+                pending = self._terminal_pending
+                if pending is not None and pending[0] == self._generation:
+                    return pending[1]
+                cancel_event = self._cancel_event
+                no_import_running = self._worker is None or cancel_event is None
+                if not no_import_running:
+                    cancel_event.set()
         if no_import_running:
             return self._failed(
                 "library.cancel_import",
@@ -627,14 +920,19 @@ class Version2WindowsFileActionDelegate:
         try:
             services = self._import_services_factory()
             if not isinstance(services, Version2ImportWorkerServices):
-                raise TypeError("import_services_factory returned an invalid service bundle")
+                raise TypeError(
+                    "import_services_factory returned an invalid service bundle"
+                )
             if cancelled():
                 raise LibraryImportCancelledError("Library import cancelled")
 
             if suffix == ".pgn" or suffix in BOOK_LIBRARY_SUFFIXES:
                 opened = (
-                    open_pgn(source_path) if suffix == ".pgn"
-                    else open_book_library_source(source_path, cancel_check=cancelled)
+                    open_pgn(source_path)
+                    if suffix == ".pgn"
+                    else open_book_library_source(
+                        source_path, cancel_check=cancelled
+                    )
                 )
                 if cancelled():
                     raise LibraryImportCancelledError("Library import cancelled")
@@ -648,7 +946,9 @@ class Version2WindowsFileActionDelegate:
                             FileWorkflowEventKind.IMPORT_EMPTY,
                             "library.import",
                             focus_target="library-import-file",
-                            warning_count=(0 if suffix == ".pgn" else len(opened.warnings)),
+                            warning_count=(
+                                0 if suffix == ".pgn" else len(opened.warnings)
+                            ),
                             source_format=book_source_format,
                             retained_book_blocks=retained_book_blocks,
                         ),
@@ -657,9 +957,15 @@ class Version2WindowsFileActionDelegate:
                 imported = services.library.import_games(
                     opened.games,
                     source_name=report_safe_name(opened.source.path),
-                    source_format="pgn" if suffix == ".pgn" else suffix.lstrip("."),
+                    source_format=(
+                        "pgn" if suffix == ".pgn" else suffix.lstrip(".")
+                    ),
                     source_sha256=opened.source.sha256,
-                    source_warning_count=len(opened.global_warnings) if suffix == ".pgn" else len(opened.warnings),
+                    source_warning_count=(
+                        len(opened.global_warnings)
+                        if suffix == ".pgn"
+                        else len(opened.warnings)
+                    ),
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
@@ -690,7 +996,9 @@ class Version2WindowsFileActionDelegate:
                             FileWorkflowEventKind.IMPORT_EMPTY,
                             "library.import",
                             focus_target="library-import-file",
-                            warning_count=int(getattr(report, "warning_count", 0)),
+                            warning_count=int(
+                                getattr(report, "warning_count", 0)
+                            ),
                         ),
                     )
                     return
@@ -723,8 +1031,12 @@ class Version2WindowsFileActionDelegate:
         except BookLibrarySourceReadError:
             self._emit_if_current(
                 generation,
-                FileWorkflowEvent(FileWorkflowEventKind.FAILED, "library.import",
-                                  focus_target="library-import-file", error_code="book_source_read_failed"),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "library.import",
+                    focus_target="library-import-file",
+                    error_code="book_source_read_failed",
+                ),
             )
         except PgnFileError:
             self._emit_if_current(
@@ -733,14 +1045,16 @@ class Version2WindowsFileActionDelegate:
                     FileWorkflowEventKind.FAILED,
                     "library.import",
                     focus_target="library-import-file",
-                    error_code=("pgn_import_failed" if suffix == ".pgn"
-                                else "book_source_read_failed" if suffix in BOOK_LIBRARY_SUFFIXES
-                                else "chessbase_import_failed"),
+                    error_code=(
+                        "pgn_import_failed"
+                        if suffix == ".pgn"
+                        else "book_source_read_failed"
+                        if suffix in BOOK_LIBRARY_SUFFIXES
+                        else "chessbase_import_failed"
+                    ),
                 ),
             )
         except Exception:
-            # Backend exception text may contain paths, SQLite details, decoder
-            # names, or provider internals.  It remains machine-log evidence only.
             _LOG.warning("Version 2 Library import failed", exc_info=True)
             self._emit_if_current(
                 generation,
@@ -749,7 +1063,8 @@ class Version2WindowsFileActionDelegate:
                     "library.import",
                     focus_target="library-import-file",
                     error_code=(
-                        "chessbase_import_failed" if suffix in {".cbh", ".cbv"}
+                        "chessbase_import_failed"
+                        if suffix in {".cbh", ".cbv"}
                         else "library_import_failed"
                     ),
                 ),
@@ -759,25 +1074,25 @@ class Version2WindowsFileActionDelegate:
                 try:
                     services.close()
                 except Exception:
-                    _LOG.warning("Version 2 import worker cleanup failed", exc_info=True)
+                    _LOG.warning(
+                        "Version 2 import worker cleanup failed", exc_info=True
+                    )
             with self._lock:
-                if generation == self._generation:
-                    self._worker = None
-                    self._worker_started = False
-                    self._cancel_event = None
-                    self._terminal_pending = None
+                if (
+                    generation == self._generation
+                    and self._worker_kind == "import"
+                ):
+                    self._clear_worker_locked()
 
     def _emit_if_current(self, generation: int, event: FileWorkflowEvent) -> None:
-        terminal = False
         with self._lock:
-            current = generation == self._generation
+            current = (
+                generation == self._generation
+                and self._worker_kind == "import"
+                and not self._shutdown_requested
+            )
             terminal = current and event.kind in self._IMPORT_TERMINAL_KINDS
             if terminal:
-                # Choosing the terminal event closes canonical cancellation.
-                # Publication itself happens outside the host lock so an event
-                # sink that marshals to the UI thread cannot deadlock with a
-                # concurrent Cancel action. The pending event bridges that small
-                # interval and is the exact outcome a losing Cancel observes.
                 self._terminal_pending = (generation, event)
                 self._cancel_event = None
         if not current:
@@ -796,10 +1111,23 @@ class Version2WindowsFileActionDelegate:
                         self._terminal_pending = None
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
-        """Wait for the current import worker; useful for orderly host shutdown/tests."""
+        """Wait for the current import worker; useful for orderly shutdown/tests."""
 
         with self._lock:
-            worker = self._worker
+            worker = self._worker if self._worker_kind == "import" else None
+            worker_started = self._worker_started
+        if worker is None:
+            return True
+        if not worker_started:
+            return False
+        worker.join(timeout)
+        return not worker.is_alive()
+
+    def wait_for_pgn_open(self, timeout: float | None = None) -> bool:
+        """Wait only for PGN Open preparation; owner publication may still be queued."""
+
+        with self._lock:
+            worker = self._worker if self._worker_kind == "pgn_open" else None
             worker_started = self._worker_started
         if worker is None:
             return True
@@ -809,23 +1137,30 @@ class Version2WindowsFileActionDelegate:
         return not worker.is_alive()
 
     def shutdown(self, timeout: float | None = None) -> bool:
-        """Request cancellation and wait so the host does not orphan import work."""
+        """Cancel/join worker and make any queued PGN Open publication stale."""
 
         with self._lock:
+            self._shutdown_requested = True
             worker = self._worker
             worker_started = self._worker_started
+            worker_kind = self._worker_kind
             cancel_event = self._cancel_event
             if cancel_event is not None:
                 cancel_event.set()
         if worker is None:
             return True
         if not worker_started:
-            # STARTED is currently being published outside the lock. Do not
-            # attempt Thread.join() before start; cancellation is already armed
-            # and the worker will terminate as soon as publication returns.
             return False
         worker.join(timeout)
-        return not worker.is_alive()
+        stopped = not worker.is_alive()
+        if stopped and worker_kind == "pgn_open":
+            # The worker may already have queued an owner callback. Removing its
+            # ownership here makes that callback terminally stale before the
+            # runtime closes its UI pump.
+            with self._lock:
+                if self._worker is worker and self._worker_kind == "pgn_open":
+                    self._clear_worker_locked()
+        return stopped
 
 
 __all__ = [
