@@ -48,7 +48,7 @@ from .pgn_save_snapshot import (
     expected_pgn_destination_sha256,
     publish_pgn_save_snapshot,
 )
-from .pgn_service import PgnFileError, open_pgn
+from .pgn_service import PgnConcurrentWriteError, PgnFileError, open_pgn
 from .report_paths import report_safe_name
 
 
@@ -1175,6 +1175,8 @@ class Version2WindowsFileActionDelegate:
                 )
         except PgnSaveCancelledError:
             error_code = "pgn_save_cancelled"
+        except PgnConcurrentWriteError:
+            error_code = "pgn_save_conflict"
         except Exception:
             _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
             error_code = "pgn_save_failed"
