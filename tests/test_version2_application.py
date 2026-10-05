@@ -184,6 +184,8 @@ class Version2ApplicationTests(unittest.TestCase):
             ("library.import", "import_worker_unavailable", "Бібліотеку не змінено"),
             ("pgn.save", "no_pgn_document", "Немає відкритого PGN"),
             ("pgn.open", "pgn_open_failed", "Поточний документ не змінено"),
+            ("pgn.open", "unsaved_confirmation_unavailable", "Інший PGN не відкрито"),
+            ("pgn.open", "unsaved_confirmation_failed", "Інший PGN не відкрито"),
             ("pgn.save", "pgn_session_unavailable", "безпечно отримати поточний PGN"),
         )
         for action_id, error_code, fragment in cases:
