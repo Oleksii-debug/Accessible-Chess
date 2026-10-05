@@ -423,6 +423,35 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("error", replay["kind"])
         self.assertEqual("library", self.app.shell.current_route.route_id)
 
+    def test_shutdown_rolls_back_unpublished_training_before_progress_save(self):
+        self._open_exercise_book()
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+
+        routed = self.app.browser_command(
+            "shell",
+            "screen.training",
+            {"publication_protocol": "ack-v1"},
+        )
+        self.assertEqual("route", routed["kind"])
+        self.assertIsNotNone(self.app._pending_shell_publication)
+        staged_workspace = self.app.training_workspace
+        self.assertIsNotNone(staged_workspace)
+
+        with (
+            patch.object(staged_workspace, "save") as staged_save,
+            patch.object(self.app, "save_book_progress", return_value=None),
+            patch.object(self.database, "close") as close_database,
+        ):
+            self.assertTrue(self.app.shutdown())
+
+        staged_save.assert_not_called()
+        close_database.assert_called_once_with()
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertIsNone(self.app.training_workspace)
+        self.assertIsNone(self.app.training)
+
     def test_invalid_publication_protocol_fails_before_route_or_training_staging(self):
         self._open_exercise_book()
         prior_route = self.app.shell.current_route.route_id
