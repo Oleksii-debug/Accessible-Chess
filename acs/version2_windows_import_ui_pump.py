@@ -112,6 +112,9 @@ class Version2ImportUiWakeupPump:
         self._closed = False
         self._post_failures = 0
         self._ready_failures = 0
+        # One automatic presentation retry is allowed per failed delivery
+        # episode. A successful ui_ready() resets the budget for the next batch.
+        self._ready_retry_used = False
         self._retry_timer: threading.Timer | None = None
         self._owner_callback: Callable[[], None] | None = None
         self._owner_wakeup_pending = False
@@ -317,11 +320,20 @@ class Version2ImportUiWakeupPump:
         except BaseException:
             with self._lock:
                 self._ready_failures += 1
-            # Presentation delivery is an observer boundary. Pending mailbox
-            # events remain available for explicit UI recovery/retry. Never let
-            # an abort-class presentation failure or diagnostic handler replace
-            # the retained canonical mailbox state.
+                schedule_retry = not self._ready_retry_used
+                if schedule_retry:
+                    self._ready_retry_used = True
+            # Transactional mailbox delivery keeps the exact batch pending when
+            # the presentation owner aborts. Schedule one bounded retry so a
+            # final worker terminal cannot remain stranded merely because no
+            # later worker event exists. A second presentation failure remains
+            # retained for explicit recovery and cannot create a retry loop.
+            if schedule_retry:
+                self._schedule_retry()
             _safe_warning("Version 2 Library UI-ready callback failed")
+        else:
+            with self._lock:
+                self._ready_retry_used = False
 
     def request_pending_wakeup(self) -> bool:
         """Request a UI wakeup for already-pending events after recoverable failure."""
