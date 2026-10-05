@@ -72,15 +72,13 @@ jobs:
           done
 
           changed="$(git diff --name-only "$PRODUCT_HEAD"...HEAD | LC_ALL=C sort)"
-          expected="$(cat <<'EXPECTED_SCOPE' | LC_ALL=C sort
-.github/workflows/current-product-windows-evidence-convergence.yml
-.github/workflows/p0-user-oneclick-portable-launcher.yml
-.github/workflows/portable-launch-report-reparse-safety.yml
-tests/test_current_product_windows_evidence_convergence_20261005.py
-tests/test_p0_oneclick_exact_head_concurrency.py
-tests/test_portable_launch_report_reparse_concurrency.py
-EXPECTED_SCOPE
-)"
+          expected="$(printf '%s\\n' \
+            '.github/workflows/current-product-windows-evidence-convergence.yml' \\
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \\
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \\
+            'tests/test_current_product_windows_evidence_convergence_20261005.py' \\
+            'tests/test_p0_oneclick_exact_head_concurrency.py' \\
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Windows-evidence scope:\n%s\n' "$changed" >&2
             exit 1
