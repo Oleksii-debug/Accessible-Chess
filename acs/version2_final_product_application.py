@@ -871,7 +871,6 @@ class Version2FinalProductApplication(Version2Application):
         }
 
     def _rotation_keyboard_result(self) -> dict[str, object]:
-        snapshot = self.group_rotation_snapshot()
         if self._rotation_load_error:
             announcement = self._teacher_keyboard_announcement(
                 "Групова ротація потребує відновлення. Відновіть ротацію, щоб перечитати збережений стан.",
@@ -879,10 +878,10 @@ class Version2FinalProductApplication(Version2Application):
             )
             return {
                 "kind": "group-rotation",
-                **snapshot,
                 "recovery_required": True,
                 "announcement": announcement,
             }
+        snapshot = self.group_rotation_snapshot()
         phase = snapshot["phase"]
         if phase == RotationPhase.COMPLETED.value:
             announcement = self._teacher_keyboard_announcement(
