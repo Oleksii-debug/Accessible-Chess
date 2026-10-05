@@ -8,8 +8,10 @@ on:
     branches:
       - work/post-freeze-v2-windows-package-qualification-20260911
     paths:
+      - acs/version2_package_assembler.py
       - acs/version2_portable_package.py
       - packaging/portable_launcher.c
+      - tests/test_version2_package_assembler.py
       - tests/test_version2_portable_package.py
       - tests/test_portable_launcher_contract.py
       - tests/test_portable_launcher_window_readiness.py
@@ -41,6 +43,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Prove exact live W5 base and qualification-only scope
         shell: bash
@@ -78,11 +81,16 @@ jobs:
       - name: Compile portable package authority and contract tests
         run: >-
           python -m py_compile
+          acs/version2_package_assembler.py
           acs/version2_portable_package.py
+          tests/test_version2_package_assembler.py
           tests/test_version2_portable_package.py
           tests/test_portable_launcher_contract.py
           tests/test_portable_launcher_window_readiness.py
           tests/test_portable_localappdata_persistence_binding.py
+
+      - name: Run canonical inner-package assembly contract
+        run: python -m unittest -v tests.test_version2_package_assembler
 
       - name: Run canonical portable outer-package contract
         run: python -m unittest -v tests.test_version2_portable_package
