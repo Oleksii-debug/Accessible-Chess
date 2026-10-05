@@ -82,11 +82,6 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"',
             "PRE_FOCUS_SHIPPING_HEAD: 42145bb7684249e07946c02dda5b28223f1e0caa",
             "TRAINING_RECONVERGENCE_MERGE: c65f0641a866744c583ea21f7b2baa7ec8c5d53e",
-            "OWNER_FINAL_HOLD_REF: fix/shipping-owner-final-sound-hold-20261005-zftrkmo",
-            "OWNER_FINAL_HOLD_SHA: aa706a6e8d525611b57514e62b3c203c9d41ce61",
-            "PRE_OWNER_FINAL_HOLD_SHIPPING: ccc0f937658b2035cc45c48bce5ab20fabd8db3d",
-            "OWNER_FINAL_HOLD_MERGE: f7b231f195399c38e53d5749f9aa9f771485f76c",
-            'test "$(git show -s --format=%P "$OWNER_FINAL_HOLD_MERGE")" = "$PRE_OWNER_FINAL_HOLD_SHIPPING $OWNER_FINAL_HOLD_SHA"',
             'test "$(git show -s --format=%P "$TRAINING_RECONVERGENCE_MERGE")" = "$PRE_FOCUS_SHIPPING_HEAD $TRAINING_DURABILITY_SHA"',
             'git rev-parse "$TRAINING_DURABILITY_SHA:$evidence_path"',
             "Evidence path mutated after convergence",
@@ -95,6 +90,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
+        self.assertNotIn("OWNER_FINAL_HOLD_REF:", self.text)
+        self.assertNotIn("SHIPPING_OWNER_FINAL_HOLD", self.text)
 
     def test_exact_fifteen_qualification_and_evidence_files_may_differ_from_product(self) -> None:
         required = (
@@ -113,11 +110,6 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "tests/test_p0_oneclick_exact_head_concurrency.py",
             "tests/test_portable_launch_report_reparse_concurrency.py",
             "tests/test_training_progress_durability_concurrency.py",
-            ".github/workflows/owner-oneclick-from-w4.yml",
-            "docs/USER_SOUND_PACK_CURRENT.md",
-            "scripts/build_owner_portable_candidate.py",
-            "tests/test_owner_oneclick_from_w4_workflow.py",
-            "tests/test_owner_portable_candidate.py",
             'extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"',
             'test "$extra_paths" = "$expected_extra"',
             "QUALIFICATION_DELTA_PATHS=15",
