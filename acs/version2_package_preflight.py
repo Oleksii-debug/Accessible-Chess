@@ -592,11 +592,32 @@ def _has_windows_pe_structure(path: Path) -> bool:
         return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
 
 
-def _validate_windows_pe_executable(path: Path, *, label: str) -> None:
-    """Require enough PE structure to reject DOS stubs and MZ-only impostors."""
+def _validate_windows_pe_executable(
+    path: Path,
+    *,
+    label: str,
+    expected_machine: int | None = None,
+) -> None:
+    """Require a bounded PE image and, when requested, one exact CPU machine."""
     try:
         if not _has_windows_pe_structure(path):
             _fail(f"{label} is not a valid Windows PE executable")
+        if expected_machine is not None:
+            if type(expected_machine) is not int or not 0 < expected_machine <= 0xFFFF:
+                raise TypeError("expected_machine must be a positive 16-bit integer or null")
+            with path.open("rb") as handle:
+                dos_header = handle.read(64)
+                pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+                handle.seek(pe_offset + 4)
+                machine_bytes = handle.read(2)
+            if len(machine_bytes) != 2:
+                _fail(f"{label} machine header is truncated")
+            actual_machine = int.from_bytes(machine_bytes, "little")
+            if actual_machine != expected_machine:
+                _fail(
+                    f"{label} has unexpected Windows PE machine "
+                    f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
+                )
     except Version2PackagePreflightError:
         raise
     except OSError as exc:
@@ -1186,6 +1207,7 @@ def _validate_required_runtime_resources(
     _validate_windows_pe_executable(
         product_executable,
         label="packaged AccessibleChess executable",
+        expected_machine=0x8664,
     )
 
     app_config = _require_package_file(
