@@ -1,9 +1,12 @@
 name: Current Book Workspace Passive Ingress
 
 on:
+  push:
+    branches:
+      - fix/book-workflow-state-passive-ingress-20261005-sol56z8q4
   pull_request:
     branches:
-      - converge/current-product-books-provider-20261005-ooxple7
+      - fix/current-book-workspace-passive-ingress-20261005-sol56
     paths:
       - 'acs/version2_book_workspace.py'
       - 'tests/test_book_engine_authority_passive_ingress.py'
@@ -45,7 +48,7 @@ jobs:
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
 
-          base_ref="${EVENT_BASE_REF:-converge/current-product-books-provider-20261005-ooxple7}"
+          base_ref="${EVENT_BASE_REF:-fix/current-book-workspace-passive-ingress-20261005-sol56}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
@@ -59,8 +62,7 @@ jobs:
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-book-workspace-passive-ingress.yml' \
             'acs/version2_book_workspace.py' \
-            'tests/test_book_engine_authority_passive_ingress.py' \
-            'tests/test_version2_book_workspace.py' | sort)"
+            'tests/test_book_engine_authority_passive_ingress.py' | sort)"
           test "$changed" = "$expected_paths" || {
             printf 'Unexpected Book workspace passive-ingress scope:\n%s\n' "$changed" >&2
             exit 1
