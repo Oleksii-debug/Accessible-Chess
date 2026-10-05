@@ -107,6 +107,10 @@ jobs:
           ROUTE_ATOMIC_HEAD: 0054e15a010f30722d49041a14ddbc2a0f1cfdf8
           PRE_ROUTE_ATOMIC_PRODUCT: 5e257a008da11fbc6149a73ec7e34dbb5ee3c1d5
           ROUTE_ATOMIC_MERGE: 89d9833ad00f97958e3b40fcddf28f8894e7807c
+          FOCUS_PRESERVE_REF: fix/preserve-observed-focus-rollback-20261005-sol56r8k2
+          FOCUS_PRESERVE_HEAD: a750e241e14071562b56a0105f089a093bae2d4d
+          PRE_FOCUS_PRESERVE_PRODUCT: b3d94ebb5c26ef96a32d0309c761a31d4b032c95
+          FOCUS_PRESERVE_MERGE: 19c10db4238a2fb8093c7e3d6b8d75fc2bf9fab4
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -140,6 +144,7 @@ jobs:
           fetch_exact "$LANGUAGE_ATOMIC_REF" "$LANGUAGE_ATOMIC_HEAD" CURRENT_PRODUCT_LANGUAGE_ATOMICITY
           fetch_exact "$BOOK_OPEN_REF" "$BOOK_OPEN_HEAD" CURRENT_PRODUCT_BOOK_OPEN
           fetch_exact "$ROUTE_ATOMIC_REF" "$ROUTE_ATOMIC_HEAD" CURRENT_PRODUCT_ROUTE_ATOMICITY
+          fetch_exact "$FOCUS_PRESERVE_REF" "$FOCUS_PRESERVE_HEAD" CURRENT_PRODUCT_FOCUS_PRESERVATION
 
           test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
@@ -170,8 +175,10 @@ jobs:
           git merge-base --is-ancestor "$BOOK_OPEN_MERGE" HEAD
           test "$(git show -s --format=%P "$ROUTE_ATOMIC_MERGE")" = "$PRE_ROUTE_ATOMIC_PRODUCT $ROUTE_ATOMIC_HEAD"
           git merge-base --is-ancestor "$ROUTE_ATOMIC_MERGE" HEAD
+          test "$(git show -s --format=%P "$FOCUS_PRESERVE_MERGE")" = "$PRE_FOCUS_PRESERVE_PRODUCT $FOCUS_PRESERVE_HEAD"
+          git merge-base --is-ancestor "$FOCUS_PRESERVE_MERGE" HEAD
 
-          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD" "$PRESENTATION_HEAD" "$LIBRARY_EXPORT_HEAD" "$LANGUAGE_ATOMIC_HEAD" "$BOOK_OPEN_HEAD" "$ROUTE_ATOMIC_HEAD"; do
+          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD" "$PRESENTATION_HEAD" "$LIBRARY_EXPORT_HEAD" "$LANGUAGE_ATOMIC_HEAD" "$BOOK_OPEN_HEAD" "$ROUTE_ATOMIC_HEAD" "$FOCUS_PRESERVE_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
 
@@ -181,6 +188,7 @@ jobs:
             '.github/workflows/book-variation-fen-equivalence.yml' \
             '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
             '.github/workflows/current-book-open-background-preparation.yml' \
+            '.github/workflows/current-focus-publication-rollback.yml' \
             '.github/workflows/current-library-export-destination-cas.yml' \
             '.github/workflows/current-pgn-accessible-label-resource-bounds.yml' \
             '.github/workflows/current-product-books-provider-convergence.yml' \
@@ -251,12 +259,13 @@ jobs:
           test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = '7a91103062b76b541d370ec3a3247974d5cd0b80'
           test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = 'a104e95645cbdfa5700a407326b99f437e6a2682'
           test "$(git rev-parse HEAD:.github/workflows/current-book-open-background-preparation.yml)" = '5bba1f61d4359ed4243d02a091b95c92fbdc79e2'
-          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = 'cf4e68ebd5bec184f4a6d11ec5b949000c448bcb'
+          test "$(git rev-parse HEAD:.github/workflows/current-focus-publication-rollback.yml)" = 'e51d2087a174ca6c9b6b041dc2f3957664aaaa05'
+          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = 'f3047add7e3ecf3c449709f7afb15c56ef57e31b'
           test "$(git rev-parse HEAD:acs/version2_application.py)" = 'a14fbfa1a96ba3b25307aee99657a35e322e09f8'
           test "$(git rev-parse HEAD:acs/version2_release_app.py)" = '4b104deb653efae90e05d7bd0204b1f83d74b0fb'
           test "$(git rev-parse HEAD:acs/version2_windows_book_open_worker.py)" = 'd2676876930061c9e951ab2329096a4886e3ff29'
           test "$(git rev-parse HEAD:tests/test_book_open_preparation.py)" = '11788da414132fb3fa55b13d96c13846abc9b229'
-          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = 'f00dc790dbead7e459ff8bd39674a090f95b6855'
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = '92c459b755f0c68a9ef0355cd26ed6a947cca641'
           test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = '623a0c7ef5b5d0e11d2d17eed6bd13e3ead0d2c4'
           test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '731f55c8c91ecdcdb2ec716e9840eee43a4b4889'
           test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = '12a0167c93ed7b60898262314319ad181acb7094'
@@ -276,10 +285,10 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_d07_library_export_service.py)" = 'a2e6422314106c16a233070800b3e0c9c6f41d78'
           test "$(git rev-parse HEAD:tests/test_v2_windows_library_export.py)" = '071eecf8523cf8eb0ca1b42c362da5686dc0b437'
           test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = 'c3f71baee9fbcc4ad6f93a931d3deeb80fd37d51'
-          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '2a33ec341a25a6458ab582dd35ba8143a6e9211d'
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '9ee5edcc27bceee8180a38c7bca120d8fd03a410'
           test "$(git rev-parse HEAD:acs/full_product_webview_adapter.py)" = '2f72cc8489de87bb3ae126cda9b3869a0135daa7'
           test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = 'a6151636c03e59a28e57a4a1ebbfa75ee6b6fb67'
-          test "$(git rev-parse HEAD:tests/test_dev1_full_product_webview_adapter.py)" = '4c2c409179f0938e99b7e68c0a699cbb0a1a4dfa'
+          test "$(git rev-parse HEAD:tests/test_dev1_full_product_webview_adapter.py)" = 'd96c304c17a586a947e19cae151662adea8981fe'
           test "$(git rev-parse HEAD:acs/version2_release_ui.py)" = '6f723269938ed0bc654ef03ab6a1a60f0fe34a6c'
           test "$(git rev-parse HEAD:tests/test_version2_release_ui.py)" = '63ee74995fbcb0de2e8cb83508d38af04982587a'
           test "$(git rev-parse HEAD:acs/report_paths.py)" = 'fafc8696a846a1b9c96a8ce89a76ce82593fd582'
