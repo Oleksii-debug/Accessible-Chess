@@ -497,6 +497,21 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                     ) from exc
                 if readback != payload:
                     _fail("physical acceptance published bytes do not match staged bytes")
+                try:
+                    final_published = path.lstat()
+                except OSError as exc:
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance publication cannot be revalidated"
+                    ) from exc
+                if (
+                    not stat.S_ISREG(final_published.st_mode)
+                    or _is_reparse(final_published)
+                    or not _same_file_snapshot(after_link, final_published)
+                    or int(final_published.st_size) != len(payload)
+                ):
+                    _fail(
+                        "physical acceptance record changed during publication readback"
+                    )
                 publication_accepted = True
         except OwnerPhysicalAcceptanceError:
             raise
