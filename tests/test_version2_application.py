@@ -542,6 +542,72 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.import_ui_ready(self.mailbox)
         self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
 
+    def test_failed_terminal_retires_structurally_valid_stale_observers(self):
+        ui = self.app.library.projection.import_projection
+        ui.prepare()
+        stale_progress = LibraryImportProgress(701, 1, 2)
+        stale_result = LibraryImportResult(701, 41, 2, 0, 1, 2)
+        self.app.observe_progress(stale_progress)
+        self.app.observe_result(stale_result)
+        failed = FileWorkflowEvent(
+            FileWorkflowEventKind.FAILED,
+            "library.import",
+            focus_target="library-import-file",
+            error_code="library_import_failed",
+        )
+        self.mailbox.put_async_owner(failed)
+
+        self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.phase, LibraryImportPhase.ERROR)
+        self.assertEqual(self.mailbox.pending_count, 0)
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
+    def test_failed_terminal_keeps_observers_until_projection_retry_commits(self):
+        ui = self.app.library.projection.import_projection
+        ui.prepare()
+        stale_progress = LibraryImportProgress(711, 1, 2)
+        stale_result = LibraryImportResult(711, 42, 2, 0, 3, 4)
+        self.app.observe_progress(stale_progress)
+        self.app.observe_result(stale_result)
+        failed = FileWorkflowEvent(
+            FileWorkflowEventKind.FAILED,
+            "library.import",
+            focus_target="library-import-file",
+            error_code="library_import_failed",
+        )
+        self.mailbox.put_async_owner(failed)
+        before = ui.snapshot()
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        original_fail = ui.fail
+
+        def fail_then_abort(message):
+            original_fail(message)
+            raise ProjectionAbort()
+
+        with patch.object(ui, "fail", side_effect=fail_then_abort):
+            with self.assertRaises(ProjectionAbort):
+                self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.snapshot(), before)
+        self.assertEqual(self.mailbox.pending_count, 1)
+        with self.app._observation_lock:
+            self.assertIs(self.app._progress, stale_progress)
+            self.assertIs(self.app._result, stale_result)
+
+        self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.phase, LibraryImportPhase.ERROR)
+        self.assertEqual(self.mailbox.pending_count, 0)
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
     def test_import_ui_delivery_rolls_back_terminal_projection_and_retries(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
