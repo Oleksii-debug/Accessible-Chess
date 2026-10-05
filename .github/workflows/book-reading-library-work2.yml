@@ -108,6 +108,7 @@ jobs:
             'test_book_library_conversion_feedback.py',
             'test_native_format_failure_feedback.py',
             'test_book_active_import_cancellation.py',
+            'test_book_training_large_reading_journey.py',
             'test_bookdocument.py', 'test_bookdocument_deserialize_bounds_current.py',
             'test_bookdocument_identity_bounds_current.py', 'test_bookdocument_scalar_bounds_current.py',
             'test_bookdocument_total_text_budget_current.py', 'test_v2_book_game_content.py',
