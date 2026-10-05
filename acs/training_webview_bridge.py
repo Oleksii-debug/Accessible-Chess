@@ -92,6 +92,6 @@ class TrainingWebViewBridge:
                 self._exact(data, {"language"})
                 return self._projection.set_language(data["language"])
             raise ValueError("unsupported training browser command")
-        except Exception:
+        except BaseException:
             # Never echo answers, accepted moves, FEN, source ids or internals.
             return self._projection.generic_error()
