@@ -4,6 +4,10 @@
   const renderTokens = new WeakMap();
   const importTokens = new WeakMap();
   const commandFlights = new WeakMap();
+  const commandTails = new WeakMap();
+  const listboxKeyFlights = new WeakMap();
+  const activeLibrarySurfaces = new WeakMap();
+  const librarySurfaceEpochs = new WeakMap();
 
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
@@ -573,7 +577,13 @@
       return;
     }
     if (result.kind === "delegated") {
-      requireLibraryDelegatedEvent(result);
+      const delegated = requireLibraryDelegatedEvent(result);
+      if (delegated.action === "library.open_game") {
+        // A successful Open Game has already committed the PGN route through
+        // the outer publication protocol. Retire this Library surface before
+        // any command queued from its old DOM can enter the canonical host.
+        activeLibrarySurfaces.set(root, false);
+      }
       return;
     }
     if (result.kind === "error") {
@@ -585,49 +595,93 @@
   }
 
   function invokeCommand(root, invoke, announce, snapshot, command, payload) {
-    const flight = {
-      renderToken: renderTokens.get(root), importToken: importTokens.get(root)
-    };
-    commandFlights.set(root, flight);
-    function isCurrent() {
-      return commandFlights.get(root) === flight &&
-        renderTokens.get(root) === flight.renderToken;
-    }
     const generic = snapshot && typeof snapshot.transport_error_message === "string"
       ? snapshot.transport_error_message
       : "";
-    return Promise.resolve().then(function () {
-      // Commands from the same live surface still reach the canonical host in
-      // order (including independent export selection toggles). A detached old
-      // surface cannot start a delayed command after host replacement.
-      if (renderTokens.get(root) !== flight.renderToken) return null;
-      return invoke(command, payload || {});
-    }).then(function (result) {
-      if (!isCurrent()) return null;
-      if (importTokens.get(root) !== flight.importToken && plainObject(result)) {
-        if (result.kind === "render-import") {
-          requireImportEvent(result);
-          return null;
-        }
-        if (result.kind === "render") {
-          const payload = requireLibraryRenderEvent(result);
-          // Background import feedback is an independent host authority. Keep
-          // newer validated progress while still applying this current search.
-          result = { kind: "render", payload: Object.assign({}, payload, {
-            snapshot: Object.assign({}, payload.snapshot, {
-              import: root.__accessibleChessLibrarySnapshot.import
-            })
-          }) };
-        }
+    const queuedEpoch = librarySurfaceEpochs.get(root);
+    const priorTail = commandTails.get(root);
+    const gate = priorTail && typeof priorTail.then === "function"
+      ? priorTail
+      : Promise.resolve();
+
+    const current = gate.then(function () {
+      // Serialize canonical Library mutations. A second key/search/export/import
+      // command must not enter the host until the prior command and its returned
+      // presentation have settled. Route deactivation changes the epoch so
+      // commands queued by a detached Library DOM are discarded before invoke.
+      if (activeLibrarySurfaces.get(root) !== true ||
+          librarySurfaceEpochs.get(root) !== queuedEpoch) {
+        return null;
       }
-      applyEvent(root, result, invoke, announce);
-      return result;
-    }).catch(function () {
-      if (isCurrent() && generic) announce(generic);
-      return null;
-    }).then(function (result) {
-      if (commandFlights.get(root) === flight) commandFlights.delete(root);
-      return result;
+
+      const flight = {
+        renderToken: renderTokens.get(root), importToken: importTokens.get(root)
+      };
+      commandFlights.set(root, flight);
+      function isCurrent() {
+        return commandFlights.get(root) === flight &&
+          renderTokens.get(root) === flight.renderToken &&
+          activeLibrarySurfaces.get(root) === true &&
+          librarySurfaceEpochs.get(root) === queuedEpoch;
+      }
+
+      return Promise.resolve().then(function () {
+        if (!isCurrent()) return null;
+        return invoke(command, payload || {});
+      }).then(function (result) {
+        if (!isCurrent()) return null;
+        if (importTokens.get(root) !== flight.importToken && plainObject(result)) {
+          if (result.kind === "render-import") {
+            requireImportEvent(result);
+            return null;
+          }
+          if (result.kind === "render") {
+            const payload = requireLibraryRenderEvent(result);
+            // Background import feedback is an independent host authority. Keep
+            // newer validated progress while still applying this current search.
+            result = { kind: "render", payload: Object.assign({}, payload, {
+              snapshot: Object.assign({}, payload.snapshot, {
+                import: root.__accessibleChessLibrarySnapshot.import
+              })
+            }) };
+          }
+        }
+        applyEvent(root, result, invoke, announce);
+        return result;
+      }).catch(function () {
+        if (isCurrent() && generic) announce(generic);
+        return null;
+      }).then(function (result) {
+        if (commandFlights.get(root) === flight) commandFlights.delete(root);
+        return result;
+      });
+    });
+
+    const settled = current.then(
+      function () { return null; },
+      function () { return null; }
+    );
+    commandTails.set(root, settled);
+    settled.then(function () {
+      if (commandTails.get(root) === settled) commandTails.delete(root);
+    });
+    return current;
+  }
+
+  function invokeListboxKeyCommand(root, invoke, announce, snapshot, command, payload) {
+    // A selected option remains alive until its canonical command settles.
+    // Ignore repeated/mixed Arrow/Enter events from that stale DOM node instead
+    // of queueing intent whose local selection belonged to the prior render.
+    if (listboxKeyFlights.get(root)) return null;
+    const current = invokeCommand(root, invoke, announce, snapshot, command, payload);
+    listboxKeyFlights.set(root, current);
+    const release = function (value) {
+      if (listboxKeyFlights.get(root) === current) listboxKeyFlights.delete(root);
+      return value;
+    };
+    return current.then(release, function (error) {
+      if (listboxKeyFlights.get(root) === current) listboxKeyFlights.delete(root);
+      throw error;
     });
   }
 
@@ -783,7 +837,7 @@
         if (!command) return;
         event.preventDefault();
         if (typeof event.stopPropagation === "function") event.stopPropagation();
-        invokeCommand(root, invoke, announce, snapshot, command, payload);
+        invokeListboxKeyCommand(root, invoke, announce, snapshot, command, payload);
       });
       list.appendChild(option);
     });
@@ -862,8 +916,20 @@
     renderTokens.set(root, {});
     importTokens.set(root, {});
     commandFlights.delete(root);
+    activeLibrarySurfaces.set(root, true);
+    if (!librarySurfaceEpochs.has(root)) librarySurfaceEpochs.set(root, {});
     root.__accessibleChessLibrarySnapshot = snapshot;
     focusRequestedOption(root, requestedFocus || "");
+  }
+
+  function deactivateLibrarySurface(root) {
+    if (!root || typeof root !== "object") return;
+    activeLibrarySurfaces.set(root, false);
+    librarySurfaceEpochs.set(root, {});
+    // Any unresolved result belongs to DOM that is no longer authoritative.
+    renderTokens.set(root, {});
+    importTokens.set(root, {});
+    commandFlights.delete(root);
   }
 
   function applyLibraryEvent(root, result, invoke, announce) {
@@ -877,6 +943,7 @@
 
   global.AccessibleChessLibrarySurface = Object.freeze({
     render: renderLibrarySurface,
-    apply: applyLibraryEvent
+    apply: applyLibraryEvent,
+    deactivate: deactivateLibrarySurface
   });
 })(window);
