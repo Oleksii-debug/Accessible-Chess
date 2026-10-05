@@ -210,12 +210,38 @@ class Version2ApplicationTests(unittest.TestCase):
             with self.assertRaises(RouteAbort):
                 self.app.set_document(candidate)
 
-        self.assertEqual(calls, ["pgn", "library"])
+        self.assertEqual(calls, ["pgn"])
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
         self.assertEqual(self.app._focus, before_focus)
         self.assertIs(self.app.session, before_session)
         self.assertIs(self.app.pgn, before_pgn)
         self.assertFalse(self.app.pgn_board_active)
+
+    def test_set_document_rollback_does_not_issue_secondary_route_transition(self):
+        candidate = PgnDocumentSession.open(self.source)
+        self.app.shell.open_route("library")
+        self.app._focus = self.app.shell.restore_focus_target()
+        original_open_route = self.app.shell.open_route
+
+        class RouteAbort(BaseException):
+            pass
+
+        calls = []
+
+        def open_then_abort(route_id):
+            calls.append(route_id)
+            original_open_route(route_id)
+            raise RouteAbort()
+
+        with patch.object(self.app.shell, "open_route", side_effect=open_then_abort):
+            with self.assertRaises(RouteAbort):
+                self.app.set_document(candidate)
+
+        self.assertEqual(calls, ["pgn"])
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        self.assertEqual(self.app._focus, self.app.shell.restore_focus_target())
+        self.assertIsNone(self.app.session)
+        self.assertIsNone(self.app.pgn)
 
     def test_native_file_open_browser_edit_save_and_reopen(self):
         self.app.browser_command("shell", "pgn.open")

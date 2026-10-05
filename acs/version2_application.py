@@ -472,12 +472,15 @@ class Version2Application:
         # until the shell has accepted the PGN route. open_route() can partially
         # write its route before a focus-restore tail fails, so recover from the
         # actual shell state.
-        origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
         try:
             route_focus = self.shell.open_route("pgn")
         except BaseException:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+            # Restore the exact route/focus/dialog presentation checkpoint rather
+            # than issuing another route transition that could itself fail and
+            # replace the primary PGN publication error.
+            self.shell._restore_presentation_state(shell_checkpoint)
+            self._focus = self.shell.restore_focus_target()
             raise
         self.session, self.pgn = session, bridge
         self.pgn_board_active = False
