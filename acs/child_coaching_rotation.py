@@ -162,6 +162,10 @@ class RotationPlan:
             raise ChildCoachingRotationError(
                 f"rotation plan exceeds {MAX_TOTAL_ROTATION_MINUTES} minutes"
             )
+        # A RotationPlan is a durable/transportable canonical contract. Enforce
+        # its own wire-size limit at construction so direct from_record/store
+        # recovery cannot create an object that to_json() is forbidden to emit.
+        _bounded_json(self.to_record())
 
     @property
     def total_minutes(self) -> int:
