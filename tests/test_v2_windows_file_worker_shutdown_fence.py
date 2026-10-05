@@ -3,10 +3,10 @@ from __future__ import annotations
 import tempfile
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
@@ -95,7 +95,14 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
 
         class SuccessfulLibrary:
             def import_games(self, *args, **kwargs):
-                return SimpleNamespace(game_count=1, warning_count=0)
+                return LibraryImportResult(
+                    attempt_id=1,
+                    source_id=1,
+                    game_count=1,
+                    warning_count=0,
+                    first_game_id=1,
+                    last_game_id=1,
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "import-cleanup-abort.pgn"
@@ -130,6 +137,134 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             reopened = delegate("pgn.open", {})
             self.assertEqual(reopened.kind, FileWorkflowEventKind.PGN_OPENED)
             self.assertFalse(delegate.pgn_open_running)
+
+    def test_import_rejects_derived_worker_services_before_field_or_cleanup_hooks(self) -> None:
+        touched = []
+
+        class HostileServices(Version2ImportWorkerServices):
+            def __getattribute__(self, name):
+                if name in {"library", "close"}:
+                    touched.append(name)
+                    raise AssertionError("rejected service hook executed")
+                return super().__getattribute__(name)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "hostile-services.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            hostile = HostileServices.__new__(HostileServices)
+            object.__setattr__(hostile, "library", _UnusedLibrary())
+            object.__setattr__(hostile, "chessbase", None)
+            object.__setattr__(hostile, "close", lambda: None)
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: hostile,
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_import_rejects_derived_progress_before_field_hooks(self) -> None:
+        touched = []
+
+        class HostileProgress(LibraryImportProgress):
+            def __getattribute__(self, name):
+                if name in {"attempt_id", "processed_games", "total_games"}:
+                    touched.append(name)
+                    raise AssertionError("rejected progress hook executed")
+                return super().__getattribute__(name)
+
+        hostile = HostileProgress.__new__(HostileProgress)
+        object.__setattr__(hostile, "attempt_id", 1)
+        object.__setattr__(hostile, "processed_games", 1)
+        object.__setattr__(hostile, "total_games", 1)
+
+        class ProgressLibrary:
+            def import_games(self, *args, **kwargs):
+                kwargs["progress_callback"](hostile)
+                raise AssertionError("progress rejection must stop import")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "hostile-progress.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    ProgressLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            delegate("library.import", {})
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_import_rejects_derived_result_before_field_hooks(self) -> None:
+        touched = []
+
+        class HostileResult(LibraryImportResult):
+            def __getattribute__(self, name):
+                if name in {"game_count", "warning_count"}:
+                    touched.append(name)
+                    raise AssertionError("rejected result hook executed")
+                return super().__getattribute__(name)
+
+        hostile = HostileResult.__new__(HostileResult)
+        for name, value in (
+            ("attempt_id", 1),
+            ("source_id", 1),
+            ("game_count", 1),
+            ("warning_count", 0),
+            ("first_game_id", 1),
+            ("last_game_id", 1),
+            ("reused", False),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        class ResultLibrary:
+            def import_games(self, *args, **kwargs):
+                return hostile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "hostile-result.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    ResultLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            delegate("library.import", {})
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
 
     def test_pgn_open_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
