@@ -32,6 +32,7 @@ from .pgn_document import (
     PgnDocumentView,
 )
 from .pgn_service import (
+    PgnPublicationUnverifiedError,
     _same_direct_path,
     _validated_expected_sha256,
     save_pgn_atomic,
@@ -577,6 +578,7 @@ def publish_pgn_save_snapshot(
                 "source required recovery; use Save As to preserve the original",
                 code=PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
             )
+        publication_destination: str | Path = source.path
         saved = save_pgn_atomic(
             source.path,
             writer_games,
@@ -621,6 +623,7 @@ def publish_pgn_save_snapshot(
             and _same_direct_path(destination, source.path)
         ):
             expected_sha256 = source.sha256
+        publication_destination = destination
         saved = save_pgn_atomic(
             destination,
             writer_games,
@@ -633,6 +636,10 @@ def publish_pgn_save_snapshot(
 
     bound_saved = _detached_source_fingerprint(saved)
     assert bound_saved is not None
+    if not _same_direct_path(publication_destination, bound_saved.path):
+        raise PgnPublicationUnverifiedError(
+            "PGN writer returned provenance for a different publication path"
+        )
     binding = _PgnSavePublicationBinding(
         snapshot=snapshot,
         mode=metadata.mode,
