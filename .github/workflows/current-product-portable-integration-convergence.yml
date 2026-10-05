@@ -60,6 +60,7 @@ jobs:
           PRODUCT_BRANCH: converge/current-settings-bookreader-resource-20261004-ooxple7-g11
           CURRENT_PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
           CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
           SHIPPING_TEST: tests/test_current_product_shipping_integration_20261005.py
@@ -91,6 +92,7 @@ jobs:
             extra="$(git diff --name-only "$live_current_product"...HEAD | sort)"
             expected_extra="$(printf '%s\n' \
               '.github/workflows/current-product-portable-integration-convergence.yml' \
+              "$MANIFEST_SOURCE_GATE" \
               "$ACCESSIBILITY_GATE" \
               "$SHIPPING_GATE" \
               "$SHIPPING_TEST" | sort)"
