@@ -469,6 +469,80 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_busy_export_rejection_does_not_finish_active_export_presentation(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="busy-presentation.pgn")
+            bridge = build_library_export_webview(
+                database,
+                lambda action, payload: None,
+                language=UILanguage.EN,
+            )
+            fake = SimpleNamespace(
+                shell=SimpleNamespace(language=UILanguage.EN),
+                library=bridge,
+                _events=[],
+                _native_file_error_message=lambda event: "The action could not be completed.",
+            )
+
+            Version2Application._file_event(
+                fake,
+                LibraryExportHostEvent(
+                    LibraryExportHostEventKind.STARTED,
+                    focus_target="library-export-selected",
+                ),
+            )
+            self.assertTrue(bridge.projection.export_running)
+
+            fake._events.clear()
+            Version2Application._file_event(
+                fake,
+                LibraryExportHostEvent(
+                    LibraryExportHostEventKind.FAILED,
+                    focus_target="library-export-selected",
+                    error_code="library_export_busy",
+                ),
+            )
+
+            self.assertTrue(bridge.projection.export_running)
+            snapshot = bridge.projection.snapshot()
+            import_actions = snapshot["import"]["actions"]
+            self.assertFalse(import_actions[0]["enabled"])
+            self.assertTrue(import_actions[1]["enabled"])
+            self.assertEqual(import_actions[1]["label"], "Cancel export")
+            self.assertEqual(
+                fake._events,
+                [
+                    {
+                        "kind": "error",
+                        "payload": {
+                            "message": "The action could not be completed.",
+                        },
+                    }
+                ],
+            )
+
+            fake._events.clear()
+            Version2Application._file_event(
+                fake,
+                LibraryExportHostEvent(
+                    LibraryExportHostEventKind.EXPORTED,
+                    focus_target="library-export-selected",
+                    game_count=1,
+                ),
+            )
+            self.assertFalse(bridge.projection.export_running)
+            self.assertEqual(fake._events[0]["kind"], "render-import")
+            self.assertFalse(
+                fake._events[0]["payload"]["import"]["actions"][1]["enabled"]
+            )
+            self.assertEqual(
+                fake._events[1]["payload"]["focus_target"],
+                "library-export-selected",
+            )
+        finally:
+            database.close()
+
     def test_application_projects_worker_lifecycle_and_terminal_focus(self) -> None:
         fake = SimpleNamespace(
             _events=[],
