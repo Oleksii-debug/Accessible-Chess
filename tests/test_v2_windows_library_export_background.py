@@ -212,7 +212,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         self.assertEqual([], forwarded)
 
     def test_export_delegate_still_forwards_unknown_exact_string_action(self) -> None:
-        forwarded: list[tuple[str, Mapping[str, object]]] = []
+        forwarded: list[tuple[str, object]] = []
         payload = {"opaque": object()}
         delegate = Version2WindowsLibraryExportDelegate(
             dialogs=_Dialogs(None),
