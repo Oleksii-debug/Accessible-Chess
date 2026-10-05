@@ -167,40 +167,6 @@ def _safe_receipt_lstat(path: Path) -> os.stat_result:
     return info
 
 
-def _discard_failed_created_receipt(
-    path: Path,
-    created: os.stat_result,
-) -> bool:
-    """Remove only this invocation's failed create when identity is still exact.
-
-    A failed durable publication must not leave partial bytes that permanently
-    poison the exclusive-create retry path. Conversely, a pathname that no
-    longer names the file we created is never unlinked here: preserving an
-    unknown replacement is safer than guessing ownership during recovery.
-    """
-
-    try:
-        current = path.lstat()
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    if (
-        not stat.S_ISREG(current.st_mode)
-        or stat.S_ISLNK(current.st_mode)
-        or _is_reparse(current)
-        or not _same_file_identity(created, current)
-    ):
-        return False
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return True
-    except OSError:
-        return False
-    return True
-
-
 def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -391,76 +357,120 @@ def verify_version2_release_receipt(
     return receipt
 
 
+def _remove_private_staging_file(path: Path) -> None:
+    """Best-effort cleanup for a private staging pathname only."""
+
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+
+
 def write_version2_release_receipt(
     output_path: str | Path,
     receipt: Version2ReleaseReceipt,
 ) -> None:
-    """Durably write one receipt without replacing existing release evidence."""
+    """Durably stage and atomically publish one immutable release receipt.
+
+    The canonical output pathname is never used as the mutable staging file.
+    A private sibling is fully written and fsynced first; publication then uses
+    one hard-link create, which is atomic and refuses to replace an existing
+    destination. This removes the check-then-unlink race from failed-create
+    recovery: failures before publication can only leave a private staging
+    pathname, never partial canonical release evidence.
+    """
 
     if not isinstance(receipt, Version2ReleaseReceipt):
         raise TypeError("receipt must be Version2ReleaseReceipt")
     path = Path(output_path)
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
+
     payload = receipt.to_json()
     payload_bytes = payload.encode("utf-8")
-    create_succeeded = False
-    created: os.stat_result | None = None
-    publication_verified = False
+    parent = path.parent
+    staging: Path | None = None
+    fd: int | None = None
+    published = False
+
     try:
-        with path.open("x", encoding="utf-8", newline="\n") as handle:
-            create_succeeded = True
-            created = os.fstat(handle.fileno())
-            if not stat.S_ISREG(created.st_mode) or _is_reparse(created):
-                raise Version2ReleaseReceiptError(
-                    "release receipt must be created as a regular non-reparse file"
-                )
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-            opened = os.fstat(handle.fileno())
-            after_path = _safe_receipt_lstat(path)
-            if (
-                not stat.S_ISREG(opened.st_mode)
-                or _is_reparse(opened)
-                or not _same_file_snapshot(opened, after_path)
-                or int(opened.st_size) != len(payload_bytes)
-            ):
-                raise Version2ReleaseReceiptError(
-                    "release receipt changed while being written"
-                )
-            publication_verified = True
-    except FileExistsError as exc:
-        raise Version2ReleaseReceiptError(
-            "release receipt already exists; overwrite is forbidden"
-        ) from exc
-    except Version2ReleaseReceiptError as exc:
-        cleanup_safe = (
-            publication_verified
-            or not create_succeeded
-            or (
-                created is not None
-                and _discard_failed_created_receipt(path, created)
+        try:
+            fd, staging_name = __import__("tempfile").mkstemp(
+                prefix=f".{path.name}.receipt-",
+                suffix=".tmp",
+                dir=parent,
             )
-        )
-        if not cleanup_safe:
+            staging = Path(staging_name)
+        except OSError as exc:
             raise Version2ReleaseReceiptError(
-                f"{exc}; failed receipt cleanup could not be proven safe"
+                f"release receipt staging file could not be created: {type(exc).__name__}"
             ) from exc
-        raise
-    except OSError as exc:
-        cleanup_safe = (
-            publication_verified
-            or not create_succeeded
-            or (
-                created is not None
-                and _discard_failed_created_receipt(path, created)
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                fd = None
+                created = os.fstat(handle.fileno())
+                if not stat.S_ISREG(created.st_mode) or _is_reparse(created):
+                    raise Version2ReleaseReceiptError(
+                        "release receipt staging file must be a regular non-reparse file"
+                    )
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                after_write = os.fstat(handle.fileno())
+                if (
+                    not _same_file_identity(created, after_write)
+                    or int(after_write.st_size) != len(payload_bytes)
+                ):
+                    raise Version2ReleaseReceiptError(
+                        "release receipt staging file changed while being written"
+                    )
+        except Version2ReleaseReceiptError:
+            raise
+        except OSError as exc:
+            raise Version2ReleaseReceiptError(
+                f"release receipt could not be written: {type(exc).__name__}"
+            ) from exc
+
+        try:
+            os.link(staging, path, follow_symlinks=False)
+            published = True
+        except FileExistsError as exc:
+            raise Version2ReleaseReceiptError(
+                "release receipt already exists; overwrite is forbidden"
+            ) from exc
+        except OSError as exc:
+            raise Version2ReleaseReceiptError(
+                "release receipt filesystem does not support safe atomic no-replace "
+                f"publication: {type(exc).__name__}"
+            ) from exc
+
+        staged_info = _safe_receipt_lstat(staging)
+        published_info = _safe_receipt_lstat(path)
+        if (
+            not stat.S_ISREG(staged_info.st_mode)
+            or not stat.S_ISREG(published_info.st_mode)
+            or _is_reparse(staged_info)
+            or _is_reparse(published_info)
+            or not _same_file_snapshot(staged_info, published_info)
+            or int(published_info.st_size) != len(payload_bytes)
+        ):
+            raise Version2ReleaseReceiptError(
+                "release receipt changed during atomic publication"
             )
-        )
-        suffix = "" if cleanup_safe else "; failed receipt cleanup could not be proven safe"
-        raise Version2ReleaseReceiptError(
-            f"release receipt could not be written: {type(exc).__name__}{suffix}"
-        ) from exc
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if staging is not None:
+            _remove_private_staging_file(staging)
+
+    if not published:
+        raise Version2ReleaseReceiptError("release receipt publication did not complete")
 
 
 def _parser() -> argparse.ArgumentParser:
