@@ -79,6 +79,16 @@ class DialogFocusFrame:
     initial_focus_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ShellPresentationState:
+    """Rollback-only snapshot of browser-visible shell presentation state."""
+
+    language: UILanguage
+    route_id: str
+    focus_by_route: tuple[tuple[str, str], ...]
+    dialogs: tuple[DialogFocusFrame, ...]
+
+
 class AccessibleShellState:
     """Deterministic presentation-only route, dialog and focus state.
 
@@ -113,6 +123,23 @@ class AccessibleShellState:
     @property
     def active_dialog_id(self) -> str | None:
         return self._dialogs[-1].dialog_id if self._dialogs else None
+
+    def _capture_presentation_state(self) -> _ShellPresentationState:
+        """Capture only transient route/focus/locale state for publication rollback."""
+        return _ShellPresentationState(
+            language=self._language,
+            route_id=self._route_id,
+            focus_by_route=tuple(sorted(self._focus_by_route.items())),
+            dialogs=tuple(self._dialogs),
+        )
+
+    def _restore_presentation_state(self, state: _ShellPresentationState) -> None:
+        if type(state) is not _ShellPresentationState:
+            raise TypeError("shell presentation rollback state is invalid")
+        self._language = state.language
+        self._route_id = state.route_id
+        self._focus_by_route = dict(state.focus_by_route)
+        self._dialogs = list(state.dialogs)
 
     def set_language(self, language: UILanguage) -> None:
         if not isinstance(language, UILanguage):
