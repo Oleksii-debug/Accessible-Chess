@@ -24,6 +24,7 @@ from acs.gametree_snapshot import (
 from acs.gametree_resume import (
     GAMETREE_RESUME_SCHEMA_VERSION,
     GameTreeResumeCode,
+    GameTreeResumeDurabilityUnknownError,
     GameTreeResumeError,
     GameTreeResumeStore,
     resume_record_from_json,
@@ -305,6 +306,98 @@ class D06GameTreeSnapshotResumeTests(unittest.TestCase):
             self.assertEqual(reopened.cursor, self.cursor)
             self.assertEqual(reopened.generation, 1)
             self._assert_no_transaction_debris(folder, path.name)
+
+
+    def test_create_directory_sync_failure_reports_published_generation_for_recovery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "resume.json"
+            store = GameTreeResumeStore(path)
+
+            with mock.patch(
+                "acs.gametree_resume._fsync_directory",
+                side_effect=GameTreeResumeError(
+                    "simulated directory durability failure",
+                    code=GameTreeResumeCode.IO_FAILURE,
+                ),
+            ):
+                with self.assertRaises(
+                    GameTreeResumeDurabilityUnknownError
+                ) as caught:
+                    store.save(self.game, self.cursor)
+
+            error = caught.exception
+            self.assertEqual(error.code, GameTreeResumeCode.DURABILITY_UNKNOWN)
+            self.assertEqual(error.published_generation, 1)
+            self.assertRegex(error.published_token, r"^[0-9a-f]{64}$")
+
+            visible = GameTreeResumeStore(path).load()
+            self.assertEqual(visible.generation, error.published_generation)
+            self.assertEqual(visible.token, error.published_token)
+            self.assertEqual(visible.cursor, self.cursor)
+            self._assert_no_transaction_debris(folder, path.name)
+
+    def test_update_directory_sync_failure_reports_new_exact_cas_token(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "resume.json"
+            store = GameTreeResumeStore(path)
+            first = store.save(self.game, self.cursor)
+            updated_cursor = GameTreeCursor((), 2)
+
+            with mock.patch(
+                "acs.gametree_resume._fsync_directory",
+                side_effect=OSError("simulated post-replace directory sync failure"),
+            ):
+                with self.assertRaises(
+                    GameTreeResumeDurabilityUnknownError
+                ) as caught:
+                    store.save(
+                        self.game,
+                        updated_cursor,
+                        expected_token=first.token,
+                    )
+
+            error = caught.exception
+            self.assertEqual(error.code, GameTreeResumeCode.DURABILITY_UNKNOWN)
+            self.assertEqual(error.published_generation, 2)
+            self.assertNotEqual(error.published_token, first.token)
+
+            visible = GameTreeResumeStore(path).load()
+            self.assertEqual(visible.generation, 2)
+            self.assertEqual(visible.token, error.published_token)
+            self.assertEqual(visible.cursor, updated_cursor)
+            self._assert_no_transaction_debris(folder, path.name)
+
+    def test_post_publication_readback_change_is_not_misreported_as_precommit_stale_writer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "resume.json"
+            store = GameTreeResumeStore(path)
+            original_load = store._load_unlocked
+            calls = 0
+
+            def fail_confirmation(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise GameTreeResumeError(
+                        "simulated canonical replacement after publication",
+                        code=GameTreeResumeCode.STALE_WRITER,
+                    )
+                return original_load(*args, **kwargs)
+
+            with mock.patch.object(
+                store,
+                "_load_unlocked",
+                side_effect=fail_confirmation,
+            ):
+                with self.assertRaises(
+                    GameTreeResumeDurabilityUnknownError
+                ) as caught:
+                    store.save(self.game, self.cursor)
+
+            self.assertEqual(caught.exception.code, GameTreeResumeCode.DURABILITY_UNKNOWN)
+            self.assertEqual(caught.exception.published_generation, 1)
+            visible = GameTreeResumeStore(path).load()
+            self.assertEqual(visible.token, caught.exception.published_token)
 
 
 if __name__ == "__main__":
