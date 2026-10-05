@@ -445,6 +445,8 @@ def write_version2_release_receipt(
     staging_identity: os.stat_result | None = None
     fd: int | None = None
     cleanup_staging = True
+    canonical_link_created = False
+    publication_accepted = False
 
     try:
         try:
@@ -495,6 +497,7 @@ def write_version2_release_receipt(
 
                 try:
                     os.link(staging, path, follow_symlinks=False)
+                    canonical_link_created = True
                 except FileExistsError as exc:
                     raise Version2ReleaseReceiptError(
                         "release receipt already exists; overwrite is forbidden"
@@ -527,6 +530,7 @@ def write_version2_release_receipt(
                     raise Version2ReleaseReceiptError(
                         "release receipt changed during atomic publication"
                     )
+                publication_accepted = True
         except Version2ReleaseReceiptError:
             raise
         except OSError as exc:
@@ -539,6 +543,17 @@ def write_version2_release_receipt(
                 os.close(fd)
             except OSError:
                 pass
+        if (
+            canonical_link_created
+            and not publication_accepted
+            and staging_identity is not None
+        ):
+            # The hard-link syscall returned success, so this invocation created
+            # the canonical pathname.  A later identity/readback failure must
+            # not poison retry with our own rejected receipt.  Delete only when
+            # the pathname still identifies the exact staging object; a raced-in
+            # replacement is foreign authority and must be preserved.
+            _remove_private_staging_file(path, staging_identity)
         if (
             staging is not None
             and staging_identity is not None
