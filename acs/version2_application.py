@@ -1869,12 +1869,10 @@ class Version2Application:
                     raise ValueError("shell presentation publication is pending")
 
                 def restore_rejected_library_open() -> None:
-                    if (
-                        not hold_was_active
-                        and self.shell._publication_hold_active
-                    ):
-                        self.shell._end_publication_hold()
-                    self.shell._restore_presentation_state(prior_shell)
+                    # No browser publication token exists yet, so there is no
+                    # external retry authority if this rejection cleanup fails.
+                    # Restore the independent application/domain owners before
+                    # calling shell cleanup seams that may themselves raise.
                     self._focus = prior_focus
                     self.training_workspace = prior_training_workspace
                     self.training = prior_training
@@ -1884,6 +1882,25 @@ class Version2Application:
                         self.pgn_board_active,
                         self._pgn_browser_lease_required,
                     ) = prior_domain
+
+                    rollback_error: Exception | None = None
+                    if (
+                        not hold_was_active
+                        and self.shell._publication_hold_active
+                    ):
+                        try:
+                            self.shell._end_publication_hold()
+                        except Exception as exc:
+                            rollback_error = exc
+                    try:
+                        self.shell._restore_presentation_state(prior_shell)
+                    except Exception as exc:
+                        if rollback_error is None:
+                            rollback_error = exc
+                    if rollback_error is not None:
+                        raise RuntimeError(
+                            "Library Open rejection rollback failed"
+                        ) from rollback_error
 
                 try:
                     value = self.library.dispatch(command, {})
