@@ -5,6 +5,8 @@ import tempfile
 import threading
 import unittest
 
+from acs.acsdb import AcsDatabase
+from acs.library_export_service import LibraryExportRequest
 from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
@@ -14,7 +16,9 @@ from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
 )
+from acs.pgn_service import open_pgn
 from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+from acs.version2_windows_library_export import LibraryExportHostEventKind
 from acs.version2_windows_pgn_export import PgnSelectionExportEventKind
 
 
@@ -53,12 +57,15 @@ class _OpenDialog:
 
 class _SaveDialog:
     owners: list[object] = []
+    selected_paths: list[str] = []
 
     def __init__(self) -> None:
         self.FileName = ""
 
     def ShowDialog(self, owner):  # noqa: N802
         type(self).owners.append(owner)
+        if type(self).selected_paths:
+            self.FileName = type(self).selected_paths.pop(0)
         return _DialogResult.OK
 
     def Dispose(self):  # noqa: N802
@@ -127,6 +134,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         _OpenDialog.selected_paths.clear()
         _OpenDialog.owners.clear()
         _SaveDialog.owners.clear()
+        _SaveDialog.selected_paths.clear()
 
     def _runtime(
         self,
@@ -221,6 +229,85 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(export_events, [result])
         self.assertEqual(fallback_calls, [])
         self.assertTrue(runtime.shutdown())
+
+    def test_real_library_export_uses_worker_local_acsdb_and_owner_terminal_post(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                report = database.import_pgn_text(
+                    _PGN,
+                    source_name="runtime-library-export.pgn",
+                )
+                game_id = report.game_ids[0]
+            finally:
+                database.close()
+
+            destination = root / "library-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+
+            def import_services_factory() -> Version2ImportWorkerServices:
+                worker_database = AcsDatabase(database_path)
+                return Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    worker_database.close,
+                )
+
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=import_services_factory,
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-export-selected",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertEqual(started.focus_target, "library-export-selected")
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(_SaveDialog.owners, [owner])
+                self.assertEqual(export_events, [started])
+
+                self.assertTrue(runtime.wait_for_export(5.0))
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(len(owner.posted), 1)
+                self.assertFalse(destination.name in repr(export_events))
+
+                owner.posted.pop(0)()
+
+                self.assertFalse(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                terminal = export_events[-1]
+                self.assertEqual(terminal.focus_target, "library-export-selected")
+                self.assertEqual(terminal.game_count, 1)
+                self.assertNotIn(str(destination), repr(terminal))
+
+                reopened = open_pgn(destination)
+                self.assertEqual(len(reopened.games), 1)
+                self.assertEqual(reopened.games[0].tags["Event"], "Runtime")
+            finally:
+                self.assertTrue(runtime.shutdown())
 
     def test_real_pgn_import_posts_one_ui_wakeup_and_owner_drains_on_ui_thread(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
