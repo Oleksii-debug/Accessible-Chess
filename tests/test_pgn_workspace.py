@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import unittest
+from unittest.mock import patch
 
 from acs.gametree import Comment, MoveNode, VariationLine
 from acs.gametree_annotations import (
@@ -49,6 +50,32 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         reopened = PgnWorkspace.from_bytes(DOCUMENT.encode("utf-8"))
         self.assertEqual(reopened.to_text(), self.workspace.to_text())
         self.assertEqual(reopened.to_bytes(), self.workspace.to_bytes())
+
+    def test_validated_content_digest_reads_do_not_reserialize_document(self):
+        digest = self.workspace.content_digest
+
+        with patch(
+            "acs.pgn_workspace.serialize_pgn_text",
+            side_effect=AssertionError(
+                "validated workspace digest reads must use the cached authority"
+            ),
+        ) as serializer:
+            self.assertEqual(self.workspace.content_digest, digest)
+            self.assertEqual(self.workspace.view().content_digest, digest)
+            self.workspace.next_game()
+            self.assertEqual(self.workspace.content_digest, digest)
+
+        serializer.assert_not_called()
+
+        self.workspace.select_game(0)
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(comments_after=(Comment("digest cache edit"),)),
+        )
+        self.assertNotEqual(self.workspace.content_digest, digest)
+        self.assertTrue(self.workspace.dirty)
 
     def test_external_game_copy_cannot_mutate_workspace(self):
         before = self.workspace.to_text()
