@@ -155,6 +155,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         fallback_calls: list[tuple[str, dict[str, object]]] | None = None,
         closed_services: list[bool] | None = None,
         pgn_session: PgnDocumentSession | None = None,
+        pgn_session_box: dict[str, PgnDocumentSession | None] | None = None,
     ) -> Version2WindowsFileWorkflowRuntime:
         imported_events = imported_events if imported_events is not None else []
         export_calls = export_calls if export_calls is not None else []
@@ -180,10 +181,17 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             fallback_calls.append((action_id, dict(payload)))
             return ("fallback", action_id)
 
+        if pgn_session_box is None:
+            get_pgn_session = lambda: pgn_session
+            set_pgn_session = lambda session: None
+        else:
+            get_pgn_session = lambda: pgn_session_box.get("value")
+            set_pgn_session = lambda session: pgn_session_box.__setitem__("value", session)
+
         return Version2WindowsFileWorkflowRuntime(
             owner_control=owner,
-            get_pgn_session=lambda: pgn_session,
-            set_pgn_session=lambda session: None,
+            get_pgn_session=get_pgn_session,
+            set_pgn_session=set_pgn_session,
             import_services_factory=import_services_factory,
             export_selected=export_selected,
             import_ui_ready=import_ui_ready,
@@ -238,6 +246,44 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(export_events, [result])
         self.assertEqual(fallback_calls, [])
         self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_open_retries_transient_owner_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-open-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _FlakyOwner(1)
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            self.assertIsNone(session_box["value"])
+
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertTrue(runtime.pgn_open_running)
+
+            owner.posted.pop(0)()
+
+            opened = session_box["value"]
+            self.assertIsInstance(opened, PgnDocumentSession)
+            self.assertEqual(opened.workspace.current_game().tags["Event"], "Runtime")
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPENED],
+            )
+            self.assertTrue(runtime.shutdown())
 
     def test_real_pgn_save_uses_worker_and_owner_callback_through_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
