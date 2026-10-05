@@ -1,0 +1,97 @@
+name: Current Windows UI Pump Presentation Retry
+
+on:
+  push:
+    branches:
+      - fix/windows-ui-pump-presentation-retry-20261006-hy6ez0h
+  pull_request:
+    branches:
+      - fix/windows-import-terminal-observer-retirement-20261006-hy6ez0h
+    paths:
+      - acs/version2_windows_import_ui_pump.py
+      - tests/test_v2_windows_import_ui_pump.py
+      - .github/workflows/current-windows-ui-pump-presentation-retry.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-windows-ui-pump-presentation-retry-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT: 06f1a38205a83502b71576fb5b4bf88728d05a58
+  PARENT_BRANCH: fix/windows-import-terminal-observer-retirement-20261006-hy6ez0h
+  EXPECTED_PUMP_SOURCE_BLOB: b70b9699a242e8d358fc0340970d8aff406de924
+  EXPECTED_PUMP_TEST_BLOB: 1fdbd90ad7a4c46f8c5c3013e1aa4ba32a72d373
+  EXPECTED_APPLICATION_SOURCE_BLOB: 12d4ab6c6b9a878b606b2a597fe7b714f3e68b1f
+  EXPECTED_MAILBOX_SOURCE_BLOB: 7228b28e3db3c8a9375bd4bafcdafcf190cb87f1
+
+jobs:
+  presentation-retry:
+    name: UI presentation retry / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact presentation-retry child
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin "+refs/heads/$PARENT_BRANCH:refs/remotes/origin/presentation-retry-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/presentation-retry-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT" || {
+            echo "UI_PRESENTATION_RETRY_PARENT_MOVED expected=$EXPECTED_PARENT live=$live_parent" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$EXPECTED_PARENT" HEAD
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          mapfile -t paths < <(git diff --name-only "$EXPECTED_PARENT"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-windows-ui-pump-presentation-retry.yml"
+            "acs/version2_windows_import_ui_pump.py"
+            "tests/test_v2_windows_import_ui_pump.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do test "${paths[$index]}" = "${expected[$index]}"; done
+          test "$(git rev-parse HEAD:acs/version2_windows_import_ui_pump.py)" = "$EXPECTED_PUMP_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_import_ui_pump.py)" = "$EXPECTED_PUMP_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "$EXPECTED_APPLICATION_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_import_event_mailbox.py)" = "$EXPECTED_MAILBOX_SOURCE_BLOB"
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile retry and transactional UI stack
+        run: >-
+          python -m py_compile
+          acs/version2_windows_import_ui_pump.py
+          acs/version2_windows_import_event_mailbox.py
+          acs/version2_application.py
+          tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_import_event_mailbox.py
+          tests/test_version2_application.py
+
+      - name: Run retry, mailbox, application and runtime regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_version2_application
+          tests.test_v2_windows_host_runtime
