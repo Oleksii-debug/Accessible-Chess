@@ -342,6 +342,61 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIs(self.app.session, replacement)
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
 
+    def test_saturated_native_event_queue_recovers_with_canonical_route_refresh(self) -> None:
+        self.app._focus = self.app.shell.open_route("library")
+        for index in range(65):
+            self.app._events.append(
+                {
+                    "kind": "status",
+                    "payload": {"announcement": f"queued-{index}"},
+                }
+            )
+
+        drained = self.app.drain_events()
+
+        self.assertEqual(
+            drained,
+            ({"kind": "route", "payload": {"route_id": "library"}},),
+        )
+        self.assertEqual(self.app.drain_events(), ())
+
+    def test_saturated_event_recovery_stays_deferred_until_publication_resolves(self) -> None:
+        _prior_session, _prior_pgn, _prior_focus = self._prior_library_state()
+        replacement = self._session("overflow-replacement.pgn", "Replacement")
+        calls: list[tuple[object, object]] = []
+
+        with patch.object(
+            self.app.library,
+            "dispatch",
+            side_effect=self._staged_dispatch(replacement, calls),
+        ):
+            started = self.app.browser_command(
+                "library",
+                "library.open_game",
+                {"publication_protocol": "ack-v1", "request_id": 77},
+            )
+
+        token = started["payload"]["publication_token"]
+        for index in range(65):
+            self.app._events.append(
+                {
+                    "kind": "status",
+                    "payload": {"announcement": f"pending-{index}"},
+                }
+            )
+
+        self.assertEqual(self.app.drain_events(), ())
+        rolled_back = self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+        self.assertEqual(rolled_back["kind"], "presentation-rollback")
+        self.assertEqual(
+            self.app.drain_events(),
+            ({"kind": "route", "payload": {"route_id": "library"}},),
+        )
+
     def test_browser_library_open_fails_closed_without_ack_protocol(self) -> None:
         prior_session, prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("legacy.pgn", "Legacy")
