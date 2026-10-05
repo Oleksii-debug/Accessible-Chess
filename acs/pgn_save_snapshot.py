@@ -40,6 +40,19 @@ class PgnSaveCancelledError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class _PgnSaveSnapshotBinding:
+    """Owner-thread proof of the exact controls/provenance captured for one save."""
+
+    mode: PgnSaveMode
+    document_revision: int
+    content_digest: str
+    source_before: SourceFingerprint | None
+    source_overwrite_safe_before: bool
+    saved_digest_before: str | None
+    session_ref: ReferenceType[PgnDocumentSession]
+
+
+@dataclass(frozen=True, slots=True)
 class PgnSaveSnapshot:
     """Detached, exact document generation prepared for background publication."""
 
@@ -51,6 +64,7 @@ class PgnSaveSnapshot:
     source_overwrite_safe_before: bool
     _saved_digest_before: str | None = field(repr=False)
     _session_ref: ReferenceType[PgnDocumentSession] = field(repr=False, compare=False)
+    _capture_binding: _PgnSaveSnapshotBinding = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +164,7 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
     source_overwrite_safe_before = snapshot.source_overwrite_safe_before
     saved_digest_before = snapshot._saved_digest_before
     session_ref = snapshot._session_ref
+    capture_binding = snapshot._capture_binding
 
     if type(mode) is not PgnSaveMode:
         raise TypeError("PGN save snapshot mode is invalid")
@@ -173,11 +188,54 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
         raise TypeError("PGN save snapshot saved digest is invalid")
     if type(session_ref) is not ReferenceType:
         raise TypeError("PGN save snapshot session reference is invalid")
+    if type(capture_binding) is not _PgnSaveSnapshotBinding:
+        raise TypeError("PGN save snapshot capture binding is invalid")
 
     detached_source = _detached_source_fingerprint(
         source_before,
         allow_none=True,
     )
+    bound_source = _detached_source_fingerprint(
+        capture_binding.source_before,
+        allow_none=True,
+    )
+    if (
+        type(capture_binding.mode) is not PgnSaveMode
+        or type(capture_binding.document_revision) is not int
+        or capture_binding.document_revision < 0
+        or type(capture_binding.content_digest) is not str
+        or len(capture_binding.content_digest) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in capture_binding.content_digest
+        )
+        or type(capture_binding.source_overwrite_safe_before) is not bool
+        or (
+            capture_binding.saved_digest_before is not None
+            and (
+                type(capture_binding.saved_digest_before) is not str
+                or len(capture_binding.saved_digest_before) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in capture_binding.saved_digest_before
+                )
+            )
+        )
+        or type(capture_binding.session_ref) is not ReferenceType
+    ):
+        raise TypeError("PGN save snapshot capture binding metadata is invalid")
+    if (
+        mode is not capture_binding.mode
+        or document_revision != capture_binding.document_revision
+        or content_digest != capture_binding.content_digest
+        or detached_source != bound_source
+        or source_overwrite_safe_before
+        is not capture_binding.source_overwrite_safe_before
+        or saved_digest_before != capture_binding.saved_digest_before
+        or session_ref is not capture_binding.session_ref
+    ):
+        raise _stale("PGN save snapshot metadata changed after capture")
+
     return _PassiveSnapshotMetadata(
         mode=mode,
         document_revision=document_revision,
@@ -284,6 +342,16 @@ def capture_pgn_save_snapshot(
     if before_digest != after_digest or detached_digest != before_digest:
         raise _stale("PGN content changed while the save snapshot was being captured")
 
+    session_ref = ref(current)
+    capture_binding = _PgnSaveSnapshotBinding(
+        mode=mode,
+        document_revision=current.document_revision,
+        content_digest=detached_digest,
+        source_before=_detached_source_fingerprint(source, allow_none=True),
+        source_overwrite_safe_before=view.source_overwrite_safe,
+        saved_digest_before=current._saved_digest,
+        session_ref=session_ref,
+    )
     return PgnSaveSnapshot(
         mode=mode,
         document_revision=current.document_revision,
@@ -292,7 +360,8 @@ def capture_pgn_save_snapshot(
         source_before=source,
         source_overwrite_safe_before=view.source_overwrite_safe,
         _saved_digest_before=current._saved_digest,
-        _session_ref=ref(current),
+        _session_ref=session_ref,
+        _capture_binding=capture_binding,
     )
 
 
