@@ -543,6 +543,57 @@ function snapshot(checked) {
   operationDeferred[1](null);
   await new Promise((resolve) => setImmediate(resolve));
 
+  // Partial Import/Cancel replacement owns its own generation. A queued
+  // operation command from the previous region must not enter the host after
+  // newer progress/cancellation state replaces those buttons.
+  const importFenceRoot = new FakeElement("div");
+  const importFenceCalls = [];
+  let resolveImportFence = null;
+  const importFenceInvoke = (command, payload) => {
+    importFenceCalls.push([command, Object.assign({}, payload)]);
+    return new Promise((resolve) => { resolveImportFence = resolve; });
+  };
+  window.AccessibleChessLibrarySurface.render(
+    importFenceRoot,
+    snapshot(false),
+    importFenceInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const importFenceFiltered = importFenceRoot.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === "library.export_filtered");
+  const staleImportButton = importFenceRoot.querySelector("#library-import-file");
+  importFenceFiltered.listeners.click({});
+  staleImportButton.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    importFenceCalls.length === 1 &&
+      importFenceCalls[0][0] === "library.export_filtered",
+    "queued Import fence setup did not hold the second command"
+  );
+  window.AccessibleChessLibrarySurface.apply(importFenceRoot, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "running", heading: "Import", description: "Import games",
+        processed_games: 1, total_games: 4, progress_label: "1 of 4", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel", enabled: true }
+        ]
+      },
+      focus_target: "library-import-cancel",
+      announcement: "Import started."
+    }
+  }, importFenceInvoke, announce);
+  resolveImportFence(null);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    importFenceCalls.length === 1,
+    "queued stale Import command entered host after operation-region replacement"
+  );
+
   // Key-repeat from the still-live selected option must not queue stale Open
   // Game intent while the authoritative first Enter remains unresolved.
   const keyRoot = new FakeElement("div");
