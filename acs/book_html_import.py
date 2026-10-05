@@ -452,11 +452,21 @@ class _SemanticHtmlParser(HTMLParser):
             )
 
     def _nearest_structural_owner_capture(self) -> _Capture | None:
-        """Return the nearest capture whose text may need semantic splitting."""
+        """Return the nearest capture that owns flattened readable text."""
         for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading"}:
+            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
                 return capture
         return None
+
+    @staticmethod
+    def _needs_flat_nested_projection(capture: _Capture) -> bool:
+        """Whether nested blocks must be removed from an ancestor's flat text."""
+        current: _Capture | None = capture
+        while current is not None:
+            if current.kind in {"list_item", "table_row", "pre"}:
+                return True
+            current = current.parent_inline_owner
+        return False
 
     def _nearest_inline_owner_capture(self) -> _Capture | None:
         for capture in reversed(self._captures):
@@ -836,9 +846,12 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor: str | None,
     ) -> None:
         """Flatten one rich list item without reordering its semantic blocks."""
-        events = [event for event in capture.inline_semantics if not event.structural]
-        if not events:
+        if not any(not event.structural for event in capture.inline_semantics):
             return
+        # Structural child captures are ordering boundaries too. Once any direct
+        # semantic event makes this item fall back from canonical ListBlock, walk
+        # every boundary so nested child text is not duplicated in flat item text.
+        events = capture.inline_semantics
 
         self._list_warning(
             "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
@@ -1075,16 +1088,21 @@ class _SemanticHtmlParser(HTMLParser):
             or len(self.blocks) <= capture.block_start_index
         ):
             return
-        # Anchor the nested semantic subtree at its source start. The boundary is
-        # structural only: without a direct inline image/position event on the
-        # parent, legacy nested-only projection remains unchanged.
+        flat_projection = self._needs_flat_nested_projection(parent)
+        # The child has already published at least one semantic block (the guard
+        # above proves that). Any flat list/row/pre ancestor must therefore treat
+        # the child as a real projection boundary or its text will be emitted again
+        # by the flat ancestor. Paragraph/heading-only ancestry keeps the legacy
+        # structural treatment unchanged.
         self._record_inline_semantic(
             self.blocks[capture.block_start_index],
             owner=parent,
             part_index=part_index,
-            structural=True,
+            structural=not flat_projection,
             resume_part_index=(
-                len(parent.parts) if capture.kind == "heading" else None
+                len(parent.parts)
+                if flat_projection or capture.kind == "heading"
+                else None
             ),
         )
 
