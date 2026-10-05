@@ -8,6 +8,7 @@
   const listboxKeyFlights = new WeakMap();
   const activeLibrarySurfaces = new WeakMap();
   const librarySurfaceEpochs = new WeakMap();
+  const commandRenderRoots = new WeakMap();
 
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
@@ -646,7 +647,12 @@
             }) };
           }
         }
-        applyEvent(root, result, invoke, announce);
+        commandRenderRoots.set(root, true);
+        try {
+          applyEvent(root, result, invoke, announce);
+        } finally {
+          commandRenderRoots.delete(root);
+        }
         return result;
       }).catch(function () {
         if (isCurrent() && generic) announce(generic);
@@ -917,7 +923,14 @@
     importTokens.set(root, {});
     commandFlights.delete(root);
     activeLibrarySurfaces.set(root, true);
-    if (!librarySurfaceEpochs.has(root)) librarySurfaceEpochs.set(root, {});
+    // A render returned by the currently serialized Library command is the
+    // authoritative settlement that queued user intent is waiting for, so keep
+    // that queue's epoch. Any independent/native/full refresh replaces the DOM
+    // outside that command transaction and must invalidate intent already queued
+    // from the now-detached presentation.
+    if (!commandRenderRoots.get(root) || !librarySurfaceEpochs.has(root)) {
+      librarySurfaceEpochs.set(root, {});
+    }
     root.__accessibleChessLibrarySnapshot = snapshot;
     focusRequestedOption(root, requestedFocus || "");
   }
