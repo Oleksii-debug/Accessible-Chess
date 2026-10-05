@@ -12,6 +12,7 @@ CORE_MODULES = (
     'acs/engine_play_service.py',
     'acs/analysis_service.py',
     'acs/sound_dispatch.py',
+    'acs/media_core.py',
 )
 
 FORBIDDEN_PREFIXES = (
@@ -20,6 +21,20 @@ FORBIDDEN_PREFIXES = (
     'pywebview',
     'sqlite3',
     'tkinter',
+)
+
+MEDIA_RULE_AUTHORITY_FORBIDDEN = (
+    'chess',
+    'acs.board_service',
+    'acs.gametree',
+)
+
+MEDIA_PROVIDER_IO_FORBIDDEN = (
+    'subprocess',
+    'socket',
+    'urllib',
+    'requests',
+    'httpx',
 )
 
 
@@ -56,6 +71,16 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             self.assertNotIn('subprocess', imports)
             self.assertNotIn('pathlib', imports)
             self.assertNotIn('os', imports)
+
+    def test_media_core_stays_below_chess_rules_and_provider_io(self):
+        imports = self.imports_for('acs/media_core.py')
+        violations = []
+        for name in imports:
+            if name.startswith(MEDIA_RULE_AUTHORITY_FORBIDDEN):
+                violations.append(f'chess authority dependency {name}')
+            if name.startswith(MEDIA_PROVIDER_IO_FORBIDDEN):
+                violations.append(f'provider I/O dependency {name}')
+        self.assertEqual(violations, [], '\n'.join(violations))
 
 
 if __name__ == '__main__':
