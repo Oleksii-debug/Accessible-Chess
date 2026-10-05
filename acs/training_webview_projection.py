@@ -188,7 +188,7 @@ class TrainingWebViewProjection:
         before_message_key = self._presenter.message_key
         try:
             return operation()
-        except Exception:
+        except BaseException:
             self._presenter.restore_state(
                 before_snapshot,
                 message=before_message,
@@ -232,7 +232,7 @@ class TrainingWebViewProjection:
             self._language = language
             self._presenter.set_language(language)
             snapshot = self.snapshot()
-        except Exception:
+        except BaseException:
             self._language = previous_language
             self._presenter.set_language(previous_language)
             raise
@@ -243,7 +243,7 @@ class TrainingWebViewProjection:
             return False
         try:
             available = self._can_continue()
-        except Exception:
+        except BaseException:
             return False
         return available if type(available) is bool else False
 
