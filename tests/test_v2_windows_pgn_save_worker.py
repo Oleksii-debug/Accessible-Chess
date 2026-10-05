@@ -715,6 +715,45 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertTrue(box["session"].view().source_overwrite_safe)
             self.assertFalse(box["session"].view().global_warnings)
 
+    def test_save_as_commit_preserves_newer_recovery_safety_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "owner-recovery-generation-source.pgn"
+            destination = Path(tmp) / "owner-recovery-generation-target.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            source_before = session.source
+            saved_digest_before = session._saved_digest
+            revision_before = session.document_revision
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = destination
+
+            started = controller("pgn.save_as", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertTrue(destination.exists())
+            self.assertEqual(async_events, [])
+
+            # The worker has durably published, but its owner callback has not
+            # run. A newer recovery decision must remain authoritative.
+            session._source_overwrite_safe = False
+            session._global_warnings = ("newer recovery safety decision",)
+
+            poster.drain()
+
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(session.source, source_before)
+            self.assertEqual(session._saved_digest, saved_digest_before)
+            self.assertEqual(session.document_revision, revision_before)
+            self.assertFalse(session.view().source_overwrite_safe)
+            self.assertEqual(
+                session.view().global_warnings,
+                ("newer recovery safety decision",),
+            )
+            self.assertNotIn(str(source), repr(terminal))
+            self.assertNotIn(str(destination), repr(terminal))
+
     def test_recovery_source_save_as_same_path_preserves_original_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "recovery-source.pgn"
