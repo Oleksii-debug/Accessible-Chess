@@ -53,6 +53,8 @@ class _PgnSaveSnapshotBinding:
     source_before: SourceFingerprint | None
     source_overwrite_safe_before: bool
     saved_digest_before: str | None
+    global_warnings_before: tuple[str, ...]
+    workspace_ref: ReferenceType[PgnWorkspace]
     session_ref: ReferenceType[PgnDocumentSession]
 
 
@@ -67,6 +69,8 @@ class PgnSaveSnapshot:
     source_before: SourceFingerprint | None
     source_overwrite_safe_before: bool
     _saved_digest_before: str | None = field(repr=False)
+    _global_warnings_before: tuple[str, ...] = field(repr=False, compare=False)
+    _workspace_ref: ReferenceType[PgnWorkspace] = field(repr=False, compare=False)
     _session_ref: ReferenceType[PgnDocumentSession] = field(repr=False, compare=False)
     _capture_binding: _PgnSaveSnapshotBinding = field(repr=False, compare=False)
 
@@ -80,6 +84,8 @@ class _PassiveSnapshotMetadata:
     source_before: SourceFingerprint | None
     source_overwrite_safe_before: bool
     saved_digest_before: str | None
+    global_warnings_before: tuple[str, ...]
+    workspace_ref: ReferenceType[PgnWorkspace]
     session_ref: ReferenceType[PgnDocumentSession]
 
 
@@ -94,6 +100,8 @@ class _PgnSavePublicationBinding:
     source_before: SourceFingerprint | None
     source_overwrite_safe_before: bool
     saved_digest_before: str | None
+    global_warnings_before: tuple[str, ...]
+    workspace_ref: ReferenceType[PgnWorkspace]
     session_ref: ReferenceType[PgnDocumentSession]
     saved: SourceFingerprint
 
@@ -167,6 +175,8 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
     source_before = snapshot.source_before
     source_overwrite_safe_before = snapshot.source_overwrite_safe_before
     saved_digest_before = snapshot._saved_digest_before
+    global_warnings_before = snapshot._global_warnings_before
+    workspace_ref = snapshot._workspace_ref
     session_ref = snapshot._session_ref
     capture_binding = snapshot._capture_binding
 
@@ -190,6 +200,12 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
         or any(character not in "0123456789abcdef" for character in saved_digest_before)
     ):
         raise TypeError("PGN save snapshot saved digest is invalid")
+    if type(global_warnings_before) is not tuple or any(
+        type(item) is not str for item in global_warnings_before
+    ):
+        raise TypeError("PGN save snapshot global warnings are invalid")
+    if type(workspace_ref) is not ReferenceType:
+        raise TypeError("PGN save snapshot workspace reference is invalid")
     if type(session_ref) is not ReferenceType:
         raise TypeError("PGN save snapshot session reference is invalid")
     if type(capture_binding) is not _PgnSaveSnapshotBinding:
@@ -225,6 +241,12 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
                 )
             )
         )
+        or type(capture_binding.global_warnings_before) is not tuple
+        or any(
+            type(item) is not str
+            for item in capture_binding.global_warnings_before
+        )
+        or type(capture_binding.workspace_ref) is not ReferenceType
         or type(capture_binding.session_ref) is not ReferenceType
     ):
         raise TypeError("PGN save snapshot capture binding metadata is invalid")
@@ -236,6 +258,8 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
         or source_overwrite_safe_before
         is not capture_binding.source_overwrite_safe_before
         or saved_digest_before != capture_binding.saved_digest_before
+        or global_warnings_before != capture_binding.global_warnings_before
+        or workspace_ref is not capture_binding.workspace_ref
         or session_ref is not capture_binding.session_ref
     ):
         raise _stale("PGN save snapshot metadata changed after capture")
@@ -248,6 +272,8 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
         source_before=detached_source,
         source_overwrite_safe_before=source_overwrite_safe_before,
         saved_digest_before=saved_digest_before,
+        global_warnings_before=global_warnings_before,
+        workspace_ref=workspace_ref,
         session_ref=session_ref,
     )
 
@@ -335,6 +361,7 @@ def capture_pgn_save_snapshot(
     workspace_revision = workspace.content_revision
     source_overwrite_safe = current._source_overwrite_safe
     saved_digest = current._saved_digest
+    global_warnings = current._global_warnings
     if type(workspace_revision) is not int or workspace_revision < 0:
         raise TypeError("PGN save workspace revision is invalid")
     if type(source_overwrite_safe) is not bool:
@@ -345,6 +372,10 @@ def capture_pgn_save_snapshot(
         or any(character not in "0123456789abcdef" for character in saved_digest)
     ):
         raise TypeError("PGN save saved digest is invalid")
+    if type(global_warnings) is not tuple or any(
+        type(item) is not str for item in global_warnings
+    ):
+        raise TypeError("PGN save global warnings are invalid")
 
     if mode is PgnSaveMode.SAVE:
         if source is None:
@@ -370,6 +401,7 @@ def capture_pgn_save_snapshot(
     source_after = _detached_source_fingerprint(current.source, allow_none=True)
     source_overwrite_safe_after = current._source_overwrite_safe
     saved_digest_after = current._saved_digest
+    global_warnings_after = current._global_warnings
     if (
         type(detached_digest) is not str
         or len(detached_digest) != 64
@@ -392,6 +424,10 @@ def capture_pgn_save_snapshot(
         )
     ):
         raise TypeError("PGN save saved digest is invalid")
+    if type(global_warnings_after) is not tuple or any(
+        type(item) is not str for item in global_warnings_after
+    ):
+        raise TypeError("PGN save global warnings are invalid")
     if (
         current.workspace is not workspace
         or current.document_revision != document_revision
@@ -399,9 +435,11 @@ def capture_pgn_save_snapshot(
         or source_after != source
         or source_overwrite_safe_after is not source_overwrite_safe
         or saved_digest_after != saved_digest
+        or global_warnings_after != global_warnings
     ):
         raise _stale("PGN document state changed while the save snapshot was being captured")
 
+    workspace_ref = ref(workspace)
     session_ref = ref(current)
     capture_binding = _PgnSaveSnapshotBinding(
         mode=mode,
@@ -410,6 +448,8 @@ def capture_pgn_save_snapshot(
         source_before=_detached_source_fingerprint(source, allow_none=True),
         source_overwrite_safe_before=source_overwrite_safe,
         saved_digest_before=saved_digest,
+        global_warnings_before=global_warnings,
+        workspace_ref=workspace_ref,
         session_ref=session_ref,
     )
     return PgnSaveSnapshot(
@@ -420,6 +460,8 @@ def capture_pgn_save_snapshot(
         source_before=source,
         source_overwrite_safe_before=source_overwrite_safe,
         _saved_digest_before=saved_digest,
+        _global_warnings_before=global_warnings,
+        _workspace_ref=workspace_ref,
         _session_ref=session_ref,
         _capture_binding=capture_binding,
     )
@@ -574,6 +616,8 @@ def publish_pgn_save_snapshot(
         ),
         source_overwrite_safe_before=metadata.source_overwrite_safe_before,
         saved_digest_before=metadata.saved_digest_before,
+        global_warnings_before=metadata.global_warnings_before,
+        workspace_ref=metadata.workspace_ref,
         session_ref=metadata.session_ref,
         saved=bound_saved,
     )
@@ -627,6 +671,9 @@ def commit_pgn_save_publication(
                 )
             )
         )
+        or type(binding.global_warnings_before) is not tuple
+        or any(type(item) is not str for item in binding.global_warnings_before)
+        or type(binding.workspace_ref) is not ReferenceType
         or type(binding.session_ref) is not ReferenceType
     ):
         raise TypeError("PGN save publication binding metadata is malformed")
@@ -638,6 +685,8 @@ def commit_pgn_save_publication(
         or metadata.source_overwrite_safe_before
         is not binding.source_overwrite_safe_before
         or metadata.saved_digest_before != binding.saved_digest_before
+        or metadata.global_warnings_before != binding.global_warnings_before
+        or metadata.workspace_ref is not binding.workspace_ref
         or metadata.session_ref is not binding.session_ref
     ):
         raise _stale("PGN save snapshot metadata changed after publication")
@@ -651,6 +700,9 @@ def commit_pgn_save_publication(
     source_before = bound_source
     if binding.session_ref() is not current:
         raise _stale("PGN save publication belongs to a different document session")
+    live_workspace = current.workspace
+    if binding.workspace_ref() is not live_workspace:
+        raise _stale("PGN workspace changed before the save publication could commit")
 
     # Re-read live provenance only through passive exact-scalar validation
     # before any equality work. Frozen SourceFingerprint instances and the
@@ -664,6 +716,7 @@ def commit_pgn_save_publication(
     if type(live_source_overwrite_safe) is not bool:
         raise TypeError("PGN live source safety flag is invalid")
     live_saved_digest = current._saved_digest
+    live_global_warnings = current._global_warnings
     if live_saved_digest is not None and (
         type(live_saved_digest) is not str
         or len(live_saved_digest) != 64
@@ -673,7 +726,11 @@ def commit_pgn_save_publication(
         )
     ):
         raise TypeError("PGN live saved digest is invalid")
-    live_content_digest = current.workspace.content_digest
+    if type(live_global_warnings) is not tuple or any(
+        type(item) is not str for item in live_global_warnings
+    ):
+        raise TypeError("PGN live global warnings are invalid")
+    live_content_digest = live_workspace.content_digest
     if (
         type(live_content_digest) is not str
         or len(live_content_digest) != 64
@@ -702,6 +759,7 @@ def commit_pgn_save_publication(
         or live_saved_digest != binding.saved_digest_before
         or live_source_overwrite_safe
         is not binding.source_overwrite_safe_before
+        or live_global_warnings != binding.global_warnings_before
     ):
         raise _stale("PGN source changed before the save publication could commit")
 
@@ -724,14 +782,14 @@ def commit_pgn_save_publication(
     )
     try:
         if live_content_digest == binding.content_digest:
-            current.workspace.mark_saved()
+            live_workspace.mark_saved()
         else:
             # The durable worker generation is now the real persistence
             # baseline even though newer in-memory edits must remain dirty.
             # Keep workspace-level dirty tracking aligned with the session's
             # saved digest so returning exactly to the published generation
             # becomes clean in both authorities.
-            current.workspace._rebase_saved_digest(binding.content_digest)
+            live_workspace._rebase_saved_digest(binding.content_digest)
     except BaseException as exc:
         raise PgnDocumentError(
             "PGN file was written but the document checkpoint could not be finalized",
