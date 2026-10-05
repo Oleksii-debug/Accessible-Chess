@@ -2227,6 +2227,22 @@ class Version2Application:
             self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
             return
         kind = getattr(event.kind, "value", "")
+        if kind == "pgn_opened" and type(event.warning_count) is int and event.warning_count > 0:
+            warning_count = event.warning_count
+            announcement = (
+                f"PGN відкрито з попередженнями відновлення: {warning_count}. "
+                "Оригінальний файл захищено від звичайного перезапису; "
+                "для збереження виправленої версії використовуйте «Зберегти як»."
+                if self.shell.language is UILanguage.UA
+                else
+                f"PGN opened with recovery warnings: {warning_count}. "
+                "The original file is protected from normal overwrite; "
+                "use Save As to save the recovered version."
+            )
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+            return
         messages = {
             "pgn_open_started": (
                 "PGN відкривається у фоновому режимі. За потреби скористайтеся командою скасування відкриття PGN.",
