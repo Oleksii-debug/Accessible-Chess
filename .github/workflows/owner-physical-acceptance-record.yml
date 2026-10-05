@@ -10,6 +10,7 @@ on:
     paths:
       - scripts/record_owner_physical_acceptance.py
       - tests/test_owner_physical_acceptance.py
+      - tests/test_owner_physical_acceptance_json_hardening.py
       - .github/workflows/owner-physical-acceptance-record.yml
 
 permissions:
@@ -41,7 +42,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact Product base and additive three-path scope
+      - name: Prove exact Product base and additive four-path scope
         shell: bash
         run: |
           set -euo pipefail
@@ -61,6 +62,7 @@ jobs:
             ".github/workflows/owner-physical-acceptance-record.yml"
             "scripts/record_owner_physical_acceptance.py"
             "tests/test_owner_physical_acceptance.py"
+            "tests/test_owner_physical_acceptance_json_hardening.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for index in "${!expected[@]}"; do
@@ -78,12 +80,14 @@ jobs:
           scripts/record_owner_physical_acceptance.py
           scripts/finalize_owner_final_receipt.py
           tests/test_owner_physical_acceptance.py
+          tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_finalize_owner_final_receipt.py
 
       - name: Run manual-evidence contract and incumbent machine-receipt regressions
         run: >-
           python -m unittest -v
           tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
           tests.test_finalize_owner_final_receipt
 
       - name: Prove CI cannot record physical acceptance
