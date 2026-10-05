@@ -326,6 +326,15 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIsNone(self.app._pending_shell_publication)
         self.assertEqual("library", self.app.shell.current_route.route_id)
 
+        duplicate_commit = self.app.browser_command(
+            "shell",
+            "shell.presentation_commit",
+            {"token": token},
+        )
+        self.assertEqual("presentation-commit", duplicate_commit["kind"])
+        self.assertEqual(token, duplicate_commit["payload"]["token"])
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
         replay = self.app.browser_command(
             "shell",
             "shell.presentation_rollback",
