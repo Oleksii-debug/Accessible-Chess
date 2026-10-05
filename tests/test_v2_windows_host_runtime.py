@@ -230,6 +230,78 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(fallback_calls, [])
         self.assertTrue(runtime.shutdown())
 
+    def test_import_running_rejects_export_before_save_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "busy-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            runtime = self._runtime(owner, library=library)
+            try:
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(library.entered.wait(2.0))
+                self.assertTrue(runtime.import_running)
+
+                with self.assertRaisesRegex(RuntimeError, "import is already active"):
+                    runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(_SaveDialog.owners, [])
+
+                runtime("library.cancel_import", {})
+                self.assertTrue(runtime.wait_for_import(5.0))
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+    def test_export_running_rejects_import_before_open_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "busy-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    lambda: None,
+                ),
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                library_export_worker_services_factory=lambda: object(),
+                current_focus_provider=lambda: "library-export-selected",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+                # The worker has selected a terminal event, but until the owner
+                # callback consumes it the operation still owns cancellation.
+                self.assertTrue(runtime.export_running)
+
+                with self.assertRaisesRegex(RuntimeError, "export is already active"):
+                    runtime("library.import", {})
+                self.assertEqual(_OpenDialog.owners, [])
+
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+                self.assertFalse(runtime.export_running)
+            finally:
+                self.assertTrue(runtime.shutdown())
+
     def test_real_library_export_uses_worker_local_acsdb_and_owner_terminal_post(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
