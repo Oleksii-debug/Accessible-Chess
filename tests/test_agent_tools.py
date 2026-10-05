@@ -1,3 +1,4 @@
+import math
 import unittest
 
 from acs.agent_tools import (
@@ -157,6 +158,45 @@ class AgentToolRegistryTests(unittest.TestCase):
             )
         with self.assertRaises(TypeError):
             AgentToolResult("ok", {"value": 1}).data["value"] = 2
+
+    def test_tool_result_deeply_detaches_handler_owned_data(self):
+        source = {
+            "nested": {"moves": [{"san": "e4"}]},
+            "labels": ["one", "two"],
+        }
+        result = AgentToolResult("ready", source)
+
+        source["nested"]["moves"][0]["san"] = "d4"
+        source["nested"]["moves"].append({"san": "Nf3"})
+        source["labels"].append("three")
+
+        self.assertEqual(result.data["nested"]["moves"], [{"san": "e4"}])
+        self.assertEqual(result.data["labels"], ["one", "two"])
+
+    def test_tool_result_rejects_active_or_non_finite_nested_values(self):
+        class ActiveText(str):
+            pass
+
+        for data in (
+            {"value": object()},
+            {"value": ActiveText("active")},
+            {"value": math.nan},
+            {"value": math.inf},
+            {1: "non-text-key"},
+        ):
+            with self.subTest(data=data):
+                with self.assertRaises((TypeError, ValueError)):
+                    AgentToolResult("ready", data)
+
+    def test_tool_result_structure_is_bounded(self):
+        deep: object = 0
+        for _ in range(34):
+            deep = [deep]
+        with self.assertRaisesRegex(ValueError, "nesting is too deep"):
+            AgentToolResult("ready", {"value": deep})
+
+        with self.assertRaisesRegex(ValueError, "too many items"):
+            AgentToolResult("ready", {"values": [0] * 4097})
 
 
 class BoardAgentToolsTests(unittest.TestCase):
