@@ -508,13 +508,17 @@ def expected_pgn_destination_sha256(
     if not destination.exists():
         return None
     try:
-        digest = fingerprint(destination, cancel_check=check).sha256
+        fingerprinted = fingerprint(destination, cancel_check=check)
     except SourceReadCancelledError as exc:
         raise PgnSaveCancelledError(
             "PGN save cancelled during destination fingerprinting"
         ) from exc
+    detached = _detached_source_fingerprint(fingerprinted)
+    assert detached is not None
+    if not _same_direct_path(destination, detached.path):
+        raise ValueError("PGN destination fingerprint does not match the requested path")
     _raise_if_cancelled(check)
-    return digest
+    return detached.sha256
 
 
 def publish_pgn_save_snapshot(
