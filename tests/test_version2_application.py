@@ -110,6 +110,42 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[-1]["kind"], "status")
         self.assertIn("Скасовую", events[-1]["payload"]["announcement"])
 
+    def test_native_cancel_pgn_save_reaches_bound_file_runtime(self):
+        calls = []
+        cancelling = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.PGN_SAVE_CANCELLING,
+            action_id="pgn.cancel_save",
+            focus_target="pgn-save-cancel",
+        )
+
+        def files(action, payload):
+            calls.append((action, dict(payload)))
+            return cancelling
+
+        self.app.bind_files(files)
+        result = self.app._delegate("pgn.cancel_save", {})
+
+        self.assertIs(result, cancelling)
+        self.assertEqual(calls, [("pgn.cancel_save", {})])
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "status")
+        self.assertIn("Скасовую", events[-1]["payload"]["announcement"])
+
+    def test_async_pgn_save_completion_announces_without_route_replacement(self):
+        saved = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.PGN_SAVED,
+            action_id="pgn.save",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+
+        self.app.import_ui_ready(SimpleNamespace(drain=lambda: (saved,)))
+
+        events = self.app.drain_events()
+        self.assertFalse(any(event["kind"] == "route" for event in events))
+        self.assertEqual(events[-1]["kind"], "status")
+        self.assertIn("збережено", events[-1]["payload"]["announcement"])
+
     def test_async_pgn_open_completion_refreshes_route_and_announces(self):
         self.app.set_document(PgnDocumentSession.open(self.source))
         self.app.drain_events()
