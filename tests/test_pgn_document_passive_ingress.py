@@ -227,6 +227,35 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             PgnDocumentSession(workspace, source=source)
 
+    def test_session_detaches_valid_source_fingerprint_from_caller_mutation(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=123,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        accepted = session.source
+        self.assertIsNotNone(accepted)
+        self.assertIsNot(accepted, source)
+        self.assertEqual(accepted, source)
+
+        object.__setattr__(source, "path", "attacker-replaced.pgn")
+        object.__setattr__(source, "sha256", "f" * 64)
+        object.__setattr__(source, "size", 999999)
+
+        self.assertEqual(session.source, accepted)
+        view = session.view()
+        self.assertEqual(view.source_path, "source.pgn")
+        self.assertEqual(view.source_sha256, "0" * 64)
+        self.assertEqual(session.document_revision, 0)
+        self.assertFalse(session.dirty)
+
     def test_restore_rejects_context_subclass_before_attribute_hooks(self) -> None:
         session = self.session()
         bookmark = session.bookmark()
