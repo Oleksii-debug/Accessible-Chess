@@ -354,6 +354,46 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIn("Newer In Memory", source.read_text(encoding="utf-8"))
         self.assertFalse(session.dirty)
 
+    def test_older_save_snapshot_rebases_workspace_to_published_generation(self) -> None:
+        source = self.write_document("older-save-baseline.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Persisted Snapshot")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+
+        session.edit_tag("Event", "Newer In Memory")
+        publication = publish_pgn_save_snapshot(snapshot)
+        commit_pgn_save_publication(session, publication)
+
+        self.assertTrue(session.dirty)
+        self.assertTrue(session.workspace.dirty)
+        self.assertEqual(session.workspace._baseline_digest, snapshot.content_digest)
+
+        reverted = session.edit_tag("Event", "Persisted Snapshot")
+        self.assertEqual(session.workspace.content_digest, snapshot.content_digest)
+        self.assertFalse(reverted.dirty)
+        self.assertFalse(session.workspace.dirty)
+        self.assertFalse(session.dirty)
+
+    def test_older_save_as_snapshot_rebases_workspace_to_published_generation(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        session.edit_tag("Event", "Persisted Save As Snapshot")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        session.edit_tag("Event", "Newer Save As Edit")
+        target = self.root / "older-save-as-baseline.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        commit_pgn_save_publication(session, publication)
+
+        self.assertTrue(session.dirty)
+        self.assertTrue(session.workspace.dirty)
+        self.assertEqual(session.workspace._baseline_digest, snapshot.content_digest)
+
+        reverted = session.edit_tag("Event", "Persisted Save As Snapshot")
+        self.assertEqual(session.workspace.content_digest, snapshot.content_digest)
+        self.assertFalse(reverted.dirty)
+        self.assertFalse(session.workspace.dirty)
+        self.assertFalse(session.dirty)
+
     def test_capture_detaches_source_provenance_from_snapshot_mutation(self) -> None:
         source = self.write_document()
         session = PgnDocumentSession.open(source)

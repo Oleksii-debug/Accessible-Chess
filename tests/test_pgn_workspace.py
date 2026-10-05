@@ -231,6 +231,52 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.workspace.content_revision, revision_before)
         self.assertEqual(self.workspace.content_digest, digest_before)
 
+    def test_persisted_digest_rebase_keeps_newer_content_dirty_and_revert_clean(self):
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        persisted_digest = self.workspace.content_digest
+        baseline_before = self.workspace._baseline_digest
+
+        newer = move_annotation_target(self.workspace.current_game(), (), 0)
+        self.workspace.edit_move_annotations(
+            newer,
+            MoveAnnotationPatch(nags=("?",)),
+        )
+        self.assertNotEqual(self.workspace.content_digest, persisted_digest)
+        self.assertTrue(self.workspace.dirty)
+
+        rebased = self.workspace._mark_saved_digest(persisted_digest)
+
+        self.assertTrue(rebased.dirty)
+        self.assertTrue(self.workspace.dirty)
+        self.assertNotEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace._baseline_digest, persisted_digest)
+
+        revert = move_annotation_target(self.workspace.current_game(), (), 0)
+        reverted = self.workspace.edit_move_annotations(
+            revert,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        self.assertEqual(self.workspace.content_digest, persisted_digest)
+        self.assertFalse(reverted.dirty)
+        self.assertFalse(self.workspace.dirty)
+
+    def test_persisted_digest_rebase_rejects_invalid_digest_without_mutation(self):
+        baseline_before = self.workspace._baseline_digest
+        dirty_before = self.workspace.dirty
+        revision_before = self.workspace.content_revision
+
+        with self.assertRaises(TypeError):
+            self.workspace._mark_saved_digest("not-a-canonical-digest")
+
+        self.assertEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace.dirty, dirty_before)
+        self.assertEqual(self.workspace.content_revision, revision_before)
+
     def test_stale_annotation_target_fails_without_partial_workspace_mutation(self):
         game = self.workspace.current_game()
         stale = move_annotation_target(game, (), 0)

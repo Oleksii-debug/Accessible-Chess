@@ -261,25 +261,40 @@ class PgnWorkspace:
     def to_bytes(self) -> bytes:
         return serialize_pgn_bytes(tuple(self._games))
 
-    def mark_saved(self) -> PgnWorkspaceView:
-        # Build the complete post-save projection before mutating the baseline.
-        # view() computes semantic record identity and can fail if internal
-        # state was corrupted; mutating the baseline first would then leave a
-        # falsely-clean workspace after a failed save commit.
-        content_digest = self.content_digest
+    def _mark_saved_digest(self, saved_digest: object) -> PgnWorkspaceView:
+        """Rebase dirty tracking to one verified persisted document generation.
+
+        Background Save/Save As may durably publish an older snapshot while newer
+        edits already exist in memory.  In that case the persisted digest becomes
+        the dirty baseline even though the live workspace must remain dirty.
+        Build the complete next projection before mutating the checkpoint so a
+        semantic identity failure cannot leave a partially rebased workspace.
+        """
+
+        if (
+            type(saved_digest) is not str
+            or len(saved_digest) != 64
+            or any(character not in "0123456789abcdef" for character in saved_digest)
+        ):
+            raise TypeError("PGN saved digest must be lowercase SHA-256 hex")
         game = self._current_game_ref()
+        dirty = self._content_digest != saved_digest
         next_view = PgnWorkspaceView(
             game_count=self.game_count,
             selected_game_index=self._selected_game_index,
             cursor=self._cursor,
-            dirty=False,
+            dirty=dirty,
             content_revision=self._content_revision,
-            content_digest=content_digest,
+            content_digest=self.content_digest,
             current_record_digest=identity_for_game(game).record_digest,
         )
-        self._baseline_digest = content_digest
-        self._dirty = False
+        self._baseline_digest = saved_digest
+        self._dirty = dirty
         return next_view
+
+    def mark_saved(self) -> PgnWorkspaceView:
+        # The ordinary synchronous save persists the current generation.
+        return self._mark_saved_digest(self.content_digest)
 
     def _current_game_ref(self) -> PgnGame:
         return self._games[self._selected_game_index]

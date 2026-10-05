@@ -722,14 +722,21 @@ def commit_pgn_save_publication(
         sha256=saved.sha256,
         suffix=saved.suffix,
     )
-    if live_content_digest == binding.content_digest:
-        try:
+    try:
+        if live_content_digest == binding.content_digest:
             current.workspace.mark_saved()
-        except BaseException as exc:
-            raise PgnDocumentError(
-                "PGN file was written but the document checkpoint could not be finalized",
-                code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
-            ) from exc
+        else:
+            # The durable worker generation is now the real persistence
+            # baseline even though newer in-memory edits must remain dirty.
+            # Keep workspace-level dirty tracking aligned with the session's
+            # saved digest so returning exactly to the published generation
+            # becomes clean in both authorities.
+            current.workspace._mark_saved_digest(binding.content_digest)
+    except BaseException as exc:
+        raise PgnDocumentError(
+            "PGN file was written but the document checkpoint could not be finalized",
+            code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        ) from exc
 
     # PgnDocumentSession owns these fields. This companion module is the only
     # background-save friend boundary: provenance advances only after the
