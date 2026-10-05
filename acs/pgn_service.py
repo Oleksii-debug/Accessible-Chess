@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterable, TextIO
+from typing import Callable, Iterable, TextIO
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .import_contract import (
@@ -588,12 +588,27 @@ def _write_games_incrementally(handle: TextIO, games: Iterable[PgnGame]) -> None
         handle.write("\n")
 
 
+def _validated_expected_sha256(value: object) -> str | None:
+    """Validate optimistic-CAS identity before any filesystem mutation."""
+
+    if value is None:
+        return None
+    # Digests cross CLI/application boundaries. Require passive canonical text
+    # before equality/hash work so a str subclass cannot execute provider hooks.
+    if type(value) is not str:
+        raise TypeError("expected_sha256 must be lowercase SHA-256 hex or None")
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("expected_sha256 must be lowercase SHA-256 hex")
+    return value
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
     *,
     overwrite: bool = False,
     expected_sha256: str | None = None,
+    pre_publish_check: Callable[[], None] | None = None,
 ) -> SourceFingerprint:
     """Serialize GameTree content and commit one complete PGN file safely.
 
@@ -608,8 +623,16 @@ def save_pgn_atomic(
     inode snapshot so an in-place writer racing at publication is detected and
     restored instead of silently lost. Plain ``overwrite=True`` without an
     expected digest intentionally requests unconditional replacement.
+
+    ``pre_publish_check`` runs after the temporary file has been completely
+    written, flushed and fsynced, but before any publication primitive can make
+    it visible at ``destination``. If it raises, the temporary file is
+    cleaned and the destination remains unchanged.
     """
 
+    if pre_publish_check is not None and not callable(pre_publish_check):
+        raise TypeError("pre_publish_check must be callable")
+    expected_sha256 = _validated_expected_sha256(expected_sha256)
     destination = Path(path)
     _reject_export_indirection(destination)
     if destination.exists() and not overwrite:
@@ -639,6 +662,8 @@ def save_pgn_atomic(
             os.fsync(handle.fileno())
 
         _reject_export_indirection(destination)
+        if pre_publish_check is not None:
+            pre_publish_check()
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None

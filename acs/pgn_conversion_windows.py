@@ -268,7 +268,10 @@ def show_pgn_conversion_dialog(*, language: str = "uk", owner=None) -> None:
             dialog.DefaultExt = "pgn"
             dialog.AddExtension = True
             dialog.CheckPathExists = True
-            dialog.OverwritePrompt = True
+            # Conversion is deliberately no-clobber. Do not let the native
+            # Save dialog promise an overwrite that the canonical writer will
+            # (correctly) refuse after the user confirms it.
+            dialog.OverwritePrompt = False
             dialog.FileName = state["source"].stem + "-utf8.pgn"
             if dialog.ShowDialog(form) == DialogResult.OK:
                 begin(Path(str(dialog.FileName)))
