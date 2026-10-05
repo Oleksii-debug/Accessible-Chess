@@ -912,10 +912,9 @@ class Version2WindowsFileActionDelegate:
             )
 
         with self._lock:
-            if self._worker is not None:
-                import_conflict = True
-            else:
-                import_conflict = False
+            shutdown_requested = self._shutdown_requested
+            conflict_kind = self._worker_kind if self._worker is not None else ""
+            if not shutdown_requested and not conflict_kind:
                 self._generation += 1
                 generation = self._generation
                 cancel_event = threading.Event()
@@ -931,13 +930,17 @@ class Version2WindowsFileActionDelegate:
                 self._worker_started = False
                 self._worker_kind = "import"
 
-        if import_conflict:
+        if shutdown_requested:
+            return self._failed(
+                "library.import", "file_workflow_closed", focus_target=previous_focus
+            )
+        if conflict_kind:
             return self._failed(
                 "library.import",
                 "file_worker_busy",
                 focus_target=(
                     "library-import-cancel"
-                    if self._worker_kind == "import"
+                    if conflict_kind == "import"
                     else "pgn-open-cancel"
                 ),
             )
