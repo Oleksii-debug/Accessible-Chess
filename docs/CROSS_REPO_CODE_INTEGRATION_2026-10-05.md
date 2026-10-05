@@ -113,7 +113,8 @@ Adaptation policy: retain bounded state size, atomic temp-file publication, fsyn
 
 `acs/media_core.py`, `acs/media_application.py`, and `acs/universal_chess_agent.py` implement the product-specific composition required by the 2026-10-05 owner amendment:
 - MediaApplicationService delegates synchronized-position publication to an injected canonical application callback and owns separate media/analysis cursor state;
-- UniversalChessAgentTools binds the reused tool executor to the existing Accessible Chess BoardCommandService and MediaApplicationService;
+- UniversalChessAgentTools binds the reused tool executor to existing Accessible Chess services: BoardCommandService, AnalysisService, GameSearchService and MediaApplicationService;
+- concrete tools now include board.square, board.material, board.legal_moves, engine.analyze, library.search_games, media.status, media.seek and media.restore_position;
 - no duplicate chess rules are introduced.
 
 The provider-neutral media contracts include:
