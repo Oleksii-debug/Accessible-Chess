@@ -453,7 +453,7 @@ class Version2WindowsFileActionDelegate:
                     ), previous_focus, current, current_revision
                 try:
                     discard = confirmation()
-                except Exception:
+                except BaseException:
                     return None, self._failed(
                         "pgn.open",
                         "unsaved_confirmation_failed",
@@ -465,7 +465,7 @@ class Version2WindowsFileActionDelegate:
                     ), previous_focus, current, current_revision
         try:
             path = self._dialogs.open_pgn()
-        except Exception:
+        except BaseException:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
             ), previous_focus, current, current_revision
@@ -999,7 +999,7 @@ class Version2WindowsFileActionDelegate:
                 suggested = Path(source.path).name or suggested
         try:
             destination = self._dialogs.save_pgn_as(suggested)
-        except Exception:
+        except BaseException:
             return self._failed(
                 "pgn.save_as", "file_dialog_failed", focus_target=previous_focus
             )
@@ -1460,7 +1460,7 @@ class Version2WindowsFileActionDelegate:
             )
         try:
             source_path = self._dialogs.select_library_import()
-        except Exception:
+        except BaseException:
             return self._failed(
                 "library.import", "file_dialog_failed", focus_target=previous_focus
             )
