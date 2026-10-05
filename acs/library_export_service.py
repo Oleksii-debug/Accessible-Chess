@@ -283,6 +283,13 @@ class LibraryExportService:
                 raise LibraryExportError(
                     "selected Library export cannot include a search query"
                 )
+            if type(request.game_ids) is tuple:
+                if not request.game_ids:
+                    raise LibraryExportError(
+                        "selected Library export contains no games"
+                    )
+                if len(request.game_ids) > _MAX_SELECTED_GAMES:
+                    raise LibraryExportError("selected Library export is too large")
             try:
                 return LibraryExportRequest.selected(request.game_ids)
             except (TypeError, ValueError) as exc:
