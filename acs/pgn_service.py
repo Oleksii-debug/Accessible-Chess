@@ -71,6 +71,15 @@ class PgnUnsafePathError(PgnFileError):
     """Raised when export would traverse filesystem indirection."""
 
 
+class PgnPublicationUnverifiedError(PgnFileError):
+    """Raised after publication when final destination provenance is unverified.
+
+    The atomic publication primitive has already crossed the point where the
+    destination may have changed. Callers must therefore not describe this as a
+    pre-publication save failure or blindly retry against stale provenance.
+    """
+
+
 def _same_direct_path(left: str | Path, right: str | Path) -> bool:
     """Compare direct path spellings with platform path/case normalization."""
 
@@ -725,13 +734,22 @@ def save_pgn_atomic(
             except FileNotFoundError:
                 pass
 
-    # Publication has committed. Bind the returned provenance to the same
-    # destination-directory object as the write; otherwise a post-commit
-    # directory substitution could make fingerprint() authenticate unrelated
-    # bytes at the same pathname and falsely report them as this save.
-    _assert_bound_export_parent(destination.parent, parent_identity)
-    published = fingerprint(destination)
-    _assert_bound_export_parent(destination.parent, parent_identity)
+    # Publication has crossed the commit boundary. Bind the returned
+    # provenance to the same destination-directory object as the write;
+    # otherwise a post-commit directory substitution could make fingerprint()
+    # authenticate unrelated bytes at the same pathname and falsely report them
+    # as this save. Any failure from this point is materially different from a
+    # pre-publication failure: the destination may already contain the new
+    # bytes, so propagate a distinct terminal truth and never invite a blind
+    # retry against stale in-memory provenance.
+    try:
+        _assert_bound_export_parent(destination.parent, parent_identity)
+        published = fingerprint(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
+    except Exception as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN publication completed but final destination provenance could not be verified"
+        ) from exc
     return published
 
 
