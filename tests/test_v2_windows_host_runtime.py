@@ -208,6 +208,33 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             export_forms_loader=_forms_loader,
         )
 
+    def test_runtime_rejects_active_action_id_before_any_comparison(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+        touched: list[str] = []
+
+        class ActiveActionId(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action-id equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active action-id inequality executed")
+
+            def __hash__(self):
+                touched.append("hash")
+                raise AssertionError("active action-id hash executed")
+
+        with self.assertRaisesRegex(TypeError, "action id must be text"):
+            runtime(ActiveActionId("library.export"), {})
+
+        self.assertEqual([], touched)
+        self.assertEqual([], fallback_calls)
+        self.assertEqual([], _SaveDialog.owners)
+        self.assertEqual([], owner.posted)
+
     def test_non_host_action_chains_exactly_once_to_canonical_delegate(self) -> None:
         owner = _Owner()
         fallback_calls: list[tuple[str, dict[str, object]]] = []
