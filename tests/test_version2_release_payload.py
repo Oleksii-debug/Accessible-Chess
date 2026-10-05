@@ -65,7 +65,15 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         for relative in package_preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
             runtime = self.standalone.joinpath(*relative.split("/")[1:])
             runtime.parent.mkdir(parents=True, exist_ok=True)
-            runtime.write_bytes(self._windows_x64_pe(b"runtime"))
+            runtime.write_bytes(
+                self._windows_x64_pe(
+                    b"runtime",
+                    managed=(
+                        relative
+                        in package_preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
+                    ),
+                )
+            )
         for name in _REQUIRED_WEB_FILES:
             path = self.standalone / "web" / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,7 +141,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _windows_x64_pe(payload_bytes: bytes = b"") -> bytes:
+    def _windows_x64_pe(payload_bytes: bytes = b"", *, managed: bool = False) -> bytes:
         data = bytearray(0x200)
         data[:2] = b"MZ"
         pe_offset = 0x80
@@ -144,7 +152,13 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         struct.pack_into("<H", data, coff + 2, 3)
         struct.pack_into("<H", data, coff + 16, 0xF0)
         struct.pack_into("<H", data, coff + 18, 0x0022)
-        struct.pack_into("<H", data, coff + 20, 0x20B)
+        optional = coff + 20
+        struct.pack_into("<H", data, optional, 0x20B)
+        if managed:
+            struct.pack_into("<I", data, optional + 108, 16)
+            clr_directory = optional + 112 + (14 * 8)
+            struct.pack_into("<I", data, clr_directory, 0x2000)
+            struct.pack_into("<I", data, clr_directory + 4, 0x48)
         data.extend(payload_bytes)
         return bytes(data)
 
