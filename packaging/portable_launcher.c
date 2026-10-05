@@ -158,10 +158,36 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     return L"Невідома рання помилка основної програми.";
 }
 
+static void ac_report_write_fail(HANDLE report, DWORD code) {
+    DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+    if (report != NULL && report != INVALID_HANDLE_VALUE) CloseHandle(report);
+
+    ac_copy(
+        g_message,
+        AC_PATH_CAP + 2048,
+        L"Accessible Chess cannot fully write launch-report.txt.\r\n"
+        L"The launcher is stopping because an incomplete report must not be treated as valid evidence.\r\n\r\n"
+        L"Не вдалося повністю записати launch-report.txt.\r\n"
+        L"Запуск засобу перевірки зупинено, бо неповний звіт не можна вважати достовірним.\r\n\r\n"
+        L"Windows error / Код Windows: "
+    );
+    ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
+    MessageBoxW(
+        NULL,
+        g_message,
+        L"Accessible Chess — launch report write error",
+        MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+    );
+    ExitProcess(stable_code);
+}
+
 static void ac_write_utf8(HANDLE handle, const WCHAR *text) {
     int bytes;
     DWORD written = 0;
-    if (handle == NULL || handle == INVALID_HANDLE_VALUE || text == NULL) return;
+    DWORD error;
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE || text == NULL) {
+        ac_report_write_fail(handle, ERROR_INVALID_PARAMETER);
+    }
     bytes = WideCharToMultiByte(
         CP_UTF8,
         WC_ERR_INVALID_CHARS,
@@ -172,13 +198,34 @@ static void ac_write_utf8(HANDLE handle, const WCHAR *text) {
         NULL,
         NULL
     );
-    if (bytes <= 1) return;
-    WriteFile(handle, g_utf8, (DWORD)(bytes - 1), &written, NULL);
+    if (bytes == 0) {
+        error = GetLastError();
+        ac_report_write_fail(handle, error == ERROR_SUCCESS ? ERROR_NO_UNICODE_TRANSLATION : error);
+    }
+    if (bytes == 1) return;
+    if (!WriteFile(handle, g_utf8, (DWORD)(bytes - 1), &written, NULL)) {
+        error = GetLastError();
+        ac_report_write_fail(handle, error == ERROR_SUCCESS ? ERROR_WRITE_FAULT : error);
+    }
+    if (written != (DWORD)(bytes - 1)) {
+        ac_report_write_fail(handle, ERROR_WRITE_FAULT);
+    }
 }
 
 static void ac_write_line(HANDLE handle, const WCHAR *text) {
     ac_write_utf8(handle, text);
     ac_write_utf8(handle, L"\r\n");
+}
+
+static void ac_flush_report(HANDLE report) {
+    DWORD error;
+    if (report == NULL || report == INVALID_HANDLE_VALUE) {
+        ac_report_write_fail(report, ERROR_INVALID_PARAMETER);
+    }
+    if (!FlushFileBuffers(report)) {
+        error = GetLastError();
+        ac_report_write_fail(report, error == ERROR_SUCCESS ? ERROR_WRITE_FAULT : error);
+    }
 }
 
 static void ac_error_detail(DWORD code) {
@@ -211,7 +258,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         ac_write_line(report, g_error_text);
         ac_write_utf8(report, L"REPORT: ");
         ac_write_line(report, g_report_path);
-        FlushFileBuffers(report);
+        ac_flush_report(report);
     }
 
     ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess не запустився.\r\n\r\nЕтап: ");
@@ -461,7 +508,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
     ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
     ac_write_line(report, L"DETAIL: Accessible Chess did not expose a stable responsive visible application window before the startup deadline.");
     ac_write_line(report, L"NEXT: close any stuck Accessible Chess process, keep launch-report.txt, and retry once from the extracted package root");
-    FlushFileBuffers(report);
+    ac_flush_report(report);
 
     ac_copy(
         g_message,
@@ -605,7 +652,7 @@ void WINAPI wWinMainCRTStartup(void) {
     }
     ac_write_line(report, g_message);
     ac_write_line(report, L"STARTUP_READINESS: waiting for stable responsive visible Accessible Chess window");
-    FlushFileBuffers(report);
+    ac_flush_report(report);
     startup_started = GetTickCount64();
 
     for (;;) {
@@ -624,7 +671,7 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
             ac_write_line(report, ac_child_exit_reason(exit_code));
             ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
-            FlushFileBuffers(report);
+            ac_flush_report(report);
 
             ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");
             ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
@@ -672,7 +719,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"USER_WINDOW_PROVEN: YES");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
     ac_write_line(report, L"NEXT: user verifies keyboard and NVDA behavior on these exact packaged bytes");
-    FlushFileBuffers(report);
+    ac_flush_report(report);
     CloseHandle(g_process.hProcess);
     CloseHandle(report);
     ExitProcess(0);
