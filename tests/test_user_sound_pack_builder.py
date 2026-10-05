@@ -86,7 +86,7 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             ):
                 relative = path.relative_to(sounds).as_posix()
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                fingerprint_rows.append(f"{relative}\\0{digest}\\n".encode("utf-8"))
+                fingerprint_rows.append(f"{relative}\0{digest}\n".encode("utf-8"))
             expected_inventory = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
 
             archive = root / "sounds.zip"
@@ -380,7 +380,7 @@ class UserSoundPackBuilderTests(unittest.TestCase):
             ):
                 relative = path.relative_to(source).as_posix()
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                fingerprint_rows.append(f"{relative}\\0{digest}\\n".encode("utf-8"))
+                fingerprint_rows.append(f"{relative}\0{digest}\n".encode("utf-8"))
             expected = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
 
             with patch(

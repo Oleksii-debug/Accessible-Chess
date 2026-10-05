@@ -590,7 +590,43 @@ jobs:
           if($launchedChildPath -ne $childPath){
             throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PATH_MISMATCH'
           }
-          Stop-Process -Id $reportedChildPid -Force -ErrorAction Stop
+          # The packaged WebView HTTP listener may serve only this machine.
+          $listeners=@(Get-NetTCPConnection -OwningProcess $reportedChildPid -State Listen -ErrorAction SilentlyContinue)
+          if($listeners.Count -lt 1){throw 'OWNER_ROOT_WEBVIEW_LOOPBACK_LISTENER_MISSING'}
+          foreach($listener in $listeners){
+            if($listener.LocalAddress -notin @('127.0.0.1','::1')){
+              throw "OWNER_ROOT_NON_LOOPBACK_LISTENER address=$($listener.LocalAddress)"
+            }
+          }
+          Write-Host 'OWNER_ROOT_LOOPBACK_ONLY=PASS'
+          $launchedChild.Refresh()
+          if(-not $launchedChild.CloseMainWindow()){throw 'OWNER_ROOT_WINDOW_CLEAN_CLOSE_REQUEST_FAILED'}
+          if(-not $launchedChild.WaitForExit(15000)){throw 'OWNER_ROOT_WINDOW_CLEAN_CLOSE_TIMEOUT'}
+          if(-not (Test-Path -LiteralPath (Join-Path $root 'data') -PathType Container)){
+            throw 'OWNER_ROOT_PACKAGE_LOCAL_DATA_MISSING'
+          }
+
+          # Prove that the same extracted package can release its data lock and restart.
+          $restart=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          if(-not $restart.WaitForExit(45000)){$restart.Kill();throw 'OWNER_ROOT_RESTART_LAUNCHER_TIMEOUT'}
+          if($restart.ExitCode -ne 0){throw "OWNER_ROOT_RESTART_LAUNCHER_EXIT=$($restart.ExitCode)"}
+          $restartText=Get-Content -LiteralPath $report -Raw -Encoding utf8
+          foreach($marker in @('PREFLIGHT: PASS','PROCESS_CREATED: YES','STATUS: STARTUP_WINDOW_READY','USER_WINDOW_PROVEN: YES')){
+            if(-not $restartText.Contains($marker)){throw "OWNER_ROOT_RESTART_REPORT_MISSING $marker"}
+          }
+          $restartPidLines=@($restartText -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' })
+          if($restartPidLines.Count -ne 1){throw 'OWNER_ROOT_RESTART_CHILD_PID_CARDINALITY_INVALID'}
+          [uint32]$restartPid=0
+          $rawRestartPid=$restartPidLines[0].Substring('CHILD_PROCESS_ID: '.Length)
+          if(-not [uint32]::TryParse($rawRestartPid,[ref]$restartPid) -or $restartPid -eq 0){
+            throw 'OWNER_ROOT_RESTART_CHILD_PID_INVALID'
+          }
+          $restartedChild=Get-Process -Id $restartPid -ErrorAction Stop
+          if($restartedChild.Path -ne $childPath){throw 'OWNER_ROOT_RESTART_CHILD_PATH_MISMATCH'}
+          $restartedChild.Refresh()
+          if(-not $restartedChild.CloseMainWindow()){throw 'OWNER_ROOT_RESTART_CLEAN_CLOSE_REQUEST_FAILED'}
+          if(-not $restartedChild.WaitForExit(15000)){throw 'OWNER_ROOT_RESTART_CLEAN_CLOSE_TIMEOUT'}
+          Write-Host 'OWNER_ROOT_CLEAN_CLOSE_AND_RESTART=PASS'
 
           $afterLaunch=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           if($afterLaunch -ne $before){throw 'OWNER_FINAL_ZIP_CHANGED_DURING_MACHINE_LAUNCH'}
