@@ -26,6 +26,8 @@ from .pgn_streaming_import import (
     StreamingPgnPhase,
     StreamingPgnProgress,
 )
+from .import_contract import SourceFingerprint
+from .library_import_service import LibraryImportResult
 from .report_paths import report_safe_name
 from .version2_windows_file_workflows import (
     FileWorkflowEvent,
@@ -36,6 +38,63 @@ from .version2_windows_file_workflows import (
 
 
 _LOG = logging.getLogger(__name__)
+
+
+def _safe_warning(message: str) -> None:
+    """Best-effort fixed telemetry with no worker lifecycle authority."""
+
+    try:
+        _LOG.warning(message)
+    except BaseException:
+        pass
+
+
+def _snapshot_streaming_progress(value: StreamingPgnProgress) -> StreamingPgnProgress:
+    if type(value) is not StreamingPgnProgress:
+        raise TypeError("canonical streaming PGN progress object is invalid")
+    return StreamingPgnProgress(
+        value.phase,
+        value.bytes_read,
+        value.total_bytes,
+        value.accepted_games,
+        value.imported_games,
+        value.total_games,
+    )
+
+
+def _snapshot_streaming_result(value: StreamingPgnImportResult) -> StreamingPgnImportResult:
+    if type(value) is not StreamingPgnImportResult:
+        raise TypeError("streaming PGN importer returned an invalid result")
+    source = value.source
+    library = value.library
+    accepted_games = value.accepted_games
+    complete = value.complete
+    failure_code = value.failure_code
+    if type(source) is not SourceFingerprint:
+        raise TypeError("streaming PGN result source is invalid")
+    if type(library) is not LibraryImportResult:
+        raise TypeError("streaming PGN Library result is invalid")
+    if type(failure_code) is not str and failure_code is not None:
+        raise TypeError("streaming PGN failure code is invalid")
+    canonical_library = LibraryImportResult(
+        library.attempt_id,
+        library.source_id,
+        library.game_count,
+        library.warning_count,
+        library.first_game_id,
+        library.last_game_id,
+        library.reused,
+    )
+    canonical = StreamingPgnImportResult(
+        source,
+        canonical_library,
+        accepted_games,
+        complete,
+        failure_code,
+    )
+    if not canonical.complete or canonical.failure_code is not None:
+        raise TypeError("source-atomic streaming PGN import returned a partial result")
+    return canonical
 
 
 class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelegate):
@@ -60,9 +119,8 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
 
         def streaming_progress(value: StreamingPgnProgress) -> None:
             nonlocal progress_started
-            if not isinstance(value, StreamingPgnProgress):
-                raise TypeError("canonical streaming PGN progress object is invalid")
-            total_games = value.total_games or 0
+            canonical = _snapshot_streaming_progress(value)
+            total_games = 0 if canonical.total_games is None else canonical.total_games
             if not progress_started:
                 progress_started = True
                 self._emit_if_current(
@@ -75,9 +133,9 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                     ),
                 )
             processed = (
-                value.imported_games
-                if value.phase is StreamingPgnPhase.IMPORTING
-                else value.accepted_games
+                canonical.imported_games
+                if canonical.phase is StreamingPgnPhase.IMPORTING
+                else canonical.accepted_games
             )
             self._emit_if_current(
                 generation,
@@ -86,15 +144,15 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                     "library.import",
                     processed_games=processed,
                     total_games=total_games,
-                    source_parsing=value.phase is StreamingPgnPhase.PARSING,
-                    source_bytes_read=value.bytes_read,
-                    source_total_bytes=value.total_bytes,
+                    source_parsing=canonical.phase is StreamingPgnPhase.PARSING,
+                    source_bytes_read=canonical.bytes_read,
+                    source_total_bytes=canonical.total_bytes,
                 ),
             )
 
         try:
             services = self._import_services_factory()
-            if not isinstance(services, Version2ImportWorkerServices):
+            if type(services) is not Version2ImportWorkerServices:
                 raise TypeError("import_services_factory returned an invalid service bundle")
             if cancelled():
                 raise StreamingPgnImportCancelledError()
@@ -125,9 +183,7 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                 cancel_check=cancelled,
                 progress_callback=streaming_progress,
             )
-            if not isinstance(imported, StreamingPgnImportResult):
-                raise TypeError("streaming PGN importer returned an invalid result")
-
+            imported = _snapshot_streaming_result(imported)
             library_result = imported.library
             game_count = library_result.game_count
             warning_count = library_result.warning_count
@@ -164,8 +220,8 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
                     error_code="pgn_import_failed",
                 ),
             )
-        except Exception:
-            _LOG.warning("Version 2 streaming PGN Library import failed", exc_info=True)
+        except BaseException:
+            _safe_warning("Version 2 streaming PGN Library import failed")
             self._emit_if_current(
                 generation,
                 FileWorkflowEvent(
@@ -179,8 +235,8 @@ class Version2WindowsStreamingFileActionDelegate(Version2WindowsFileActionDelega
             if services is not None:
                 try:
                     services.close()
-                except Exception:
-                    _LOG.warning("Version 2 streaming PGN worker cleanup failed", exc_info=True)
+                except BaseException:
+                    _safe_warning("Version 2 streaming PGN worker cleanup failed")
             with self._lock:
                 if generation == self._generation and self._worker_kind == "import":
                     self._clear_worker_locked()

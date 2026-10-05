@@ -6,9 +6,16 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.library_import_service import LibraryImportCancelledError, LibraryImportService
+from acs.pgn_streaming_import import (
+    StreamingPgnImportResult,
+    StreamingPgnLibraryImporter,
+    StreamingPgnPhase,
+    StreamingPgnProgress,
+)
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
@@ -208,6 +215,88 @@ class Version2WindowsPgnStreamingLifecycleTests(unittest.TestCase):
             )
             self._assert_path_free(events, source)
 
+    def test_abort_class_worker_and_cleanup_failures_still_emit_terminal_and_release_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "private-abort.pgn"
+            source.write_text(VALID_PGN, encoding="utf-8", newline="")
+            dialogs = _Dialogs(source)
+            closed = []
+
+            class WorkerAbort(BaseException):
+                pass
+
+            class CleanupAbort(BaseException):
+                pass
+
+            class LoggingAbort(BaseException):
+                pass
+
+            def close() -> None:
+                closed.append(True)
+                raise CleanupAbort()
+
+            def factory():
+                return Version2ImportWorkerServices(_NoopLibrary(), None, close)
+
+            controller, events = self._controller(dialogs, factory)
+            with patch.object(
+                StreamingPgnLibraryImporter,
+                "import_file",
+                side_effect=WorkerAbort(),
+            ), patch(
+                "acs.version2_windows_pgn_streaming_host._LOG.warning",
+                side_effect=LoggingAbort(),
+            ):
+                controller("library.import", {})
+                self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(closed, [True])
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+            self._assert_path_free(events, source)
+
+    def test_cleanup_and_logging_abort_cannot_rewrite_successful_streaming_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "private-cleanup-abort.pgn"
+            source.write_text(VALID_PGN, encoding="utf-8", newline="")
+            dialogs = _Dialogs(source)
+            calls = []
+
+            class CleanupAbort(BaseException):
+                pass
+
+            class LoggingAbort(BaseException):
+                pass
+
+            def close() -> None:
+                calls.append("close")
+                raise CleanupAbort()
+
+            def factory():
+                database = AcsDatabase(Path(directory) / "cleanup-abort.acsdb")
+                service = LibraryImportService(database)
+
+                def close_database_then_abort() -> None:
+                    database.close()
+                    close()
+
+                return Version2ImportWorkerServices(service, None, close_database_then_abort)
+
+            controller, events = self._controller(dialogs, factory)
+            with patch(
+                "acs.version2_windows_pgn_streaming_host._LOG.warning",
+                side_effect=LoggingAbort(),
+            ):
+                controller("library.import", {})
+                self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(calls, ["close"])
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+            self.assertEqual(events[-1].game_count, 2)
+            self._assert_path_free(events, source)
+
     def test_retry_after_late_invalid_source_publishes_only_valid_retry_to_d07(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -258,6 +347,84 @@ class Version2WindowsPgnStreamingLifecycleTests(unittest.TestCase):
                 self.assertEqual(len(database.search_games(limit=100)), 2)
 
             self._assert_path_free(events, broken, valid)
+
+    def test_derived_streaming_progress_is_rejected_before_field_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "private-derived-progress.pgn"
+            source.write_text(VALID_PGN, encoding="utf-8", newline="")
+            dialogs = _Dialogs(source)
+            touched = []
+
+            class ActiveProgress(StreamingPgnProgress):
+                def __getattribute__(self, name):
+                    if name in {
+                        "phase",
+                        "bytes_read",
+                        "total_bytes",
+                        "accepted_games",
+                        "imported_games",
+                        "total_games",
+                    }:
+                        touched.append(name)
+                        raise AssertionError("derived streaming progress field hook executed")
+                    return super().__getattribute__(name)
+
+            hostile = ActiveProgress.__new__(ActiveProgress)
+            for name, value in (
+                ("phase", StreamingPgnPhase.PARSING),
+                ("bytes_read", 1),
+                ("total_bytes", 2),
+                ("accepted_games", 0),
+                ("imported_games", 0),
+                ("total_games", None),
+            ):
+                object.__setattr__(hostile, name, value)
+
+            def fake_import(*_args, **kwargs):
+                kwargs["progress_callback"](hostile)
+                raise AssertionError("host must reject hostile progress")
+
+            def factory():
+                return Version2ImportWorkerServices(_NoopLibrary(), None, lambda: None)
+
+            controller, events = self._controller(dialogs, factory)
+            with patch.object(StreamingPgnLibraryImporter, "import_file", side_effect=fake_import):
+                controller("library.import", {})
+                self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_derived_streaming_result_is_rejected_before_field_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "private-derived-result.pgn"
+            source.write_text(VALID_PGN, encoding="utf-8", newline="")
+            dialogs = _Dialogs(source)
+            touched = []
+
+            class ActiveResult(StreamingPgnImportResult):
+                def __getattribute__(self, name):
+                    if name in {"source", "library", "accepted_games", "complete", "failure_code"}:
+                        touched.append(name)
+                        raise AssertionError("derived streaming result field hook executed")
+                    return super().__getattribute__(name)
+
+            hostile = ActiveResult.__new__(ActiveResult)
+
+            def factory():
+                return Version2ImportWorkerServices(_NoopLibrary(), None, lambda: None)
+
+            controller, events = self._controller(dialogs, factory)
+            with patch.object(StreamingPgnLibraryImporter, "import_file", return_value=hostile):
+                controller("library.import", {})
+                self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
 
     def test_cbh_and_cbv_stay_on_existing_chessbase_route(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

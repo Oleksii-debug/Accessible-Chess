@@ -91,6 +91,8 @@ jobs:
           acs/library_webview_projection.py
           acs/version2_application.py
           acs/version2_windows_file_workflows.py
+          acs/version2_windows_pgn_streaming_host.py
+          acs/version2_windows_host_runtime.py
           acs/version2_windows_import_event_mailbox.py
           acs/version2_windows_import_ui_pump.py
           acs/version2_windows_library_import_observer.py
@@ -105,6 +107,8 @@ jobs:
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_file_worker_shutdown_fence
           tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_pgn_streaming_host
+          tests.test_v2_windows_pgn_streaming_host_lifecycle
           tests.test_v2_windows_file_logging_passive
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_import_event_mailbox
