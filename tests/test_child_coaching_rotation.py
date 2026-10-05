@@ -280,6 +280,18 @@ class ChildCoachingRotationTests(unittest.TestCase):
             )
 
 
+    def test_rotation_round_rejects_unpaired_surrogate_title(self) -> None:
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "valid UTF-8 text",
+        ):
+            RotationRound(
+                "surrogate-title",
+                RotationActivity.REVIEW,
+                "\ud800",
+                5,
+            )
+
     def test_plan_and_state_json_are_closed_world_and_tamper_evident(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-json")
         state = start_rotation(plan)
