@@ -465,6 +465,8 @@ class Version2WindowsFileActionDelegate:
                     ), previous_focus, current, current_revision
         try:
             path = self._dialogs.open_pgn()
+            if path is not None:
+                path = Path(path)
         except BaseException:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
@@ -473,7 +475,7 @@ class Version2WindowsFileActionDelegate:
             return None, self._dialog_cancelled(
                 "pgn.open", previous_focus
             ), previous_focus, current, current_revision
-        return Path(path), None, previous_focus, current, current_revision
+        return path, None, previous_focus, current, current_revision
 
     def _open_pgn(self) -> FileWorkflowEvent:
         # Fail before any dirty-confirmation or file-picker I/O when the shared
@@ -999,6 +1001,8 @@ class Version2WindowsFileActionDelegate:
                 suggested = Path(source.path).name or suggested
         try:
             destination = self._dialogs.save_pgn_as(suggested)
+            if destination is not None:
+                destination = Path(destination)
         except BaseException:
             return self._failed(
                 "pgn.save_as", "file_dialog_failed", focus_target=previous_focus
@@ -1104,7 +1108,7 @@ class Version2WindowsFileActionDelegate:
             action_id="pgn.save_as",
             session=current,
             snapshot=snapshot,
-            destination=Path(destination),
+            destination=destination,
             previous_focus=previous_focus,
         )
 
@@ -1460,13 +1464,15 @@ class Version2WindowsFileActionDelegate:
             )
         try:
             source_path = self._dialogs.select_library_import()
+            if source_path is not None:
+                source_path = Path(source_path)
         except BaseException:
             return self._failed(
                 "library.import", "file_dialog_failed", focus_target=previous_focus
             )
         if source_path is None:
             return self._dialog_cancelled("library.import", previous_focus)
-        suffix = Path(source_path).suffix.lower()
+        suffix = source_path.suffix.lower()
         if suffix not in self._IMPORT_SUFFIXES:
             return self._failed(
                 "library.import",
