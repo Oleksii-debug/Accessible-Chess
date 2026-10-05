@@ -243,6 +243,65 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
 
+    def test_post_publication_failure_blocks_mutation_until_exact_reload(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        real_save = self.store.save
+
+        def publish_then_fail(plan, next_state, *, expected_revision):
+            real_save(
+                plan,
+                next_state,
+                expected_revision=expected_revision,
+            )
+            raise OSError("simulated failure after durable publication")
+
+        with mock.patch.object(
+            self.store,
+            "save",
+            side_effect=publish_then_fail,
+        ):
+            with self.assertRaisesRegex(
+                OSError,
+                "after durable publication",
+            ):
+                self.app.advance_group_rotation(
+                    expected_rotation_revision=state.revision
+                )
+
+        durable = self.store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(state.revision + 1, durable.state.revision)
+        self.assertEqual(
+            state.revision,
+            self.app.group_rotation_snapshot()["revision"],
+        )
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+        keyboard = self.app._rotation_keyboard_result()
+        self.assertTrue(keyboard["recovery_required"])
+        spoken = keyboard["announcement"].casefold()
+        self.assertTrue("recovery" in spoken or "віднов" in spoken)
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.advance_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+
+        resumed = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        self.assertEqual(durable.state, resumed)
+        self.assertFalse(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+        recovered_keyboard = self.app._rotation_keyboard_result()
+        self.assertFalse(recovered_keyboard["recovery_required"])
+        self.assertEqual(
+            durable.state.revision,
+            recovered_keyboard["revision"],
+        )
+
     def test_external_store_writer_causes_cas_conflict_not_silent_overwrite(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
         loaded = self.store.load()
