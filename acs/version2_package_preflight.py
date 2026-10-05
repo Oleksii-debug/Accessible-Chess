@@ -171,6 +171,7 @@ _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES = frozenset(
 _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES = frozenset(
     {
         "AccessibleChess/pythonnet/runtime/Python.Runtime.dll",
+        "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
         "AccessibleChess/webview/lib/Microsoft.Web.WebView2.Core.dll",
         "AccessibleChess/webview/lib/Microsoft.Web.WebView2.WinForms.dll",
     }
