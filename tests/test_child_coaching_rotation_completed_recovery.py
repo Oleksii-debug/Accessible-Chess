@@ -316,6 +316,120 @@ class CompletedRotationRecoveryTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), foreign)
             self.assertEqual(list(path.parent.glob(".rotation.json.*.tmp")), [])
 
+    def test_load_rejects_final_pair_completion_missing_bind_revision(self) -> None:
+        lesson = self._lesson()
+        plan = build_rotation_plan(
+            lesson,
+            rotation_id="final-pair-recovery",
+            rounds=(
+                RotationRound(
+                    "review",
+                    RotationActivity.REVIEW,
+                    "Review",
+                    5,
+                ),
+                RotationRound(
+                    "pair-final",
+                    RotationActivity.PAIR_PLAY,
+                    "Final pair play",
+                    5,
+                ),
+            ),
+        )
+        # Canonical path is start=1, advance-to-final=2, bind=3, complete=4.
+        impossible = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+            phase=RotationPhase.COMPLETED,
+            round_index=1,
+            revision=3,
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            self._write_payload(path, plan, impossible)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "rotation state revision is unreachable for the plan",
+            ):
+                ChildCoachingRotationStore(path).load()
+
+    def test_multiple_pair_rounds_round_trip_exact_revisions_through_completion(self) -> None:
+        lesson = self._lesson()
+        plan = build_rotation_plan(
+            lesson,
+            rotation_id="multi-pair-recovery",
+            rounds=(
+                RotationRound(
+                    "pair-first",
+                    RotationActivity.PAIR_PLAY,
+                    "First pair play",
+                    5,
+                ),
+                RotationRound(
+                    "review",
+                    RotationActivity.REVIEW,
+                    "Review",
+                    5,
+                ),
+                RotationRound(
+                    "pair-final",
+                    RotationActivity.PAIR_PLAY,
+                    "Final pair play",
+                    5,
+                ),
+            ),
+        )
+        state = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+        )
+        expected_revisions = [0]
+        state = start_rotation(plan)
+        expected_revisions.append(state.revision)
+        state = bind_pair_play_batch(
+            plan,
+            state,
+            "pair-batch-first",
+            expected_revision=state.revision,
+        )
+        expected_revisions.append(state.revision)
+        state = advance_rotation(
+            plan,
+            state,
+            expected_revision=state.revision,
+        )
+        expected_revisions.append(state.revision)
+        state = advance_rotation(
+            plan,
+            state,
+            expected_revision=state.revision,
+        )
+        expected_revisions.append(state.revision)
+        state = bind_pair_play_batch(
+            plan,
+            state,
+            "pair-batch-final",
+            expected_revision=state.revision,
+        )
+        expected_revisions.append(state.revision)
+        state = advance_rotation(
+            plan,
+            state,
+            expected_revision=state.revision,
+        )
+        expected_revisions.append(state.revision)
+        self.assertEqual(expected_revisions, [0, 1, 2, 3, 4, 5, 6])
+        self.assertEqual(state.phase, RotationPhase.COMPLETED)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = ChildCoachingRotationStore(Path(temp) / "rotation.json")
+            revision = store.save(plan, state, expected_revision=None)
+            loaded = store.load()
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.state, state)
+            self.assertEqual(loaded.revision, revision)
+
     def test_real_pair_play_revisions_round_trip_through_completion(self) -> None:
         plan = self._pair_plan()
         state = start_rotation(plan)
