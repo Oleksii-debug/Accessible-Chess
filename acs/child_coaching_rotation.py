@@ -556,6 +556,12 @@ def _text(value: object, label: str, limit: int) -> str:
     normalized = value.strip()
     if not normalized or len(normalized) > limit or "\x00" in normalized:
         raise ChildCoachingRotationError(f"{label} is empty or exceeds its limit")
+    try:
+        normalized.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ChildCoachingRotationError(
+            f"{label} must be valid UTF-8 text"
+        ) from exc
     return normalized
 
 
