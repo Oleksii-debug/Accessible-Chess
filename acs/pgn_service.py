@@ -654,6 +654,8 @@ def save_pgn_atomic(
     cleaned and the destination remains unchanged.
     """
 
+    if type(overwrite) is not bool:
+        raise TypeError("overwrite must be a boolean")
     if pre_publish_check is not None and not callable(pre_publish_check):
         raise TypeError("pre_publish_check must be callable")
     expected_sha256 = _validated_expected_sha256(expected_sha256)
