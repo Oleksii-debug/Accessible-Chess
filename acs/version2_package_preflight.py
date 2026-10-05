@@ -623,7 +623,7 @@ def _has_windows_pe_structure(path: Path) -> bool:
 
 
 def _has_windows_clr_descriptor(path: Path) -> bool:
-    """Require a PE optional-header COM descriptor for managed desktop assemblies."""
+    """Require a file-backed CLR header and metadata root for managed assemblies."""
     with path.open("rb") as handle:
         dos_header = handle.read(64)
         if len(dos_header) < 64 or dos_header[:2] != b"MZ":
@@ -637,8 +637,14 @@ def _has_windows_clr_descriptor(path: Path) -> bool:
         pe_header = handle.read(24)
         if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
             return False
+
+        section_count = int.from_bytes(pe_header[6:8], "little")
         optional_header_size = int.from_bytes(pe_header[20:22], "little")
-        if pe_offset + 24 + optional_header_size > file_size:
+        if (
+            section_count <= 0
+            or section_count > 96
+            or pe_offset + 24 + optional_header_size > file_size
+        ):
             return False
         optional_header = handle.read(optional_header_size)
         if len(optional_header) != optional_header_size or len(optional_header) < 2:
@@ -671,7 +677,64 @@ def _has_windows_clr_descriptor(path: Path) -> bool:
             optional_header[clr_directory_offset + 4:clr_directory_offset + 8],
             "little",
         )
-        return clr_rva != 0 and clr_size >= 0x48
+        if clr_rva == 0 or clr_size < 0x48:
+            return False
+
+        section_table_offset = pe_offset + 24 + optional_header_size
+        section_table_size = section_count * 40
+        if section_table_offset + section_table_size > file_size:
+            return False
+        handle.seek(section_table_offset)
+        section_table = handle.read(section_table_size)
+        if len(section_table) != section_table_size:
+            return False
+
+        def raw_offset_for(rva: int, size: int) -> int | None:
+            if rva <= 0 or size <= 0:
+                return None
+            for index in range(section_count):
+                offset = index * 40
+                virtual_address = int.from_bytes(
+                    section_table[offset + 12:offset + 16],
+                    "little",
+                )
+                raw_size = int.from_bytes(
+                    section_table[offset + 16:offset + 20],
+                    "little",
+                )
+                raw_pointer = int.from_bytes(
+                    section_table[offset + 20:offset + 24],
+                    "little",
+                )
+                if rva < virtual_address:
+                    continue
+                delta = rva - virtual_address
+                if delta > raw_size or size > raw_size - delta:
+                    continue
+                file_offset = raw_pointer + delta
+                if file_offset > file_size or size > file_size - file_offset:
+                    continue
+                return file_offset
+            return None
+
+        clr_offset = raw_offset_for(clr_rva, 0x48)
+        if clr_offset is None:
+            return False
+        handle.seek(clr_offset)
+        clr_header = handle.read(0x48)
+        if len(clr_header) != 0x48:
+            return False
+        if int.from_bytes(clr_header[0:4], "little") != 0x48:
+            return False
+        metadata_rva = int.from_bytes(clr_header[8:12], "little")
+        metadata_size = int.from_bytes(clr_header[12:16], "little")
+        if metadata_rva == 0 or metadata_size < 4:
+            return False
+        metadata_offset = raw_offset_for(metadata_rva, 4)
+        if metadata_offset is None:
+            return False
+        handle.seek(metadata_offset)
+        return handle.read(4) == b"BSJB"
 
 
 def _validate_windows_pe_executable(
