@@ -366,31 +366,51 @@ class KeymapService:
         blocked = self._blocked_incremental_mutation()
         if blocked is not None:
             return blocked
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
-        if result.ok:
-            self._persist()
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+        )
 
     def reset_action(self, action_id: str) -> dict[str, Any]:
         blocked = self._blocked_incremental_mutation()
         if blocked is not None:
             return blocked
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.reset_action(action_id)
-        self._persist()
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+        )
 
     def reset_context(self, context: str) -> dict[str, Any]:
         blocked = self._blocked_incremental_mutation()
         if blocked is not None:
             return blocked
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.reset_context(BindingContext(context))
-        self._persist()
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+        )
 
     def reset_all(self) -> dict[str, Any]:
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.reset_all()
-        self._persist(replace_incompatible=True)
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+            replace_incompatible=True,
+        )
 
     def export_profile(self) -> str:
         return self.editor.export_profile()
@@ -437,10 +457,15 @@ class KeymapService:
                 "requiresConfirmation": True,
             }
 
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.import_profile(text)
-        if result.ok:
-            self._persist(replace_incompatible=True)
-        response = self._mutation_result(result)
+        response = self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+            replace_incompatible=True,
+        )
         response["requiresConfirmation"] = False
         return response
 
@@ -473,6 +498,48 @@ class KeymapService:
             "conflicts": [],
             "requiresConfirmation": False,
         }
+
+    def _commit_persisted_mutation(
+        self,
+        result,
+        *,
+        before_registry: ActionRegistry,
+        before_profile: Mapping[str, object],
+        replace_incompatible: bool = False,
+    ) -> dict[str, Any]:
+        if not result.ok:
+            return self._mutation_result(result)
+
+        # Import currently constructs a validated candidate registry. Fold that
+        # profile back into the already-shared registry object before persistence
+        # so application dispatch and the keymap editor keep one live authority.
+        if self.editor.registry is not before_registry:
+            imported_profile = self.editor.registry.to_profile()
+            before_registry.replace_profile(imported_profile)
+            self.editor.registry = before_registry
+
+        try:
+            self._persist(replace_incompatible=replace_incompatible)
+        except OSError:
+            # Editor mutations happen before disk I/O. Restore the exact prior
+            # live profile if persistence fails so runtime dispatch cannot diverge
+            # from the unchanged persisted authority. Protected-profile flags are
+            # cleared only by a successful _persist(), so they remain intact here.
+            before_registry.replace_profile(before_profile)
+            self.editor.registry = before_registry
+            message = (
+                "Keyboard settings could not be saved; previous settings remain active."
+                if self.editor.lang == "en"
+                else "Не вдалося зберегти налаштування клавіш; попередні налаштування залишаються активними."
+            )
+            return {
+                "ok": False,
+                "message": message,
+                "conflicts": [],
+                "requiresConfirmation": False,
+            }
+
+        return self._mutation_result(result)
 
     def _persist(self, *, replace_incompatible: bool = False) -> None:
         if self._profile_write_blocked and not replace_incompatible:
