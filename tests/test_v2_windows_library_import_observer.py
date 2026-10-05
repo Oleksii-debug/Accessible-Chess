@@ -3,10 +3,13 @@ from __future__ import annotations
 import tempfile
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 import unittest
 
 from acs.acsdb import AcsDatabase
+from acs.chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from acs.library_import_service import (
     LibraryImportProgress,
     LibraryImportResult,
@@ -145,9 +148,15 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
                     callback = kwargs["progress_callback"]
                     callback(LibraryImportProgress(17, 0, 2))
                     callback(LibraryImportProgress(17, 2, 2))
-                    return SimpleNamespace(
+                    return ChessBaseLibraryImportReport(
+                        status=ChessBaseLibraryImportStatus.IMPORTED_WITH_WARNINGS,
+                        source_name="database.cbh",
+                        source_sha256="a" * 64,
+                        backend_name="test-backend",
+                        backend_commit="b" * 40,
+                        decoded_game_count=2,
+                        warnings=(),
                         library_result=canonical_result,
-                        warning_count=1,
                     )
 
             base_bundle = Version2ImportWorkerServices(
@@ -189,10 +198,13 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
                     database.close,
                 )
 
+            class ObserverAbort(BaseException):
+                pass
+
             def fail_observer(value):
-                if isinstance(value, LibraryImportResult):
+                if type(value) is LibraryImportResult:
                     canonical_result_seen.set()
-                raise RuntimeError("UI observer deliberately unavailable")
+                raise ObserverAbort("UI observer deliberately aborted")
 
             factory = Version2ObservedImportServicesFactory(
                 base_factory,
@@ -224,6 +236,129 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             self.assertEqual(tuple(attempt), ("full", 2))
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertNotEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+
+    def test_derived_progress_is_rejected_before_observer_field_hooks(self) -> None:
+        touched: list[str] = []
+        observed: list[object] = []
+
+        class ActiveProgress(LibraryImportProgress):
+            def __getattribute__(self, name: str):
+                if name in {"attempt_id", "processed_games", "total_games"}:
+                    touched.append(name)
+                    raise AssertionError("derived progress field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveProgress.__new__(ActiveProgress)
+        object.__setattr__(hostile, "attempt_id", 1)
+        object.__setattr__(hostile, "processed_games", 0)
+        object.__setattr__(hostile, "total_games", 2)
+
+        class ActiveProgressLibrary:
+            def import_games(self, *_args, **kwargs):
+                kwargs["progress_callback"](hostile)
+                return LibraryImportResult(1, 1, 2, 0, 1, 2)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-progress.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+            bundle = Version2ImportWorkerServices(
+                ActiveProgressLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=observed.append,
+                result_sink=observed.append,
+            )
+            controller = self._controller(source, factory, events)
+
+            controller("library.import", {})
+            self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertEqual(observed, [])
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_derived_result_is_rejected_before_observer_field_hooks(self) -> None:
+        touched: list[str] = []
+        observed: list[object] = []
+
+        class ActiveResult(LibraryImportResult):
+            def __getattribute__(self, name: str):
+                if name in {"attempt_id", "source_id", "game_count", "warning_count"}:
+                    touched.append(name)
+                    raise AssertionError("derived result field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveResult.__new__(ActiveResult)
+        for name, value in (
+            ("attempt_id", 1),
+            ("source_id", 1),
+            ("game_count", 2),
+            ("warning_count", 0),
+            ("first_game_id", 1),
+            ("last_game_id", 2),
+            ("reused", False),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        class ActiveResultLibrary:
+            def import_games(self, *_args, **_kwargs):
+                return hostile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-result.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+            bundle = Version2ImportWorkerServices(
+                ActiveResultLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=observed.append,
+                result_sink=observed.append,
+            )
+            controller = self._controller(source, factory, events)
+
+            controller("library.import", {})
+            self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertEqual(observed, [])
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_factory_rejects_derived_bundle_before_service_field_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActiveBundle(Version2ImportWorkerServices):
+            def __getattribute__(self, name: str):
+                if name in {"library", "chessbase", "close"}:
+                    touched.append(name)
+                    raise AssertionError("derived bundle field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveBundle.__new__(ActiveBundle)
+        object.__setattr__(hostile, "library", _UnusedLibrary())
+        object.__setattr__(hostile, "chessbase", None)
+        object.__setattr__(hostile, "close", lambda: None)
+        factory = Version2ObservedImportServicesFactory(
+            lambda: hostile,
+            progress_sink=lambda value: None,
+            result_sink=lambda value: None,
+        )
+
+        with self.assertRaisesRegex(TypeError, "invalid bundle"):
+            factory()
+
+        self.assertEqual(touched, [])
 
     def test_factory_preserves_exact_cleanup_callback(self) -> None:
         closed = []
