@@ -40,3 +40,15 @@ class NativeFormatFailureFeedbackTests(unittest.TestCase):
             event = FileWorkflowEvent(FileWorkflowEventKind.FAILED, 'library.import', error_code=code)
             message = self.app._native_file_error_message(event)
             self.assertEqual(message, 'Не вдалося виконати дію.')
+
+    def test_unavailable_book_source_does_not_report_a_pgn_failure(self):
+        self.source = self.root / 'missing-private-book.md'
+        self.app.browser_command('library', 'library.import')
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        snapshot = self.app.snapshot()['library']['import']
+        self.assertEqual(snapshot['phase'], 'error')
+        self.assertIn('джерело книги', snapshot['progress_label'])
+        self.assertNotIn('PGN', snapshot['progress_label'])
+        self.assertNotIn('missing-private-book', snapshot['progress_label'])
+        self.assertIsNone(self.database.get_game(1))

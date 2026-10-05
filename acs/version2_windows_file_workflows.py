@@ -31,7 +31,7 @@ from .library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
 )
-from .book_library_import import BOOK_LIBRARY_SUFFIXES, open_book_library_source
+from .book_library_import import BOOK_LIBRARY_SUFFIXES, BookLibrarySourceReadError, open_book_library_source
 from .import_contract import SourceReadCancelledError
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from .pgn_service import PgnFileError, open_pgn
@@ -720,6 +720,12 @@ class Version2WindowsFileActionDelegate:
                     focus_target="library-import-file",
                 ),
             )
+        except BookLibrarySourceReadError:
+            self._emit_if_current(
+                generation,
+                FileWorkflowEvent(FileWorkflowEventKind.FAILED, "library.import",
+                                  focus_target="library-import-file", error_code="book_source_read_failed"),
+            )
         except PgnFileError:
             self._emit_if_current(
                 generation,
@@ -727,7 +733,9 @@ class Version2WindowsFileActionDelegate:
                     FileWorkflowEventKind.FAILED,
                     "library.import",
                     focus_target="library-import-file",
-                    error_code="pgn_import_failed",
+                    error_code=("pgn_import_failed" if suffix == ".pgn"
+                                else "book_source_read_failed" if suffix in BOOK_LIBRARY_SUFFIXES
+                                else "chessbase_import_failed"),
                 ),
             )
         except Exception:

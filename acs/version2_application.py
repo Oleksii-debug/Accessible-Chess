@@ -1756,6 +1756,10 @@ class Version2Application:
                 "Не вдалося імпортувати PGN. Перевірте формат і коректність партій.",
                 "PGN import failed. Check the format and game validity.",
             ),
+            "book_source_read_failed": (
+                "Не вдалося безпечно прочитати джерело книги. Перевірте файл і повторіть імпорт.",
+                "The book source could not be read safely. Check the file and retry the import.",
+            ),
             "import_already_running": (
                 "Попередній імпорт ще завершується. Повторіть дію після завершення.",
                 "The previous import is still finishing. Retry after it completes.",

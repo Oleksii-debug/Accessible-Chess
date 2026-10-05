@@ -21,6 +21,10 @@ from .report_paths import report_safe_name
 BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.html', '.htm', '.xhtml', '.md', '.markdown'})
 
 
+class BookLibrarySourceReadError(ValueError):
+    """A bounded book source could not be read under the canonical authority."""
+
+
 @dataclass(frozen=True, slots=True)
 class BookLibrarySource:
     source: SourceFingerprint
@@ -42,7 +46,10 @@ def open_book_library_source(
         limit = MAX_TEXT_SOURCE_BYTES
     else:
         limit = MAX_HTML_SOURCE_BYTES
-    source, raw = read_source_snapshot(source_path, max_bytes=limit, cancel_check=cancel_check)
+    try:
+        source, raw = read_source_snapshot(source_path, max_bytes=limit, cancel_check=cancel_check)
+    except (OSError, ValueError):
+        raise BookLibrarySourceReadError('book source could not be read safely') from None
 
     def poll():
         if cancel_check is not None:
