@@ -637,7 +637,12 @@ class PgnDocumentSession:
             overwrite=True,
             expected_sha256=self._source.sha256,
         )
-        self._source = saved
+        self._source = SourceFingerprint(
+            path=saved.path,
+            size=saved.size,
+            sha256=saved.sha256,
+            suffix=saved.suffix,
+        )
         self._saved_digest = self._workspace.content_digest
         self._workspace.mark_saved()
         self._document_revision += 1
@@ -676,7 +681,12 @@ class PgnDocumentSession:
             overwrite=overwrite,
             expected_sha256=expected,
         )
-        self._source = saved
+        self._source = SourceFingerprint(
+            path=saved.path,
+            size=saved.size,
+            sha256=saved.sha256,
+            suffix=saved.suffix,
+        )
         self._source_overwrite_safe = True
         self._global_warnings = ()
         self._saved_digest = self._workspace.content_digest
