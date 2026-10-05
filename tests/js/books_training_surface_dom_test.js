@@ -3102,6 +3102,23 @@ async function run() {
     "oversized Book error message did not fail closed accessibly"
   );
 
+  const languageRoot = new FakeElement("div");
+  const languageSnapshot = bookSnapshot(40, "English prose");
+  languageSnapshot.document.lang = "uk";
+  languageSnapshot.block.content_language = "en-GB";
+  window.AccessibleChessBookSurface.render(languageRoot, languageSnapshot,
+    () => null, () => {}, "book-block-40");
+  const sourceBlock = languageRoot.querySelector("#book-block-40");
+  check(sourceBlock.attributes.lang === "en-GB", "source language was not applied to narrative content");
+  check(document.activeElement === sourceBlock, "source language changed reading focus");
+  const languageRenders = languageRoot.replaceChildrenCalls;
+  languageSnapshot.block.content_language = 'en\" onclick=\"attack';
+  let invalidLanguageRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(languageRoot, languageSnapshot, () => null, () => {}, "book-block-40");
+  } catch (error) { invalidLanguageRejected = error instanceof TypeError; }
+  check(invalidLanguageRejected && languageRoot.replaceChildrenCalls === languageRenders,
+    "invalid source language mutated the stable reading DOM");
   console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
 

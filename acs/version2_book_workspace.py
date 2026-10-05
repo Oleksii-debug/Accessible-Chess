@@ -6,6 +6,7 @@ It never creates the legacy presenter's independent Board return point.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import re
 from typing import Any
 
 from .book_board_workflow import (
@@ -678,6 +679,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
         semantic = self._reader.block_snapshot(block.index)
+        if block.kind in {"Heading", "Paragraph", "List"}:
+            source_language = self._reader.document_language_snapshot()
+            # Source metadata is not a UI locale. Publish a bounded language
+            # token only for narrative content; chess controls keep UI language.
+            if (type(source_language) is str and len(source_language) <= 63
+                    and re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", source_language)):
+                snapshot["block"]["content_language"] = source_language
         board_active, workflow_revision = self._workflow_presentation_state()
         can_open_position = isinstance(
             semantic,

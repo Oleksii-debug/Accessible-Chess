@@ -87,6 +87,11 @@ class BookReader:
         self._require_indexed_revision()
         return len(self._indexed_document.warnings)
 
+    def document_language_snapshot(self) -> str | None:
+        """Source language from the same detached revision as readable blocks."""
+        self._require_indexed_revision()
+        return self._indexed_document.language
+
     def document_warnings_snapshot(
         self,
         *,

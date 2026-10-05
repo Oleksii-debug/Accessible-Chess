@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from acs.analysis_service import AnalysisService
 from acs.book_board_workflow import BookBoardWorkflow
-from acs.bookdocument import BookDocument, Game
+from acs.bookdocument import BookDocument, Game, Paragraph
 from acs.bookreader import BookReader
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
@@ -12,6 +12,26 @@ from acs.version2_book_workspace import build_version2_book_webview
 
 
 class BookSemanticGameMetadataTests(unittest.TestCase):
+    def test_narrative_source_language_uses_detached_reader_metadata(self):
+        document = BookDocument('Study', language='en-GB', blocks=[Paragraph(text='English prose')])
+        reader = BookReader(document)
+        analysis = AnalysisService(lambda: None)
+        self.addCleanup(analysis.close)
+        workflow = BookBoardWorkflow(reader, EngineAssistedWorkflowService(analysis))
+        bridge = build_version2_book_webview(reader, workflow, lambda *_: None, language=UILanguage.UA)
+        document.language = 'uk'
+        snapshot = bridge.projection.snapshot()
+        self.assertEqual(snapshot['block']['content_language'], 'en-GB')
+        self.assertEqual(snapshot['document']['lang'], 'uk')
+
+    def test_invalid_source_language_is_not_a_browser_attribute(self):
+        for language in ('x' * 64, 'en\" onclick=\"attack', 'C:/private/book'):
+            reader = BookReader(BookDocument('Study', language=language, blocks=[Paragraph(text='Prose')]))
+            analysis = AnalysisService(lambda: None)
+            self.addCleanup(analysis.close)
+            workflow = BookBoardWorkflow(reader, EngineAssistedWorkflowService(analysis))
+            bridge = build_version2_book_webview(reader, workflow, lambda *_: None)
+            self.assertNotIn('content_language', bridge.projection.snapshot()['block'])
     def compose(self, pgn, language=UILanguage.UA):
         reader = BookReader(BookDocument('Study', blocks=[Game(pgn=pgn)]))
         analysis = AnalysisService(lambda: None)

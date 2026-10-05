@@ -605,6 +605,13 @@
       throw new TypeError("Book snapshot block role is invalid");
     }
     requireBoundedText(block.kind, "Book snapshot block kind", false, 80);
+    if (block.content_language !== undefined) {
+      requireBoundedText(block.content_language, "Book content language", false, 63);
+      if (!["Heading", "Paragraph", "List"].includes(block.kind) ||
+          !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(block.content_language)) {
+        throw new TypeError("Book content language is invalid");
+      }
+    }
     const roleByKind = {
       Heading: "heading",
       Paragraph: "paragraph",
@@ -999,6 +1006,7 @@
       }
     }
     content.id = String(block.dom_id || "");
+    if (block.content_language) content.setAttribute("lang", block.content_language);
     content.tabIndex = -1;
 
     // Heading ancestry is reading context for the focused block, so keep the
