@@ -395,6 +395,8 @@ class LibraryExportService:
         row = self._database.get_game(game_id)
         if row is None:
             raise LibraryExportError("Library export game is unavailable")
+        if type(row) is not dict:
+            raise LibraryExportError("Library export game record is invalid")
         text = row.get("pgn_text")
         if type(text) is not str or not text.strip():
             raise LibraryExportError("Library export game has no canonical PGN")
