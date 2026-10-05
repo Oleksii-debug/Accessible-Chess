@@ -42,6 +42,8 @@ jobs:
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
           PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152
+          WINDOWS_EVIDENCE_SHA: 1728432f216d4f6cdda9d2283bea89c242c89337
+          TRAINING_DURABILITY_SHA: 5a22b18285fcc827f68f1aefaa7d19368654424a
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
@@ -64,6 +66,14 @@ jobs:
           git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
           live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
           test "$live_product" = "$PINNED_PRODUCT_SHA"
+
+          for evidence_sha in "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"; do
+            git cat-file -e "$evidence_sha^{commit}"
+            git merge-base --is-ancestor "$evidence_sha" HEAD
+          done
+          git merge-base --is-ancestor "$live_product" "$WINDOWS_EVIDENCE_SHA"
+          git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"
+          test "$(git merge-base "$live_product" "$TRAINING_DURABILITY_SHA")" = "$live_product"
 
           git merge-base --is-ancestor "$live_shipping" "$live_product"
           test "$(git merge-base "$live_shipping" "$live_product")" = "$live_shipping"
@@ -99,6 +109,25 @@ jobs:
             exit 1
           }
 
+          evidence_paths="$(printf '%s\n' \
+            '.github/workflows/current-product-training-durability-convergence.yml' \
+            '.github/workflows/current-product-windows-evidence-convergence.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            '.github/workflows/training-progress-durability.yml' \
+            'tests/test_current_product_training_durability_convergence_20261005.py' \
+            'tests/test_current_product_windows_evidence_convergence_20261005.py' \
+            'tests/test_p0_oneclick_exact_head_concurrency.py' \
+            'tests/test_portable_launch_report_reparse_concurrency.py' \
+            'tests/test_training_progress_durability_concurrency.py')"
+          while IFS= read -r evidence_path; do
+            test -n "$evidence_path"
+            test "$(git rev-parse "HEAD:$evidence_path")" = "$(git rev-parse "$TRAINING_DURABILITY_SHA:$evidence_path")" || {
+              printf 'Evidence path mutated after convergence: %s\n' "$evidence_path" >&2
+              exit 1
+            }
+          done <<< "$evidence_paths"
+
           candidate_paths="$(git diff --name-only "$live_shipping"...HEAD | sort)"
           expected_candidate="$(printf '%s\n%s\n' "$product_paths" "$expected_extra" | sed '/^$/d' | sort -u)"
           test "$candidate_paths" = "$expected_candidate" || {
@@ -113,6 +142,7 @@ jobs:
           echo "PRODUCT_SOURCE=$live_product"
           echo "PRODUCT_PATHS=$product_count"
           echo "QUALIFICATION_DELTA_PATHS=15"
+          echo "EVIDENCE_STACK_PATHS_UNMODIFIED=PASS"
           echo "CANDIDATE_PATHS=$candidate_count"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
