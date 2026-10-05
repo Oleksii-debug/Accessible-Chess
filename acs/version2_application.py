@@ -217,6 +217,9 @@ class Version2Application:
 
         (
             _token,
+            _route_command,
+            _request_id,
+            _projected_route,
             shell_state,
             prior_focus,
             prior_training_workspace,
@@ -1681,15 +1684,26 @@ class Version2Application:
                     )
 
                 publication_protocol = False
-                if type(payload) is dict and len(payload) == 1:
-                    key = next(iter(payload))
-                    if type(key) is str and key == "publication_protocol":
-                        value = payload[key]
-                        publication_protocol = (
-                            type(value) is str and value == "ack-v1"
-                        )
-                        if not publication_protocol:
-                            raise ValueError("unsupported shell publication protocol")
+                publication_request_id = None
+                if type(payload) is dict and "publication_protocol" in payload:
+                    keys = tuple(payload)
+                    if (
+                        len(keys) != 2
+                        or any(type(key) is not str for key in keys)
+                        or "request_id" not in payload
+                    ):
+                        raise ValueError("invalid shell publication request")
+                    value = payload["publication_protocol"]
+                    if type(value) is not str or value != "ack-v1":
+                        raise ValueError("unsupported shell publication protocol")
+                    publication_request_id = payload["request_id"]
+                    if (
+                        type(publication_request_id) is not int
+                        or publication_request_id <= 0
+                        or publication_request_id > 9007199254740991
+                    ):
+                        raise ValueError("invalid shell publication request")
+                    publication_protocol = True
 
                 if not empty_authority_payload and not publication_protocol:
                     raise ValueError("shell accepts no authority payload")
@@ -1705,6 +1719,12 @@ class Version2Application:
                 if publication_protocol and not command.startswith("screen."):
                     raise ValueError("shell publication protocol requires a route command")
                 if publication_protocol and self._pending_shell_publication is not None:
+                    pending = self._pending_shell_publication
+                    if (
+                        pending[1] == command
+                        and pending[2] == publication_request_id
+                    ):
+                        return pending[3]
                     raise ValueError("shell publication acknowledgement is pending")
                 if (
                     publication_protocol
@@ -1785,14 +1805,17 @@ class Version2Application:
                                 prior_training,
                             ) = publication_before
                             self.shell._begin_publication_hold()
+                            projected_payload["publication_token"] = token
                             self._pending_shell_publication = (
                                 token,
+                                command,
+                                publication_request_id,
+                                projected,
                                 prior_shell,
                                 prior_focus,
                                 prior_training_workspace,
                                 prior_training,
                             )
-                            projected_payload["publication_token"] = token
                 return projected
             if area_id == "training":
                 try:
