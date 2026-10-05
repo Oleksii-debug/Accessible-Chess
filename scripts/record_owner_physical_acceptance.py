@@ -189,7 +189,11 @@ def _validate_timestamp(value: object) -> str:
 
 
 def _validate_scenarios(value: object) -> dict[str, str]:
-    if type(value) is not dict or set(value) != set(REQUIRED_SCENARIOS):
+    if type(value) is not dict:
+        _fail("scenario_results must contain every required physical scenario exactly once")
+    if any(type(key) is not str for key in value):
+        _fail("scenario_results keys must be exact text")
+    if set(value) != set(REQUIRED_SCENARIOS):
         _fail("scenario_results must contain every required physical scenario exactly once")
     normalized: dict[str, str] = {}
     for name in REQUIRED_SCENARIOS:
