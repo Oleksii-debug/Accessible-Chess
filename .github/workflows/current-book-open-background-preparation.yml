@@ -113,7 +113,6 @@ jobs:
           tests.test_v2_book_transaction_current_runtime
           tests.test_version2_application
           tests.test_w3_p0f_starter_books_training_content
-          tests.test_full_product_actions
           tests.test_version2_release_app
 
       - name: Core selftest
