@@ -63,6 +63,7 @@ _SEMANTIC_LABELS = {
         "round": "Тур", "eco": "ECO", "opening": "Дебют",
         "reading_unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
         "content_unavailable": "Шаховий вміст цієї партії недоступний або невалідний; відкриття на шахівниці вимкнено.",
+        "recovery_warnings": "Шаховий текст відновлено з попередженнями: {count}. Перегляньте попередження перед використанням.",
     },
     UILanguage.EN: {
         "moves": "Moves and variations",
@@ -101,7 +102,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         super().__init__(BookReaderPresenter(reader, language=language), dispatch, language=language)
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
-        mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if (
+            type(workflow_warnings) is not tuple
+            or len(workflow_warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+            or any(type(warning) is not str for warning in workflow_warnings)
+        ):
+            raise _BookSemanticProjectionError("semantic workflow warnings are invalid")
         if (
             type(mode) is not BookBoardMode
             or mode not in {BookBoardMode.GAME, BookBoardMode.VARIATION}
@@ -118,6 +125,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             or len(game.warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
         ):
             raise _BookSemanticProjectionError("semantic GameTree metadata is invalid")
+        if len(workflow_warnings) != len(game.warnings):
+            raise _BookSemanticProjectionError("semantic workflow warnings are inconsistent")
         # An exact dict can still contain hostile key/value subclasses. Validate
         # the detached tag table by iteration before any named lookup can invoke
         # user-defined hashing/equality behavior through a malformed DTO.
@@ -651,6 +660,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             previous_depth = item.depth
 
         return {
+            "_recovery_warning_count": len(workflow_warnings),
             "kind": mode.value,
             "label": semantic_label,
             "players_label": players_label,
@@ -706,8 +716,22 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         )
         can_open_game = isinstance(semantic, Game)
         if isinstance(semantic, (Game, VariationTree)):
+            recovery_warning_count = 0
             try:
                 semantic_tree = self._semantic_tree_snapshot(block.index)
+                if type(semantic_tree) is not dict:
+                    raise _BookSemanticProjectionError("semantic GameTree snapshot is invalid")
+                recovery_warning_count = semantic_tree.pop(
+                    "_recovery_warning_count",
+                    0,
+                )
+                if (
+                    type(recovery_warning_count) is not int
+                    or not 0 <= recovery_warning_count <= _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+                ):
+                    raise _BookSemanticProjectionError(
+                        "semantic recovery warning count is invalid"
+                    )
                 expected_kind = "game" if isinstance(semantic, Game) else "variation"
                 if semantic_tree.get("kind") != expected_kind:
                     raise _BookSemanticProjectionError(
@@ -730,6 +754,22 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             except (_BookSemanticProjectionError, AttributeError, TypeError, ValueError):
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["reading_unavailable"]
+            else:
+                if recovery_warning_count:
+                    recovery_warning = _SEMANTIC_LABELS[self.language][
+                        "recovery_warnings"
+                    ].format(count=recovery_warning_count)
+                    existing_warning = snapshot["block"]["warning"]
+                    combined_warning = (
+                        f"{recovery_warning} {existing_warning}"
+                        if existing_warning
+                        else recovery_warning
+                    )
+                    snapshot["block"]["warning"] = _safe_text(
+                        combined_warning,
+                        language=self.language,
+                        limit=1000,
+                    )
         final_board_active, final_workflow_revision = self._workflow_presentation_state()
         if (
             final_board_active != board_active
