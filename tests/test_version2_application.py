@@ -129,7 +129,10 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(calls, [("pgn.cancel_save", {})])
         events = self.app.drain_events()
         self.assertEqual(events[-1]["kind"], "status")
-        self.assertIn("Скасовую", events[-1]["payload"]["announcement"])
+        announcement = events[-1]["payload"]["announcement"]
+        self.assertIn("Запит на скасування", announcement)
+        self.assertIn("ще не опубліковано", announcement)
+        self.assertNotIn("Скасовую", announcement)
 
     def test_pgn_save_preflight_and_postpublication_stale_messages_are_truthful(self):
         preflight = FileWorkflowEvent(
