@@ -248,6 +248,32 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertTrue(command.payload["prevent_default"])
         self.assertFalse(command.payload["editable"])
 
+    def test_active_focus_and_dialog_text_subclasses_fail_before_shell_mutation(self):
+        adapter, _ = self.make_adapter()
+
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active text hook must not execute")
+
+        hostile_focus = HostileText("board-launcher")
+        with self.assertRaisesRegex(TypeError, "focus target id"):
+            adapter.record_focus(hostile_focus)
+        self.assertFalse(HostileText.touched)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+        hostile_dialog = HostileText("settings-dialog")
+        failed = adapter.open_dialog(
+            hostile_dialog,
+            opener_focus_id="open-settings",
+            initial_focus_id="settings-list",
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostileText.touched)
+        self.assertIsNone(adapter.shell.active_dialog_id)
+
     def test_dialog_open_close_restores_exact_opener(self):
         adapter, _ = self.make_adapter()
         opened = adapter.open_dialog(
