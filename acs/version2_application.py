@@ -2106,7 +2106,15 @@ class Version2Application:
     def _file_event(self, event):
         kind = getattr(event.kind, "value", "")
         library_export = getattr(event, "action_id", "") == "library.export"
-        terminal_export = library_export and kind in {"exported", "dialog_cancelled", "failed"}
+        error_code = getattr(event, "error_code", "")
+        active_worker_failure = (
+            library_export
+            and kind == "failed"
+            and error_code in {"library_export_failed", "library_export_worker_failed"}
+        )
+        terminal_export = library_export and (
+            kind in {"exported", "dialog_cancelled"} or active_worker_failure
+        )
 
         # Keep the visible Library operation controls aligned with the trusted
         # host lifecycle without forcing a whole-product repaint. The partial
