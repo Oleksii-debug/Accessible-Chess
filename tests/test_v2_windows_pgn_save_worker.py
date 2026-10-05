@@ -376,7 +376,7 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertIsNone(session.source)
             self.assertTrue(session.dirty)
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.FAILED)
-            self.assertEqual(async_events[-1].error_code, "pgn_save_failed")
+            self.assertEqual(async_events[-1].error_code, "pgn_save_conflict")
 
     def test_existing_save_as_target_replaced_after_fingerprint_is_not_clobbered(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -418,7 +418,7 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertIsNone(session.source)
             self.assertTrue(session.dirty)
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.FAILED)
-            self.assertEqual(async_events[-1].error_code, "pgn_save_failed")
+            self.assertEqual(async_events[-1].error_code, "pgn_save_conflict")
 
     def test_slow_save_as_worker_does_not_hold_owner_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -575,6 +575,46 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
                 release.set()
                 self.assertTrue(controller.wait_for_pgn_save(5.0))
                 poster.drain()
+
+    def test_external_source_change_reports_conflict_without_clobber(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-conflict.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Local unsaved generation")
+            controller, _, poster, _, async_events, _, _ = self._controller(session)
+
+            from acs import version2_windows_file_workflows as workflows
+
+            real_publish = workflows.publish_pgn_save_snapshot
+
+            def external_change_before_publish(*args, **kwargs):
+                source.write_text(
+                    PGN_TEXT.replace("Background save", "External generation"),
+                    encoding="utf-8",
+                )
+                return real_publish(*args, **kwargs)
+
+            with mock.patch.object(
+                workflows,
+                "publish_pgn_save_snapshot",
+                side_effect=external_change_before_publish,
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            source_text = source.read_text(encoding="utf-8")
+            self.assertIn("External generation", source_text)
+            self.assertNotIn("Local unsaved generation", source_text)
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_conflict")
+            self.assertNotIn(str(source), repr(terminal))
 
     def test_worker_failure_preserves_dirty_state_and_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
