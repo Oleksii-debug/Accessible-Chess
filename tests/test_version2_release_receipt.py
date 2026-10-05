@@ -11,9 +11,12 @@ from acs.version2_package_preflight import Version2PackagePreflightError
 from acs.version2_release_receipt import (
     CANONICAL_W5_WORKFLOW,
     RELEASE_RECEIPT_SCHEMA_VERSION,
+    REPOSITORY_FULL_NAME,
     Version2ReleaseReceiptError,
     build_version2_release_receipt,
     main,
+    read_version2_release_receipt,
+    verify_version2_release_receipt,
     write_version2_release_receipt,
 )
 from tests.test_version2_package_preflight import _SHA, _make_tree
@@ -22,8 +25,13 @@ from tests.test_version2_package_preflight import _SHA, _make_tree
 _HEAD_SHA = "b" * 40
 
 
-def _zip_tree(root: Path, archive_path: Path) -> None:
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+def _zip_tree(
+    root: Path,
+    archive_path: Path,
+    *,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> None:
+    with zipfile.ZipFile(archive_path, "w", compression=compression) as archive:
         for path in sorted(
             (item for item in root.rglob("*") if item.is_file()),
             key=lambda item: item.relative_to(root).as_posix().casefold(),
@@ -45,6 +53,7 @@ def _build(archive: Path, **kwargs):
     arguments = {
         "expected_integration_sha": _SHA,
         "workflow_run_id": 37139145605,
+        "workflow_run_attempt": 1,
         "qualification_head_sha": _HEAD_SHA,
         "artifact_id": 11282014673,
         "artifact_name": "dostupni-shakhy-w5exact-win-x64-standalone",
@@ -61,8 +70,10 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
 
             self.assertEqual(receipt.schema_version, RELEASE_RECEIPT_SCHEMA_VERSION)
             self.assertEqual(receipt.product, "Accessible Chess")
+            self.assertEqual(receipt.repository, REPOSITORY_FULL_NAME)
             self.assertEqual(receipt.workflow_path, CANONICAL_W5_WORKFLOW)
             self.assertEqual(receipt.workflow_run_id, 37139145605)
+            self.assertEqual(receipt.workflow_run_attempt, 1)
             self.assertEqual(receipt.qualification_head_sha, _HEAD_SHA)
             self.assertEqual(receipt.artifact_id, 11282014673)
             self.assertEqual(
@@ -101,6 +112,8 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             invalid = (
                 {"workflow_run_id": True},
                 {"workflow_run_id": 0},
+                {"workflow_run_attempt": False},
+                {"workflow_run_attempt": 0},
                 {"artifact_id": False},
                 {"artifact_id": -1},
                 {"qualification_head_sha": "B" * 40},
@@ -126,6 +139,8 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             self.assertEqual(raw, receipt.to_json())
             self.assertTrue(raw.endswith("\n"))
             self.assertEqual(len(raw.splitlines()), 1)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+            self.assertEqual(verify_version2_release_receipt(output, archive), receipt)
 
             with self.assertRaisesRegex(
                 Version2ReleaseReceiptError,
@@ -133,6 +148,72 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 write_version2_release_receipt(output, receipt)
             self.assertEqual(output.read_text(encoding="utf-8"), raw)
+
+    def test_readback_rejects_duplicate_unknown_and_wrong_authority_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            payload = json.loads(receipt.to_json())
+
+            payload["repository"] = "somewhere/else"
+            output.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "repository identity mismatch",
+            ):
+                read_version2_release_receipt(output)
+
+            payload["repository"] = REPOSITORY_FULL_NAME
+            payload["unexpected"] = True
+            output.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "schema mismatch",
+            ):
+                read_version2_release_receipt(output)
+
+            duplicate = receipt.to_json().rstrip("\n")
+            duplicate = duplicate[:-1] + ',"artifact_id":1}'
+            output.write_text(duplicate, encoding="utf-8")
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "duplicate JSON key 'artifact_id'",
+            ):
+                read_version2_release_receipt(output)
+
+    def test_readback_rejects_semantically_valid_but_different_zip_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, archive = _fixture(td)
+            receipt_path = Path(td) / "receipt.json"
+            write_version2_release_receipt(receipt_path, _build(archive))
+
+            alternate = Path(td) / "alternate.zip"
+            _zip_tree(root, alternate, compression=zipfile.ZIP_STORED)
+            self.assertNotEqual(
+                hashlib.sha256(archive.read_bytes()).hexdigest(),
+                hashlib.sha256(alternate.read_bytes()).hexdigest(),
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "does not match the revalidated package bytes",
+            ):
+                verify_version2_release_receipt(receipt_path, alternate)
+
+    def test_readback_rejects_tampered_digest_even_when_package_is_valid(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            payload = json.loads(receipt.to_json())
+            payload["package_sha256"] = "0" * 64
+            output.write_text(json.dumps(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "does not match the revalidated package bytes",
+            ):
+                verify_version2_release_receipt(output, archive)
 
     def test_cli_writes_the_same_qualified_receipt(self):
         with tempfile.TemporaryDirectory() as td:
@@ -146,6 +227,8 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     _SHA,
                     "--workflow-run-id",
                     "37139145605",
+                    "--workflow-run-attempt",
+                    "1",
                     "--qualification-head-sha",
                     _HEAD_SHA,
                     "--artifact-id",
@@ -158,9 +241,15 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             )
             self.assertEqual(result, 0)
             payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["repository"], REPOSITORY_FULL_NAME)
             self.assertEqual(payload["workflow_run_id"], 37139145605)
+            self.assertEqual(payload["workflow_run_attempt"], 1)
             self.assertEqual(payload["artifact_id"], 11282014673)
             self.assertEqual(payload["qualification_head_sha"], _HEAD_SHA)
+            self.assertEqual(
+                verify_version2_release_receipt(output, archive),
+                read_version2_release_receipt(output),
+            )
 
 
 if __name__ == "__main__":
