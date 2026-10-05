@@ -287,6 +287,36 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[-1]["kind"], "status")
         self.assertIn("збережено", events[-1]["payload"]["announcement"])
 
+    def test_async_recovered_pgn_open_announces_overwrite_protection(self):
+        self.app.set_document(PgnDocumentSession.open(self.source))
+        self.app.drain_events()
+        opened = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.PGN_OPENED,
+            action_id="pgn.open",
+            focus_target="pgn-game-list",
+            game_count=1,
+            warning_count=2,
+        )
+
+        self.app.import_ui_ready(SimpleNamespace(drain=lambda: (opened,)))
+
+        events = self.app.drain_events()
+        self.assertEqual(events[0]["kind"], "route")
+        self.assertEqual(events[1]["kind"], "status")
+        announcement = events[1]["payload"]["announcement"]
+        self.assertIn("попередженнями відновлення: 2", announcement)
+        self.assertIn("захищено від звичайного перезапису", announcement)
+        self.assertIn("Зберегти як", announcement)
+        self.assertNotIn(str(self.root), announcement)
+
+        self.app.shell.set_language(UILanguage.EN)
+        self.app._file_event(opened)
+        english = self.app.drain_events()[-1]["payload"]["announcement"]
+        self.assertIn("recovery warnings: 2", english)
+        self.assertIn("protected from normal overwrite", english)
+        self.assertIn("Save As", english)
+        self.assertNotIn(str(self.root), english)
+
     def test_async_pgn_open_completion_refreshes_route_and_announces(self):
         self.app.set_document(PgnDocumentSession.open(self.source))
         self.app.drain_events()
