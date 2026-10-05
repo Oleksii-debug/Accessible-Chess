@@ -489,6 +489,26 @@ class Version2WindowsFileActionDelegate:
                 "pgn.open", "pgn_open_stale", focus_target=previous_focus
             )
 
+        # The modal picker may have pumped a re-entrant file action or shutdown.
+        # Revalidate shared-worker ownership before *any* PGN parsing path,
+        # including the legacy synchronous embedding seam below.
+        with self._lock:
+            shutdown_requested = self._shutdown_requested
+            worker_kind = self._worker_kind if self._worker is not None else ""
+        if shutdown_requested:
+            return self._failed(
+                "pgn.open", "file_workflow_closed", focus_target=previous_focus
+            )
+        if worker_kind:
+            focus_target = (
+                "library-import-cancel"
+                if worker_kind == "import"
+                else "pgn-open-cancel"
+            )
+            return self._failed(
+                "pgn.open", "file_worker_busy", focus_target=focus_target
+            )
+
         # Legacy direct-controller tests and non-Windows embeddings do not own a
         # UI poster. Keep their historical synchronous seam while the real
         # Version2 Windows composition always injects the WinForms poster below.
