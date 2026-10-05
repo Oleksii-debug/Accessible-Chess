@@ -187,6 +187,33 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_preflight_rejects_native_pe_substituted_for_managed_runtime(self):
+        for relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                root = self._package(td)
+                root.joinpath(*relative.split("/")).write_bytes(_minimal_windows_pe())
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "managed CLR assembly",
+                ):
+                    _validate_tree(root)
+
+    def test_zip_readback_rejects_native_pe_substituted_for_managed_runtime(self):
+        relative = "AccessibleChess/pythonnet/runtime/Python.Runtime.dll"
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = self._package(td)
+            root.joinpath(*relative.split("/")).write_bytes(_minimal_windows_pe())
+            _write_checksums(root)
+            archive = base / "native-python-runtime.zip"
+            _zip_tree(root, archive)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "managed CLR assembly",
+            ):
+                _validate_zip(archive)
+
     def test_preflight_rejects_non_windows_stockfish_binary(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
