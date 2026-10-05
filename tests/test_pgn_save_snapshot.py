@@ -20,7 +20,10 @@ from acs.pgn_save_snapshot import (
     expected_pgn_destination_sha256,
     publish_pgn_save_snapshot,
 )
-from acs.pgn_service import save_pgn_atomic as canonical_save_pgn_atomic
+from acs.pgn_service import (
+    PgnPublicationUnverifiedError,
+    save_pgn_atomic as canonical_save_pgn_atomic,
+)
 from acs.pgn_workspace import PgnWorkspace
 
 
@@ -86,6 +89,206 @@ class PgnSaveSnapshotTests(unittest.TestCase):
             )
 
         self.assertFalse(target.exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_save_as_malformed_writer_result_is_publication_unverified(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        requested = self.root / "malformed-writer-result.pgn"
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=object(),
+        ):
+            with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                publish_pgn_save_snapshot(snapshot, path=requested)
+
+        self.assertIsInstance(caught.exception.__cause__, TypeError)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_save_noncanonical_writer_fingerprint_is_publication_unverified(self) -> None:
+        source = self.write_document("noncanonical-writer-source.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Dirty writer provenance")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        malformed = SourceFingerprint(
+            path=str(source.absolute()),
+            size=source.stat().st_size,
+            sha256="F" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=malformed,
+        ):
+            with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                publish_pgn_save_snapshot(snapshot)
+
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
+        self.assertEqual(Path(session.source.path), source)
+        self.assertTrue(session.dirty)
+
+    def test_save_rejects_writer_provenance_for_different_path(self) -> None:
+        source = self.write_document("writer-path-save-source.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Requested source generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        wrong_path = self.root / "writer-path-wrong-save.pgn"
+        wrong = SourceFingerprint(
+            path=str(wrong_path.absolute()),
+            size=123,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=wrong,
+        ) as writer:
+            with self.assertRaises(PgnPublicationUnverifiedError):
+                publish_pgn_save_snapshot(snapshot)
+
+        writer.assert_called_once()
+        self.assertEqual(Path(session.source.path), source)
+        self.assertTrue(session.dirty)
+
+    def test_save_as_rejects_writer_provenance_for_different_path(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        requested = self.root / "writer-path-requested-save-as.pgn"
+        wrong_path = self.root / "writer-path-wrong-save-as.pgn"
+        wrong = SourceFingerprint(
+            path=str(wrong_path.absolute()),
+            size=456,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=wrong,
+        ) as writer:
+            with self.assertRaises(PgnPublicationUnverifiedError):
+                publish_pgn_save_snapshot(snapshot, path=requested)
+
+        writer.assert_called_once()
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_destination_fingerprint_rejects_noncanonical_authority_result(self) -> None:
+        class ActiveFingerprint:
+            @property
+            def sha256(self):
+                raise AssertionError("malformed fingerprint property executed")
+
+        target = self.write_document("fingerprint-authority-result.pgn")
+
+        with patch(
+            "acs.pgn_save_snapshot.fingerprint",
+            return_value=ActiveFingerprint(),
+        ):
+            with self.assertRaises(TypeError):
+                expected_pgn_destination_sha256(target)
+
+    def test_destination_fingerprint_rejects_active_digest_without_hook(self) -> None:
+        class ActiveText(str):
+            def __len__(self):
+                raise AssertionError("active digest length executed")
+
+        target = self.write_document("fingerprint-active-digest.pgn")
+        canonical = SourceFingerprint(
+            path=str(target.absolute()),
+            size=target.stat().st_size,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        object.__setattr__(canonical, "sha256", ActiveText("0" * 64))
+
+        with patch(
+            "acs.pgn_save_snapshot.fingerprint",
+            return_value=canonical,
+        ):
+            with self.assertRaises(TypeError):
+                expected_pgn_destination_sha256(target)
+
+    def test_destination_fingerprint_rejects_wrong_path_authority(self) -> None:
+        target = self.write_document("fingerprint-requested.pgn")
+        other = self.write_document("fingerprint-other.pgn")
+        wrong = SourceFingerprint(
+            path=str(other.absolute()),
+            size=other.stat().st_size,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.fingerprint",
+            return_value=wrong,
+        ):
+            with self.assertRaises(ValueError):
+                expected_pgn_destination_sha256(target)
+
+    def test_destination_fingerprint_rejects_active_path_protocol_without_hook(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path protocol executed")
+
+        with self.assertRaises(TypeError):
+            expected_pgn_destination_sha256(ActivePath())  # type: ignore[arg-type]
+
+        self.assertEqual(touched, [])
+
+    def test_publish_save_as_rejects_active_path_protocol_before_writer_io(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path protocol executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            side_effect=AssertionError("writer must not run for active destination"),
+        ) as writer:
+            with self.assertRaises(TypeError):
+                publish_pgn_save_snapshot(
+                    snapshot,
+                    path=ActivePath(),  # type: ignore[arg-type]
+                )
+
+        writer.assert_not_called()
+        self.assertEqual(touched, [])
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_publish_save_as_rejects_derived_text_path_before_writer_io(self) -> None:
+        class ActiveText(str):
+            def __str__(self):
+                raise AssertionError("derived text conversion executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            side_effect=AssertionError("writer must not run for derived destination"),
+        ) as writer:
+            with self.assertRaises(TypeError):
+                publish_pgn_save_snapshot(
+                    snapshot,
+                    path=ActiveText(str(self.root / "derived.pgn")),
+                )
+
+        writer.assert_not_called()
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
@@ -518,6 +721,101 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(session._saved_digest, saved_digest_before)
         self.assertEqual(session._source_overwrite_safe, 1)
 
+    def test_capture_rejects_warning_generation_change_during_detach(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        workspace = session.workspace
+        real_games = PgnWorkspace.games
+
+        def racing_games(bound_workspace):
+            games = real_games(bound_workspace)
+            if bound_workspace is workspace:
+                session._global_warnings = ("newer recovery warning",)
+            return games
+
+        with patch.object(
+            PgnWorkspace,
+            "games",
+            autospec=True,
+            side_effect=racing_games,
+        ):
+            with self.assertRaises(PgnDocumentError) as caught:
+                capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertEqual(session._global_warnings, ("newer recovery warning",))
+        self.assertIs(session.workspace, workspace)
+
+    def test_commit_rejects_replaced_workspace_with_same_content_generation(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "replaced-workspace-same-content.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+
+        original_workspace = session.workspace
+        replacement = PgnWorkspace(original_workspace.games())
+        replacement._rebase_saved_digest(session._saved_digest)
+        self.assertEqual(replacement.content_digest, original_workspace.content_digest)
+        self.assertEqual(replacement.content_revision, original_workspace.content_revision)
+        session._workspace = replacement
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertIs(session.workspace, replacement)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
+
+    def test_commit_rejects_active_live_global_warning_before_equality(self) -> None:
+        class ActiveText(str):
+            def __eq__(self, other):
+                raise AssertionError("active warning equality executed")
+
+            def __ne__(self, other):
+                raise AssertionError("active warning inequality executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "active-live-warning.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        active_warning = ActiveText("newer warning")
+        session._global_warnings = (active_warning,)
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertIs(session._global_warnings[0], active_warning)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
+
+    def test_save_as_commit_preserves_newer_recovery_warning_generation(self) -> None:
+        source = self.root / "recovery-warning-generation-source.pgn"
+        raw = DOCUMENT.encode("utf-8") + b"\n{broken byte: \xff}\n"
+        source.write_bytes(raw)
+        session = PgnDocumentSession.open(source)
+        self.assertFalse(session.view().source_overwrite_safe)
+        original_warnings = session.view().global_warnings
+        self.assertTrue(original_warnings)
+
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "recovery-warning-generation-target.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        newer_warnings = original_warnings + ("newer recovery decision",)
+        session._global_warnings = newer_warnings
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertEqual(session.view().global_warnings, newer_warnings)
+        self.assertFalse(session.view().source_overwrite_safe)
+        self.assertEqual(Path(session.source.path), source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
+        self.assertEqual(source.read_bytes(), raw)
+
     def test_commit_rejects_active_live_workspace_digest_before_rebind(self) -> None:
         source = self.write_document("active-live-workspace-digest.pgn")
         session = PgnDocumentSession.open(source)
@@ -920,6 +1218,33 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), source_bytes)
         self.assertTrue(session.dirty)
         self.assertIn("Pending Save", session.copy_pgn())
+
+    def test_tampered_snapshot_workspace_reference_is_rejected_before_io(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "tampered-workspace-ref.pgn"
+        object.__setattr__(snapshot, "_workspace_ref", _ExplodingSessionRef())
+
+        with self.assertRaises(TypeError):
+            publish_pgn_save_snapshot(snapshot, path=target)
+
+        self.assertFalse(target.exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_tampered_snapshot_warning_generation_is_rejected_before_io(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "tampered-warning-generation.pgn"
+        object.__setattr__(snapshot, "_global_warnings_before", ("tampered",))
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            publish_pgn_save_snapshot(snapshot, path=target)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertFalse(target.exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
 
     def test_tampered_snapshot_session_reference_is_rejected_before_callback(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
