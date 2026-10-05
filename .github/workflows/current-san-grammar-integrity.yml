@@ -50,8 +50,8 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           CURRENT_PRODUCT: d247588c55bd915df41d8fad43c65154371056e4
-          NOTATION_BLOB: 31de077016a26a29038aa0694635bbb3ce2b8af1
-          TEST_BLOB: 75b711d045c285a511d68451f08ee16481fb5d5f
+          NOTATION_BLOB: 92f9afb23cc1031355089f43bf413694228ef051
+          TEST_BLOB: e024d6b7fbc48339ac0c8f5c0d4ee9afb4bb9e08
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
