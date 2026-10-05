@@ -60,12 +60,13 @@ def open_book_library_source(
                 raise SourceReadCancelledError('book game import cancelled')
 
     poll()
+    control = {"control_checkpoint": poll} if cancel_check is not None else {}
     if suffix == '.epub':
-        imported = import_epub_book(raw, source_name=report_safe_name(source_path))
+        imported = import_epub_book(raw, source_name=report_safe_name(source_path), **control)
     elif suffix in {'.md', '.markdown'}:
-        imported = import_text_book(raw, source_name=report_safe_name(source_path), source_format=BookTextFormat.MARKDOWN)
+        imported = import_text_book(raw, source_name=report_safe_name(source_path), source_format=BookTextFormat.MARKDOWN, **control)
     else:
-        imported = import_html_book(raw, source_name=report_safe_name(source_path), available_assets=())
+        imported = import_html_book(raw, source_name=report_safe_name(source_path), available_assets=(), **control)
     poll()
     games = []
     prose_blocks = 0

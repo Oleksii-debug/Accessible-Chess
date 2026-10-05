@@ -14,6 +14,7 @@ from enum import Enum
 from hashlib import sha256
 import re
 from types import MappingProxyType
+from typing import Callable
 
 from .bookdocument import (
     BookDocument,
@@ -413,12 +414,14 @@ def _is_fence_close(line: str, marker: str) -> bool:
     )
 
 
-def _parse_txt(text: str, builder: _Builder) -> None:
+def _parse_txt(text: str, builder: _Builder, control_checkpoint: Callable[[], None] | None = None) -> None:
     lines = _normalize_newlines(text).split("\n")
     paragraph: list[str] = []
     start = 1
     visible = 0
     for number, line in enumerate(lines, start=1):
+        if control_checkpoint is not None and number % 128 == 1:
+            control_checkpoint()
         visible += len(line)
         if visible > MAX_TEXT_VISIBLE_CHARS:
             raise BookTextImportError(
@@ -437,7 +440,7 @@ def _parse_txt(text: str, builder: _Builder) -> None:
         builder.paragraph(_compact_paragraph(paragraph), start)
 
 
-def _parse_markdown(text: str, builder: _Builder) -> None:
+def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[], None] | None = None) -> None:
     lines = _normalize_newlines(text).split("\n")
     paragraph: list[str] = []
     paragraph_start = 1
@@ -451,6 +454,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             paragraph = []
 
     while index < len(lines):
+        if control_checkpoint is not None:
+            control_checkpoint()
         line = lines[index]
         number = index + 1
         visible += len(line)
@@ -469,6 +474,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             closed = False
             while index < len(lines):
+                if control_checkpoint is not None and index % 128 == 0:
+                    control_checkpoint()
                 current = lines[index]
                 if _is_fence_close(current, marker):
                     closed = True
@@ -593,6 +600,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             expected = (start_value + 1) if start_value is not None else None
             next_index = index + 1
             while next_index < len(lines):
+                if control_checkpoint is not None and next_index % 128 == 0:
+                    control_checkpoint()
                 candidate = lines[next_index]
                 candidate_match = _LIST_RE.match(candidate)
                 if candidate_match is None or candidate_match.group("indent") != indent:
@@ -629,6 +638,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             # surface the structural loss explicitly.
             nested_warning_emitted = False
             while next_index < len(lines):
+                if control_checkpoint is not None and next_index % 128 == 0:
+                    control_checkpoint()
                 nested_line = lines[next_index]
                 nested_match = _LIST_RE.match(nested_line)
                 if nested_match is None:
@@ -681,6 +692,7 @@ def import_text_book(
     title: str | None = None,
     author: str | None = None,
     language: str | None = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> BookTextImportResult:
     """Import UTF-8, BOM UTF-16 or qualified Windows-1251 into ``BookDocument``.
 
@@ -689,6 +701,10 @@ def import_text_book(
     Markdown chess semantics require explicit fenced ``pgn``/``fen`` markers.
     """
 
+    if control_checkpoint is not None:
+        if not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable")
+        control_checkpoint()
     display_source = _required_text(source_name, "source_name")
     resolved_format = _format(source_format)
     override_title = _optional_text(title, "title")
@@ -700,9 +716,12 @@ def import_text_book(
         builder.warning("Legacy Windows-1251 book text was decoded losslessly.")
 
     if resolved_format is BookTextFormat.TXT:
-        _parse_txt(text, builder)
+        _parse_txt(text, builder, control_checkpoint)
     else:
-        _parse_markdown(text, builder)
+        _parse_markdown(text, builder, control_checkpoint)
+
+    if control_checkpoint is not None:
+        control_checkpoint()
 
     if not builder.blocks:
         raise BookTextImportError(

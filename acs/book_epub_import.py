@@ -19,6 +19,7 @@ import stat
 import unicodedata
 import zlib
 from types import MappingProxyType
+from typing import Callable
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 from xml.parsers import expat
@@ -1895,6 +1896,7 @@ def import_epub_book(
     title: str | None = None,
     author: str | None = None,
     language: str | None = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> BookEpubImportResult:
     """Import a bounded EPUB 2/3 package through existing semantic adapters.
 
@@ -1903,6 +1905,10 @@ def import_epub_book(
     Unsupported spine media is reported explicitly rather than silently invented.
     """
 
+    if control_checkpoint is not None:
+        if not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable")
+        control_checkpoint()
     raw = _source_bytes(source)
     expected_archive_entries = _validate_single_disk_zip_end_records(raw)
     display_source = _required_text(source_name, "source_name")
@@ -1920,6 +1926,8 @@ def import_epub_book(
         ) from exc
 
     with archive:
+        if control_checkpoint is not None:
+            control_checkpoint()
         index = _archive_index(archive)
         infos = archive.infolist()
         if len(infos) != expected_archive_entries:
@@ -1955,6 +1963,8 @@ def import_epub_book(
         ] = []
         selected_version: str | None = None
         for rendition_index, rendition_name in enumerate(opf_names, start=1):
+            if control_checkpoint is not None:
+                control_checkpoint()
             rendition_package = _xml_root(
                 _read_entry(
                     archive,
@@ -2025,6 +2035,8 @@ def import_epub_book(
         imported_spine = 0
 
         for chapter_index, item_id in enumerate(spine, start=1):
+            if control_checkpoint is not None:
+                control_checkpoint()
             item = _supported_manifest_item(item_id, manifest)
             if item is None:
                 warnings.add(
@@ -2037,6 +2049,7 @@ def import_epub_book(
                     chapter,
                     source_name=f"{display_source}::{item.entry_name}",
                     available_assets=None,
+                    **({"control_checkpoint": control_checkpoint} if control_checkpoint is not None else {}),
                 )
             except BookHtmlImportError as exc:
                 if exc.code is BookHtmlImportErrorCode.NO_READABLE_CONTENT:
@@ -2063,6 +2076,8 @@ def import_epub_book(
                 ) from exc
 
             imported_spine += 1
+            if control_checkpoint is not None:
+                control_checkpoint()
             chapter_titles.append(imported.document.title)
             pgn_games += imported.pgn_games
             for warning in imported.warnings:
