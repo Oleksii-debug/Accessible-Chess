@@ -19,8 +19,10 @@ import sys
 
 from acs.version2_portable_package import (
     Version2PortablePackageError,
+    _same_file_snapshot,
     _stable_bytes,
     _stable_digest,
+    _sync_published_zip_namespace,
 )
 from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
 
@@ -45,6 +47,23 @@ BASE_RECEIPT_KEYS = {
     "human_tested",
     "nvda_verified",
     "result",
+}
+
+FINAL_RECEIPT_KEYS = BASE_RECEIPT_KEYS | {
+    "receipt_schema_version",
+    "finalizer_product_sha",
+    "finalizer_workflow_sha",
+    "source_w4_product_sha",
+    "source_w4_workflow_sha",
+    "source_w4_run_id",
+    "source_w4_run_attempt",
+    "source_w4_workflow_id",
+    "source_w4_candidate_sha256",
+    "owner_seed_archive_sha256",
+    "machine_root_launch_verified",
+    "pre_upload_release_freshness",
+    "finalizer_run_id",
+    "finalizer_run_attempt",
 }
 
 
@@ -102,6 +121,101 @@ def _strict_json_object(path: Path) -> dict[str, object]:
     return value
 
 
+def _final_provenance(
+    *,
+    product_sha: str,
+    w4_workflow_sha: str,
+    w4_run_id: int,
+    w4_run_attempt: int,
+    w4_workflow_id: int,
+    w4_candidate_sha: str,
+    seed_sha: str,
+    run_id: int,
+    run_attempt: int,
+) -> dict[str, object]:
+    return {
+        "receipt_schema_version": 1,
+        "finalizer_product_sha": product_sha,
+        "finalizer_workflow_sha": product_sha,
+        "source_w4_product_sha": product_sha,
+        "source_w4_workflow_sha": w4_workflow_sha,
+        "source_w4_run_id": w4_run_id,
+        "source_w4_run_attempt": w4_run_attempt,
+        "source_w4_workflow_id": w4_workflow_id,
+        "source_w4_candidate_sha256": w4_candidate_sha,
+        "owner_seed_archive_sha256": seed_sha,
+        "machine_root_launch_verified": True,
+        "pre_upload_release_freshness": True,
+        "finalizer_run_id": run_id,
+        "finalizer_run_attempt": run_attempt,
+    }
+
+
+def _validate_final_provenance(
+    value: dict[str, object],
+    expected: dict[str, object],
+) -> None:
+    for key, expected_value in expected.items():
+        actual = value.get(key)
+        if type(actual) is not type(expected_value) or actual != expected_value:
+            _fail(f"owner final receipt finalized provenance mismatch: {key}")
+
+
+def _canonical_receipt_bytes(value: dict[str, object]) -> bytes:
+    try:
+        return (
+            json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+        raise OwnerFinalReceiptError(
+            "finalized owner receipt cannot be serialized canonically"
+        ) from exc
+
+
+def _confirm_final_receipt_durable(
+    receipt: Path,
+    expected_value: dict[str, object],
+) -> None:
+    """Confirm one canonical finalized receipt is crash-durable and unchanged."""
+
+    try:
+        before = receipt.lstat()
+    except OSError as exc:
+        raise OwnerFinalReceiptError(
+            "owner final receipt publication cannot be inspected"
+        ) from exc
+    try:
+        durable = _sync_published_zip_namespace(receipt, expected=before)
+    except Version2PortablePackageError as exc:
+        raise OwnerFinalReceiptError(
+            "owner final receipt publication durability could not be confirmed"
+        ) from exc
+    try:
+        payload = _stable_bytes(
+            receipt,
+            label="owner final receipt publication",
+            maximum=MAX_RECEIPT_BYTES,
+        )
+    except Version2PortablePackageError as exc:
+        raise OwnerFinalReceiptError(
+            "owner final receipt publication cannot be read back stably"
+        ) from exc
+    try:
+        after = receipt.lstat()
+    except OSError as exc:
+        raise OwnerFinalReceiptError(
+            "owner final receipt publication cannot be revalidated"
+        ) from exc
+    if not _same_file_snapshot(durable, after):
+        _fail("owner final receipt changed during publication readback")
+    canonical = _canonical_receipt_bytes(expected_value)
+    if len(canonical) > MAX_RECEIPT_BYTES:
+        _fail("finalized owner receipt exceeds its byte budget")
+    if payload != canonical:
+        _fail("published owner final receipt does not match finalized provenance")
+
+
 def finalize_owner_final_receipt(
     receipt_path: str | Path,
     final_zip_path: str | Path,
@@ -131,7 +245,7 @@ def finalize_owner_final_receipt(
         bits=256,
         label="owner seed archive SHA-256",
     )
-    if not isinstance(expected_document_sha256, tuple) or len(expected_document_sha256) != 2:
+    if type(expected_document_sha256) is not tuple or len(expected_document_sha256) != 2:
         raise TypeError("expected_document_sha256 must be an exact two-item tuple")
     document_sha = tuple(
         _sha(value, bits=256, label=f"owner document {index + 1} SHA-256")
@@ -157,12 +271,17 @@ def finalize_owner_final_receipt(
     run_attempt = _positive_int(finalizer_run_attempt, label="finalizer run attempt")
 
     value = _strict_json_object(receipt)
-    if set(value) != BASE_RECEIPT_KEYS:
-        missing = sorted(BASE_RECEIPT_KEYS - set(value))
-        unexpected = sorted(set(value) - BASE_RECEIPT_KEYS)
+    keys = set(value)
+    already_finalized = keys == FINAL_RECEIPT_KEYS
+    if keys != BASE_RECEIPT_KEYS and not already_finalized:
+        missing_base = sorted(BASE_RECEIPT_KEYS - keys)
+        unexpected_base = sorted(keys - BASE_RECEIPT_KEYS)
+        missing_final = sorted(FINAL_RECEIPT_KEYS - keys)
+        unexpected_final = sorted(keys - FINAL_RECEIPT_KEYS)
         _fail(
             "owner final receipt key set mismatch; "
-            f"missing={missing} unexpected={unexpected}"
+            f"base_missing={missing_base} base_unexpected={unexpected_base} "
+            f"final_missing={missing_final} final_unexpected={unexpected_final}"
         )
     if value.get("package_root") != "owner-oneclick":
         _fail("owner final receipt package root mismatch")
@@ -210,30 +329,27 @@ def finalize_owner_final_receipt(
     if actual_archive_sha != declared_archive_sha:
         _fail("owner final ZIP does not match the package-builder receipt")
 
-    value.update(
-        {
-            "receipt_schema_version": 1,
-            "finalizer_product_sha": product_sha,
-            "finalizer_workflow_sha": product_sha,
-            "source_w4_product_sha": product_sha,
-            "source_w4_workflow_sha": w4_workflow_sha,
-            "source_w4_run_id": w4_run_id,
-            "source_w4_run_attempt": w4_run_attempt,
-            "source_w4_workflow_id": w4_workflow_id,
-            "source_w4_candidate_sha256": w4_candidate_sha,
-            "owner_seed_archive_sha256": seed_sha,
-            "machine_root_launch_verified": True,
-            "pre_upload_release_freshness": True,
-            "finalizer_run_id": run_id,
-            "finalizer_run_attempt": run_attempt,
-        }
+    expected_provenance = _final_provenance(
+        product_sha=product_sha,
+        w4_workflow_sha=w4_workflow_sha,
+        w4_run_id=w4_run_id,
+        w4_run_attempt=w4_run_attempt,
+        w4_workflow_id=w4_workflow_id,
+        w4_candidate_sha=w4_candidate_sha,
+        seed_sha=seed_sha,
+        run_id=run_id,
+        run_attempt=run_attempt,
     )
+    if already_finalized:
+        _validate_final_provenance(value, expected_provenance)
+        _confirm_final_receipt_durable(receipt, value)
+        return value
 
-    serialized = (
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
-    )
-    if len(serialized.encode("utf-8")) > MAX_RECEIPT_BYTES:
+    value.update(expected_provenance)
+    serialized_bytes = _canonical_receipt_bytes(value)
+    if len(serialized_bytes) > MAX_RECEIPT_BYTES:
         _fail("finalized owner receipt exceeds its byte budget")
+    serialized = serialized_bytes.decode("utf-8")
 
     temporary = receipt.with_name(f".{receipt.name}.publish.tmp")
     try:
@@ -252,9 +368,7 @@ def finalize_owner_final_receipt(
         except OSError:
             pass
 
-    rebound = _strict_json_object(receipt)
-    if rebound != value:
-        _fail("published owner final receipt does not match finalized provenance")
+    _confirm_final_receipt_durable(receipt, value)
     return value
 
 
@@ -311,6 +425,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "BASE_RECEIPT_KEYS",
+    "FINAL_RECEIPT_KEYS",
     "MAX_FINAL_ZIP_BYTES",
     "MAX_RECEIPT_BYTES",
     "OwnerFinalReceiptError",
