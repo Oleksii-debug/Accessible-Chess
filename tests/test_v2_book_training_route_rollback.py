@@ -356,6 +356,15 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIsNone(self.app.shell.active_dialog_id)
         self.assertEqual("library", self.app.shell.current_route.route_id)
 
+        library_before = self.app.library.projection.snapshot()
+        stale_surface = self.app.browser_command(
+            "library",
+            "library.search",
+            {"player": "must-not-run"},
+        )
+        self.assertEqual("error", stale_surface["kind"])
+        self.assertEqual(library_before, self.app.library.projection.snapshot())
+
         committed = self.app.browser_command(
             "shell",
             "shell.presentation_commit",
