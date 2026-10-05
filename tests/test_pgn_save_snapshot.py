@@ -20,6 +20,7 @@ from acs.pgn_save_snapshot import (
     publish_pgn_save_snapshot,
 )
 from acs.pgn_service import save_pgn_atomic as canonical_save_pgn_atomic
+from acs.pgn_workspace import PgnWorkspace
 
 
 DOCUMENT = '''[Event "Snapshot Base"]
@@ -49,6 +50,11 @@ class _ExplodingTruth:
         raise AssertionError("active overwrite truthiness executed")
 
 
+class _ExplodingWorkspace(PgnWorkspace):
+    def view(self):
+        raise AssertionError("workspace subclass behavior executed")
+
+
 class PgnSaveSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -59,6 +65,15 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         path = self.root / name
         path.write_text(text, encoding="utf-8", newline="\n")
         return path
+
+    def test_workspace_subclass_is_rejected_before_active_behavior(self) -> None:
+        workspace = _ExplodingWorkspace.from_text(DOCUMENT)
+        session = PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
+
+        with self.assertRaises(TypeError):
+            capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        self.assertIsNone(session.source)
 
     def test_active_overwrite_control_is_rejected_without_truthiness_or_io(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
