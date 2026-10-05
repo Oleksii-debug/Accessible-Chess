@@ -45,6 +45,11 @@ from .version2_pgn_commands import Version2PgnCommands
 from .version2_profile import build_version2_shell, build_version2_router, build_version2_webview_adapter
 from .version2_training_workspace import Version2BookTrainingWorkspace
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate, BookBoardUiEventKind
+from .version2_windows_book_open_worker import (
+    BookOpenWorkerEvent,
+    BookOpenWorkerEventKind,
+    Version2BookOpenWorker,
+)
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
@@ -135,6 +140,7 @@ class Version2Application:
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
+        self._book_open_worker: Version2BookOpenWorker | None = None
         self._focus = ""
         self.session = None
         self.pgn_board_active = False
@@ -295,6 +301,54 @@ class Version2Application:
     def bind_files(self, runtime):
         self._assert_thread()
         self._files = runtime
+
+    def bind_book_open_worker(self, worker: Version2BookOpenWorker) -> None:
+        self._assert_thread()
+        if not isinstance(worker, Version2BookOpenWorker):
+            raise TypeError("Book Open worker must be Version2BookOpenWorker")
+        if self._book_open_worker is not None:
+            raise RuntimeError("Book Open worker is already bound")
+        self._book_open_worker = worker
+
+    def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
+        self._assert_thread()
+        if not isinstance(event, BookOpenWorkerEvent):
+            raise TypeError("invalid Book Open worker event")
+        english = self.shell.language is UILanguage.EN
+        messages = {
+            BookOpenWorkerEventKind.STARTED: (
+                "Відкриття книги розпочато. Операцію можна скасувати.",
+                "Book opening started. You can cancel the operation.",
+            ),
+            BookOpenWorkerEventKind.CANCELLING: (
+                "Скасовуємо відкриття книги.",
+                "Cancelling Book open.",
+            ),
+            BookOpenWorkerEventKind.CANCELLED: (
+                "Відкриття книги скасовано. Поточний стан не змінено.",
+                "Book open cancelled. Current state was not changed.",
+            ),
+            BookOpenWorkerEventKind.COMPLETED: (
+                "Книгу відкрито.",
+                "Book opened.",
+            ),
+            BookOpenWorkerEventKind.FAILED: (
+                "Не вдалося відкрити книгу. Поточний стан не змінено.",
+                "The book could not be opened. Current state was not changed.",
+            ),
+        }
+        self._events.append(
+            {
+                "kind": "status" if event.kind is not BookOpenWorkerEventKind.FAILED else "error",
+                "payload": {
+                    "announcement": messages[event.kind][english],
+                    "focus_target": event.focus_target,
+                    "book_open_busy": event.kind
+                    in {BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLING},
+                },
+            }
+        )
+        return event
 
     def observe_progress(self, value: LibraryImportProgress):
         if not isinstance(value, LibraryImportProgress): raise TypeError("invalid import progress")
@@ -1290,15 +1344,27 @@ class Version2Application:
         if action == "library.previous_page": return self.library.projection.previous_page()
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
+        if action == "book.cancel_open":
+            if payload:
+                raise ValueError("Book Open cancellation takes no payload")
+            if self._book_open_worker is None:
+                raise ValueError("Book Open worker is unavailable")
+            if not self._book_open_worker.cancel(focus_target=str(self._focus)):
+                raise ValueError("no Book Open is running")
+            return None
         if action == "book.open":
             if payload:
                 raise ValueError("book file selection belongs to the host")
-            if self.shell.active_dialog_id is not None:
-                raise ValueError("close the active dialog before opening a book")
-            if self.book_workflow is not None and self.book_workflow.active:
-                raise ValueError("return to the book before opening another source")
+            self._assert_book_open_allowed()
+            if self._book_open_worker is not None and self._book_open_worker.active:
+                raise ValueError("Book Open is already running")
             source = self.open_book_dialog()
-            return None if source is None else self.open_book(source)
+            if source is None:
+                return None
+            if self._book_open_worker is not None:
+                self._book_open_worker.start(source, focus_target=str(self._focus))
+                return None
+            return self.open_book(source)
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
@@ -1891,6 +1957,11 @@ class Version2Application:
         failure replace that first progress failure.
         """
         self._assert_thread()
+        if (
+            self._book_open_worker is not None
+            and not self._book_open_worker.shutdown(timeout=timeout)
+        ):
+            return False
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
         self.save_training_progress()
