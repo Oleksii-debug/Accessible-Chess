@@ -382,6 +382,40 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertEqual(len(events), event_count_before_shutdown)
             self.assertFalse(controller.pgn_open_running)
 
+    def test_modal_file_picker_reentrant_edit_invalidates_open_before_worker_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous.pgn"
+            previous_path.write_text(
+                PGN_TEXT.replace("Async open", "Previous"),
+                encoding="utf-8",
+            )
+            previous = PgnDocumentSession.open(previous_path)
+            controller, dialogs, poster, events, session_box, publications = self._controller(
+                source,
+                previous=previous,
+            )
+            revision_before_dialog = previous.document_revision
+
+            def reentrant_open():
+                previous.append_text(
+                    PGN_TEXT.replace("Async open", "Edited in modal message pump")
+                )
+                return source
+
+            dialogs.open_pgn = reentrant_open
+            result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_open_stale")
+            self.assertGreater(previous.document_revision, revision_before_dialog)
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
     def test_prepared_open_does_not_overwrite_edits_made_before_owner_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "replacement.pgn"
