@@ -153,6 +153,68 @@ class MediaApplicationTests(unittest.TestCase):
         self.assertEqual(service.session.media_cursor.position_ms, 20_500)
         self.assertEqual(service.revision, 0)
 
+    def test_restore_blocks_reentrant_media_mutation_and_releases_guard(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1", (link(20_000, "tree:restore"),)
+        )
+        holder = {}
+
+        def reenter(_chess_ref):
+            holder["service"].seek_media(30_000)
+
+        service = MediaApplicationService(
+            source=source(),
+            timeline=timeline,
+            session=MediaChessSession(
+                MediaCursor("lesson-1", 20_500), "tree:analysis"
+            ),
+            restore_chess_ref=reenter,
+        )
+        holder["service"] = service
+
+        with self.assertRaises(MediaApplicationError) as caught:
+            service.restore_media_position(21_000)
+
+        self.assertEqual(caught.exception.code, MediaApplicationCode.INVALID_STATE)
+        self.assertEqual(service.session.media_cursor.position_ms, 20_500)
+        self.assertEqual(service.session.chess_ref, "tree:analysis")
+        self.assertEqual(service.revision, 0)
+
+        snapshot = service.seek_media(30_000)
+        self.assertEqual(snapshot.position_ms, 30_000)
+        self.assertEqual(service.revision, 1)
+
+    def test_restore_rejects_reentrant_analysis_selection_without_clobbering_outer_commit(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1", (link(20_000, "tree:restore"),)
+        )
+        holder = {}
+        blocked = []
+
+        def restore(_chess_ref):
+            try:
+                holder["service"].select_analysis_chess_ref("tree:reentrant")
+            except MediaApplicationError as exc:
+                blocked.append(exc.code)
+
+        service = MediaApplicationService(
+            source=source(),
+            timeline=timeline,
+            session=MediaChessSession(
+                MediaCursor("lesson-1", 20_500), "tree:analysis"
+            ),
+            restore_chess_ref=restore,
+        )
+        holder["service"] = service
+
+        result = service.restore_media_position(21_000)
+
+        self.assertEqual(blocked, [MediaApplicationCode.INVALID_STATE])
+        self.assertEqual(result.chess_ref, "tree:restore")
+        self.assertEqual(service.session.media_cursor.position_ms, 21_000)
+        self.assertEqual(service.session.chess_ref, "tree:restore")
+        self.assertEqual(service.revision, 1)
+
     def test_candidate_only_state_fails_before_restore_effect(self):
         timeline = MediaPositionTimeline(
             "lesson-1", (link(20_000, "tree:candidate", confirmed=False),)
