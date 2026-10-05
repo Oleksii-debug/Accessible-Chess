@@ -18,6 +18,7 @@ from acs.library_export_service import (
 from acs.library_export_workspace import build_library_export_webview
 from acs.pgn_service import open_pgn
 from acs.search_service import GameSearchQuery
+from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_application import Version2Application
 from acs.version2_windows_library_export import (
     LibraryExportHostEvent,
@@ -427,6 +428,16 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                 resolved = registry.resolve_binding(context, "Ctrl+Shift+X")
                 self.assertIsNotNone(resolved)
                 self.assertEqual(resolved.action_id, "library.cancel_import")
+
+        keymap = build_web_keymap(registry)
+        projected = next(
+            item for item in keymap["actions"]
+            if item["id"] == "library.cancel_import"
+        )
+        self.assertEqual(projected["registryContext"], "global")
+        self.assertEqual(projected["context"], "document")
+        self.assertEqual(projected["labelUk"], "Скасувати операцію бібліотеки")
+        self.assertEqual(projected["labelEn"], "Cancel library operation")
 
     def test_application_publishes_export_cancel_availability_as_partial_library_event(self) -> None:
         database = AcsDatabase()
