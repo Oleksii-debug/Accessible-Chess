@@ -128,6 +128,7 @@ let dropRouteResponsesAfterEffect = 0;
 let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
 let failPublicationTransportBeforeEffect = 0;
+let rejectPublicationHostBeforeEffect = 0;
 
 function snapshot(route) {
   const focus = {
@@ -227,6 +228,13 @@ const windowObject = {
           if (failPublicationTransportBeforeEffect > 0) {
             failPublicationTransportBeforeEffect -= 1;
             return Promise.reject(new Error("simulated publication transport outage"));
+          }
+          if (rejectPublicationHostBeforeEffect > 0) {
+            rejectPublicationHostBeforeEffect -= 1;
+            return Promise.resolve({
+              kind: "error",
+              payload: { message: "simulated retryable host rejection" }
+            });
           }
           if (pendingShellPublication === null) {
             if (lastShellPublicationResolution &&
@@ -499,6 +507,41 @@ async function clickRoute(routeId) {
   check(shellPublicationRollbacks === 1, "malformed Books render did not execute one rollback");
   check(shellPublicationCommits === 0, "malformed Books render incorrectly committed the route");
   check(pendingShellPublication === null, "malformed Books render left a pending publication");
+
+  failNextBookRender = true;
+  rejectPublicationHostBeforeEffect = 2;
+  const snapshotsBeforeRetryableHostRejection = snapshotCalls;
+  await clickRoute("books");
+  check(
+    currentRoute === "books",
+    "retryable host rollback rejection unexpectedly changed the candidate host route"
+  );
+  check(
+    pendingShellPublication !== null,
+    "retryable host rollback rejection forgot the still-pending host publication"
+  );
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "retryable host rollback rejection published the unacknowledged Books candidate"
+  );
+  check(
+    documentRef.getElementById("v2-nav-board").attributes["aria-current"] === "page",
+    "retryable host rollback rejection advanced committed navigation"
+  );
+  check(
+    snapshotCalls === snapshotsBeforeRetryableHostRejection + 1,
+    "retryable host rollback rejection did not re-read host publication authority exactly once"
+  );
+
+  await clickRoute("board");
+  check(
+    currentRoute === "board" && pendingShellPublication === null,
+    "next route did not recover the retryable rejected publication before continuing"
+  );
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "recovery after retryable host rejection did not preserve canonical Board visibility"
+  );
 
   await clickRoute("books");
   const committedBookBlock = documentRef.getElementById("book-block-1");
