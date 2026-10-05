@@ -19,6 +19,11 @@
     if (result.kind === "error" && payload.message) announce(String(payload.message));
   }
 
+  function applyKeyboardSelectionEvent(result, announce) {
+    if (result && result.kind === "selection") return;
+    applyEvent(result, announce);
+  }
+
   function renderManagement(host, section, invoke, announce) {
     const wrapper = node("section");
     const heading = node("h2", section.heading || "");
@@ -50,7 +55,7 @@
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", section.heading || section.kind || "");
 
-    items.forEach(function (item) {
+    items.forEach(function (item, itemIndex) {
       const option = node("li");
       option.id = String(item.dom_id || "");
       option.setAttribute("role", "option");
@@ -78,11 +83,33 @@
         let command = null;
         let payload = null;
         if (event.key === "ArrowUp") {
+          if (itemIndex === 0) {
+            event.preventDefault();
+            return;
+          }
           command = "management.move";
           payload = { kind: section.kind, delta: -1 };
         } else if (event.key === "ArrowDown") {
+          if (itemIndex === items.length - 1) {
+            event.preventDefault();
+            return;
+          }
           command = "management.move";
           payload = { kind: section.kind, delta: 1 };
+        } else if (event.key === "Home") {
+          if (itemIndex === 0) {
+            event.preventDefault();
+            return;
+          }
+          command = "management.select";
+          payload = { kind: section.kind, record_id: items[0].record_id };
+        } else if (event.key === "End") {
+          if (itemIndex === items.length - 1) {
+            event.preventDefault();
+            return;
+          }
+          command = "management.select";
+          payload = { kind: section.kind, record_id: items[items.length - 1].record_id };
         } else if (event.key === "Enter") {
           command = "management.open";
           payload = { kind: section.kind };
@@ -90,6 +117,10 @@
         if (!command) return;
         event.preventDefault();
         Promise.resolve(invoke(command, payload)).then(function (result) {
+          if (command === "management.select") {
+            applyKeyboardSelectionEvent(result, announce);
+            return;
+          }
           applyEvent(result, announce);
         });
       });
