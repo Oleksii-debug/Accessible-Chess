@@ -33,6 +33,8 @@ from .search_service import (
     GameSearchPage,
     GameSearchQuery,
     GameSearchService,
+    SearchCancelledError,
+    SearchControlError,
 )
 
 
@@ -305,7 +307,12 @@ class LibraryExportService:
                 raise LibraryExportError("invalid filtered Library export request") from exc
         raise LibraryExportError("invalid Library export scope")
 
-    def _iter_selected_ids(self, request: LibraryExportRequest) -> Iterator[int]:
+    def _iter_selected_ids(
+        self,
+        request: LibraryExportRequest,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> Iterator[int]:
         if request.scope is LibraryExportScope.SELECTED:
             yield from request.game_ids
             return
@@ -320,7 +327,19 @@ class LibraryExportService:
                 after_game_id=cursor,
                 limit=_EXPORT_PAGE_SIZE,
             )
-            page = self._search.search(page_query)
+            _poll_cancel(cancel_check)
+            try:
+                page = self._search.search(
+                    page_query,
+                    cancel_check=cancel_check,
+                )
+            except SearchCancelledError:
+                raise LibraryExportCancelledError("Library export cancelled") from None
+            except SearchControlError as exc:
+                raise LibraryExportControlError(
+                    "Library export cancellation check failed"
+                ) from exc
+            _poll_cancel(cancel_check)
             if (
                 type(page) is not GameSearchPage
                 or type(page.items) is not tuple
@@ -383,8 +402,16 @@ class LibraryExportService:
             raise LibraryExportError("Library export record must contain exactly one game")
         return games[0]
 
-    def _iter_games(self, request: LibraryExportRequest) -> Iterator[PgnGame]:
-        for game_id in self._iter_selected_ids(request):
+    def _iter_games(
+        self,
+        request: LibraryExportRequest,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> Iterator[PgnGame]:
+        for game_id in self._iter_selected_ids(
+            request,
+            cancel_check=cancel_check,
+        ):
             yield self._load_game(game_id)
 
     @contextmanager
@@ -446,7 +473,10 @@ class LibraryExportService:
 
         def counted_games() -> Iterator[PgnGame]:
             nonlocal game_count
-            for game in self._iter_games(request):
+            for game in self._iter_games(
+                request,
+                cancel_check=cancel_check,
+            ):
                 _poll_cancel(cancel_check)
                 game_count += 1
                 yield game
