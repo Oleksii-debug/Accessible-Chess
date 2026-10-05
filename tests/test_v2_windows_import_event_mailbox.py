@@ -61,6 +61,28 @@ def _run_thread(callback):
 
 
 class Version2ImportUiEventMailboxTests(unittest.TestCase):
+    def test_rejects_derived_event_before_field_hooks_on_ui_and_worker_threads(self) -> None:
+        touched: list[str] = []
+
+        class ActiveEvent(FileWorkflowEvent):
+            def __getattribute__(self, name: str):
+                if name in {"kind", "action_id", "focus_target", "error_code"}:
+                    touched.append(name)
+                    raise AssertionError("derived mailbox event field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveEvent.__new__(ActiveEvent)
+        mailbox = Version2ImportUiEventMailbox()
+
+        with self.assertRaisesRegex(TypeError, "exact FileWorkflowEvent"):
+            mailbox(hostile)
+
+        errors = _run_thread(lambda: mailbox(hostile))
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], TypeError)
+        self.assertEqual(touched, [])
+        self.assertEqual(mailbox.pending_count, 0)
+
     def test_ui_thread_events_are_not_requeued_or_duplicated(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
         event = FileWorkflowEvent(
