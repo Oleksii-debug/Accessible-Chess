@@ -448,6 +448,17 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
         )
 
+        fake._events.clear()
+        unicode_focus = LibraryExportHostEvent(
+            LibraryExportHostEventKind.DIALOG_CANCELLED,
+            focus_target="library-export-Олексій",
+        )
+        Version2Application._file_event(fake, unicode_focus)
+        self.assertEqual(
+            fake._events,
+            [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
+        )
+
     def test_release_bootstrap_serializes_terminal_export_focus_without_repaint(self) -> None:
         source = (
             Path(__file__).parents[1] / "web" / "version2_release_bootstrap.js"
