@@ -5,6 +5,11 @@ on:
     paths:
       - "web/index.html"
       - "acs/i18n.py"
+      - "acs/ui_keymap_adapter.py"
+      - "acs/ui_keymap_editor.py"
+      - "acs/full_product_actions.py"
+      - "acs/version2_profile.py"
+      - "acs/version2_final_product_profile.py"
       - "acs/full_product_ui_shell.py"
       - "acs/full_product_native_menu.py"
       - "acs/library_webview_projection.py"
@@ -19,6 +24,11 @@ on:
     paths:
       - "web/index.html"
       - "acs/i18n.py"
+      - "acs/ui_keymap_adapter.py"
+      - "acs/ui_keymap_editor.py"
+      - "acs/full_product_actions.py"
+      - "acs/version2_profile.py"
+      - "acs/version2_final_product_profile.py"
       - "acs/full_product_ui_shell.py"
       - "acs/full_product_native_menu.py"
       - "acs/library_webview_projection.py"
@@ -50,6 +60,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Prove exact candidate identity
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

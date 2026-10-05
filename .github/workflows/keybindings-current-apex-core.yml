@@ -24,6 +24,9 @@ on:
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/version2_local_profile_dom_test.js'
       - 'tests/js/toolbar_keymap_test_support.js'
+      - 'tests/js/keymap_shell_test_support.js'
+      - 'tests/js/remappable_board_grid_controls_current_test.js'
+      - 'tests/js/remappable_input_submit_keys_current_test.js'
       - 'tests/test_keymap_profile_ingress_current.py'
       - 'tests/test_version2_windows_composition_profile.py'
       - 'tests/test_current_remappable_surfaces_qualification.py'
@@ -136,6 +139,8 @@ jobs:
           node tests/js/stage1_terminal_keymap_dom_test.js
           node tests/js/stage1_board_rerender_keymap_integration_test.js
           node tests/js/v2_remapped_keyboard_native_editing_test.js
+          node tests/js/remappable_board_grid_controls_current_test.js
+          node tests/js/remappable_input_submit_keys_current_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_tree_boundary_key_ownership_test.js
           node tests/js/pgn_remaining_keybindings_test.js

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 import unittest
 
@@ -62,22 +63,19 @@ class OwnerDeliveryUkrainianDocsTests(unittest.TestCase):
         library = (self.root / "web" / "full_product_library.js").read_text(encoding="utf-8")
 
         self.assertIn("function editableShortcutTarget(node)", html)
-        self.assertIn("if(editable&&!e.altKey)return", html)
+        self.assertIn("if(!e.altKey)return", html)
+        self.assertIn("projectedOwnedAction(e,['global'])", html)
+        self.assertIn("projectedOwnedAction(e,['analysis'])", html)
         self.assertIn("let a=await resolveBinding(chord,'analysis','analysis')", html)
         self.assertIn("if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return", html)
         self.assertIn("if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return", html)
         self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(node.tagName)", html)
 
-        modifier_guard = (
-            'if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;'
-        )
-        self.assertIn(modifier_guard, pgn)
-        self.assertIn('if (event.key === "ArrowUp")', pgn)
-        self.assertIn('event.key === "ArrowDown"', pgn)
-        self.assertIn('event.key === "ArrowLeft" && item.has_parent', pgn)
-
-        self.assertIn('event.key === "ArrowUp" || event.key === "ArrowDown"', library)
-        self.assertIn('event.key === "Enter"', library)
+        self.assertIn('"pgn_tree"', pgn)
+        self.assertIn('"pgn.previous_item"', pgn)
+        self.assertIn('"pgn.next_item"', pgn)
+        self.assertIn('"pgn.parent_variation"', pgn)
+        self.assertIn('"library_results"', library)
         self.assertIn('"library.open_game"', library)
 
         for phrase in (
@@ -90,6 +88,15 @@ class OwnerDeliveryUkrainianDocsTests(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.hotkeys)
+
+    def test_documented_native_editing_and_live_remaps_execute_shipping_handlers(self) -> None:
+        for name in ("v2_remapped_keyboard_native_editing_test.js",
+                     "remappable_board_grid_controls_current_test.js",
+                     "remappable_input_submit_keys_current_test.js"):
+            with self.subTest(script=name):
+                result = subprocess.run(["node", "tests/js/" + name], cwd=self.root,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_docs_follow_existing_canonical_package_path(self) -> None:
         workflow = (

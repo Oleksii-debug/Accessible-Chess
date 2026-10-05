@@ -18,6 +18,8 @@ from acs.pgn_webview_projection import _LABELS as PGN_LABELS
 from acs.ui_keymap_editor import _CONTEXT_LABELS_EN, _CONTEXT_LABELS_UK
 from acs.ui_keymap_adapter import build_web_keymap
 from acs.ui_native_menu import _LABELS_EN as STAGE1_NATIVE_MENU_EN, _LABELS_UK as STAGE1_NATIVE_MENU_UK
+from acs.version2_final_product_profile import build_final_product_action_registry
+from acs.full_product_actions import build_full_product_action_registry
 
 
 _CYRILLIC = re.compile(r"[А-Яа-яІіЇїЄєҐґ]")
@@ -58,6 +60,16 @@ class BilingualLocalizationContractCurrentTests(unittest.TestCase):
             self.assertTrue(route.heading[UILanguage.EN].strip(), route.route_id)
             self.assertTrue(route.description[UILanguage.UA].strip(), route.route_id)
             self.assertTrue(route.description[UILanguage.EN].strip(), route.route_id)
+
+    def test_composed_and_preview_keymaps_have_real_bilingual_labels(self) -> None:
+        for factory in (build_final_product_action_registry, build_full_product_action_registry):
+            for action in build_web_keymap(factory())["actions"]:
+                with self.subTest(profile=factory.__name__, action=action["id"]):
+                    self.assertIsNotNone(_CYRILLIC.search(action["labelUk"]),
+                                         f"Ukrainian label falls back to English: {action['labelUk']!r}")
+                    self.assertTrue(action["labelEn"].strip())
+                    self.assertIsNone(_CYRILLIC.search(action["labelEn"]),
+                                      f"English label leaks Ukrainian: {action['labelEn']!r}")
 
     def test_product_surface_catalogs_have_exact_uk_en_parity(self) -> None:
         catalogs = (
