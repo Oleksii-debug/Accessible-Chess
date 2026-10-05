@@ -92,6 +92,45 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
+    def test_save_as_malformed_writer_result_is_publication_unverified(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        requested = self.root / "malformed-writer-result.pgn"
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=object(),
+        ):
+            with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                publish_pgn_save_snapshot(snapshot, path=requested)
+
+        self.assertIsInstance(caught.exception.__cause__, TypeError)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_save_noncanonical_writer_fingerprint_is_publication_unverified(self) -> None:
+        source = self.write_document("noncanonical-writer-source.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Dirty writer provenance")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        malformed = SourceFingerprint(
+            path=str(source.absolute()),
+            size=source.stat().st_size,
+            sha256="F" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=malformed,
+        ):
+            with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                publish_pgn_save_snapshot(snapshot)
+
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
+        self.assertEqual(Path(session.source.path), source)
+        self.assertTrue(session.dirty)
+
     def test_save_rejects_writer_provenance_for_different_path(self) -> None:
         source = self.write_document("writer-path-save-source.pgn")
         session = PgnDocumentSession.open(source)
