@@ -434,6 +434,28 @@ class Version2WindowsFileActionDelegate:
         return Path(path), None, previous_focus, current, current_revision
 
     def _open_pgn(self) -> FileWorkflowEvent:
+        # Fail before any dirty-confirmation or file-picker I/O when the shared
+        # worker is already owned. Native WinForms dialogs pump messages, so the
+        # existing post-dialog ownership recheck below remains authoritative for
+        # races that begin while the picker is open.
+        previous_focus = self._focus()
+        with self._lock:
+            shutdown_requested = self._shutdown_requested
+            worker_kind = self._worker_kind if self._worker is not None else ""
+        if shutdown_requested:
+            return self._failed(
+                "pgn.open", "file_workflow_closed", focus_target=previous_focus
+            )
+        if worker_kind:
+            focus_target = (
+                "library-import-cancel"
+                if worker_kind == "import"
+                else "pgn-open-cancel"
+            )
+            return self._failed(
+                "pgn.open", "file_worker_busy", focus_target=focus_target
+            )
+
         (
             source_path,
             early,
