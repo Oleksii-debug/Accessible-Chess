@@ -4,6 +4,7 @@ import tempfile
 import threading
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.chessbase_library_import import (
@@ -361,6 +362,50 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             self.assertEqual(touched, [])
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertEqual(events[-1].game_count, 2)
+
+    def test_observer_and_logging_abort_cannot_change_canonical_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "observer-logging-abort.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+
+            class ObserverAbort(BaseException):
+                pass
+
+            class LoggingAbort(BaseException):
+                pass
+
+            class SnapshotLibrary:
+                def import_games(self, *_args, **kwargs):
+                    kwargs["progress_callback"](LibraryImportProgress(57, 2, 2))
+                    return LibraryImportResult(57, 12, 2, 0, 501, 502)
+
+            def abort_observer(_value):
+                raise ObserverAbort()
+
+            bundle = Version2ImportWorkerServices(
+                SnapshotLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=abort_observer,
+                result_sink=abort_observer,
+            )
+            controller = self._controller(source, factory, events)
+
+            with patch(
+                "acs.version2_windows_library_import_observer._LOG.warning",
+                side_effect=LoggingAbort(),
+            ):
+                controller("library.import", {})
+                self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertFalse(controller.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+            self.assertEqual(events[-1].game_count, 2)
+            self.assertEqual(events[-1].warning_count, 0)
 
     def test_exact_progress_with_active_scalar_is_rejected_before_observer(self) -> None:
         touched = []

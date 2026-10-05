@@ -32,6 +32,15 @@ ResultSink = Callable[[LibraryImportResult], Any]
 ServicesFactory = Callable[[], Version2ImportWorkerServices]
 
 
+def _safe_warning(message: str, *args: object) -> None:
+    """Best-effort observer diagnostics with no transaction authority."""
+
+    try:
+        _LOG.warning(message, *args)
+    except BaseException:
+        pass
+
+
 def _snapshot_progress(value: LibraryImportProgress) -> LibraryImportProgress:
     if type(value) is not LibraryImportProgress:
         raise TypeError("canonical Library progress object is invalid")
@@ -64,7 +73,7 @@ def _safe_observe(callback: Callable[[Any], Any], value: Any, *, kind: str) -> N
         # UI sink is never canonical transaction authority. Do not attach the
         # observer exception to logging: formatting arbitrary exception objects
         # may execute active __str__ hooks after the failure has been contained.
-        _LOG.warning("Version 2 Library %s observer failed", kind)
+        _safe_warning("Version 2 Library %s observer failed", kind)
 
 
 class _ObservedLibraryService:
