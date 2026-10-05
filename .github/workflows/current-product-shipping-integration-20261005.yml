@@ -41,7 +41,7 @@ jobs:
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
-          PINNED_PRODUCT_SHA: 0c18ee1baa5bec8c9d75656597723bd94785df25
+          PINNED_PRODUCT_SHA: 9edc0ab3ad0df9a927792dff2ab0838f614029d4
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
