@@ -109,6 +109,23 @@ class StructuredBroadcastLiveTests(unittest.TestCase):
         self.assertEqual(history.next().canonical_revision, "r3")
         self.assertTrue(history.follow_live)
 
+    def test_no_change_result_advances_sequence_and_time_watermarks(self):
+        history = LivePositionHistory("g1")
+        self.assertTrue(history.record(result(1, 1000, game("g1", "tree:n1", "r1"))))
+        self.assertFalse(history.record(result(2, 1100, game("g1", "tree:n1", "r1"))))
+
+        with self.assertRaises(BroadcastContractError) as same_sequence:
+            history.record(result(2, 1200, game("g1", "tree:n2", "r2")))
+        self.assertEqual(same_sequence.exception.code, BroadcastErrorCode.REVISION_CONFLICT)
+
+        with self.assertRaises(BroadcastContractError) as backward_sequence:
+            history.record(result(1, 1300, game("g1", "tree:n1", "r1")))
+        self.assertEqual(backward_sequence.exception.code, BroadcastErrorCode.OUT_OF_ORDER)
+
+        with self.assertRaises(BroadcastContractError) as backward_time:
+            history.record(result(3, 1099, game("g1", "tree:n2", "r2")))
+        self.assertEqual(backward_time.exception.code, BroadcastErrorCode.OUT_OF_ORDER)
+
     def test_history_rejects_out_of_order_or_conflicting_canonical_results(self):
         history = LivePositionHistory("g1")
         history.record(result(2, 2000, game("g1", "tree:n2", "r2")))
@@ -129,6 +146,48 @@ class StructuredBroadcastLiveTests(unittest.TestCase):
         self.assertEqual(len(history.items), MAX_LIVE_POSITION_HISTORY)
         self.assertTrue(history.history_truncated)
         self.assertEqual(history.current.canonical_revision, f"r{MAX_LIVE_POSITION_HISTORY + 1}")
+
+    def test_truncation_preserves_browsed_oldest_revision_and_discloses_it(self):
+        history = LivePositionHistory("g1")
+        for index in range(MAX_LIVE_POSITION_HISTORY):
+            self.assertTrue(
+                history.record(
+                    result(
+                        index,
+                        index,
+                        game("g1", f"tree:n{index}", f"r{index}"),
+                    )
+                )
+            )
+
+        for _ in range(MAX_LIVE_POSITION_HISTORY - 1):
+            history.previous()
+        pinned = history.current
+        self.assertIsNotNone(pinned)
+        self.assertFalse(history.follow_live)
+
+        self.assertTrue(
+            history.record(
+                result(
+                    MAX_LIVE_POSITION_HISTORY,
+                    MAX_LIVE_POSITION_HISTORY,
+                    game(
+                        "g1",
+                        f"tree:n{MAX_LIVE_POSITION_HISTORY}",
+                        f"r{MAX_LIVE_POSITION_HISTORY}",
+                    ),
+                )
+            )
+        )
+        self.assertEqual(len(history.items), MAX_LIVE_POSITION_HISTORY)
+        self.assertTrue(history.history_truncated)
+        self.assertEqual(history.current, pinned)
+        self.assertEqual(history.items[0], pinned)
+        self.assertFalse(history.follow_live)
+
+        event = navigation_event(history)
+        self.assertEqual(event.visible_text, event.announcement_text)
+        self.assertIn("truncated", event.visible_text.lower())
 
     def test_navigation_edges_fail_closed(self):
         history = LivePositionHistory("g1")
