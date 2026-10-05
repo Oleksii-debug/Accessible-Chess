@@ -706,5 +706,132 @@ class LibraryWebAssetTests(unittest.TestCase):
                 projection.snapshot()
 
 
+    def test_provider_page_subclass_is_rejected_before_attribute_hooks(self) -> None:
+        class HostilePage(GameSearchPage):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"items", "has_more", "next_after_game_id"}:
+                    type(self).touched = True
+                    raise AssertionError("provider page hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostilePage(items=(), next_after_game_id=None, has_more=False)
+
+        class Provider:
+            def search(self, _query):
+                return hostile
+
+        _service, _presenter, projection, _bridge, _calls = self.build(Provider())
+        failed = projection.safe_call(
+            lambda: projection.search(GameSearchQuery(limit=2))
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostilePage.touched)
+
+    def test_provider_item_active_text_is_rejected_without_text_hooks(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("provider text length hook must not execute")
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("provider text truthiness hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("provider text conversion must not execute")
+
+        hostile_item = item(1, white=HostileText("Alpha"))
+
+        class Provider:
+            def search(self, _query):
+                return GameSearchPage(
+                    items=(hostile_item,),
+                    next_after_game_id=None,
+                    has_more=False,
+                )
+
+        _service, _presenter, projection, _bridge, _calls = self.build(Provider())
+        failed = projection.safe_call(
+            lambda: projection.search(GameSearchQuery(limit=2))
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostileText.touched)
+
+    def test_provider_page_is_detached_before_committed_library_render(self) -> None:
+        service, _presenter, projection, _bridge, _calls = self.build()
+        source_page = service.pages[None]
+        source_item = source_page.items[0]
+
+        committed = projection.search(GameSearchQuery(limit=2)).payload["snapshot"]
+        self.assertIn("Олексій", committed["rows"][0]["label"])
+
+        object.__setattr__(source_item, "white", "MUTATED PROVIDER VALUE")
+        object.__setattr__(source_page, "items", ())
+
+        after = projection.snapshot()
+        self.assertEqual(committed["rows"], after["rows"])
+        self.assertIn("Олексій", after["rows"][0]["label"])
+        self.assertNotIn("MUTATED", repr(after))
+
+    def test_malformed_provider_keyset_page_rolls_back_committed_page_and_focus(self) -> None:
+        service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+
+        service.pages[2] = GameSearchPage(
+            items=(item(4), item(4)),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        failed = projection.safe_call(projection.next_page)
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(1, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["focus_target"], after["focus_target"])
+
+    def test_provider_cursor_and_text_resource_bombs_fail_before_commit(self) -> None:
+        cases = (
+            GameSearchPage(
+                items=(item(1),),
+                next_after_game_id=999,
+                has_more=True,
+            ),
+            GameSearchPage(
+                items=(item(1, white="x" * 65537),),
+                next_after_game_id=None,
+                has_more=False,
+            ),
+            GameSearchPage(
+                items=[item(1)],
+                next_after_game_id=None,
+                has_more=False,
+            ),
+        )
+
+        for page in cases:
+            class Provider:
+                def search(self, _query, page=page):
+                    return page
+
+            with self.subTest(page_type=type(page.items).__name__):
+                _service, presenter, projection, _bridge, _calls = self.build(
+                    Provider()
+                )
+                before = presenter._capture_presentation_state()
+                failed = projection.safe_call(
+                    lambda: projection.search(GameSearchQuery(limit=2))
+                )
+                self.assertEqual("error", failed.kind)
+                after = presenter._capture_presentation_state()
+                self.assertEqual(before, after)
+
+
 if __name__ == "__main__":
     unittest.main()
