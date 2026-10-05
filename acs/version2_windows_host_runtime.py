@@ -176,6 +176,9 @@ class Version2WindowsFileWorkflowRuntime:
     def wait_for_pgn_open(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_pgn_open(timeout)
 
+    def wait_for_pgn_save(self, timeout: float | None = None) -> bool:
+        return self._file_delegate.wait_for_pgn_save(timeout)
+
     def request_pending_import_wakeup(self) -> bool:
         with self._lock:
             if self._closed:
