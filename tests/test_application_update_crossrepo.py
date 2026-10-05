@@ -17,6 +17,45 @@ from acs.application_update import (
 )
 
 
+class ActiveDict(dict):
+    def keys(self):
+        raise AssertionError("active manifest mapping must not be inspected")
+
+    def __getitem__(self, key):
+        raise AssertionError("active manifest mapping must not be indexed")
+
+
+class ActiveText(str):
+    def __eq__(self, other):
+        raise AssertionError("active text must not be compared")
+
+    def strip(self, *args, **kwargs):
+        raise AssertionError("active text must not be normalized")
+
+
+class ActiveInt(int):
+    def __le__(self, other):
+        raise AssertionError("active integer must not be compared")
+
+
+class ActiveBytes(bytes):
+    def __bytes__(self):
+        raise AssertionError("active bytes subclass must not be converted")
+
+
+class ActivePathLike:
+    def __fspath__(self):
+        raise AssertionError("active path-like must not be resolved")
+
+
+class DerivedManifest(ApplicationUpdateManifest):
+    pass
+
+
+class DerivedSemVer(SemVer):
+    pass
+
+
 class ApplicationUpdateReuseTests(unittest.TestCase):
     SOURCE = "a" * 40
 
@@ -99,6 +138,89 @@ class ApplicationUpdateReuseTests(unittest.TestCase):
             verify_artifact_bytes(manifest, artifact, current_version="2.0.0")
         with self.assertRaises(ApplicationUpdateError):
             verify_artifact_bytes(manifest, artifact, current_version="3.0.0")
+
+    def test_manifest_mapping_rejects_active_container_before_hooks(self):
+        raw = ActiveDict(
+            {
+                "schema": UPDATE_MANIFEST_SCHEMA,
+                "product_id": "accessible-chess",
+            }
+        )
+        with self.assertRaises(ApplicationUpdateError):
+            ApplicationUpdateManifest.from_mapping(raw)
+
+    def test_manifest_rejects_active_scalar_subclasses_before_hooks(self):
+        artifact = b"x"
+        base = {
+            "schema": UPDATE_MANIFEST_SCHEMA,
+            "product_id": "accessible-chess",
+            "target_platform": "windows-x64",
+            "target_version": "2.0.0",
+            "source_head": self.SOURCE,
+            "artifact_name": "AccessibleChess-2.0.0.zip",
+            "artifact_size": len(artifact),
+            "artifact_sha256": hashlib.sha256(artifact).hexdigest(),
+        }
+
+        for field, value in (
+            ("schema", ActiveText(UPDATE_MANIFEST_SCHEMA)),
+            ("product_id", ActiveText("accessible-chess")),
+            ("artifact_size", ActiveInt(1)),
+        ):
+            with self.subTest(field=field):
+                raw = dict(base)
+                raw[field] = value
+                with self.assertRaises(ApplicationUpdateError):
+                    ApplicationUpdateManifest.from_mapping(raw)
+
+    def test_semver_rejects_active_text_and_derived_values(self):
+        with self.assertRaises(ApplicationUpdateError):
+            SemVer.parse(ActiveText("2.0.0"))
+
+        exact = SemVer.parse("2.0.0")
+        derived = DerivedSemVer(2, 0, 1)
+        with self.assertRaises(TypeError):
+            exact.compare_precedence(derived)
+
+    def test_verifier_rejects_derived_manifest_before_field_access(self):
+        artifact = b"x"
+        exact = self._manifest_for(artifact)
+        derived = DerivedManifest(
+            product_id=exact.product_id,
+            target_platform=exact.target_platform,
+            target_version=exact.target_version,
+            source_head=exact.source_head,
+            artifact_name=exact.artifact_name,
+            artifact_size=exact.artifact_size,
+            artifact_sha256=exact.artifact_sha256,
+            schema=exact.schema,
+        )
+        with self.assertRaises(ApplicationUpdateError):
+            verify_artifact_bytes(
+                derived,
+                artifact,
+                current_version="1.0.0",
+            )
+
+    def test_in_memory_verifier_rejects_active_bytes_subclass(self):
+        artifact = b"x"
+        manifest = self._manifest_for(artifact)
+        with self.assertRaises(ApplicationUpdateError):
+            verify_artifact_bytes(
+                manifest,
+                ActiveBytes(artifact),
+                current_version="1.0.0",
+            )
+
+    def test_local_verifier_rejects_active_pathlike_before_fspath(self):
+        artifact = b"x"
+        manifest = self._manifest_for(artifact)
+        with self.assertRaises(ApplicationUpdateError):
+            verify_local_update(
+                manifest,
+                ActivePathLike(),
+                current_version="1.0.0",
+            )
 
     def test_duplicate_manifest_key_is_rejected(self):
         payload = (
