@@ -10,6 +10,7 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  let pendingShellPublicationToken = 0;
   let eventDrainInFlight = false;
   let eventDrainPending = false;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
@@ -233,11 +234,20 @@
         ? "presentation-commit"
         : "presentation-rollback";
 
+    function hostResponseError(message) {
+      const error = new Error(message);
+      error.hostResponded = true;
+      return error;
+    }
+
     function attempt() {
       return bridge.v2_browser_command("shell", command, { token: token }).then(function (result) {
+        if (plainObject(result) && result.kind === "error") {
+          throw hostResponseError("shell publication acknowledgement rejected");
+        }
         if (!plainObject(result) || result.kind !== expectedKind ||
             !plainObject(result.payload) || result.payload.token !== token) {
-          throw new TypeError("invalid shell publication acknowledgement");
+          throw hostResponseError("invalid shell publication acknowledgement");
         }
         return result;
       });
@@ -246,7 +256,26 @@
     // The Python boundary is idempotent for the same token/outcome. A single
     // retry therefore closes local bridge response loss without duplicating a
     // route commit or rollback.
-    return attempt().catch(function () { return attempt(); });
+    return attempt().catch(function (firstError) {
+      return attempt().catch(function (secondError) {
+        const hostResponded =
+          !!(firstError && firstError.hostResponded) ||
+          !!(secondError && secondError.hostResponded);
+        if (hostResponded && secondError && typeof secondError === "object") {
+          secondError.hostResponded = true;
+        }
+        if (hostResponded && (!secondError || typeof secondError !== "object")) {
+          const wrapped = hostResponseError("shell publication acknowledgement rejected");
+          wrapped.cause = secondError;
+          throw wrapped;
+        }
+        throw secondError;
+      });
+    });
+  }
+
+  function clearPendingShellPublication(token) {
+    if (pendingShellPublicationToken === token) pendingShellPublicationToken = 0;
   }
 
   function recoverShellPublication(bridge, token, failedMessage) {
@@ -255,17 +284,32 @@
       "shell.presentation_rollback",
       token
     ).then(function () {
-      return refresh(true);
-    }, function () {
-      // The commit may already have reached Python even if its response was
-      // lost. In that case opposite rollback is correctly rejected; refresh
-      // reads whichever route is actually authoritative.
-      return refresh(true);
-    }).catch(function () {
-      // Preserve the last usable DOM and avoid an unhandled rejection if the
-      // bridge itself remains unavailable.
-    }).then(function () {
+      return refresh(true).then(function () {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }, function () {
+        announce(failedMessage);
+        return false;
+      });
+    }, function (error) {
+      // A host-level rejection means Python definitely answered and the token
+      // no longer identifies a rollbackable pending route (normally because a
+      // previously uncertain commit actually completed). Re-read canonical
+      // authority before allowing another route. A pure transport rejection
+      // remains uncertain, so retain the token for the next interaction.
+      if (error && error.hostResponded) {
+        return refresh(true).then(function () {
+          clearPendingShellPublication(token);
+          announce(failedMessage);
+          return true;
+        }, function () {
+          announce(failedMessage);
+          return false;
+        });
+      }
       announce(failedMessage);
+      return false;
     });
   }
 
@@ -311,35 +355,57 @@
           "Не вдалося відкрити розділ.",
           "Could not open the section."
         );
-        bridge.v2_browser_command(
-          "shell",
-          actionId,
-          { publication_protocol: "ack-v1" }
-        ).then(function (result) {
-          if (result && result.kind === "error") {
-            if (result.payload) announce(result.payload.message || "");
-            return;
-          }
-          const token = shellPublicationToken(result);
-          if (!token) {
-            announce(failedMessage);
-            return;
-          }
 
-          return refresh(true).then(function () {
-            return finishShellPublication(
-              bridge,
-              "shell.presentation_commit",
-              token
-            ).catch(function () {
+        function requestRoute() {
+          return bridge.v2_browser_command(
+            "shell",
+            actionId,
+            { publication_protocol: "ack-v1" }
+          ).then(function (result) {
+            if (result && result.kind === "error") {
+              if (result.payload) announce(result.payload.message || "");
+              return false;
+            }
+            const token = shellPublicationToken(result);
+            if (!token) {
+              announce(failedMessage);
+              return false;
+            }
+            pendingShellPublicationToken = token;
+
+            return refresh(true).then(function () {
+              return finishShellPublication(
+                bridge,
+                "shell.presentation_commit",
+                token
+              ).then(function () {
+                clearPendingShellPublication(token);
+                return true;
+              }, function () {
+                return recoverShellPublication(bridge, token, failedMessage);
+              });
+            }, function () {
               return recoverShellPublication(bridge, token, failedMessage);
             });
           }, function () {
-            return recoverShellPublication(bridge, token, failedMessage);
+            announce(failedMessage);
+            return false;
           });
-        }, function () {
-          announce(failedMessage);
-        });
+        }
+
+        if (pendingShellPublicationToken) {
+          const previousToken = pendingShellPublicationToken;
+          recoverShellPublication(
+            bridge,
+            previousToken,
+            failedMessage
+          ).then(function (recovered) {
+            if (recovered) return requestRoute();
+            return false;
+          });
+          return;
+        }
+        requestRoute();
       });
       row.appendChild(button);
       fragment.appendChild(row);
