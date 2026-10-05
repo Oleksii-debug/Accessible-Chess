@@ -141,7 +141,7 @@ class LibraryExportRequest:
 
     @classmethod
     def selected(cls, game_ids: object) -> "LibraryExportRequest":
-        if not isinstance(game_ids, (tuple, list)):
+        if type(game_ids) not in {tuple, list}:
             raise TypeError("selected game ids must be a list or tuple")
         if not 1 <= len(game_ids) <= _MAX_SELECTED_GAMES:
             raise ValueError("selected Library export requires one or more bounded games")
@@ -168,7 +168,7 @@ class LibraryExportRequest:
 
     @classmethod
     def from_payload(cls, payload: object) -> "LibraryExportRequest":
-        if not isinstance(payload, Mapping) or len(payload) > 2:
+        if type(payload) is not dict or len(payload) > 2:
             raise ValueError("invalid Library export request")
         if any(type(key) is not str for key in payload):
             raise ValueError("invalid Library export request")
@@ -181,7 +181,7 @@ class LibraryExportRequest:
             if set(payload) != {"scope", "filters"}:
                 raise ValueError("invalid filtered Library export fields")
             filters = payload["filters"]
-            if not isinstance(filters, Mapping) or len(filters) > len(_FILTER_FIELDS):
+            if type(filters) is not dict or len(filters) > len(_FILTER_FIELDS):
                 raise ValueError("invalid Library export filters")
             if any(type(key) is not str for key in filters):
                 raise ValueError("invalid Library export filters")
