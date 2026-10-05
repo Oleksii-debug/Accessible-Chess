@@ -29,6 +29,16 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         )
         self.assertNotIn("      - main\n", block)
 
+    def test_gate_push_trigger_tracks_canonical_shipping_candidate(self) -> None:
+        self.assertIn(
+            "      - integrate/current-product-to-shipping-refresh-20261005-sol56r6\n",
+            self.text,
+        )
+        self.assertNotIn(
+            "      - integrate/current-product-to-shipping-20261005-sol56r5\n",
+            self.text,
+        )
+
     def test_gate_pins_and_late_binds_both_authorities(self) -> None:
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
