@@ -124,19 +124,30 @@ jobs:
                 "$ACCESSIBILITY_GATE" \
                 "$PACKAGE_INTEGRATION_GATE" \
                 "$SHIPPING_GATE" \
-                "$SHIPPING_TEST" | sort)"
+                "$SHIPPING_TEST" \
+                '.github/workflows/current-product-training-durability-convergence.yml' \
+                '.github/workflows/current-product-windows-evidence-convergence.yml' \
+                '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+                '.github/workflows/portable-launch-report-reparse-safety.yml' \
+                '.github/workflows/training-progress-durability.yml' \
+                'tests/test_current_product_training_durability_convergence_20261005.py' \
+                'tests/test_current_product_windows_evidence_convergence_20261005.py' \
+                'tests/test_p0_oneclick_exact_head_concurrency.py' \
+                'tests/test_portable_launch_report_reparse_concurrency.py' \
+                'tests/test_training_progress_durability_concurrency.py' \
+                | sort)"
               test "$extra" = "$expected_extra" || {
                 printf 'Unexpected current Product shipping manifest delta:\n%s\n' "$extra" >&2
                 exit 1
               }
 
-              expected_candidate="$(printf '%s\n%s\n' "$product_paths" "$SHIPPING_GATE" "$SHIPPING_TEST" | sed '/^$/d' | sort -u)"
+              expected_candidate="$(printf '%s\n%s\n' "$product_paths" "$expected_extra" | sed '/^$/d' | sort -u)"
               test "$changed" = "$expected_candidate" || {
                 printf 'Unexpected current Product shipping manifest candidate scope:\n%s\n' "$changed" >&2
                 exit 1
               }
               candidate_count="$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')"
-              test "$candidate_count" -eq 218
+              test "$candidate_count" -eq 227
               echo 'PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
             fi
           fi
