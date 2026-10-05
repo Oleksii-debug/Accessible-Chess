@@ -126,6 +126,7 @@ class Version2WindowsFileWorkflowRuntime:
             next_delegate=self._export_delegate,
             current_focus_provider=current_focus_provider,
             post_to_ui=self._poster,
+            owner_async_event_sink=self._pump.owner_async_event_sink,
         )
 
     @property
