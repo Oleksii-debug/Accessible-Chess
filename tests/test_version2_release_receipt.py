@@ -209,6 +209,48 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     "changed while being written",
                 ):
                     write_version2_release_receipt(swapped, receipt)
+            self.assertFalse(swapped.exists())
+
+    def test_failed_receipt_write_discards_own_partial_file_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            with patch(
+                "acs.version2_release_receipt.os.fsync",
+                side_effect=OSError("simulated durability failure"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "could not be written: OSError",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertFalse(output.exists())
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
+    def test_failed_receipt_cleanup_never_unlinks_unproven_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            with patch(
+                "acs.version2_release_receipt.os.fsync",
+                side_effect=OSError("simulated durability failure"),
+            ), patch(
+                "acs.version2_release_receipt._same_file_identity",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "cleanup could not be proven safe",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertTrue(output.exists())
 
     def test_readback_rejects_duplicate_unknown_wrong_authority_and_reformatting(self):
         with tempfile.TemporaryDirectory() as td:
