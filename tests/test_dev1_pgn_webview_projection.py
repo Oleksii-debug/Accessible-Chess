@@ -6,7 +6,14 @@ from unittest.mock import patch
 
 from acs.full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from acs.full_product_ui_shell import UILanguage
-from acs.gametree import MoveNode, PgnGame, VariationLine, parse_games, serialize_games
+from acs.gametree import (
+    GameTreeContractError,
+    MoveNode,
+    PgnGame,
+    VariationLine,
+    parse_games,
+    serialize_games,
+)
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
 
@@ -138,6 +145,66 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertEqual("Партія 1 з 2", after["game"]["position_label"])
         self.assertEqual("Коментар PGN", after["comment_editor"]["title"])
         self.assertEqual("Зберегти", after["comment_editor"]["save_label"])
+
+    def test_failed_language_rebuild_does_not_publish_mixed_nvda_locale(self) -> None:
+        move = MoveNode("not-a-chess-move")
+        line = VariationLine(moves=[move])
+        game = PgnGame(
+            tags={"White": "A", "Black": "B"},
+            line=line,
+            warnings=["Recovered historical movetext"],
+        )
+        presenter = PgnTreePresenter((game,), language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            self.dispatch,
+            lambda: 1,
+            language=UILanguage.EN,
+        )
+        before = projection.snapshot()
+
+        move.variations.append(line)
+        with self.assertRaisesRegex(GameTreeContractError, "cycle"):
+            projection.set_language(UILanguage.UA)
+
+        self.assertIs(UILanguage.EN, projection.language)
+        after = projection.snapshot()
+        self.assertEqual("en", after["document"]["lang"])
+        self.assertEqual(
+            "Unparsed move text: not-a-chess-move",
+            after["tree"][0]["label"],
+        )
+        self.assertEqual(before["tree"], after["tree"])
+        self.assertEqual("PGN comment", after["comment_editor"]["title"])
+
+    def test_language_render_failure_rolls_back_presenter_and_projection_locale(self) -> None:
+        move = MoveNode("not-a-chess-move")
+        game = PgnGame(
+            tags={"White": "A", "Black": "B"},
+            line=VariationLine(moves=[move]),
+        )
+        count = [1]
+        presenter = PgnTreePresenter((game,), language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            self.dispatch,
+            lambda: count[0],
+            language=UILanguage.EN,
+        )
+
+        count[0] = 2
+        with self.assertRaisesRegex(ValueError, "game count disagrees"):
+            projection.set_language(UILanguage.UA)
+
+        self.assertIs(UILanguage.EN, projection.language)
+        count[0] = 1
+        snapshot = projection.snapshot()
+        self.assertEqual("en", snapshot["document"]["lang"])
+        self.assertEqual(
+            "Unparsed move text: not-a-chess-move",
+            snapshot["tree"][0]["label"],
+        )
+        self.assertEqual("PGN comment", snapshot["comment_editor"]["title"])
 
     def test_comment_and_variation_commands_do_not_mutate_ui_tree_or_expose_backend_result(self) -> None:
         before = serialize_games(self.games)
