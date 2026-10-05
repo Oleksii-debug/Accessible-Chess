@@ -7,6 +7,7 @@ on:
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_pgn_streaming_host.py'
       - 'tests/test_v2_windows_pgn_open_worker.py'
+      - 'tests/test_v2_windows_pgn_open_invalid_session.py'
       - 'tests/test_v2_windows_nvda_file_workflows.py'
       - 'tests/test_v2_windows_host_runtime.py'
       - '.github/workflows/v2-windows-pgn-open-worker.yml'
@@ -56,6 +57,7 @@ jobs:
           acs/version2_windows_host_runtime.py
           acs/version2_windows_pgn_streaming_host.py
           tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_open_invalid_session.py
           tests/test_v2_windows_nvda_file_workflows.py
           tests/test_v2_windows_host_runtime.py
 
@@ -63,10 +65,14 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_open_invalid_session
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_import_ui_pump
 
       - name: Pytest focused PGN Open worker
-        run: pytest -q tests/test_v2_windows_pgn_open_worker.py
+        run: >-
+          pytest -q
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_open_invalid_session.py
