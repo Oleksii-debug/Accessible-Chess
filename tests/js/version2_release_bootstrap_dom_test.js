@@ -545,6 +545,19 @@ async function clickRoute(routeId) {
   check(eventQueue.length === 0, "deferred native event batch remained queued after recovery");
 
   const routeEffectsBeforeUnknownToken = shellRouteEffects;
+  const drainCallsBeforeUnknownToken = drainCalls;
+  const liveBeforeUnknownToken = live.textContent;
+  holdNextDrain = true;
+  eventQueue = [{
+    kind: "status",
+    payload: { announcement: "Deferred across unknown-token publication." }
+  }];
+  intervalCallback();
+  check(
+    typeof heldDrainResolve === "function",
+    "unknown-token regression did not hold an in-flight native event drain"
+  );
+
   dropRouteResponsesAfterEffect = 2;
   await clickRoute("teacher");
   check(
@@ -562,6 +575,17 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 3, "unknown-token route loss incorrectly committed Teacher");
   check(shellPublicationRollbacks === 3, "unknown-token route loss incorrectly rolled Teacher back");
 
+  heldDrainResolve();
+  for (let index = 0; index < 4; index += 1) await flush();
+  check(
+    live.textContent === liveBeforeUnknownToken,
+    "unknown-token publication allowed an in-flight native event to publish early"
+  );
+  check(
+    drainCalls === drainCallsBeforeUnknownToken + 1,
+    "unknown-token publication started another native event drain before recovery"
+  );
+
   await clickRoute("board");
   check(currentRoute === "board", "next route did not recover unknown-token publication first");
   check(pendingShellPublication === null, "unknown-token recovery left host publication pending");
@@ -570,6 +594,14 @@ async function clickRoute(routeId) {
   check(
     shellRouteEffects === routeEffectsBeforeUnknownToken + 2,
     "unknown-token recovery reran the stale Teacher transition"
+  );
+  check(
+    live.textContent === "Deferred across unknown-token publication.",
+    "deferred native event was not published after canonical route recovery"
+  );
+  check(
+    drainCalls === drainCallsBeforeUnknownToken + 2,
+    "deferred unknown-token event batch was not drained exactly once after recovery"
   );
 
   booksAvailable = false;
