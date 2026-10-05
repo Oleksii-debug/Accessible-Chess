@@ -108,7 +108,9 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             frozenset(
                 {
                     "pgn.open",
+                    "pgn.cancel_open",
                     "pgn.save",
+                    "pgn.cancel_save",
                     "pgn.save_as",
                     "library.import",
                     "library.cancel_import",
@@ -130,8 +132,13 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no browser path payload"):
             controller("pgn.open", {"path": "C:/private/game.pgn"})
         with self.assertRaisesRegex(ValueError, "no browser path payload"):
+            controller("pgn.save_as", {"path": "C:/private/output.pgn"})
+        with self.assertRaisesRegex(ValueError, "no browser path payload"):
+            controller("pgn.cancel_save", {"path": "C:/private/output.pgn"})
+        with self.assertRaisesRegex(ValueError, "no browser path payload"):
             controller("library.import", {"path": "C:/private/base.cbh"})
         self.assertEqual(dialogs.open_calls, 0)
+        self.assertEqual(dialogs.save_calls, 0)
         self.assertEqual(dialogs.import_calls, 0)
         self.assertEqual(events, [])
 
