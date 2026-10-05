@@ -212,6 +212,140 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         self.assertEqual([], touched)
         self.assertEqual([], forwarded)
 
+    def test_owner_action_base_exceptions_are_bounded_and_path_free(self) -> None:
+        class HostAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "host-abort.pgn"
+            database = AcsDatabase()
+            try:
+                service = LibraryExportService(database)
+
+                focus_delegate = Version2WindowsLibraryExportDelegate(
+                    dialogs=_Dialogs(None),
+                    service=service,
+                    event_sink=lambda event: None,
+                    next_delegate=lambda action_id, payload: None,
+                    current_focus_provider=lambda: (_ for _ in ()).throw(
+                        HostAbort("focus provider aborted")
+                    ),
+                )
+                focus_result = focus_delegate(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+                self.assertEqual(
+                    focus_result.kind,
+                    LibraryExportHostEventKind.DIALOG_CANCELLED,
+                )
+                self.assertEqual(focus_result.focus_target, "")
+
+                request_events: list[LibraryExportHostEvent] = []
+                request_delegate = Version2WindowsLibraryExportDelegate(
+                    dialogs=_Dialogs(destination),
+                    service=service,
+                    event_sink=request_events.append,
+                    next_delegate=lambda action_id, payload: None,
+                    current_focus_provider=lambda: "library-results",
+                )
+                with patch(
+                    "acs.version2_windows_library_export.LibraryExportRequest.from_payload",
+                    side_effect=HostAbort("request parser aborted"),
+                ):
+                    request_result = request_delegate("library.export", {})
+                self.assertEqual(
+                    request_result.error_code,
+                    "invalid_export_request",
+                )
+                self.assertEqual(request_result.focus_target, "library-results")
+                self.assertIs(request_result, request_events[-1])
+
+                class AbortDialogs(_Dialogs):
+                    def export_selection(self, suggested_filename: str = "selection.pgn"):
+                        raise HostAbort("native dialog aborted")
+
+                dialog_events: list[LibraryExportHostEvent] = []
+                dialog_delegate = Version2WindowsLibraryExportDelegate(
+                    dialogs=AbortDialogs(destination),
+                    service=service,
+                    event_sink=dialog_events.append,
+                    next_delegate=lambda action_id, payload: None,
+                    current_focus_provider=lambda: "library-results",
+                )
+                dialog_result = dialog_delegate(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+                self.assertEqual(dialog_result.error_code, "file_dialog_failed")
+                self.assertEqual(dialog_result.focus_target, "library-results")
+                self.assertIs(dialog_result, dialog_events[-1])
+
+                sync_events: list[LibraryExportHostEvent] = []
+                sync_delegate = Version2WindowsLibraryExportDelegate(
+                    dialogs=_Dialogs(destination),
+                    service=service,
+                    event_sink=sync_events.append,
+                    next_delegate=lambda action_id, payload: None,
+                    current_focus_provider=lambda: "library-results",
+                )
+                with patch.object(
+                    LibraryExportService,
+                    "expected_destination_sha256",
+                    autospec=True,
+                    side_effect=HostAbort("synchronous provider aborted"),
+                ):
+                    sync_result = sync_delegate(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(sync_result.error_code, "library_export_failed")
+                self.assertEqual(sync_result.focus_target, "library-results")
+                self.assertFalse(destination.exists())
+                self.assertIs(sync_result, sync_events[-1])
+            finally:
+                database.close()
+
+    def test_started_sink_base_exception_cannot_strand_reserved_export_worker(self) -> None:
+        class SinkAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "started-sink-abort.pgn"
+            events: list[LibraryExportHostEvent] = []
+            posted: list[object] = []
+
+            def sink(event: LibraryExportHostEvent) -> None:
+                events.append(event)
+                if event.kind is LibraryExportHostEventKind.STARTED:
+                    raise SinkAbort("started event sink aborted")
+
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(destination),
+                worker_services_factory=self._worker_factory(database_path),
+                post_to_ui=posted.append,
+                event_sink=sink,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "library-results",
+            )
+
+            started = delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.export_running)
+
+            posted.pop()()
+
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertTrue(destination.exists())
+            self.assertEqual(len(open_pgn(destination)), 1)
+
     def test_worker_factory_rejects_derived_services_without_field_or_cleanup_hooks(self) -> None:
         touched: list[str] = []
 
