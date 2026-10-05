@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 from acs.gametree import Comment
+from acs.import_contract import SourceFingerprint
 from acs.gametree_annotations import MoveAnnotationPatch, move_annotation_target
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_save_snapshot import PgnSaveCancelledError
@@ -934,6 +935,41 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(session.source, old_source)
             self.assertTrue(session.dirty)
             self.assertNotIn("private Save As writer failure", repr(terminal))
+
+    def test_mismatched_writer_provenance_is_publication_unverified_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-unverified-provenance.pgn"
+            wrong_path = Path(tmp) / "different-published-path.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Dirty publication uncertainty")
+            wrong = SourceFingerprint(
+                path=str(wrong_path.absolute()),
+                size=123,
+                sha256="0" * 64,
+                suffix=".pgn",
+            )
+            controller, _, poster, _, async_events, _, _ = self._controller(session)
+
+            with mock.patch(
+                "acs.pgn_save_snapshot.save_pgn_atomic",
+                return_value=wrong,
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(
+                terminal.error_code,
+                "pgn_save_publication_unverified",
+            )
+            self.assertNotIn(str(wrong_path), repr(terminal))
 
     def test_worker_failure_preserves_dirty_state_and_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
