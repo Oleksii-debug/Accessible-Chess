@@ -2117,6 +2117,10 @@ class Version2Application:
                 "Файлові операції вже завершуються.",
                 "File operations are already shutting down.",
             ),
+            "pgn_session_invalid": (
+                "Поточний PGN-документ має некоректний внутрішній стан. Файлову операцію зупинено без зміни документа або файла. Перезапустіть програму, відкрийте PGN заново та повторіть дію.",
+                "The current PGN document has an invalid internal state. The file operation was stopped without changing the document or file. Restart the application, reopen the PGN, and retry.",
+            ),
             "no_pgn_open_running": (
                 "Фонове відкриття PGN уже завершилося або не було розпочате.",
                 "Background PGN opening has finished or has not started.",
