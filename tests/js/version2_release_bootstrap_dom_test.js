@@ -106,6 +106,8 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let nextSnapshotOverride = null;
 let libraryApplyCalls = 0;
+let libraryInvoke = null;
+let libraryOpenEffects = 0;
 let failNextBookRender = false;
 let failNextTrainingRender = false;
 let stage1RefreshCalls = 0;
@@ -207,13 +209,14 @@ const windowObject = {
         return Promise.resolve(value);
       },
       v2_browser_command: (area, command, payload) => {
-        if (area !== "shell" || payload == null || typeof payload !== "object" ||
+        if ((area !== "shell" && area !== "library") ||
+            payload == null || typeof payload !== "object" ||
             Array.isArray(payload)) {
           return Promise.reject(new Error("unexpected browser command"));
         }
 
-        if (command === "shell.presentation_commit" ||
-            command === "shell.presentation_rollback") {
+        if (area === "shell" && (command === "shell.presentation_commit" ||
+            command === "shell.presentation_rollback")) {
           const keys = Object.keys(payload);
           if (keys.length !== 1 || keys[0] !== "token" ||
               !Number.isSafeInteger(payload.token) || payload.token <= 0) {
@@ -265,15 +268,20 @@ const windowObject = {
         }
 
         const keys = Object.keys(payload).sort();
+        const isShellRoute =
+          area === "shell" && String(command).indexOf("screen.") === 0;
+        const isLibraryOpen =
+          area === "library" && command === "library.open_game";
         if (keys.length !== 2 || keys[0] !== "publication_protocol" ||
             keys[1] !== "request_id" ||
             payload.publication_protocol !== "ack-v1" ||
             !Number.isSafeInteger(payload.request_id) || payload.request_id <= 0 ||
-            String(command).indexOf("screen.") !== 0) {
-          return Promise.reject(new Error("unexpected browser route command"));
+            (!isShellRoute && !isLibraryOpen)) {
+          return Promise.reject(new Error("unexpected browser publication command"));
         }
         if (pendingShellPublication !== null) {
           if (pendingShellPublication.requestId !== payload.request_id ||
+              pendingShellPublication.area !== area ||
               pendingShellPublication.command !== String(command)) {
             return Promise.reject(new Error("publication already pending"));
           }
@@ -281,29 +289,55 @@ const windowObject = {
             dropRouteResponsesAfterEffect -= 1;
             return Promise.reject(new Error("simulated lost route response"));
           }
-          return Promise.resolve({
-            kind: "route",
-            payload: { publication_token: pendingShellPublication.token }
-          });
+          return Promise.resolve(
+            isLibraryOpen
+              ? {
+                  kind: "delegated",
+                  payload: {
+                    action: "library.open_game",
+                    publication_token: pendingShellPublication.token
+                  }
+                }
+              : {
+                  kind: "route",
+                  payload: { publication_token: pendingShellPublication.token }
+                }
+          );
         }
         const token = nextShellPublicationToken++;
         const previousRoute = currentRoute;
-        currentRoute = String(command).replace(/^screen\./, "");
-        shellRouteEffects += 1;
+        if (isLibraryOpen) {
+          currentRoute = "pgn";
+          libraryOpenEffects += 1;
+        } else {
+          currentRoute = String(command).replace(/^screen\./, "");
+          shellRouteEffects += 1;
+        }
         pendingShellPublication = {
           token: token,
           previousRoute: previousRoute,
           requestId: payload.request_id,
+          area: area,
           command: String(command)
         };
         if (dropRouteResponsesAfterEffect > 0) {
           dropRouteResponsesAfterEffect -= 1;
           return Promise.reject(new Error("simulated lost route response"));
         }
-        return Promise.resolve({
-          kind: "route",
-          payload: { publication_token: token }
-        });
+        return Promise.resolve(
+          isLibraryOpen
+            ? {
+                kind: "delegated",
+                payload: {
+                  action: "library.open_game",
+                  publication_token: token
+                }
+              }
+            : {
+                kind: "route",
+                payload: { publication_token: token }
+              }
+        );
       },
       v2_drain_events: () => {
         drainCalls += 1;
@@ -327,7 +361,8 @@ const windowObject = {
     }
   },
   AccessibleChessLibrarySurface: {
-    render: (root, _snapshot, _invoke, _announce, requestedFocus) => {
+    render: (root, _snapshot, invoke, _announce, requestedFocus) => {
+      libraryInvoke = invoke;
       const input = new FakeElement("input");
       input.id = "library-search-player";
       root.replaceChildren(input);
@@ -697,6 +732,122 @@ async function clickRoute(routeId) {
   check(snapshotCalls === beforeStatusSnapshotCalls, "status-only event triggered a full V2 snapshot rerender");
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
+
+  check(typeof libraryInvoke === "function", "Library render did not expose its command boundary");
+
+  // Library -> PGN is a domain-owner transition, not just a post-hoc refresh.
+  // A malformed candidate snapshot must roll the host and PGN owner back before
+  // the old Library surface can be treated as authoritative again.
+  const malformedLibraryOpen = snapshot("pgn");
+  malformedLibraryOpen.screen = Object.assign({}, malformedLibraryOpen.screen, {
+    route_id: "invalid-route"
+  });
+  nextSnapshotOverride = malformedLibraryOpen;
+  const libraryEffectsBeforeRenderFailure = libraryOpenEffects;
+  const rollbacksBeforeLibraryRenderFailure = shellPublicationRollbacks;
+  const failedLibraryOpen = await libraryInvoke("library.open_game", {});
+  for (let index = 0; index < 8; index += 1) await flush();
+  check(failedLibraryOpen === null, "failed Library open leaked a delegated success");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeRenderFailure + 1,
+    "failed Library open did not execute exactly one staged host effect"
+  );
+  check(
+    shellPublicationRollbacks === rollbacksBeforeLibraryRenderFailure + 1,
+    "failed Library open did not roll back its staged PGN owner"
+  );
+  check(currentRoute === "library", "failed Library open did not restore the Library route");
+  check(pendingShellPublication === null, "failed Library open left host publication pending");
+  check(
+    documentRef.getElementById("library-search-player") !== null,
+    "failed Library open did not restore the canonical Library surface"
+  );
+  check(
+    documentRef.activeElement === documentRef.getElementById("library-search-player"),
+    "failed Library open did not restore canonical Library keyboard focus"
+  );
+  check(live.textContent === "Could not open the game.", "failed Library open was not announced");
+
+  // A lost start response must replay the exact Library request rather than
+  // opening the selected game twice. A lost commit response is idempotent too.
+  const libraryEffectsBeforeLostResponse = libraryOpenEffects;
+  const commitsBeforeLibraryLostResponse = shellPublicationCommits;
+  dropRouteResponsesAfterEffect = 1;
+  dropNextCommitResponseAfterEffect = true;
+  const committedLibraryOpen = await libraryInvoke("library.open_game", {});
+  for (let index = 0; index < 8; index += 1) await flush();
+  check(
+    committedLibraryOpen && committedLibraryOpen.kind === "delegated",
+    "Library open did not return its delegated success after publication"
+  );
+  check(currentRoute === "pgn", "Library open did not commit the PGN route");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeLostResponse + 1,
+    "lost Library start response duplicated the canonical open effect"
+  );
+  check(
+    shellPublicationCommits === commitsBeforeLibraryLostResponse + 1,
+    "lost Library commit response duplicated or lost the commit"
+  );
+  check(pendingShellPublication === null, "committed Library open left a publication pending");
+
+  await clickRoute("library");
+  check(currentRoute === "library", "test setup did not return to Library");
+  check(typeof libraryInvoke === "function", "Library command boundary was not rebound");
+
+  // If both start responses disappear, retain area+action+request as an
+  // unknown-token fence. The next route must recover that exact Library
+  // publication first, without re-executing the game open or draining events
+  // against uncertain presentation authority.
+  const libraryEffectsBeforeUnknownToken = libraryOpenEffects;
+  const rollbacksBeforeUnknownLibraryToken = shellPublicationRollbacks;
+  const drainCallsBeforeUnknownLibraryToken = drainCalls;
+  dropRouteResponsesAfterEffect = 2;
+  const unresolvedLibraryOpen = await libraryInvoke("library.open_game", {});
+  await flush();
+  check(unresolvedLibraryOpen === null, "unknown-token Library open reported success");
+  check(currentRoute === "pgn", "unknown-token Library open lost its one staged PGN route");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeUnknownToken + 1,
+    "unknown-token Library open executed more than once"
+  );
+  check(pendingShellPublication !== null, "unknown-token Library open forgot host publication");
+
+  eventQueue = [{
+    kind: "status",
+    payload: { announcement: "Deferred across Library open publication." }
+  }];
+  intervalCallback();
+  await flush();
+  check(
+    drainCalls === drainCallsBeforeUnknownLibraryToken,
+    "unknown-token Library open allowed native event drain"
+  );
+  check(eventQueue.length === 1, "unknown-token Library open consumed deferred native event");
+
+  await clickRoute("board");
+  for (let index = 0; index < 8; index += 1) await flush();
+  check(currentRoute === "board", "next route did not recover Library open before navigation");
+  check(pendingShellPublication === null, "Library recovery left publication pending");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeUnknownToken + 1,
+    "Library recovery replayed the game-open effect"
+  );
+  check(
+    shellPublicationRollbacks === rollbacksBeforeUnknownLibraryToken + 1,
+    "Library recovery did not roll back the unknown-token publication once"
+  );
+  check(
+    drainCalls === drainCallsBeforeUnknownLibraryToken + 1,
+    "deferred event was not drained once after Library publication recovery"
+  );
+  check(
+    live.textContent === "Deferred across Library open publication.",
+    "deferred event did not publish after Library authority recovery"
+  );
+
+  await clickRoute("library");
+  check(currentRoute === "library", "Library publication regression did not restore test route");
 
   const beforeOversizedEventSnapshots = snapshotCalls;
   const beforeOversizedEventRefreshes = stage1RefreshCalls;
