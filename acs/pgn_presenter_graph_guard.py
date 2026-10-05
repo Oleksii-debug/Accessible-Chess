@@ -20,6 +20,44 @@ from .gametree import (
     VariationLine,
 )
 
+# Presentation-only resource envelopes. These do not decide SAN legality or
+# mutate recovered PGN; they bound work before the presenter scans or joins text.
+MAX_PGN_PRESENTATION_RAW_TEXT_CHARS = 12 * 1024 * 1024
+MAX_PGN_PRESENTATION_TOTAL_TEXT_CHARS = 256 * 1024 * 1024
+MAX_PGN_PRESENTATION_SAN_CHARS = 4096
+MAX_PGN_PRESENTATION_SHORT_TEXT_CHARS = 4096
+MAX_PGN_PRESENTATION_TAGS = 256
+MAX_PGN_PRESENTATION_WARNINGS = 256
+MAX_PGN_PRESENTATION_COMMENTS_PER_SLOT = 256
+MAX_PGN_PRESENTATION_NAGS_PER_MOVE = 64
+
+
+class _PresentationTextBudget:
+    __slots__ = ("used",)
+
+    def __init__(self) -> None:
+        self.used = 0
+
+    def charge(self, value: object, *, field: str, limit: int) -> str:
+        if type(value) is not str:
+            raise _contract_error(
+                f"{field} must be built-in text",
+                GameTreeErrorCode.INVALID_CONTAINER,
+            )
+        length = len(value)
+        if length > limit:
+            raise _contract_error(
+                f"{field} exceeds the presentation text limit",
+                GameTreeErrorCode.INVALID_CONTAINER,
+            )
+        self.used += length
+        if self.used > MAX_PGN_PRESENTATION_TOTAL_TEXT_CHARS:
+            raise _contract_error(
+                "PGN presentation text exceeds the aggregate resource limit",
+                GameTreeErrorCode.INVALID_CONTAINER,
+            )
+        return value
+
 
 def snapshot_pgn_presentation_games(games: object) -> tuple[PgnGame, ...]:
     """Snapshot a passive built-in game collection without invoking user hooks."""
