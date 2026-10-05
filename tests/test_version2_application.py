@@ -17,6 +17,7 @@ from acs.bookdocument import BookDocument, Exercise
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_ui_shell import UILanguage
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
@@ -170,6 +171,12 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("без зміни документа або файла", message)
         self.assertIn("Перезапустіть програму", message)
         self.assertNotIn(str(self.root), message)
+
+        self.app.shell.set_language(UILanguage.EN)
+        english = self.app._native_file_error_message(event)
+        self.assertIn("without changing the document or file", english)
+        self.assertIn("Restart the application", english)
+        self.assertNotIn(str(self.root), english)
 
     def test_pgn_save_conflict_announces_no_clobber_truth(self):
         conflict = FileWorkflowEvent(
