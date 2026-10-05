@@ -650,7 +650,7 @@ class Version2WindowsFileActionDelegate:
                     view = session.view()
                     if cancel_event.is_set():
                         error_code = "pgn_open_cancelled"
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 PGN Open preparation failed", exc_info=True)
             error_code = "pgn_open_failed"
 
@@ -669,7 +669,7 @@ class Version2WindowsFileActionDelegate:
         try:
             assert self._post_to_ui is not None
             self._post_to_ui(finish_on_owner)
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 PGN Open UI publication post failed", exc_info=True)
             with self._lock:
                 current = (
