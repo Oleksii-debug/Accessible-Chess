@@ -16,8 +16,10 @@ class CurrentProductWindowsEvidenceConvergenceTests(unittest.TestCase):
         self.assertIn("ubuntu-22.04", text)
         self.assertIn("windows-2025", text)
         self.assertIn("WINDOWS_EVIDENCE_SUPERSEDED", text)
-        self.assertIn("WINDOWS_EVIDENCE_PRODUCT_MOVED", text)
-        self.assertIn('test "$(git show -s --format=%P HEAD)" = "$PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"', text)
+        self.assertIn('fetch_exact "$PRODUCT_REF" "$PRODUCT_HEAD" WINDOWS_EVIDENCE_PRODUCT', text)
+        self.assertIn("printf '%s_MOVED expected=%s live=%s", text)
+        self.assertIn('test "$(git show -s --format=%P "$CONVERGENCE_MERGE")" = "$PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"', text)
+        self.assertIn('git merge-base --is-ancestor "$CONVERGENCE_MERGE" HEAD', text)
         self.assertNotIn("continue-on-error:", text)
 
     def test_oneclick_exact_head_guard_is_integrated(self) -> None:
@@ -30,6 +32,7 @@ class CurrentProductWindowsEvidenceConvergenceTests(unittest.TestCase):
         self.assertIn("PRODUCT_BASE: 59486e2c9eff903e416d59a0e7c349c22ee2111d", text)
         self.assertIn("CURRENT_PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20", text)
         self.assertIn("PORTABLE_LAUNCH_REPORT_PRODUCT_MOVED", text)
+        self.assertIn("CONVERGENCE_MERGE: 5a02ace57c693c893007f4509a93ad15001f0c77", text)
         self.assertIn("CURRENT_REPORT_PATHS_BLOB: fafc8696a846a1b9c96a8ce89a76ce82593fd582", text)
         self.assertNotIn("continue-on-error:", text)
 
