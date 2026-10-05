@@ -1268,6 +1268,36 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_library_browser_bridge_bounds_projection_base_exception(self) -> None:
+        class ProjectionAbort(BaseException):
+            pass
+
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="bridge-abort.pgn")
+            bridge = build_library_export_webview(
+                database,
+                lambda action, payload: None,
+                language=UILanguage.EN,
+            )
+            rendered = bridge.projection.search(GameSearchQuery())
+            game_id = rendered.payload["snapshot"]["rows"][0]["game_id"]
+
+            with patch.object(
+                bridge.projection,
+                "toggle_export_selection",
+                side_effect=ProjectionAbort("projection command aborted"),
+            ):
+                event = bridge.dispatch(
+                    "library.toggle_export_selection",
+                    {"game_id": game_id},
+                )
+
+            self.assertEqual(event.kind, "error")
+            self.assertEqual(bridge.projection.export_game_ids, ())
+        finally:
+            database.close()
+
     def test_export_projection_mutations_roll_back_on_base_exception(self) -> None:
         class ProjectionAbort(BaseException):
             pass
