@@ -681,6 +681,67 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(committed.source_sha256, session.source.sha256)
         self.assertEqual(committed, session.view())
 
+    def test_older_snapshot_rebase_failure_preserves_all_precommit_authority(self) -> None:
+        source = self.write_document("older-rebase-failure.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Durable older generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        session.edit_tag("Event", "Newer live generation")
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+        baseline_before = session.workspace._baseline_digest
+        publication = publish_pgn_save_snapshot(snapshot)
+
+        self.assertIn("Durable older generation", source.read_text(encoding="utf-8"))
+        self.assertNotIn("Newer live generation", source.read_text(encoding="utf-8"))
+
+        class RebaseAbort(BaseException):
+            pass
+
+        with patch.object(
+            PgnWorkspace,
+            "_rebase_saved_digest",
+            autospec=True,
+            side_effect=RebaseAbort("checkpoint rebase unavailable"),
+        ):
+            with self.assertRaises(PgnDocumentError) as caught:
+                commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertEqual(session.workspace._baseline_digest, baseline_before)
+        self.assertTrue(session.dirty)
+        self.assertIn("Newer live generation", session.copy_pgn())
+
+    def test_prepared_save_as_final_view_matches_recovery_session_after_commit(self) -> None:
+        source = self.root / "recovery-final-view.pgn"
+        original = DOCUMENT.encode("utf-8") + b"\n{broken byte: \xff}\n"
+        source.write_bytes(original)
+        session = PgnDocumentSession.open(source)
+        before = session.view()
+        self.assertFalse(before.source_overwrite_safe)
+        self.assertTrue(before.global_warnings)
+
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "recovery-final-view-saved-as.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        committed = commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(committed, session.view())
+        self.assertEqual(committed.source_path, str(target.absolute()))
+        self.assertTrue(committed.source_overwrite_safe)
+        self.assertEqual(committed.global_warnings, ())
+        self.assertFalse(committed.dirty)
+        self.assertEqual(session.workspace._baseline_digest, snapshot.content_digest)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertTrue(target.exists())
+
     def test_commit_rejects_active_live_document_revision_before_increment(self) -> None:
         source = self.write_document("active-live-revision.pgn")
         session = PgnDocumentSession.open(source)
