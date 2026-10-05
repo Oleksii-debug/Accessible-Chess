@@ -110,6 +110,32 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
         self.assertEqual(visible_reader.index, 0)
         self.assertEqual(workflow_reader.index, 0)
 
+    def test_book_workspace_contains_semantic_dispatch_base_exception(self) -> None:
+        class DispatchAbort(BaseException):
+            pass
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: (_ for _ in ()).throw(DispatchAbort("host aborted")),
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_book_workspace_rejects_active_action_result_before_value_probe(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
