@@ -114,13 +114,13 @@ def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
 
     if type(snapshot) is not PgnSaveSnapshot:
         raise TypeError("PGN save snapshot is malformed")
-    mode = metadata.mode
+    mode = snapshot.mode
     document_revision = snapshot.document_revision
-    content_digest = metadata.content_digest
+    content_digest = snapshot.content_digest
     games = snapshot.games
     source_before = snapshot.source_before
     source_overwrite_safe_before = snapshot.source_overwrite_safe_before
-    saved_digest_before = metadata.saved_digest_before
+    saved_digest_before = snapshot._saved_digest_before
     session_ref = snapshot._session_ref
 
     if type(mode) is not PgnSaveMode:
