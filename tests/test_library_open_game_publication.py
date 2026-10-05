@@ -256,6 +256,45 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
         self.assertIsNone(self.app._pending_shell_publication)
 
+    def test_committed_library_open_rejects_stale_library_surface_commands(self) -> None:
+        _prior_session, _prior_pgn, _prior_focus = self._prior_library_state()
+        replacement = self._session("route-fence.pgn", "Replacement")
+        calls: list[tuple[object, object]] = []
+
+        with patch.object(
+            self.app.library,
+            "dispatch",
+            side_effect=self._staged_dispatch(replacement, calls),
+        ):
+            started = self.app.browser_command(
+                "library",
+                "library.open_game",
+                {"publication_protocol": "ack-v1", "request_id": 76},
+            )
+
+        token = started["payload"]["publication_token"]
+        committed = self.app.browser_command(
+            "shell",
+            "shell.presentation_commit",
+            {"token": token},
+        )
+        self.assertEqual(committed["kind"], "presentation-commit")
+        self.assertEqual(self.app.shell.current_route.route_id, "pgn")
+
+        before = self.app.library.projection.snapshot()
+        stale_search = self.app.browser_command("library", "library.search", {})
+        stale_move = self.app.browser_command(
+            "library",
+            "library.move",
+            {"delta": 1},
+        )
+
+        self.assertEqual(stale_search["kind"], "error")
+        self.assertEqual(stale_move["kind"], "error")
+        self.assertEqual(self.app.library.projection.snapshot(), before)
+        self.assertIs(self.app.session, replacement)
+        self.assertEqual(self.app.shell.current_route.route_id, "pgn")
+
     def test_browser_library_open_fails_closed_without_ack_protocol(self) -> None:
         prior_session, prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("legacy.pgn", "Legacy")
