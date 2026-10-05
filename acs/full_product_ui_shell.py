@@ -162,6 +162,7 @@ class AccessibleShellState:
                 self._focus_by_route[route_id] = focus_id
 
     def set_language(self, language: UILanguage) -> None:
+        self._assert_action_dispatch_ready()
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
         self._language = language
@@ -219,6 +220,7 @@ class AccessibleShellState:
             )
 
     def open_route(self, route_id: str, *, current_focus_id: str = "") -> str:
+        self._assert_action_dispatch_ready()
         if route_id not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
         if self._dialogs:
@@ -241,6 +243,7 @@ class AccessibleShellState:
         opener_focus_id: str,
         initial_focus_id: str,
     ) -> str:
+        self._assert_action_dispatch_ready()
         dialog = self._clean_focus_id(dialog_id)
         opener = self._clean_focus_id(opener_focus_id)
         initial = self._clean_focus_id(initial_focus_id)
@@ -252,6 +255,7 @@ class AccessibleShellState:
         return initial
 
     def close_dialog(self, dialog_id: str | None = None) -> str:
+        self._assert_action_dispatch_ready()
         if not self._dialogs:
             raise LookupError("no dialog is open")
         frame = self._dialogs[-1]
