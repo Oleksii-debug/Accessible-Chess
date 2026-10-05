@@ -75,6 +75,7 @@ jobs:
             "tests/test_pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot_cancel.py"
             "tests/test_pgn_service_passive_overwrite.py"
+            "tests/test_pgn_workspace.py"
             "tests/test_v2_windows_file_worker_preflight.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_import_event_mailbox.py"
