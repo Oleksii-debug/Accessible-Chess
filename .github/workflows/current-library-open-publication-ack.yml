@@ -70,10 +70,22 @@ jobs:
 
           changed="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-library-export-destination-cas.yml' \
             '.github/workflows/current-library-open-publication-ack.yml' \
+            'acs/full_product_actions.py' \
+            'acs/library_export_service.py' \
+            'acs/library_export_webview_projection.py' \
+            'acs/library_webview_bridge.py' \
+            'acs/ui_keymap_adapter.py' \
             'acs/version2_application.py' \
+            'acs/version2_windows_host_runtime.py' \
+            'acs/version2_windows_library_export.py' \
+            'tests/js/library_export_surface_dom_test.js' \
             'tests/js/version2_release_bootstrap_dom_test.js' \
             'tests/test_library_open_game_publication.py' \
+            'tests/test_v2_windows_host_runtime.py' \
+            'tests/test_v2_windows_library_export_background.py' \
+            'web/full_product_library.js' \
             'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Library-open publication scope:\n%s\n' "$changed" >&2
