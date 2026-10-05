@@ -376,6 +376,49 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
 
             self.assertTrue(target.exists())
 
+    def test_save_as_opens_native_dialog_before_full_view_materialization(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-name.pgn"
+            target = Path(tmp) / "saved-as.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+            order: list[str] = []
+            real_dialog = dialogs.save_pgn_as
+            real_view = PgnDocumentSession.view
+
+            def observed_dialog(name="game.pgn"):
+                order.append("dialog")
+                self.assertEqual(name, "source-name.pgn")
+                return real_dialog(name)
+
+            def observed_view(bound_session):
+                order.append("view")
+                if "dialog" not in order:
+                    raise AssertionError(
+                        "production Save As materialized the full view before the native dialog"
+                    )
+                return real_view(bound_session)
+
+            dialogs.save_pgn_as = observed_dialog
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=observed_view,
+            ):
+                started = controller("pgn.save_as", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertTrue(order)
+            self.assertEqual(order[0], "dialog")
+            self.assertIn("view", order)
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED_AS)
+            self.assertTrue(target.exists())
+
     def test_modal_save_as_edit_fails_stale_before_worker_or_file_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "must-not-exist.pgn"
