@@ -557,6 +557,65 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(sync_events[-1], result)
             self.assertIn("Edited by modal reentry", session.copy_pgn())
 
+    def test_save_as_corrupted_revision_fails_before_dialog(self) -> None:
+        session = PgnDocumentSession.from_text(PGN_TEXT)
+        session._document_revision = True
+        controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(
+            session
+        )
+
+        result = controller("pgn.save_as", {})
+
+        self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(result.error_code, "pgn_session_invalid")
+        self.assertEqual(dialogs.save_calls, 0)
+        self.assertFalse(controller.pgn_save_running)
+        self.assertEqual(poster.callbacks, [])
+        self.assertEqual(async_events, [])
+        self.assertEqual(sync_events[-1], result)
+
+    def test_save_as_corrupted_source_fails_before_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "corrupted-source.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session._source = object()
+            controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(
+                session
+            )
+
+            result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_session_invalid")
+            self.assertEqual(dialogs.save_calls, 0)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(poster.callbacks, [])
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events[-1], result)
+
+    def test_modal_save_as_revision_corruption_fails_stale_without_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "must-not-exist-corrupted-revision.pgn"
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(
+                session
+            )
+            dialogs.save_destination = target
+            dialogs.on_save_dialog = lambda: setattr(
+                session, "_document_revision", True
+            )
+
+            result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_preflight_stale")
+            self.assertFalse(target.exists())
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(poster.callbacks, [])
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events[-1], result)
+
     def test_async_boundary_rejects_session_subclass_before_save_as_dialog(self) -> None:
         class DerivedSession(PgnDocumentSession):
             pass

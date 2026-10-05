@@ -1055,11 +1055,25 @@ class Version2WindowsFileActionDelegate:
             # Production Windows Save As must not materialize the complete PGN
             # presentation before opening the native picker. The exact detached
             # save snapshot is captured after the dialog returns; here we need
-            # only a passive source filename and the pre-dialog revision fence.
-            expected_revision = current.document_revision
-            source = current.source
-            if type(source) is SourceFingerprint and type(source.path) is str:
-                suggested = Path(source.path).name or suggested
+            # only passive canonical provenance and the pre-dialog revision fence.
+            try:
+                expected_revision = current.document_revision
+                source = current.source
+                if type(expected_revision) is not int or expected_revision < 0:
+                    raise TypeError("PGN Save As revision is invalid")
+                if source is not None and type(source) is not SourceFingerprint:
+                    raise TypeError("PGN Save As source provenance is invalid")
+                if source is not None:
+                    source_path = source.path
+                    if type(source_path) is not str:
+                        raise TypeError("PGN Save As source path is invalid")
+                    suggested = Path(source_path).name or suggested
+            except BaseException:
+                return self._failed(
+                    "pgn.save_as",
+                    "pgn_session_invalid",
+                    focus_target=previous_focus,
+                )
         try:
             destination = self._dialogs.save_pgn_as(suggested)
             if destination is not None:
@@ -1079,10 +1093,24 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 "pgn.save_as", "pgn_session_unavailable", focus_target=previous_focus
             )
-        if (
-            live_session is not current
-            or current.document_revision != expected_revision
-        ):
+        try:
+            stale = live_session is not current
+            if not stale:
+                live_revision = current.document_revision
+                if (
+                    type(expected_revision) is not int
+                    or expected_revision < 0
+                    or type(live_revision) is not int
+                    or live_revision < 0
+                ):
+                    raise TypeError("PGN Save As modal revision is invalid")
+                stale = live_revision != expected_revision
+        except BaseException:
+            # The native picker pumps messages. A re-entrant callback can
+            # corrupt the active session as well as replace/edit it; treat any
+            # uncertainty as stale and never freeze or publish that generation.
+            stale = True
+        if stale:
             return self._failed(
                 "pgn.save_as", "pgn_save_preflight_stale", focus_target=previous_focus
             )
