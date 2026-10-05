@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph
 from acs.bookreader import BookReader
@@ -222,6 +223,58 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
         self.assertNotIn("e4", repr(passive))
         revealed = self.training.dispatch("training.reveal", {})
         self.assertEqual(("e4",), revealed.payload["solution"])
+
+
+    def test_book_bridge_rejects_projection_subclass_at_construction(self) -> None:
+        class DerivedBookProjection(BookWebViewProjection):
+            pass
+
+        derived = object.__new__(DerivedBookProjection)
+        with self.assertRaisesRegex(TypeError, "projection must be BookWebViewProjection"):
+            BookWebViewBridge(derived)
+
+    def test_book_bridge_contains_projection_abort_as_accessible_error(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        with patch.object(
+            self.book.projection,
+            "next",
+            side_effect=AbortSignal("private book abort"),
+        ):
+            result = self.book.dispatch("book.next", {})
+
+        self.assertEqual("error", result.kind)
+        self.assertNotIn("private book abort", repr(result))
+
+    def test_training_bridge_contains_projection_abort_as_accessible_error(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        with patch.object(
+            self.training.projection,
+            "hint",
+            side_effect=AbortSignal("private training abort"),
+        ):
+            result = self.training.dispatch("training.hint", {})
+
+        self.assertEqual("error", result.kind)
+        self.assertNotIn("private training abort", repr(result))
+
+    def test_training_continue_callback_abort_is_bounded_to_accessible_error(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        def abort_continue():
+            raise AbortSignal("private continuation abort")
+
+        bridge = TrainingWebViewBridge(
+            self.training.projection,
+            continue_callback=abort_continue,
+        )
+        result = bridge.dispatch("training.continue", {})
+        self.assertEqual("error", result.kind)
+        self.assertNotIn("private continuation abort", repr(result))
 
 
 if __name__ == "__main__":
