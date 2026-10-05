@@ -43,12 +43,20 @@ from acs.media_core import (
 
 
 class FakeProvider:
-    def __init__(self, provider_id: str, kind: AgentProviderKind, *, private: bool, behavior: str):
+    def __init__(
+        self,
+        provider_id: str,
+        kind: AgentProviderKind,
+        *,
+        private: bool,
+        behavior: str,
+        hard_cancel: bool = True,
+    ):
         self._capabilities = AgentProviderCapabilities(
             provider_id=provider_id,
             kind=kind,
             supports_private_data=private,
-            supports_hard_cancellation=True,
+            supports_hard_cancellation=hard_cancel,
         )
         self.behavior = behavior
 
@@ -302,6 +310,31 @@ class CrossRepoFoundationTests(unittest.TestCase):
                 observed_position_id="p1",
                 observed_confidence=1.5,
             )
+
+    def test_model_gateway_does_not_fallback_after_unsafe_timeout(self):
+        gateway = AgentModelGateway()
+        gateway.register(
+            FakeProvider(
+                "local-a",
+                AgentProviderKind.LOCAL,
+                private=True,
+                behavior="timeout",
+                hard_cancel=False,
+            ),
+            default=True,
+        )
+        gateway.register(
+            FakeProvider("local-b", AgentProviderKind.LOCAL, private=True, behavior="ok")
+        )
+        request = AgentModelRequest(
+            "req-unsafe-timeout",
+            (AgentModelMessage("user", "explain"),),
+            provider_id="local-a",
+            fallback_provider_ids=("local-b",),
+        )
+        with self.assertRaises(AgentModelGatewayError) as ctx:
+            asyncio.run(gateway.complete(request))
+        self.assertEqual(ctx.exception.code, AgentModelErrorCode.TIMEOUT)
 
 
 if __name__ == "__main__":
