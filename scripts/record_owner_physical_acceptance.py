@@ -27,6 +27,7 @@ from acs.version2_portable_package import (
     Version2PortablePackageError,
     _stable_bytes,
     _stable_digest,
+    _sync_published_zip_namespace,
 )
 from acs.version2_release_receipt import (
     Version2ReleaseReceiptError,
@@ -484,6 +485,27 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                     or int(published.st_size) != len(payload)
                 ):
                     _fail("physical acceptance record changed during atomic publication")
+
+                # The staged inode is durable before linking, but on POSIX the
+                # new canonical directory entry also needs a parent-directory
+                # fsync.  On Windows the repository's package contract uses an
+                # exact-inode FlushFileBuffers barrier.  Reuse that bounded
+                # cross-platform primitive and then require the same snapshot
+                # before accepting or reading back the record.
+                try:
+                    durable_published = _sync_published_zip_namespace(
+                        path,
+                        expected=published,
+                    )
+                except Version2PortablePackageError as exc:
+                    raise OwnerPhysicalAcceptanceError(
+                        "physical acceptance publication durability could not be confirmed"
+                    ) from exc
+                if not _same_file_snapshot(after_link, durable_published):
+                    _fail(
+                        "physical acceptance record changed during durability confirmation"
+                    )
+                after_link = durable_published
 
                 try:
                     readback = _stable_bytes(
