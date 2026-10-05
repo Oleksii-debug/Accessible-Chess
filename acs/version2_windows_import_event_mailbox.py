@@ -53,6 +53,16 @@ _PGN_SAVE_ACTION_IDS = frozenset({"pgn.save", "pgn.save_as"})
 def _validate_async_file_event(event: FileWorkflowEvent) -> None:
     if not isinstance(event, FileWorkflowEvent):
         raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
+
+    # A terminal event is part of the accessibility truth boundary, not merely
+    # a transport envelope.  Keep error semantics internally consistent before
+    # the UI/NVDA presentation owner can announce them.
+    if event.kind is FileWorkflowEventKind.FAILED:
+        if not event.error_code:
+            raise ValueError("failed worker UI event requires an error code")
+    elif event.error_code:
+        raise ValueError("successful worker UI event must not carry an error code")
+
     if event.action_id in _IMPORT_ACTION_IDS:
         if event.kind not in _ASYNC_IMPORT_KINDS:
             raise ValueError("worker UI mailbox received an invalid Library import event")
@@ -62,7 +72,16 @@ def _validate_async_file_event(event: FileWorkflowEvent) -> None:
             raise ValueError("worker UI mailbox received an invalid PGN Open event")
         return
     if event.action_id in _PGN_SAVE_ACTION_IDS:
-        if event.kind not in _ASYNC_PGN_SAVE_KINDS:
+        expected_success = (
+            FileWorkflowEventKind.PGN_SAVED
+            if event.action_id == "pgn.save"
+            else FileWorkflowEventKind.PGN_SAVED_AS
+        )
+        if event.kind not in {
+            expected_success,
+            FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+            FileWorkflowEventKind.FAILED,
+        }:
             raise ValueError("worker UI mailbox received an invalid PGN Save event")
         return
     raise ValueError("worker UI mailbox received an invalid file action")
