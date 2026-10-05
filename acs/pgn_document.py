@@ -332,6 +332,18 @@ class PgnDocumentSession:
                 or type(source_suffix) is not str
             ):
                 raise TypeError("source fingerprint fields must be passive built-in scalars")
+            if not source_path:
+                raise ValueError("source fingerprint path must not be empty")
+            if source_size < 0:
+                raise ValueError("source fingerprint size must not be negative")
+            if (
+                len(source_sha256) != 64
+                or any(character not in "0123456789abcdef" for character in source_sha256)
+            ):
+                raise ValueError("source fingerprint digest must be lowercase SHA-256 hex")
+            canonical_suffix = Path(source_path).suffix.lower()
+            if source_suffix != source_suffix.lower() or source_suffix != canonical_suffix:
+                raise ValueError("source fingerprint suffix must match its source path")
             source = SourceFingerprint(
                 path=source_path,
                 size=source_size,
