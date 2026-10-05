@@ -34,6 +34,10 @@ from acs.agent_tools import (
 )
 from acs.durable_checkpoint import CheckpointCorruptError, FileCheckpointStore
 from acs.media_audio import AudioInspectionPolicy, inspect_pcm16_wav
+from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
+from acs.media_application import MediaApplicationService
+from acs.media_core import MediaPlaybackState, MediaSession
+from acs.universal_chess_agent import UniversalChessAgentTools
 from acs.media_core import (
     ChessStateReconciler,
     MediaPositionTimeline,
@@ -335,6 +339,117 @@ class CrossRepoFoundationTests(unittest.TestCase):
         with self.assertRaises(AgentModelGatewayError) as ctx:
             asyncio.run(gateway.complete(request))
         self.assertEqual(ctx.exception.code, AgentModelErrorCode.TIMEOUT)
+
+class ProductCompositionTests(unittest.TestCase):
+    @staticmethod
+    def _board_service() -> BoardCommandService:
+        pieces = [None] * 64
+        pieces[6] = "N"  # g1
+        board = BoardSnapshot(
+            pieces=tuple(pieces),
+            turn="w",
+            legal_moves=(MoveView(6, 21, san="Nf3"),),
+        )
+        return BoardCommandService(board)
+
+    @staticmethod
+    def _timeline() -> MediaPositionTimeline:
+        return MediaPositionTimeline(
+            (
+                TimelineEntry(
+                    0,
+                    1000,
+                    "main",
+                    "node-0",
+                    "position-0",
+                    ReconciliationStatus.VERIFIED,
+                ),
+                TimelineEntry(
+                    1000,
+                    2000,
+                    "main",
+                    "node-1",
+                    "position-1",
+                    ReconciliationStatus.VERIFIED,
+                ),
+            )
+        )
+
+    def test_media_application_restore_uses_canonical_position_publisher(self):
+        published: list[str] = []
+        service = MediaApplicationService(
+            MediaSession(
+                "media-1",
+                "fixture",
+                "recorded-1",
+                state=MediaPlaybackState.PAUSED,
+                current_ms=1200,
+            ),
+            self._timeline(),
+            publish_position=published.append,
+        )
+        service.detach_for_analysis()
+        restored = asyncio.run(service.restore_media_position())
+        self.assertEqual(restored.position_id, "position-1")
+        self.assertEqual(published, ["position-1"])
+        self.assertFalse(service.analysis_detached)
+
+    def test_agent_board_tool_reads_existing_board_command_service(self):
+        tools = UniversalChessAgentTools(self._board_service)
+        result = asyncio.run(
+            tools.execute(
+                ChessToolCall(
+                    "call-board-square",
+                    "board.square",
+                    {"square": "g1"},
+                )
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output, {"square": "g1", "piece": "N"})
+
+    def test_agent_legal_moves_are_from_existing_board_service(self):
+        tools = UniversalChessAgentTools(self._board_service)
+        result = asyncio.run(
+            tools.execute(
+                ChessToolCall(
+                    "call-board-moves",
+                    "board.legal_moves",
+                    {"square": "g1"},
+                )
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output["moves"][0]["san"], "Nf3")
+
+    def test_agent_media_restore_calls_real_media_application_service(self):
+        published: list[str] = []
+        media = MediaApplicationService(
+            MediaSession(
+                "media-1",
+                "fixture",
+                "recorded-1",
+                state=MediaPlaybackState.PAUSED,
+                current_ms=1200,
+            ),
+            self._timeline(),
+            publish_position=published.append,
+        )
+        media.detach_for_analysis()
+        tools = UniversalChessAgentTools(self._board_service, media_service=media)
+        result = asyncio.run(
+            tools.execute(
+                ChessToolCall(
+                    "call-media-restore",
+                    "media.restore_position",
+                    {},
+                )
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output["position_id"], "position-1")
+        self.assertEqual(published, ["position-1"])
+        self.assertFalse(media.analysis_detached)
 
 
 if __name__ == "__main__":
