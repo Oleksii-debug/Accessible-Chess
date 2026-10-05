@@ -216,6 +216,56 @@ class BookOpenPreparationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_late_prepared_result_cannot_steal_a_newer_route(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            source = self._source(root)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            callbacks = []
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                worker = Version2BookOpenWorker(
+                    prepare=app.prepare_book_open,
+                    commit=app.commit_background_prepared_book_open,
+                    post_to_ui=callbacks.append,
+                    event_sink=app._book_open_event,
+                )
+                app.bind_book_open_worker(worker)
+                app.open_book_dialog = lambda: source
+
+                app._delegate("book.open", {})
+                deadline = time.monotonic() + 2
+                while not callbacks and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertTrue(callbacks)
+
+                # The user chose a newer UI owner before preparation completed.
+                app._focus = app.shell.open_route("library")
+                callbacks.pop(0)()
+
+                self.assertIsNone(app.reader)
+                self.assertEqual(app.shell.current_route.route_id, "library")
+                self.assertIsNone(app._pending_book_open_token)
+                events = app.drain_events()
+                self.assertTrue(
+                    any(
+                        event["kind"] == "error"
+                        and "не вдалося відкрити книгу"
+                        in event["payload"].get("announcement", "").casefold()
+                        for event in events
+                    )
+                )
+            finally:
+                analysis.close()
+                database.close()
+
     def test_application_cancel_action_prevents_pending_prepared_commit(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
