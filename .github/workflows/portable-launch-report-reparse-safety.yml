@@ -38,6 +38,7 @@ env:
   CURRENT_REPORT_PATHS_BLOB: fafc8696a846a1b9c96a8ce89a76ce82593fd582
   ONECLICK_HEAD: 53123231abc76265e52b7d62832c9fb94adc0012
   LAUNCH_REPORT_HEAD: b108580b91a2917543b80379a88aa1d9accb7c38
+  CONVERGENCE_MERGE: 5a02ace57c693c893007f4509a93ad15001f0c77
 
 concurrency:
   group: portable-launch-report-reparse-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
@@ -84,7 +85,8 @@ jobs:
               printf 'PORTABLE_LAUNCH_REPORT_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT_HEAD" "$live_product" >&2
               exit 1
             }
-            test "$(git show -s --format=%P HEAD)" = "$CURRENT_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+            test "$(git show -s --format=%P "$CONVERGENCE_MERGE")" = "$CURRENT_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+            git merge-base --is-ancestor "$CONVERGENCE_MERGE" HEAD
             test "$(git hash-object packaging/portable_launcher.c)" = "$CURRENT_LAUNCHER_BLOB"
             test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CURRENT_CONTRACT_TEST_BLOB"
             test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CURRENT_CORE_GUARD_TEST_BLOB"
@@ -102,17 +104,17 @@ CURRENT_PRODUCT_SCOPE
             test "$actual" = "$expected"
             git diff --check "$CURRENT_PRODUCT_HEAD"...HEAD
           else
-            git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
-            test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
-            test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
-            test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
-            test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
-            actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
-            expected="$(printf '%s\n' \
-              '.github/workflows/portable-launch-report-reparse-safety.yml' \
-              'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
-            test "$actual" = "$expected"
-            git diff --check "$PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
+          test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
+          actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          git diff --check "$PRODUCT_BASE" HEAD
           fi
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -162,7 +164,8 @@ CURRENT_PRODUCT_SCOPE
               printf 'PORTABLE_LAUNCH_REPORT_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT_HEAD" "$live_product" >&2
               exit 1
             }
-            test "$(git show -s --format=%P HEAD)" = "$CURRENT_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+            test "$(git show -s --format=%P "$CONVERGENCE_MERGE")" = "$CURRENT_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+            git merge-base --is-ancestor "$CONVERGENCE_MERGE" HEAD
             test "$(git hash-object packaging/portable_launcher.c)" = "$CURRENT_LAUNCHER_BLOB"
             test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CURRENT_CONTRACT_TEST_BLOB"
             test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CURRENT_CORE_GUARD_TEST_BLOB"
@@ -180,17 +183,17 @@ CURRENT_PRODUCT_SCOPE
             test "$actual" = "$expected"
             git diff --check "$CURRENT_PRODUCT_HEAD"...HEAD
           else
-            git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
-            test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
-            test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
-            test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
-            test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
-            actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
-            expected="$(printf '%s\n' \
-              '.github/workflows/portable-launch-report-reparse-safety.yml' \
-              'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
-            test "$actual" = "$expected"
-            git diff --check "$PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
+          test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
+          actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          git diff --check "$PRODUCT_BASE" HEAD
           fi
       - name: Build native x64 launcher with warnings as errors
         shell: cmd
