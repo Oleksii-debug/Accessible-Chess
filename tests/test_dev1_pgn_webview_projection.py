@@ -508,5 +508,97 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertEqual(before, self.calls)
 
 
+    def test_failed_selection_publication_restores_nvda_cursor_and_retry_commits(self) -> None:
+        before = self.projection.snapshot()
+        before_selected = self.presenter.selected_node_id
+        target = self.presenter.items()[1].node_id
+        self.assertNotEqual(before_selected, target)
+
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=RuntimeError("candidate selection render rejected"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "candidate selection render rejected"):
+                self.projection.select(target)
+
+        self.assertEqual(before_selected, self.presenter.selected_node_id)
+        self.assertEqual(before, self.projection.snapshot())
+
+        committed = self.projection.select(target)
+        self.assertEqual(target, self.presenter.selected_node_id)
+        self.assertEqual(
+            target,
+            next(
+                item["node_id"]
+                for item in committed.payload["snapshot"]["tree"]
+                if item["selected"]
+            ),
+        )
+
+    def test_failed_game_publication_restores_game_tree_selection_and_retry_commits(self) -> None:
+        before = self.projection.snapshot()
+        before_items = self.presenter.items()
+        before_selected = self.presenter.selected_node_id
+        self.assertEqual(0, self.presenter.game_index)
+
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=RuntimeError("candidate game render rejected"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "candidate game render rejected"):
+                self.projection.next_game()
+
+        self.assertEqual(0, self.presenter.game_index)
+        self.assertIs(before_items, self.presenter.items())
+        self.assertEqual(before_selected, self.presenter.selected_node_id)
+        self.assertEqual(before, self.projection.snapshot())
+
+        committed = self.projection.next_game()
+        self.assertEqual(1, self.presenter.game_index)
+        self.assertEqual(1, committed.payload["snapshot"]["game"]["index"])
+
+    def test_abort_during_selection_publication_rolls_back_and_safe_call_sanitizes(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        target = self.presenter.items()[1].node_id
+        before_selected = self.presenter.selected_node_id
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=AbortSignal("private render abort C:/Users/private/secret.pgn"),
+        ):
+            event = self.projection.safe_call(lambda: self.projection.select(target))
+
+        self.assertEqual("error", event.kind)
+        self.assertEqual(before_selected, self.presenter.selected_node_id)
+        self.assertEqual(
+            "The action could not be completed.",
+            event.payload["message"],
+        )
+        self.assertNotIn("private", repr(event))
+        self.assertNotIn("secret.pgn", repr(event))
+
+    def test_abort_during_locale_publication_restores_presenter_and_projection_language(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        before = self.projection.snapshot()
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=AbortSignal("private locale publication abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.set_language(UILanguage.UA)
+
+        self.assertIs(UILanguage.EN, self.projection.language)
+        self.assertEqual(before, self.projection.snapshot())
+        committed = self.projection.set_language(UILanguage.UA)
+        self.assertEqual("uk", committed.payload["document"]["lang"])
+
+
 if __name__ == "__main__":
     unittest.main()
