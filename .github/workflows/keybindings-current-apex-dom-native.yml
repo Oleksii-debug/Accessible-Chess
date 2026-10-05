@@ -23,10 +23,12 @@ on:
       - 'tests/js/pgn_surface_dom_test.js'
       - 'tests/js/pgn_tree_keyboard_dom_test.js'
       - 'tests/js/pgn_tree_boundary_key_ownership_test.js'
+      - 'tests/js/pgn_remaining_keybindings_test.js'
       - 'tests/js/library_surface_dom_test.js'
       - 'tests/js/education_surface_dom_test.js'
       - 'tests/test_full_product_native_menu.py'
       - 'tests/test_full_product_pgn_keybindings.py'
+      - 'tests/test_pgn_tree_remaining_keybindings.py'
       - 'tests/test_full_product_library_keybindings.py'
       - 'tests/test_full_product_education_keybindings.py'
       - 'tests/test_terminal_keybinding_surface_wiring.py'
@@ -163,6 +165,7 @@ jobs:
           acs/ui_keymap_service.py
           tests/test_full_product_native_menu.py
           tests/test_full_product_pgn_keybindings.py
+          tests/test_pgn_tree_remaining_keybindings.py
           tests/test_full_product_library_keybindings.py
           tests/test_full_product_education_keybindings.py
           tests/test_terminal_keybinding_surface_wiring.py
@@ -185,6 +188,7 @@ jobs:
           node --check tests/js/pgn_surface_dom_test.js
           node --check tests/js/pgn_tree_keyboard_dom_test.js
           node --check tests/js/pgn_tree_boundary_key_ownership_test.js
+          node --check tests/js/pgn_remaining_keybindings_test.js
           node --check tests/js/library_surface_dom_test.js
           node --check tests/js/education_surface_dom_test.js
           node tests/js/stage1_terminal_keymap_dom_test.js
@@ -193,6 +197,7 @@ jobs:
           node tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/pgn_tree_boundary_key_ownership_test.js
+          node tests/js/pgn_remaining_keybindings_test.js
           node tests/js/library_surface_dom_test.js
           node tests/js/education_surface_dom_test.js
 
@@ -200,6 +205,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_full_product_pgn_keybindings
+          tests.test_pgn_tree_remaining_keybindings
           tests.test_full_product_library_keybindings
           tests.test_full_product_education_keybindings
           tests.test_terminal_keybinding_surface_wiring
