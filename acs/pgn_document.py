@@ -440,7 +440,18 @@ class PgnDocumentSession:
 
     @property
     def source(self) -> SourceFingerprint | None:
-        return self._source
+        source = self._source
+        if source is None:
+            return None
+        # Never expose the internal provenance object itself. Frozen dataclass
+        # protection prevents ordinary assignment but not low-level mutation
+        # through a caller-retained reference.
+        return SourceFingerprint(
+            path=source.path,
+            size=source.size,
+            sha256=source.sha256,
+            suffix=source.suffix,
+        )
 
     @property
     def dirty(self) -> bool:
@@ -457,7 +468,7 @@ class PgnDocumentSession:
             source_sha256=None if self._source is None else self._source.sha256,
             game_count=workspace_view.game_count,
             selected_game_index=workspace_view.selected_game_index,
-            cursor=workspace_view.cursor,
+            cursor=_passive_context_cursor(workspace_view.cursor),
             dirty=self.dirty,
             document_revision=self._document_revision,
             source_overwrite_safe=self._source_overwrite_safe,
@@ -469,7 +480,7 @@ class PgnDocumentSession:
         return PgnDocumentContext(
             content_digest=view.content_digest,
             selected_game_index=view.selected_game_index,
-            cursor=view.cursor,
+            cursor=_passive_context_cursor(view.cursor),
         )
 
     def restore_context(self, context: PgnDocumentContext) -> PgnWorkspaceView:
