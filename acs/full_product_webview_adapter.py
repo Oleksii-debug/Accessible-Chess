@@ -21,6 +21,7 @@ from .full_product_ui_shell import (
 
 _EDITABLE_TAGS = frozenset({"input", "textarea", "select"})
 _MAX_WEBVIEW_ACTION_ID_CHARS = 160
+_MAX_WEBVIEW_FOCUS_ID_CHARS = 160
 _MAX_WEBVIEW_PAYLOAD_DEPTH = 12
 _MAX_WEBVIEW_PAYLOAD_ITEMS = 4096
 _MAX_WEBVIEW_COLLECTION_ITEMS = 512
@@ -199,6 +200,11 @@ class FullProductWebViewAdapter:
             raise ValueError("webview action id is invalid")
         if type(current_focus_id) is not str:
             raise TypeError("webview focus id must be text")
+        if (
+            len(current_focus_id) > _MAX_WEBVIEW_FOCUS_ID_CHARS
+            or "\x00" in current_focus_id
+        ):
+            raise ValueError("webview focus id is invalid")
         return (
             action_id,
             FullProductWebViewAdapter._passive_action_payload(payload),
@@ -218,7 +224,7 @@ class FullProductWebViewAdapter:
                 payload=payload,
                 current_focus_id=current_focus_id,
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RuntimeError):
             # Malformed host data must terminate before route/focus mutation or
             # domain delegation.  Use a non-ValueError here so private validation
             # detail is never promoted as intentional user-facing text.
