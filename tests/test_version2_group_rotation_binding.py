@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -202,6 +203,42 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.app.start_teaching_session(other)
         with self.assertRaisesRegex(RuntimeError, "different teaching session"):
             self.app.begin_or_resume_default_group_rotation("rotation-1")
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+    def test_advance_store_io_failure_marks_rotation_recovery_required(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        with mock.patch.object(
+            self.store,
+            "save",
+            side_effect=OSError("simulated durable sync failure"),
+        ):
+            with self.assertRaisesRegex(OSError, "durable sync failure"):
+                self.app.advance_group_rotation(
+                    expected_rotation_revision=state.revision
+                )
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+    def test_pair_bind_store_io_failure_marks_rotation_recovery_required(self) -> None:
+        state = self._reach_pair_round()
+        self.app.plan_classroom_pairings(
+            batch_id="pair-round-failure",
+            game_session_ids=("game-1", "game-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        with mock.patch.object(
+            self.store,
+            "save",
+            side_effect=OSError("simulated pair durable sync failure"),
+        ):
+            with self.assertRaisesRegex(OSError, "pair durable sync failure"):
+                self.app.bind_current_pairing_to_group_rotation(
+                    expected_rotation_revision=state.revision
+                )
         self.assertTrue(
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
