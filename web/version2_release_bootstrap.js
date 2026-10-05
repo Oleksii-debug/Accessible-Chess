@@ -801,7 +801,13 @@
     // is only for focus that left the active product surface (for example via
     // the native Save dialog/menu).
     const active = documentRef.activeElement;
-    if (active && workspace.contains(active) && !hiddenByAncestor(active)) return true;
+    if (
+      active &&
+      (workspace.contains(active) || nav.contains(active)) &&
+      !hiddenByAncestor(active)
+    ) {
+      return true;
+    }
     return focusById(id);
   }
 
