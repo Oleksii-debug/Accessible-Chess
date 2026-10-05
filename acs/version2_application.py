@@ -2104,20 +2104,46 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _file_event(self, event):
-        failed = getattr(event.kind, "value", "") == "failed"
-        if failed:
-            self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
-            return
         kind = getattr(event.kind, "value", "")
+        library_export = getattr(event, "action_id", "") == "library.export"
+        terminal_export = library_export and kind in {"exported", "dialog_cancelled", "failed"}
+        focus_target = ""
+        if terminal_export:
+            candidate = getattr(event, "focus_target", "")
+            if (
+                type(candidate) is str
+                and 0 < len(candidate) <= 160
+                and all(char.isalnum() or char in "-_" for char in candidate)
+            ):
+                focus_target = candidate
+
+        failed = kind == "failed"
+        if failed:
+            payload = {"message": self._native_file_error_message(event)}
+            if focus_target:
+                payload["focus_target"] = focus_target
+            self._events.append({"kind": "error", "payload": payload})
+            return
         messages = {
             "pgn_opened": ("PGN відкрито.", "PGN opened."),
             "pgn_saved": ("PGN збережено.", "PGN saved."),
             "pgn_saved_as": ("PGN збережено.", "PGN saved."),
+            "export_started": (
+                "Експорт розпочато. Операцію можна скасувати.",
+                "Export started. You can cancel the operation.",
+            ),
+            "export_cancelling": ("Скасовуємо експорт.", "Cancelling export."),
             "exported": ("Експорт завершено.", "Export completed."),
             "dialog_cancelled": ("Скасовано.", "Cancelled."),
         }
         message = messages.get(kind)
-        if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
+        if message:
+            payload = {
+                "announcement": message[self.shell.language is UILanguage.EN],
+            }
+            if focus_target:
+                payload["focus_target"] = focus_target
+            self._events.append({"kind": "status", "payload": payload})
 
     def shutdown(self, timeout: float | None = None):
         """Cancel and join native import work before closing shared application state.
