@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
+from acs.pgn_document import (
+    PgnConcurrentWriteError,
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+)
 from acs.pgn_save_snapshot import (
     PgnSaveMode,
     capture_pgn_save_snapshot,
@@ -69,6 +74,23 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIn("Newer In Memory", source.read_text(encoding="utf-8"))
         self.assertFalse(session.dirty)
 
+    def test_save_source_cas_failure_does_not_mutate_live_session(self) -> None:
+        source = self.write_document()
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Local Pending")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+
+        external = DOCUMENT.replace("Snapshot Base", "External Newer Generation")
+        source.write_text(external, encoding="utf-8", newline="\n")
+
+        with self.assertRaises(PgnConcurrentWriteError):
+            publish_pgn_save_snapshot(snapshot)
+        self.assertEqual(session.source, source_before)
+        self.assertTrue(session.dirty)
+        self.assertIn("Local Pending", session.copy_pgn())
+        self.assertIn("External Newer Generation", source.read_text(encoding="utf-8"))
+
     def test_save_as_of_older_snapshot_keeps_newer_edit_dirty(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
@@ -83,6 +105,26 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(Path(session.source.path), Path(publication.saved.path))
         self.assertTrue(session.view().source_overwrite_safe)
         self.assertTrue(session.dirty)
+
+    def test_save_as_destination_cas_failure_does_not_publish_or_rebind_session(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.write_document("existing-race.pgn", SECOND_DOCUMENT)
+        expected = expected_pgn_destination_sha256(target)
+
+        external = SECOND_DOCUMENT.replace("Second Session", "External Replacement")
+        target.write_text(external, encoding="utf-8", newline="\n")
+
+        with self.assertRaises(PgnConcurrentWriteError):
+            publish_pgn_save_snapshot(
+                snapshot,
+                path=target,
+                overwrite=True,
+                expected_sha256=expected,
+            )
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertIn("External Replacement", target.read_text(encoding="utf-8"))
 
     def test_stale_save_as_completion_cannot_replace_newer_source(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
