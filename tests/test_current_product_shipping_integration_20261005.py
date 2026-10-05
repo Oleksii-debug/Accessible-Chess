@@ -61,8 +61,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" HEAD',
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
-            'test "$product_count" -eq 230',
-            'test "$candidate_count" -eq 241',
+            'test "$product_count" -eq 231',
+            'test "$candidate_count" -eq 246',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
@@ -82,6 +82,11 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"',
             "PRE_FOCUS_SHIPPING_HEAD: 42145bb7684249e07946c02dda5b28223f1e0caa",
             "TRAINING_RECONVERGENCE_MERGE: c65f0641a866744c583ea21f7b2baa7ec8c5d53e",
+            "OWNER_FINAL_HOLD_REF: fix/shipping-owner-final-sound-hold-20261005-zftrkmo",
+            "OWNER_FINAL_HOLD_SHA: aa706a6e8d525611b57514e62b3c203c9d41ce61",
+            "PRE_OWNER_FINAL_HOLD_SHIPPING: ccc0f937658b2035cc45c48bce5ab20fabd8db3d",
+            "OWNER_FINAL_HOLD_MERGE: f7b231f195399c38e53d5749f9aa9f771485f76c",
+            'test "$(git show -s --format=%P "$OWNER_FINAL_HOLD_MERGE")" = "$PRE_OWNER_FINAL_HOLD_SHIPPING $OWNER_FINAL_HOLD_SHA"',
             'test "$(git show -s --format=%P "$TRAINING_RECONVERGENCE_MERGE")" = "$PRE_FOCUS_SHIPPING_HEAD $TRAINING_DURABILITY_SHA"',
             'git rev-parse "$TRAINING_DURABILITY_SHA:$evidence_path"',
             "Evidence path mutated after convergence",
@@ -108,6 +113,11 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "tests/test_p0_oneclick_exact_head_concurrency.py",
             "tests/test_portable_launch_report_reparse_concurrency.py",
             "tests/test_training_progress_durability_concurrency.py",
+            ".github/workflows/owner-oneclick-from-w4.yml",
+            "docs/USER_SOUND_PACK_CURRENT.md",
+            "scripts/build_owner_portable_candidate.py",
+            "tests/test_owner_oneclick_from_w4_workflow.py",
+            "tests/test_owner_portable_candidate.py",
             'extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"',
             'test "$extra_paths" = "$expected_extra"',
             "QUALIFICATION_DELTA_PATHS=15",
@@ -124,9 +134,9 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 230',
+            'test "$product_count" -eq 231',
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 241',
+            'test "$candidate_count" -eq 246',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -138,11 +148,11 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 230',
+            'test "$product_count" -eq 231',
             "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 241',
+            'test "$candidate_count" -eq 246',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
