@@ -1,5 +1,5 @@
-# exact-package-reconvergence: 42145bb / p0g 42145bb / p0-document 42145bb / publication-parent f71ce14
-# qualification-request: ACCESSIBLE-CHESS-20261005-W5-SHIPPING-ZFTRKMO-42145BB-EXACT
+# exact-package-reconvergence: 32c9d75b / p0g 32c9d75b / p0-document 32c9d75b / merge 0aa1148a
+# qualification-request: ACCESSIBLE-CHESS-20261005-W5-SHIPPING-C2MBEZB-32C9D75B-EXACT
 name: Post-freeze V2 Windows Package Qualification
 
 on:
@@ -21,10 +21,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PRODUCT_PARENT_SHA: 42145bb7684249e07946c02dda5b28223f1e0caa
+  PRODUCT_PARENT_SHA: 32c9d75b1662da85398e747154ecf2d812c472b9
   PREVIOUS_PACKAGE_SHA: 177484dd3c93395901f0b8fcf573e97367e60f3d
-  RECONVERGENCE_MERGE_SHA: f71ce14b985bb09249e5b5f316b9d0ef92719dc3
-  PUBLICATION_PARENT_SHA: f71ce14b985bb09249e5b5f316b9d0ef92719dc3
+  PREVIOUS_PUBLICATION_SHA: 2ee58c0abfbc8954b95674309ca695f1846024eb
+  RECONVERGENCE_MERGE_SHA: 0aa1148a915cd68c6f6b9cf5b648c66e768465b2
+  PUBLICATION_PARENT_SHA: 0aa1148a915cd68c6f6b9cf5b648c66e768465b2
   PREVIOUS_WORKFLOW_BLOB_SHA: 76552912bb8395d9f7599935a33a8343f0338c08
   EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
   EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
@@ -32,10 +33,10 @@ env:
   PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
   QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
   WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
-  P0G_QA_SHA: 42145bb7684249e07946c02dda5b28223f1e0caa
+  P0G_QA_SHA: 32c9d75b1662da85398e747154ecf2d812c472b9
   P0G_PROBE_BLOB_SHA: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
   P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
-  P0_DOCUMENT_QA_SHA: 42145bb7684249e07946c02dda5b28223f1e0caa
+  P0_DOCUMENT_QA_SHA: 32c9d75b1662da85398e747154ecf2d812c472b9
   P0_DOCUMENT_PROBE_BLOB_SHA: 08c343f04b6383445b9360f5cee346d7a4a414a5
   P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
   PYTHON_VERSION: '3.12.10'
@@ -81,9 +82,11 @@ jobs:
           git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
           git cat-file -e "$P0G_QA_SHA^{commit}"
           git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
+          git cat-file -e "$PREVIOUS_PUBLICATION_SHA^{commit}"
           git cat-file -e "$RECONVERGENCE_MERGE_SHA^{commit}"
           git cat-file -e "$PUBLICATION_PARENT_SHA^{commit}"
           test "$(git merge-base "$PUBLICATION_PARENT_SHA" HEAD)" = "$PUBLICATION_PARENT_SHA"
+          test "$(git show -s --format=%P "$RECONVERGENCE_MERGE_SHA")" = "$PREVIOUS_PUBLICATION_SHA $PRODUCT_PARENT_SHA"
           test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" "$PUBLICATION_PARENT_SHA")" = "$RECONVERGENCE_MERGE_SHA"
           test "$(git merge-base "$PRODUCT_PARENT_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PRODUCT_PARENT_SHA"
           test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PREVIOUS_PACKAGE_SHA"
