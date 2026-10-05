@@ -119,6 +119,42 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             publication_threads,
         )
 
+    def test_save_canonical_workspace_serialization_stays_off_owner_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "serialization-thread.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Worker serialization")
+            controller, _, poster, _, async_events, _, _ = self._controller(session)
+            owner = threading.get_ident()
+            serialization_threads: list[int] = []
+
+            from acs import pgn_workspace as workspace_module
+
+            real_serialize = workspace_module.serialize_pgn_text
+
+            def observed_serialize(*args, **kwargs):
+                serialization_threads.append(threading.get_ident())
+                return real_serialize(*args, **kwargs)
+
+            with mock.patch.object(
+                workspace_module,
+                "serialize_pgn_text",
+                side_effect=observed_serialize,
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertTrue(serialization_threads)
+            self.assertTrue(
+                all(thread_id != owner for thread_id in serialization_threads),
+                serialization_threads,
+            )
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(session.dirty)
+
     def test_save_publishes_off_owner_then_commits_on_owner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
