@@ -2149,6 +2149,14 @@ class Version2Application:
                 "Не вдалося відкрити вибраний PGN. Поточний документ не змінено. Перевірте файл і повторіть дію.",
                 "The selected PGN could not be opened. The current document was not changed. Check the file and retry.",
             ),
+            "unsaved_confirmation_unavailable": (
+                "Не вдалося показати підтвердження для незбережених змін. Інший PGN не відкрито, поточний документ не змінено. Збережіть його та повторіть відкриття.",
+                "The unsaved-changes confirmation could not be shown. No other PGN was opened and the current document was not changed. Save it, then retry opening.",
+            ),
+            "unsaved_confirmation_failed": (
+                "Не вдалося завершити підтвердження для незбережених змін. Інший PGN не відкрито, поточний документ не змінено. Збережіть його та повторіть відкриття.",
+                "The unsaved-changes confirmation could not be completed. No other PGN was opened and the current document was not changed. Save it, then retry opening.",
+            ),
             "pgn_open_worker_unavailable": (
                 "Не вдалося запустити фонове відкриття PGN.",
                 "Background PGN opening could not be started.",
