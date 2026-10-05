@@ -159,6 +159,85 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-worker-source", repr(event))
 
+    def test_owner_live_session_base_exception_becomes_terminal_and_releases_worker(self) -> None:
+        class OwnerAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "owner-session-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs(source)
+            poster = _OwnerQueuePoster()
+            events: list[FileWorkflowEvent] = []
+            get_calls = 0
+
+            def get_session():
+                nonlocal get_calls
+                get_calls += 1
+                if get_calls == 1:
+                    return None
+                raise OwnerAbort("owner session access abort")
+
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=get_session,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=poster,
+            )
+
+            started = controller("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            poster.drain()
+
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "pgn_session_unavailable")
+            self.assertNotIn("owner session access abort", repr(events[-1]))
+
+    def test_owner_session_publication_base_exception_becomes_terminal_and_releases_worker(self) -> None:
+        class PublicationAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "owner-publication-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs(source)
+            poster = _OwnerQueuePoster()
+            events: list[FileWorkflowEvent] = []
+
+            def set_session(session):
+                raise PublicationAbort("owner publication abort")
+
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=lambda: None,
+                set_pgn_session=set_session,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=poster,
+            )
+
+            started = controller("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            poster.drain()
+
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "pgn_open_publish_failed")
+            self.assertNotIn("owner publication abort", repr(events[-1]))
+
     def test_recovered_legacy_open_preserves_warning_count_and_overwrite_fence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "legacy-warning.pgn"
