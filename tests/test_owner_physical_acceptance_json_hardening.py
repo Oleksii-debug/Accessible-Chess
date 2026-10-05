@@ -20,6 +20,37 @@ from tests.test_owner_physical_acceptance import (
 
 
 class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
+    def test_record_rejects_publication_not_bound_to_fsynced_staging_bytes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            machine = root / "machine.json"
+            receipt = _machine_receipt(final_zip)
+            _write_machine_receipt(machine, receipt)
+            output = root / "physical.json"
+
+            def publish_different_bytes(_source, destination, **_kwargs):
+                Path(destination).write_bytes(b'{"forged":true}\n')
+
+            with mock.patch.object(
+                acceptance_module,
+                "_final_zip_sha",
+                return_value=receipt["archive_sha256"],
+            ), mock.patch.object(
+                acceptance_module.os,
+                "link",
+                side_effect=publish_different_bytes,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "changed during atomic publication|published bytes do not match",
+                ):
+                    _record(machine, final_zip, output, _scenarios())
+
+            self.assertTrue(output.exists())
+            self.assertEqual(output.read_bytes(), b'{"forged":true}\n')
+
     def test_record_does_not_reopen_mutable_inputs_after_exclusive_publish(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
