@@ -395,14 +395,12 @@ class Version2WindowsFileActionDelegate:
             return None, self._failed(
                 "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
             ), previous_focus, None, None
-        current_revision = (
-            None if current is None else current.document_revision
-        )
+        if current is not None and not isinstance(current, PgnDocumentSession):
+            return None, self._failed(
+                "pgn.open", "pgn_session_invalid", focus_target=previous_focus
+            ), previous_focus, None, None
+        current_revision = None if current is None else current.document_revision
         if current is not None:
-            if not isinstance(current, PgnDocumentSession):
-                return None, self._failed(
-                    "pgn.open", "pgn_session_invalid", focus_target=previous_focus
-                ), previous_focus, None, None
             if current.dirty:
                 confirmation = getattr(self._dialogs, "confirm_discard_unsaved_pgn", None)
                 if not callable(confirmation):
