@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from acs.pgn_document import PgnDocumentSession
 from acs.library_import_service import (
