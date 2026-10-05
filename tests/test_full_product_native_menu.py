@@ -333,6 +333,39 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual([], calls)
         self.assertEqual([], commands)
 
+    def test_native_sink_failure_restores_external_focus_token_when_callback_is_bound(self) -> None:
+        shell = AccessibleShellState(language=UILanguage.EN)
+        registry = build_full_product_action_registry()
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, lambda _action, _payload: {"ok": True}, registry=registry),
+        )
+        host_focus = {"value": "board-launcher"}
+        library = next(
+            item
+            for menu in build_full_product_menu_spec(registry, language=UILanguage.EN)
+            for item in menu.items
+            if item.action_id == "screen.library"
+        )
+
+        def rejecting_sink(_command):
+            host_focus["value"] = "library-search-player"
+            raise RuntimeError("native publication failed")
+
+        controller = FullProductNativeMenuController(
+            adapter,
+            rejecting_sink,
+            exit_callback=lambda: None,
+            current_focus_provider=lambda: host_focus["value"],
+            focus_restore=lambda token: host_focus.__setitem__("value", token),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "native publication failed"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", host_focus["value"])
+
     def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
         controller, _calls, _commands, _exits = make_controller()
         form = FakeForm()
