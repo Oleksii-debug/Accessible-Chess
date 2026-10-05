@@ -108,7 +108,7 @@ def _workspace_error(message: str, code: PgnWorkspaceErrorCode) -> PgnWorkspaceE
     return PgnWorkspaceError(message, code=code)
 
 
-def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
+def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
     try:
         bounded = materialize_pgn_games_bounded(games)
     except PgnRoundTripError as exc:
@@ -141,7 +141,7 @@ def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
             "PGN document changes under canonical round-trip",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
         )
-    return list(reparsed)
+    return list(reparsed), _digest_text(text)
 
 
 def _digest_text(text: str) -> str:
@@ -157,11 +157,11 @@ class PgnWorkspace:
     """
 
     def __init__(self, games: Iterable[PgnGame]) -> None:
-        self._games = _validate_document(games)
+        self._games, self._content_digest = _validate_document(games)
         self._selected_game_index = 0
         self._cursor = GameTreeCursor()
         self._content_revision = 0
-        self._baseline_digest = self.content_digest
+        self._baseline_digest = self._content_digest
         self._dirty = False
 
     @classmethod
@@ -208,7 +208,11 @@ class PgnWorkspace:
 
     @property
     def content_digest(self) -> str:
-        return _digest_text(serialize_pgn_text(tuple(self._games)))
+        # _validate_document() already serialized and strict-round-tripped the
+        # exact canonical game set. Cache that digest until a content commit;
+        # navigation can then read document identity without reserializing a
+        # potentially large multi-game PGN on the Windows owner thread.
+        return self._content_digest
 
     def view(self) -> PgnWorkspaceView:
         game = self._current_game_ref()
@@ -411,7 +415,7 @@ class PgnWorkspace:
     ) -> PgnWorkspaceView:
         candidate = list(self._games)
         candidate[self._selected_game_index] = game
-        validated = _validate_document(candidate)
+        validated, content_digest = _validate_document(candidate)
         next_cursor = self._cursor if cursor is None else cursor
         try:
             validate_cursor(validated[self._selected_game_index], next_cursor)
@@ -421,9 +425,10 @@ class PgnWorkspace:
                 PgnWorkspaceErrorCode.CURSOR,
             ) from exc
         self._games = validated
+        self._content_digest = content_digest
         self._cursor = next_cursor
         self._content_revision += 1
-        self._dirty = self.content_digest != self._baseline_digest
+        self._dirty = self._content_digest != self._baseline_digest
         return self.view()
 
     def edit_move_annotations(
