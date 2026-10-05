@@ -93,4 +93,4 @@ jobs:
 
       - name: Canonical chess selftest
         shell: bash
-        run: python -m acs.core_selftest
+        run: python -m acs.selftest
