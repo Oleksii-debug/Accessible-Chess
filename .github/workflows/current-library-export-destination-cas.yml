@@ -132,6 +132,7 @@ jobs:
           acs/version2_application.py
           acs/version2_windows_host_runtime.py
           acs/version2_windows_library_export.py
+          tests/test_library_open_game_publication.py
           tests/test_v2_windows_library_export_background.py
           tests/test_v2_windows_host_runtime.py
 
@@ -140,9 +141,10 @@ jobs:
           node tests/js/library_export_surface_dom_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
 
-      - name: Execute Library export, host-runtime, and canonical writer regressions
+      - name: Execute Library export, publication, host-runtime, and canonical writer regressions
         run: >-
           python -m unittest -v
+          tests.test_library_open_game_publication
           tests.test_v2_windows_library_export_background
           tests.test_v2_windows_host_runtime
           tests.test_d07_library_export_reachability
