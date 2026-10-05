@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -153,6 +154,39 @@ class PgnServicePassiveOverwriteTests(unittest.TestCase):
             self.assertTrue(target.exists())
             self.assertIn('[Event "Passive overwrite"]', target.read_text(encoding="utf-8"))
             self.assertNotIn("private post-publication", str(caught.exception))
+
+
+    def test_cas_post_publication_recovery_verification_failure_preserves_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "existing-cas.pgn"
+            original = b"external generation that must remain recoverable\n"
+            target.write_bytes(original)
+            expected = hashlib.sha256(original).hexdigest()
+
+            # Calls: initial destination guard, helper preflight destination,
+            # second destination guard, recovery-snapshot guard, then the
+            # post-replace recovery verification. The last failure occurs only
+            # after os.replace() has already made the new PGN visible.
+            checks = [expected, expected, expected, expected, OSError("private recovery probe")]
+
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=checks,
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                    save_pgn_atomic(
+                        target,
+                        self.games(),
+                        overwrite=True,
+                        expected_sha256=expected,
+                    )
+
+            self.assertIn('[Event "Passive overwrite"]', target.read_text(encoding="utf-8"))
+            recovery = list(root.glob("existing-cas.pgn.cas-*.bak"))
+            self.assertEqual(len(recovery), 1)
+            self.assertEqual(recovery[0].read_bytes(), original)
+            self.assertNotIn("private recovery probe", str(caught.exception))
 
 
 if __name__ == "__main__":
