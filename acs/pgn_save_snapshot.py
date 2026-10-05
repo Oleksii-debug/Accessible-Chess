@@ -618,10 +618,29 @@ def commit_pgn_save_publication(
     if binding.session_ref() is not current:
         raise _stale("PGN save publication belongs to a different document session")
 
+    # Re-read live provenance only through passive exact-scalar validation
+    # before any equality work. Frozen SourceFingerprint instances and the
+    # session's saved digest can still be corrupted through low-level object
+    # mutation while a worker is publishing; comparing such active subclass
+    # values here would execute caller code on the owner/UI thread after durable
+    # publication. Fail closed instead so the host can report commit failure
+    # without rebinding in-memory provenance.
+    live_source = _detached_source_fingerprint(current.source, allow_none=True)
+    live_saved_digest = current._saved_digest
+    if live_saved_digest is not None and (
+        type(live_saved_digest) is not str
+        or len(live_saved_digest) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in live_saved_digest
+        )
+    ):
+        raise TypeError("PGN live saved digest is invalid")
+
     # Exact replay after a successful owner-thread commit is harmless.  This is
     # checked before source-staleness because an unchanged Save can legitimately
     # produce the same fingerprint as its source generation.
-    if current.source == saved and current._saved_digest == binding.content_digest:
+    if live_source == saved and live_saved_digest == binding.content_digest:
         return current.view()
 
     # Ordinary edits do not mutate either source provenance or the saved
@@ -629,8 +648,8 @@ def commit_pgn_save_publication(
     # an older worker cannot later overwrite newer publication authority even if
     # a path happens to cycle back to the same source.
     if (
-        current.source != source_before
-        or current._saved_digest != binding.saved_digest_before
+        live_source != source_before
+        or live_saved_digest != binding.saved_digest_before
     ):
         raise _stale("PGN source changed before the save publication could commit")
 
