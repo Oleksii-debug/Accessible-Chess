@@ -114,8 +114,9 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
     def test_book_workspace_rejects_active_ui_event_subclass_before_field_access(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
+        reader = self._reader()
         workflow = BookBoardWorkflow(
-            self._reader(),
+            reader,
             EngineAssistedWorkflowService(analysis),
         )
 
