@@ -65,6 +65,38 @@ def _stale(message: str) -> PgnDocumentError:
     return PgnDocumentError(message, code=PgnDocumentErrorCode.CONTEXT_STALE)
 
 
+def _detached_source_fingerprint(
+    source: object,
+    *,
+    allow_none: bool = False,
+) -> SourceFingerprint | None:
+    """Copy provenance scalars once so caller-owned frozen DTOs cannot alias state."""
+
+    if source is None:
+        if allow_none:
+            return None
+        raise TypeError("PGN save provenance fingerprint is required")
+    if type(source) is not SourceFingerprint:
+        raise TypeError("PGN save provenance fingerprint is invalid")
+    path = source.path
+    size = source.size
+    sha256 = source.sha256
+    suffix = source.suffix
+    if (
+        type(path) is not str
+        or type(size) is not int
+        or type(sha256) is not str
+        or type(suffix) is not str
+    ):
+        raise TypeError("PGN save provenance fields must be passive built-in scalars")
+    return SourceFingerprint(
+        path=path,
+        size=size,
+        sha256=sha256,
+        suffix=suffix,
+    )
+
+
 def _require_session(session: object) -> PgnDocumentSession:
     # This is an authority boundary.  Executable subclasses must not be able to
     # redefine workspace/source access while a supposedly detached snapshot is
@@ -138,7 +170,7 @@ def capture_pgn_save_snapshot(
     if not isinstance(mode, PgnSaveMode):
         raise TypeError("PGN save mode is invalid")
 
-    source = current.source
+    source = _detached_source_fingerprint(current.source, allow_none=True)
     view = current.view()
     if mode is PgnSaveMode.SAVE:
         if source is None:
@@ -239,7 +271,10 @@ def publish_pgn_save_snapshot(
     if snapshot.mode is PgnSaveMode.SAVE:
         if path is not None or overwrite or expected_sha256 is not None:
             raise ValueError("Save snapshot destination is bound to its source")
-        source = snapshot.source_before
+        source = _detached_source_fingerprint(
+            snapshot.source_before,
+            allow_none=True,
+        )
         if source is None:
             raise _stale("Save snapshot lost its source binding")
         if not snapshot.source_overwrite_safe_before:
@@ -291,9 +326,15 @@ def commit_pgn_save_publication(
     if type(publication) is not PgnSavePublication:
         raise TypeError("PGN save commit requires an exact publication")
     snapshot = publication.snapshot
-    saved = publication.saved
-    if type(snapshot) is not PgnSaveSnapshot or type(saved) is not SourceFingerprint:
+    raw_saved = publication.saved
+    if type(snapshot) is not PgnSaveSnapshot:
         raise TypeError("PGN save publication is malformed")
+    saved = _detached_source_fingerprint(raw_saved)
+    assert saved is not None
+    source_before = _detached_source_fingerprint(
+        snapshot.source_before,
+        allow_none=True,
+    )
     if snapshot._session_ref() is not current:
         raise _stale("PGN save publication belongs to a different document session")
 
@@ -308,13 +349,13 @@ def commit_pgn_save_publication(
     # an older worker cannot later overwrite newer publication authority even if
     # a path happens to cycle back to the same source.
     if (
-        current.source != snapshot.source_before
+        current.source != source_before
         or current._saved_digest != snapshot._saved_digest_before
     ):
         raise _stale("PGN source changed before the save publication could commit")
 
     if snapshot.mode is PgnSaveMode.SAVE:
-        source = snapshot.source_before
+        source = source_before
         if source is None or Path(saved.path).absolute() != Path(source.path).absolute():
             raise _stale("Save publication does not match the captured source")
     elif snapshot.mode is not PgnSaveMode.SAVE_AS:
@@ -324,7 +365,12 @@ def commit_pgn_save_publication(
     # only background-save friend boundary: it updates provenance only after the
     # canonical writer returned a verified SourceFingerprint.  No GameTree or
     # serializer state is fabricated here.
-    current._source = saved
+    current._source = SourceFingerprint(
+        path=saved.path,
+        size=saved.size,
+        sha256=saved.sha256,
+        suffix=saved.suffix,
+    )
     if snapshot.mode is PgnSaveMode.SAVE_AS:
         current._source_overwrite_safe = True
         current._global_warnings = ()
