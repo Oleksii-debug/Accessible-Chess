@@ -271,6 +271,38 @@ class CrossRepoFoundationTests(unittest.TestCase):
         self.assertEqual(timeline.previous(1500).position_id, "p0")
         self.assertIsNone(timeline.next(1500))
 
+    def test_timeline_rejects_entry_after_open_ended_entry(self):
+        with self.assertRaises(ValueError):
+            MediaPositionTimeline(
+                (
+                    TimelineEntry(
+                        0,
+                        None,
+                        "main",
+                        "n0",
+                        "p0",
+                        ReconciliationStatus.VERIFIED,
+                    ),
+                    TimelineEntry(
+                        1000,
+                        2000,
+                        "main",
+                        "n1",
+                        "p1",
+                        ReconciliationStatus.VERIFIED,
+                    ),
+                )
+            )
+
+    def test_reconciler_rejects_invalid_confidence(self):
+        with self.assertRaises(ValueError):
+            ChessStateReconciler().reconcile(
+                current_position_id="p0",
+                legal_transitions={"Nf3": "p1"},
+                observed_position_id="p1",
+                observed_confidence=1.5,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
