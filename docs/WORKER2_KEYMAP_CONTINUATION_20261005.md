@@ -105,3 +105,14 @@ uses the same PCM width/byte size to reach SHA-256 rejection, and synthetic
 semantic fixture counts follow the current SoundEvent set rather than a stale
 literal nine. These tests do not identify or substitute the user's latest
 332-file archive; that external archive remains unresolved.
+
+## Actual Classes route keyboard coverage
+
+A production-registry regression reproduced that all three `education_list`
+keyboard actions were absent from the final composition, although its Classes
+route composes EducationSurface. The preview registry tests alone missed this.
+The final profile now includes only the three composed Education keyboard
+actions, not the uncomposed Classroom preview actions. Both languages exercise
+modifier remaps, restart/adoption, removal of old defaults and context reset.
+The 19 Education/profile-ingress unittest cases passed locally. This remains a
+source candidate, not Windows/NVDA or final-package acceptance.

@@ -28,6 +28,9 @@ def test_final_profile_exposes_teacher_and_classes_but_not_remote_or_mutations()
         "toolbar.first_control",
         "toolbar.last_control",
         "profile.save_name",
+        "education.previous_item",
+        "education.next_item",
+        "education.open_selected",
     } <= ids
     assert not any(action_id.startswith("classroom.") for action_id in ids)
 

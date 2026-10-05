@@ -42,6 +42,9 @@ FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS = frozenset(
 # The shipped Classes route uses EducationSurface/education_list. The separate
 # ClassroomSurface/management.* preview is not composed by this release root;
 # do not expose its keyboard-only actions as working production settings.
+FINAL_PRODUCT_SAFE_EDUCATION_KEYBOARD_ACTION_IDS = frozenset(
+    {"education.previous_item", "education.next_item", "education.open_selected"}
+)
 FINAL_PRODUCT_SAFE_PROFILE_KEYBOARD_ACTION_IDS = frozenset(
     {"profile.save_name"}
 )
@@ -58,6 +61,7 @@ FINAL_PRODUCT_COMPOSED_COACHING_KEYBOARD_ACTION_IDS = frozenset(
 FINAL_PRODUCT_EXTRA_ACTION_IDS = (
     FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS
     | FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS
+    | FINAL_PRODUCT_SAFE_EDUCATION_KEYBOARD_ACTION_IDS
     | FINAL_PRODUCT_SAFE_PROFILE_KEYBOARD_ACTION_IDS
     | FINAL_PRODUCT_COMPOSED_COACHING_KEYBOARD_ACTION_IDS
 )

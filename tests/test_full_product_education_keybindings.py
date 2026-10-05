@@ -4,6 +4,8 @@ import unittest
 
 from acs.full_product_actions import build_full_product_action_registry
 from acs.keybindings import ActionRegistry, BindingContext
+from acs.version2_final_product_profile import build_final_product_action_registry
+from acs.ui_keymap_adapter import build_web_keymap
 
 
 def _action_for(registry: ActionRegistry, binding: str) -> str | None:
@@ -12,6 +14,18 @@ def _action_for(registry: ActionRegistry, binding: str) -> str | None:
 
 
 class FullProductEducationKeybindingTests(unittest.TestCase):
+    def test_actual_final_classes_surface_has_projected_education_keyboard_actions(self) -> None:
+        registry = build_final_product_action_registry()
+        projected = {row["id"]: row for row in build_web_keymap(registry)["actions"]}
+        for action_id, key in (
+            ("education.previous_item", "Up"),
+            ("education.next_item", "Down"),
+            ("education.open_selected", "Enter"),
+        ):
+            with self.subTest(action=action_id):
+                self.assertEqual(_action_for(registry, key), action_id)
+                self.assertEqual(projected[action_id]["registryContext"], "education_list")
+
     def test_education_list_defaults_are_registered_and_context_local(self) -> None:
         registry = build_full_product_action_registry()
 
