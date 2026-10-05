@@ -6,7 +6,7 @@ on:
       - converge/package-pe-release-receipt-20261005-zftrkmo
   pull_request:
     branches:
-      - fix/runtime-pe-identity-consistency-20261005-a7f3
+      - fix/package-snapshot-identity-fallback-20261005-sol56k8n3
     paths:
       - acs/version2_release_receipt.py
       - tests/test_version2_release_receipt.py
@@ -20,13 +20,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PACKAGE_HEAD: d73658b1ce97b3de7b1d639d4e48c8213af4d44d
-  PACKAGE_BRANCH: fix/runtime-pe-identity-consistency-20261005-a7f3
+  EXPECTED_PACKAGE_HEAD: 1e4f197f3a157412b3ef22b555f30b6ff3f105cb
+  PACKAGE_BRANCH: fix/package-snapshot-identity-fallback-20261005-sol56k8n3
   EXPECTED_RECEIPT_HEAD: d684d0a811913162f19f3ad1aadbc54f8f501769
-  EXPECTED_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
-  EXPECTED_PE_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
-  EXPECTED_RECEIPT_BLOB: e51ba23711f3cf201cfcc92a81feb64608ed66cd
-  EXPECTED_RECEIPT_TEST_BLOB: 712fa29c0d0380301d7cadc6801cdbedd54665ac
+  EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  EXPECTED_PE_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  EXPECTED_RECEIPT_BLOB: 290e653ef5d4998189b7b61df1add8882d80ffcd
+  EXPECTED_RECEIPT_TEST_BLOB: 37be6d4926f5e68bdee20a1a9afc922421e31e3a
 
 jobs:
   receipt-package-contract:
