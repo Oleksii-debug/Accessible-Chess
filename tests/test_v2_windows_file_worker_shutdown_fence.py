@@ -60,6 +60,35 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             post_to_ui=post_to_ui,
         )
 
+    def test_focus_provider_base_exception_degrades_without_blocking_open(self) -> None:
+        class FocusAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "focus-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: (_ for _ in ()).throw(
+                    FocusAbort("focus provider aborted")
+                ),
+            )
+
+            result = delegate("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertEqual(result.focus_target, "pgn-game-list")
+            self.assertEqual(events[-1], result)
+            self.assertFalse(delegate.pgn_open_running)
+
     def test_file_action_rejects_active_action_id_before_hash_or_equality(self) -> None:
         touched = []
 
