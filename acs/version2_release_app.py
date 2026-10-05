@@ -36,6 +36,8 @@ from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+from .version2_windows_import_ui_pump import Version2WinFormsUiPoster
+from .version2_windows_book_open_worker import Version2BookOpenWorker
 from .version2_windows_native_dialog_ownership import Version2OwnedWindowsFileDialogs
 from .webapp_keymap import _asset_root
 
@@ -542,13 +544,28 @@ def create_version2_release_application(
             current_focus_provider=lambda: str(application._focus),
             dialog_language_provider=dialog_language_provider,
         )
-        file_runtime = _install_close_guard_or_shutdown(
-            file_runtime,
-            application,
-            owner_control,
-            book_dialogs,
-            before_shutdown=resume_coordinator.prepare_shutdown,
+        book_open_worker = Version2BookOpenWorker(
+            prepare=application.prepare_book_open,
+            commit=application.commit_prepared_book_open,
+            post_to_ui=Version2WinFormsUiPoster(owner_control),
+            event_sink=application._book_open_event,
         )
+        try:
+            application.bind_book_open_worker(book_open_worker)
+            file_runtime = _install_close_guard_or_shutdown(
+                file_runtime,
+                application,
+                owner_control,
+                book_dialogs,
+                before_shutdown=resume_coordinator.prepare_shutdown,
+            )
+        except Exception:
+            try:
+                book_open_worker.shutdown()
+            finally:
+                if getattr(application, "_book_open_worker", None) is None:
+                    file_runtime.shutdown()
+            raise
         # Publish every owner-bound application callback only after the native
         # runtime and FormClosing guard are both live. Failed startup must leave
         # no callback pointing at a retired/unowned Form.

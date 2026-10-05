@@ -75,6 +75,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("library.cancel_import", BindingContext.DATABASE, "Cancel library import"),
     _action("library.export", BindingContext.DATABASE, "Export from library"),
     _action("book.open", BindingContext.BOOK_READER, "Open book"),
+    _action("book.cancel_open", BindingContext.BOOK_READER, "Cancel book open"),
     _action("book.board_next_move", BindingContext.BOOK_READER, "Next move in book game"),
     _action("book.board_previous_move", BindingContext.BOOK_READER, "Previous move in book game"),
     _action("book.board_enter_variation", BindingContext.BOOK_READER, "Enter book game variation"),
