@@ -395,9 +395,22 @@ def verify_version2_release_receipt(
     return receipt
 
 
-def _remove_private_staging_file(path: Path) -> None:
-    """Best-effort cleanup for this invocation's private staging pathname."""
+def _remove_private_staging_file(
+    path: Path,
+    expected_identity: os.stat_result,
+) -> None:
+    """Remove staging only when its pathname still identifies our object."""
 
+    try:
+        current = _safe_receipt_lstat(path)
+    except Version2ReleaseReceiptError:
+        return
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or _is_reparse(current)
+        or not _same_file_identity(expected_identity, current)
+    ):
+        return
     try:
         path.unlink()
     except FileNotFoundError:
@@ -429,6 +442,7 @@ def write_version2_release_receipt(
     payload_bytes = payload.encode("utf-8")
     parent = path.parent
     staging: Path | None = None
+    staging_identity: os.stat_result | None = None
     fd: int | None = None
     cleanup_staging = True
 
@@ -454,6 +468,7 @@ def write_version2_release_receipt(
                         "release receipt staging file must be a regular non-reparse file"
                     )
 
+                staging_identity = created
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -524,8 +539,12 @@ def write_version2_release_receipt(
                 os.close(fd)
             except OSError:
                 pass
-        if staging is not None and cleanup_staging:
-            _remove_private_staging_file(staging)
+        if (
+            staging is not None
+            and staging_identity is not None
+            and cleanup_staging
+        ):
+            _remove_private_staging_file(staging, staging_identity)
 
 
 def _parser() -> argparse.ArgumentParser:
