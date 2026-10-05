@@ -154,6 +154,8 @@ class FFmpegAudioExtractor:
                 cwd=root,
                 timeout_seconds=selected.timeout_seconds,
                 cancel_event=cancel_event,
+                watched_paths=(partial,),
+                max_watched_file_bytes=selected.max_output_bytes,
             )
             return promote_partial_file(
                 partial,
