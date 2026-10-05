@@ -92,15 +92,13 @@ jobs:
             test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CURRENT_CORE_GUARD_TEST_BLOB"
             test "$(git hash-object acs/report_paths.py)" = "$CURRENT_REPORT_PATHS_BLOB"
             actual="$(git diff --name-only "$CURRENT_PRODUCT_HEAD"...HEAD | LC_ALL=C sort)"
-            expected="$(cat <<'CURRENT_PRODUCT_SCOPE' | LC_ALL=C sort
-.github/workflows/current-product-windows-evidence-convergence.yml
-.github/workflows/p0-user-oneclick-portable-launcher.yml
-.github/workflows/portable-launch-report-reparse-safety.yml
-tests/test_current_product_windows_evidence_convergence_20261005.py
-tests/test_p0_oneclick_exact_head_concurrency.py
-tests/test_portable_launch_report_reparse_concurrency.py
-CURRENT_PRODUCT_SCOPE
-)"
+            expected="$(printf '%s\\n' \
+            '.github/workflows/current-product-windows-evidence-convergence.yml' \\
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \\
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \\
+            'tests/test_current_product_windows_evidence_convergence_20261005.py' \\
+            'tests/test_p0_oneclick_exact_head_concurrency.py' \\
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
             test "$actual" = "$expected"
             git diff --check "$CURRENT_PRODUCT_HEAD"...HEAD
           else
@@ -171,15 +169,13 @@ CURRENT_PRODUCT_SCOPE
             test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CURRENT_CORE_GUARD_TEST_BLOB"
             test "$(git hash-object acs/report_paths.py)" = "$CURRENT_REPORT_PATHS_BLOB"
             actual="$(git diff --name-only "$CURRENT_PRODUCT_HEAD"...HEAD | LC_ALL=C sort)"
-            expected="$(cat <<'CURRENT_PRODUCT_SCOPE' | LC_ALL=C sort
-.github/workflows/current-product-windows-evidence-convergence.yml
-.github/workflows/p0-user-oneclick-portable-launcher.yml
-.github/workflows/portable-launch-report-reparse-safety.yml
-tests/test_current_product_windows_evidence_convergence_20261005.py
-tests/test_p0_oneclick_exact_head_concurrency.py
-tests/test_portable_launch_report_reparse_concurrency.py
-CURRENT_PRODUCT_SCOPE
-)"
+            expected="$(printf '%s\\n' \
+            '.github/workflows/current-product-windows-evidence-convergence.yml' \\
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \\
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \\
+            'tests/test_current_product_windows_evidence_convergence_20261005.py' \\
+            'tests/test_p0_oneclick_exact_head_concurrency.py' \\
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
             test "$actual" = "$expected"
             git diff --check "$CURRENT_PRODUCT_HEAD"...HEAD
           else
