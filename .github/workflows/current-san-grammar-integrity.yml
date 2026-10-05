@@ -50,12 +50,28 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           CURRENT_PRODUCT: d247588c55bd915df41d8fad43c65154371056e4
+          CURRENT_PRODUCT_REF: fix/books-keymap-convergence-live-head-20261005-sol56r4k8
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           NOTATION_BLOB: 0928844f09d6fc607c9f432b7e234a19ee5e1557
           TEST_BLOB: 12c6bffe5168c8734c9ffc56a2f500dcd2f008f2
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git cat-file -e "$CURRENT_PRODUCT^{commit}"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF" || {
+              printf 'CURRENT_SAN_GRAMMAR_BASE_REF_CHANGED expected=%s event=%s\n' "$CURRENT_PRODUCT_REF" "$EVENT_BASE_REF" >&2
+              exit 1
+            }
+          fi
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product="$(git rev-parse FETCH_HEAD)"
+          test "$live_product" = "$CURRENT_PRODUCT" || {
+            printf 'CURRENT_SAN_GRAMMAR_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT" "$live_product" >&2
+            exit 1
+          }
+
           test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
           git diff --check "$CURRENT_PRODUCT"...HEAD
 
