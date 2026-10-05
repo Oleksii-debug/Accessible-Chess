@@ -95,6 +95,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
     ) -> None:
         if type(reader) is not BookReader or type(workflow) is not BookBoardWorkflow:
             raise TypeError("V2 Books requires the canonical reader and workflow")
+        # Exact roots are not enough if they belong to different Books. The
+        # projection reads visible block/metadata state from reader while semantic
+        # GameTree and board actions resolve through the workflow reader. Mixing
+        # those authorities could publish chess content from one Book under the
+        # visible location/metadata of another.
+        if workflow._reader is not reader:
+            raise ValueError("V2 Books reader and workflow must share one authority")
         self._reader = reader
         self._workflow = workflow
         # BookWebViewProjection deliberately accepts only the exact canonical
