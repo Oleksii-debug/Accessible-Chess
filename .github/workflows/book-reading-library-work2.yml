@@ -1,0 +1,70 @@
+name: Book reading Library source authority and metadata
+on:
+  pull_request:
+    paths:
+      - 'acs/book*.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_book_workspace.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/import_contract.py'
+      - 'web/full_product_books_training.js'
+      - 'tests/test_book*.py'
+      - 'tests/test_markdown_library_journey.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_epub_application_reachability.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - '.github/workflows/book-reading-library-work2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  book-journeys:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Retain exact reviewed Product authority
+        run: python -c "import subprocess; subprocess.run(['git','merge-base','--is-ancestor','59486e2c9eff903e416d59a0e7c349c22ee2111d','HEAD'],check=True)"
+      - name: Compile current Python and check whitespace
+        run: |
+          git diff --check 59486e2c9eff903e416d59a0e7c349c22ee2111d HEAD
+          python -m compileall -q acs tests
+      - name: Book Library Board Training and persistence journeys
+        shell: python
+        run: |
+          import unittest
+          patterns = (
+            'test_book_html_pgn_loss_accounting.py', 'test_pgn_board_start_authority.py',
+            'test_book_library_import_journey.py', 'test_v2_book_board_workflow.py',
+            'test_d06_pgn_roundtrip.py', 'test_v2_pgn_semantic_fidelity.py',
+            'test_d07_library_import_service.py', 'test_d07_library_export_service.py',
+            'test_import_contract.py', 'test_v2_windows_nvda_file_workflows.py',
+            'test_book_training_variant_authority.py', 'test_d08_book_training_contract.py',
+            'test_w2_book_training_canonical_ingress.py', 'test_book_open_source_authority.py',
+            'test_markdown_library_journey.py', 'test_version2_epub_application_reachability.py',
+            'test_v2_book_text_import.py', 'test_v2_book_training_route_rollback.py',
+            'test_version2_application.py', 'test_book_browser_presentation_lease_required.py',
+            'test_version2_book_workspace.py', 'test_book_semantic_game_metadata.py',
+          )
+          suite = unittest.TestSuite()
+          for pattern in patterns:
+            suite.addTests(unittest.defaultTestLoader.discover('tests', pattern=pattern))
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+      - name: Actual Books Training DOM focus and metadata behavior
+        run: node tests/js/books_training_surface_dom_test.js
+      - name: Canonical chess selftest
+        run: python -m acs.selftest

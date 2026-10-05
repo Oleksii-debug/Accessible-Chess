@@ -404,6 +404,7 @@ class StarterBookBrowserPresentationLeaseTests(unittest.TestCase):
                     board_position_projector=lambda _fen: {"ok": True},
                 )
                 try:
+                    app.browser_command("shell", "screen.books")
                     visible = app.snapshot()["books"]
                     token = visible["presentation_token"]
                     first_material = visible["starter_materials"]["items"][1][
@@ -472,6 +473,7 @@ class StarterBookBrowserPresentationLeaseTests(unittest.TestCase):
                     board_position_projector=lambda _fen: {"ok": True},
                 )
                 try:
+                    app.browser_command("shell", "screen.books")
                     visible = app.snapshot()["books"]
                     token = visible["presentation_token"]
                     initial_material = visible["starter_materials"]["current_id"]

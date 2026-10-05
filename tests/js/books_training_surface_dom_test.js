@@ -1578,6 +1578,39 @@ async function run() {
   );
 
   const extraTreeField = bookSnapshot(44, "Extra semantic tree field");
+  const metadataRoot = new FakeElement("div");
+  const metadataSnapshot = bookSnapshot(70, "Game metadata");
+  metadataSnapshot.block.kind = "Game";
+  metadataSnapshot.block.role = "group";
+  metadataSnapshot.block.title = "Game metadata";
+  metadataSnapshot.actions[9].enabled = true;
+  metadataSnapshot.semantic_tree = semanticBookTree("game");
+  metadataSnapshot.semantic_tree.details = [
+    { kind: "event", label: "Подія", value: "Навчання <img>" },
+    { kind: "date", label: "Дата", value: "2026.10.05" }
+  ];
+  window.AccessibleChessBookSurface.render(metadataRoot, metadataSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }), announce,
+    "book-block-70", "Metadata render failed");
+  check(find(metadataRoot, "P", "Подія: Навчання <img>") !== null,
+    "semantic game event is missing readable text");
+  check(find(metadataRoot, "P", "Дата: 2026.10.05") !== null,
+    "semantic game date is missing readable text");
+  check(metadataRoot.querySelector("#book-block-70") !== null,
+    "metadata render lost the canonical Book focus group");
+  const invalidMetadata = [
+    [{ kind: "event", label: "Event", value: "Study" }, { kind: "event", label: "Event", value: "Other" }],
+    [{ kind: "unknown", label: "Unknown", value: "Study" }],
+    [{ kind: "event", label: "Event", value: "🙂".repeat(601) }],
+    [{ kind: "event", label: "Event", value: "Study", private_path: "forbidden" }],
+    new Array(1)
+  ];
+  for (let metadataIndex = 0; metadataIndex < invalidMetadata.length; metadataIndex += 1) {
+    const malformedMetadata = JSON.parse(JSON.stringify(metadataSnapshot));
+    malformedMetadata.semantic_tree.details = invalidMetadata[metadataIndex];
+    await expectBookSnapshotRejected(malformedMetadata, 70,
+      "malformed semantic metadata " + metadataIndex, "Metadata validation failed");
+  }
   extraTreeField.block.kind = "Game";
   extraTreeField.block.role = "group";
   extraTreeField.block.title = "Extra semantic tree field";
@@ -1914,6 +1947,7 @@ async function run() {
   unavailableGameSnapshot.block.role = "group";
   unavailableGameSnapshot.block.title = "Readable unavailable game";
   unavailableGameSnapshot.block.warning = "Game content is unavailable";
+  unavailableGameSnapshot.semantic_tree = null;
   unavailableGameSnapshot.board_active = false;
   unavailableGameSnapshot.actions[9].enabled = false;
   unavailableGameSnapshot.actions[10].enabled = false;
@@ -1938,6 +1972,7 @@ async function run() {
   unavailableVariationSnapshot.block.title = "Readable unavailable variation";
   unavailableVariationSnapshot.block.has_position = true;
   unavailableVariationSnapshot.block.warning = "Variation content is unavailable";
+  unavailableVariationSnapshot.semantic_tree = null;
   unavailableVariationSnapshot.board_active = false;
   unavailableVariationSnapshot.actions[8].enabled = false;
   unavailableVariationSnapshot.actions[10].enabled = false;
@@ -1959,6 +1994,7 @@ async function run() {
   const activeGameSnapshot = bookSnapshot(27, "Active game board state");
   activeGameSnapshot.block.kind = "Game";
   activeGameSnapshot.block.role = "group";
+  activeGameSnapshot.semantic_tree = semanticBookTree("game");
   activeGameSnapshot.board_active = true;
   activeGameSnapshot.actions[9].enabled = false;
   activeGameSnapshot.actions[10].enabled = true;
@@ -2016,6 +2052,9 @@ async function run() {
   const delegatedRoot = new FakeElement("div");
   const delegatedAnnouncements = [];
   const delegatedSnapshot = bookSnapshot(28, "Position handoff");
+  delegatedSnapshot.block.kind = "Position";
+  delegatedSnapshot.block.role = "group";
+  delegatedSnapshot.block.title = "Position handoff";
   delegatedSnapshot.block.has_position = true;
   delegatedSnapshot.actions[8].enabled = true;
   window.AccessibleChessBookSurface.render(
@@ -2062,6 +2101,7 @@ async function run() {
   const delegatedGameSnapshot = bookSnapshot(30, "Game handoff");
   delegatedGameSnapshot.block.kind = "Game";
   delegatedGameSnapshot.block.role = "group";
+  delegatedGameSnapshot.semantic_tree = semanticBookTree("game");
   delegatedGameSnapshot.actions[9].enabled = true;
   window.AccessibleChessBookSurface.render(
     delegatedGameRoot,
@@ -2106,6 +2146,9 @@ async function run() {
   const malformedDelegatedRoot = new FakeElement("div");
   const malformedDelegatedAnnouncements = [];
   const malformedDelegatedSnapshot = bookSnapshot(29, "Malformed handoff");
+  malformedDelegatedSnapshot.block.kind = "Position";
+  malformedDelegatedSnapshot.block.role = "group";
+  malformedDelegatedSnapshot.block.title = "Malformed handoff";
   malformedDelegatedSnapshot.block.has_position = true;
   malformedDelegatedSnapshot.actions[8].enabled = true;
   window.AccessibleChessBookSurface.render(
@@ -2373,6 +2416,7 @@ async function run() {
   );
 
   const listSnapshot = bookSnapshot(4, "List");
+  listSnapshot.block.kind = "List";
   listSnapshot.block.role = "list";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
   window.AccessibleChessBookSurface.render(bookRoot, listSnapshot, bookInvoke, announce, "book-block-4", "Action failed");

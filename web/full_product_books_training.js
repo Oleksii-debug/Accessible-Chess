@@ -363,6 +363,9 @@
       "kind", "label", "players_label", "players", "result_label",
       "variation_depth_label", "result", "intro_comments", "outro_comments", "items"
     ];
+    if (Object.prototype.hasOwnProperty.call(tree, "details")) {
+      expectedTreeFields.push("details");
+    }
     const treeFields = Object.keys(tree);
     if (treeFields.length !== expectedTreeFields.length ||
         expectedTreeFields.some(function (field) {
@@ -409,6 +412,28 @@
     semanticText(tree.players_label, "Book semantic players label", false, 120);
     semanticText(tree.players, "Book semantic players", false, 720);
     addVisibleUnits(2); // ": " between the visible players label and value.
+    if (tree.details !== undefined) {
+      const metadataKinds = ["event", "site", "date", "round", "eco", "opening"];
+      if (!Array.isArray(tree.details) || tree.details.length > metadataKinds.length) {
+        throw new TypeError("Book semantic metadata rows are invalid");
+      }
+      const seenMetadata = new Set();
+      for (let index = 0; index < tree.details.length; index += 1) {
+        const detail = tree.details[index];
+        if (!Object.prototype.hasOwnProperty.call(tree.details, index) ||
+            !detail || typeof detail !== "object" || Array.isArray(detail) ||
+            Object.keys(detail).length !== 3 ||
+            !["kind", "label", "value"].every(function (key) {
+              return Object.prototype.hasOwnProperty.call(detail, key);
+            }) || metadataKinds.indexOf(detail.kind) < 0 || seenMetadata.has(detail.kind)) {
+          throw new TypeError("Book semantic metadata row is invalid");
+        }
+        seenMetadata.add(detail.kind);
+        semanticText(detail.label, "Book semantic metadata label", false, 120);
+        semanticText(detail.value, "Book semantic metadata value", false, 1200);
+        addVisibleUnits(2);
+      }
+    }
     semanticText(tree.result_label, "Book semantic result label", false, 120, false);
     semanticText(
       tree.variation_depth_label,
@@ -860,6 +885,9 @@
     section.setAttribute("aria-labelledby", heading.id);
     section.appendChild(heading);
     section.appendChild(node("p", tree.players_label + ": " + tree.players));
+    (tree.details || []).forEach(function (detail) {
+      section.appendChild(node("p", detail.label + ": " + detail.value));
+    });
     appendSemanticComments(section, tree.intro_comments);
 
     const children = tree.items.map(function () { return []; });

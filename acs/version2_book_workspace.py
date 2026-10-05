@@ -45,6 +45,10 @@ _MAX_BOOK_SEMANTIC_ITEM_LABEL_UNITS = 1_200
 _MAX_BOOK_SEMANTIC_RESULT_UNITS = 16
 _MAX_BOOK_SEMANTIC_NODE_ID_CHARS = 4_096
 _BOOK_SEMANTIC_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
+_BOOK_SEMANTIC_METADATA = (
+    ("event", "Event"), ("site", "Site"), ("date", "Date"),
+    ("round", "Round"), ("eco", "ECO"), ("opening", "Opening"),
+)
 
 _SEMANTIC_LABELS = {
     UILanguage.UA: {
@@ -53,6 +57,8 @@ _SEMANTIC_LABELS = {
         "result": "Результат",
         "variation_depth": "Рівень варіанта",
         "unknown": "невідомо",
+        "event": "Подія", "site": "Місце", "date": "Дата",
+        "round": "Тур", "eco": "ECO", "opening": "Дебют",
         "reading_unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
         "content_unavailable": "Шаховий вміст цієї партії недоступний або невалідний; відкриття на шахівниці вимкнено.",
     },
@@ -62,6 +68,8 @@ _SEMANTIC_LABELS = {
         "result": "Result",
         "variation_depth": "Variation depth",
         "unknown": "unknown",
+        "event": "Event", "site": "Site", "date": "Date",
+        "round": "Round", "eco": "ECO", "opening": "Opening",
         "reading_unavailable": "This game's moves cannot be displayed safely; the board remains available.",
         "content_unavailable": "This game's chess content is unavailable or invalid; opening it on the board is disabled.",
     },
@@ -155,6 +163,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                 if type(comment) is not Comment:
                     raise _BookSemanticProjectionError("semantic raw comment is invalid")
                 claim_raw_text(comment.text)
+
+        # Only known chess metadata enters reading DTOs. Bound source scalars
+        # before presenter construction; paths are redacted by the same safe()
+        # authority as move comments when the public detail rows are rendered.
+        for _kind, tag in _BOOK_SEMANTIC_METADATA:
+            claim_raw_text(game.tags.get(tag, ""), max_units=1_200)
 
         white_raw = game.tags.get("White", "")
         black_raw = game.tags.get("Black", "")
@@ -407,6 +421,16 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # The browser renders the players label/value as one paragraph with
         # ": " between the already-counted serialized fields.
         account_visible_units(2)
+        details = []
+        for kind, tag in _BOOK_SEMANTIC_METADATA:
+            value = game.tags.get(tag, "")
+            if not value.strip():
+                continue
+            label = safe(labels[kind], allow_empty=False,
+                         max_units=_MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS)
+            public_value = safe(value, allow_empty=False, max_units=1_200)
+            account_visible_units(2)
+            details.append({"kind": kind, "label": label, "value": public_value})
         result_label = safe(
             labels["result"],
             allow_empty=False,
@@ -629,6 +653,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             "label": semantic_label,
             "players_label": players_label,
             "players": players,
+            "details": tuple(details),
             "result_label": result_label,
             "variation_depth_label": variation_depth_label,
             "result": result_text,

@@ -28,6 +28,7 @@ from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .input_limits import MAX_FEN_CHARS
+from .import_contract import read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
@@ -351,8 +352,10 @@ class Version2Application:
             limit = MAX_HTML_SOURCE_BYTES
         else:
             limit = MAX_TEXT_SOURCE_BYTES
-        with source.open("rb") as handle: raw = handle.read(limit + 1)
-        if len(raw) > limit: raise ValueError("book source exceeds the supported limit")
+        # Book Open and Library must bind the same stable read-only source
+        # authority. A normal path open can follow a reparse point or publish
+        # mixed bytes from a concurrently modified book under a durable key.
+        _, raw = read_source_snapshot(source, max_bytes=limit)
         if suffix == ".epub":
             imported = import_epub_book(raw, source_name=report_safe_name(source))
         elif suffix in {".html", ".htm", ".xhtml"}:
@@ -1423,7 +1426,6 @@ class Version2Application:
                     raise ValueError("invalid review command")
                 if (
                     command.startswith("book.")
-                    and command != "book.return"
                     and self.shell.current_route.route_id != "board"
                 ):
                     # The review WebView is a Board-owned surface. Its retained

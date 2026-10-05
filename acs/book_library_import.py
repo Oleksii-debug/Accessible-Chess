@@ -10,6 +10,7 @@ from typing import Callable
 
 from .book_epub_import import MAX_EPUB_SOURCE_BYTES, import_epub_book
 from .book_html_import import MAX_HTML_SOURCE_BYTES, import_html_book
+from .book_text_import import MAX_TEXT_SOURCE_BYTES, BookTextFormat, import_text_book
 from .book_game_content import resolve_book_game
 from .bookdocument import Game
 from .gametree import PgnGame
@@ -17,7 +18,7 @@ from .import_contract import SourceFingerprint, SourceReadCancelledError, read_s
 from .report_paths import report_safe_name
 
 
-BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.html', '.htm', '.xhtml'})
+BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.html', '.htm', '.xhtml', '.md', '.markdown'})
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +35,12 @@ def open_book_library_source(
     suffix = source_path.suffix.casefold()
     if suffix not in BOOK_LIBRARY_SUFFIXES:
         raise ValueError('book format is not supported for Library game import')
-    limit = MAX_EPUB_SOURCE_BYTES if suffix == '.epub' else MAX_HTML_SOURCE_BYTES
+    if suffix == '.epub':
+        limit = MAX_EPUB_SOURCE_BYTES
+    elif suffix in {'.md', '.markdown'}:
+        limit = MAX_TEXT_SOURCE_BYTES
+    else:
+        limit = MAX_HTML_SOURCE_BYTES
     source, raw = read_source_snapshot(source_path, max_bytes=limit, cancel_check=cancel_check)
 
     def poll():
@@ -48,6 +54,8 @@ def open_book_library_source(
     poll()
     if suffix == '.epub':
         imported = import_epub_book(raw, source_name=report_safe_name(source_path))
+    elif suffix in {'.md', '.markdown'}:
+        imported = import_text_book(raw, source_name=report_safe_name(source_path), source_format=BookTextFormat.MARKDOWN)
     else:
         imported = import_html_book(raw, source_name=report_safe_name(source_path), available_assets=())
     poll()

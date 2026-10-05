@@ -177,9 +177,9 @@ class Version2WindowsFileDialogs:
         try:
             dialog.Title = "Import games into Library (book text remains in its source file)"
             dialog.Filter = (
-                "Supported chess sources and book games|*.pgn;*.cbh;*.cbv;*.epub;*.html;*.htm;*.xhtml|"
+                "Supported chess sources and book games|*.pgn;*.cbh;*.cbv;*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown|"
                 "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv|"
-                "Book game collections (*.epub;*.html;*.htm;*.xhtml)|*.epub;*.html;*.htm;*.xhtml"
+                "Book game collections (*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown)|*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown"
             )
             dialog.CheckFileExists = True
             dialog.CheckPathExists = True
