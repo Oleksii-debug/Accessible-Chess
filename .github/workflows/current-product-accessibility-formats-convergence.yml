@@ -104,7 +104,7 @@ jobs:
           TOOLBAR_CONVERGENCE_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           SHIPPING_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          SHIPPING_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62
+          SHIPPING_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
