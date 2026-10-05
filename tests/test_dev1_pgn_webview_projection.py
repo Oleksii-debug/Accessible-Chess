@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from acs.full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from acs.full_product_ui_shell import UILanguage
-from acs.gametree import parse_games, serialize_games
+from acs.gametree import MoveNode, PgnGame, VariationLine, parse_games, serialize_games
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
 
@@ -63,6 +63,40 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertIn("[local path hidden]", serialized)
         self.assertNotIn("C:/Users/private", serialized)
         self.assertNotIn("/home/private", serialized)
+
+    def test_move_tree_labels_use_shared_accessible_san_spacing(self) -> None:
+        snapshot = self.projection.snapshot()
+        move_items = [item for item in snapshot["tree"] if item["kind"] == "move"]
+        knight = next(item for item in move_items if item["san"] == "Nf3")
+
+        self.assertIn("N f 3", knight["label"])
+        self.assertNotIn("Nf3", knight["label"])
+
+    def test_recovered_malformed_san_remains_readable_but_is_not_presented_as_canonical(self) -> None:
+        game = PgnGame(
+            tags={"White": "A", "Black": "B"},
+            line=VariationLine(moves=[MoveNode("not-a-chess-move")]),
+            warnings=["Recovered historical movetext"],
+        )
+        presenter = PgnTreePresenter((game,), language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            self.dispatch,
+            lambda: 1,
+            language=UILanguage.EN,
+        )
+
+        snapshot = projection.snapshot()
+        item = snapshot["tree"][0]
+        self.assertEqual("not-a-chess-move", item["san"])
+        self.assertEqual(
+            "Unparsed move text: not-a-chess-move",
+            item["label"],
+        )
+        self.assertEqual(
+            ("Recovered historical movetext",),
+            snapshot["game"]["warnings"],
+        )
 
     def test_raw_node_identity_is_not_reused_as_dom_identity(self) -> None:
         snapshot = self.projection.snapshot()
