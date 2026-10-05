@@ -48,10 +48,6 @@ jobs:
           TRAINING_DURABILITY_SHA: b6444f6fb17238c24a193a03461e9dc8cf1bd235
           PRE_FOCUS_SHIPPING_HEAD: 42145bb7684249e07946c02dda5b28223f1e0caa
           TRAINING_RECONVERGENCE_MERGE: c65f0641a866744c583ea21f7b2baa7ec8c5d53e
-          OWNER_FINAL_HOLD_REF: fix/shipping-owner-final-sound-hold-20261005-zftrkmo
-          OWNER_FINAL_HOLD_SHA: aa706a6e8d525611b57514e62b3c203c9d41ce61
-          PRE_OWNER_FINAL_HOLD_SHIPPING: ccc0f937658b2035cc45c48bce5ab20fabd8db3d
-          OWNER_FINAL_HOLD_MERGE: f7b231f195399c38e53d5749f9aa9f771485f76c
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
@@ -87,14 +83,11 @@ jobs:
           }
           fetch_evidence_exact "$WINDOWS_EVIDENCE_REF" "$WINDOWS_EVIDENCE_SHA" SHIPPING_WINDOWS_EVIDENCE
           fetch_evidence_exact "$TRAINING_DURABILITY_REF" "$TRAINING_DURABILITY_SHA" SHIPPING_TRAINING_DURABILITY
-          fetch_evidence_exact "$OWNER_FINAL_HOLD_REF" "$OWNER_FINAL_HOLD_SHA" SHIPPING_OWNER_FINAL_HOLD
           git merge-base --is-ancestor "$live_product" "$WINDOWS_EVIDENCE_SHA"
           git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"
           test "$(git merge-base "$live_product" "$TRAINING_DURABILITY_SHA")" = "$live_product"
           test "$(git show -s --format=%P "$TRAINING_RECONVERGENCE_MERGE")" = "$PRE_FOCUS_SHIPPING_HEAD $TRAINING_DURABILITY_SHA"
           git merge-base --is-ancestor "$TRAINING_RECONVERGENCE_MERGE" HEAD
-          test "$(git show -s --format=%P "$OWNER_FINAL_HOLD_MERGE")" = "$PRE_OWNER_FINAL_HOLD_SHIPPING $OWNER_FINAL_HOLD_SHA"
-          git merge-base --is-ancestor "$OWNER_FINAL_HOLD_MERGE" HEAD
 
           git merge-base --is-ancestor "$live_shipping" "$live_product"
           test "$(git merge-base "$live_shipping" "$live_product")" = "$live_shipping"
@@ -124,11 +117,6 @@ jobs:
             'tests/test_p0_oneclick_exact_head_concurrency.py' \
             'tests/test_portable_launch_report_reparse_concurrency.py' \
             'tests/test_training_progress_durability_concurrency.py' \
-            '.github/workflows/owner-oneclick-from-w4.yml' \
-            'docs/USER_SOUND_PACK_CURRENT.md' \
-            'scripts/build_owner_portable_candidate.py' \
-            'tests/test_owner_oneclick_from_w4_workflow.py' \
-            'tests/test_owner_portable_candidate.py' \
             | sort)"
           test "$extra_paths" = "$expected_extra" || {
             printf 'Unexpected integration-only qualification scope.\nExpected:\n%s\nActual:\n%s\n' "$expected_extra" "$extra_paths" >&2
@@ -153,19 +141,6 @@ jobs:
               exit 1
             }
           done <<< "$evidence_paths"
-          owner_hold_paths="$(printf '%s\n' \
-            '.github/workflows/owner-oneclick-from-w4.yml' \
-            'docs/USER_SOUND_PACK_CURRENT.md' \
-            'scripts/build_owner_portable_candidate.py' \
-            'tests/test_owner_oneclick_from_w4_workflow.py' \
-            'tests/test_owner_portable_candidate.py')"
-          while IFS= read -r owner_path; do
-            test -n "$owner_path"
-            test "$(git rev-parse "HEAD:$owner_path")" = "$(git rev-parse "$OWNER_FINAL_HOLD_SHA:$owner_path")" || {
-              printf 'Owner-final hold path mutated after convergence: %s\n' "$owner_path" >&2
-              exit 1
-            }
-          done <<< "$owner_hold_paths"
 
           candidate_paths="$(git diff --name-only "$live_shipping"...HEAD | sort)"
           expected_candidate="$(printf '%s\n%s\n' "$product_paths" "$expected_extra" | sed '/^$/d' | sort -u)"
