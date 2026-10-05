@@ -14,9 +14,11 @@
   let shellPublicationRequestSequence = 0;
   let pendingShellPublicationRequestId = 0;
   let pendingShellPublicationActionId = "";
+  let shellRouteTransitionInFlight = false;
   let eventDrainInFlight = false;
   let eventDrainPending = false;
   let deferredNativeEventBatch = null;
+  let eventDrainIdleWaiters = [];
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
   const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
@@ -473,19 +475,28 @@
           });
         }
 
-        if (pendingShellPublicationToken) {
-          const previousToken = pendingShellPublicationToken;
-          recoverShellPublication(
-            bridge,
-            previousToken,
-            failedMessage
-          ).then(function (recovered) {
-            if (recovered) return continueAfterKnownPublication();
-            return false;
+        if (shellRouteTransitionInFlight) return;
+        shellRouteTransitionInFlight = true;
+        Promise.resolve()
+          .then(waitForEventDrainIdle)
+          .then(function () {
+            if (pendingShellPublicationToken) {
+              const previousToken = pendingShellPublicationToken;
+              return recoverShellPublication(
+                bridge,
+                previousToken,
+                failedMessage
+              ).then(function (recovered) {
+                if (recovered) return continueAfterKnownPublication();
+                return false;
+              });
+            }
+            return continueAfterKnownPublication();
+          })
+          .then(finishRouteTransition, function () {
+            announce(failedMessage);
+            finishRouteTransition();
           });
-          return;
-        }
-        continueAfterKnownPublication();
       });
       row.appendChild(button);
       fragment.appendChild(row);
@@ -749,19 +760,42 @@
     return event.kind !== "error" && event.kind !== "status";
   }
 
-  function finishEventDrain() {
-    eventDrainInFlight = false;
-    if (!eventDrainPending) return;
-    eventDrainPending = false;
-    drainEvents();
+  function waitForEventDrainIdle() {
+    if (!eventDrainInFlight) return Promise.resolve();
+    return new Promise(function (resolve) {
+      eventDrainIdleWaiters.push(resolve);
+    });
   }
 
   function browserOwnsPendingShellPublication() {
     return !!pendingShellPublicationToken || !!pendingShellPublicationRequestId;
   }
 
+  function finishRouteTransition() {
+    shellRouteTransitionInFlight = false;
+    if (
+      eventDrainPending &&
+      !browserOwnsPendingShellPublication() &&
+      !eventDrainInFlight
+    ) {
+      eventDrainPending = false;
+      drainEvents();
+    }
+  }
+
+  function finishEventDrain() {
+    eventDrainInFlight = false;
+    const waiters = eventDrainIdleWaiters;
+    eventDrainIdleWaiters = [];
+    waiters.forEach(function (resolve) { resolve(); });
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) return;
+    if (!eventDrainPending) return;
+    eventDrainPending = false;
+    drainEvents();
+  }
+
   function drainEvents() {
-    if (browserOwnsPendingShellPublication()) {
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) {
       eventDrainPending = true;
       return;
     }
@@ -787,7 +821,7 @@
     }
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
-      if (browserOwnsPendingShellPublication()) {
+      if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) {
         // A route-start response may be lost after Python acquired its hold but
         // before this browser learned the token. Treat the retained request_id
         // as the same publication fence so a previously started native-event
