@@ -574,31 +574,28 @@ class Version2WindowsFileActionDelegate:
                 focus_target="pgn-open-cancel",
             )
         )
-        with self._lock:
-            start_blocked_by_shutdown = (
-                self._shutdown_requested
-                and generation == self._generation
-                and self._worker is worker
-            )
-            if start_blocked_by_shutdown:
-                self._clear_worker_locked()
-        if start_blocked_by_shutdown:
-            return self._failed(
-                "pgn.open", "file_workflow_closed", focus_target=previous_focus
-            )
+        shutdown_before_start = False
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
                     raise RuntimeError("PGN Open worker ownership changed before start")
-                worker.start()
-                if self._worker is worker:
-                    self._worker_started = True
+                if self._shutdown_requested:
+                    self._clear_worker_locked()
+                    shutdown_before_start = True
+                else:
+                    worker.start()
+                    if self._worker is worker:
+                        self._worker_started = True
         except Exception:
             with self._lock:
                 if generation == self._generation and self._worker is worker:
                     self._clear_worker_locked()
             return self._failed(
                 "pgn.open", "pgn_open_worker_unavailable", focus_target=previous_focus
+            )
+        if shutdown_before_start:
+            return self._failed(
+                "pgn.open", "file_workflow_closed", focus_target=previous_focus
             )
         return started
 
@@ -985,27 +982,18 @@ class Version2WindowsFileActionDelegate:
                 focus_target="library-import-cancel",
             )
         )
-        with self._lock:
-            start_blocked_by_shutdown = (
-                self._shutdown_requested
-                and generation == self._generation
-                and self._worker is worker
-            )
-            if start_blocked_by_shutdown:
-                self._clear_worker_locked()
-        if start_blocked_by_shutdown:
-            return self._failed(
-                "library.import",
-                "file_workflow_closed",
-                focus_target=previous_focus,
-            )
+        shutdown_before_start = False
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
                     raise RuntimeError("import worker ownership changed before start")
-                worker.start()
-                if self._worker is worker:
-                    self._worker_started = True
+                if self._shutdown_requested:
+                    self._clear_worker_locked()
+                    shutdown_before_start = True
+                else:
+                    worker.start()
+                    if self._worker is worker:
+                        self._worker_started = True
         except Exception:
             with self._lock:
                 if generation == self._generation and self._worker is worker:
@@ -1014,6 +1002,10 @@ class Version2WindowsFileActionDelegate:
                 "library.import",
                 "import_worker_unavailable",
                 focus_target=previous_focus,
+            )
+        if shutdown_before_start:
+            return self._failed(
+                "library.import", "file_workflow_closed", focus_target=previous_focus
             )
         return started
 
