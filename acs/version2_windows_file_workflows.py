@@ -38,7 +38,12 @@ from .book_library_import import (
     open_book_library_source,
 )
 from .import_contract import SourceFingerprint, SourceReadCancelledError
-from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
+from .pgn_document import (
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+    PgnDocumentView,
+)
 from .pgn_save_snapshot import (
     PgnSaveCancelledError,
     PgnSaveMode,
@@ -733,58 +738,88 @@ class Version2WindowsFileActionDelegate:
                 error_code=error_code or "pgn_open_failed",
             )
         else:
+            # The worker result crosses back into the owner/UI thread. Treat it
+            # as a passive DTO boundary before publishing the prepared session:
+            # no __int__, __len__, property, subclass or warning-item hook may
+            # execute after the active document has already been replaced.
             try:
-                live_session = self._get_pgn_session()
+                if type(session) is not PgnDocumentSession:
+                    raise TypeError("prepared PGN session is not canonical")
+                if type(view) is not PgnDocumentView:
+                    raise TypeError("prepared PGN view is not canonical")
+                game_count = view.game_count
+                global_warnings = view.global_warnings
+                if type(game_count) is not int or game_count < 0:
+                    raise TypeError("prepared PGN game count is invalid")
+                if type(global_warnings) is not tuple or any(
+                    type(item) is not str for item in global_warnings
+                ):
+                    raise TypeError("prepared PGN warnings are invalid")
+                warning_count = len(global_warnings)
             except BaseException:
+                _LOG.warning(
+                    "Version 2 PGN Open prepared result rejected",
+                    exc_info=True,
+                )
                 terminal = FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     "pgn.open",
                     focus_target=previous_focus,
-                    error_code="pgn_session_unavailable",
+                    error_code="pgn_open_failed",
                 )
             else:
-                stale = live_session is not expected_session
-                if (
-                    not stale
-                    and expected_session is not None
-                    and expected_revision is not None
-                    and expected_session.document_revision != expected_revision
-                ):
-                    stale = True
-                if stale:
-                    # The user changed or replaced the document while bounded
-                    # parsing/materialization was in flight. Preserve that newer
-                    # authority and discard the prepared replacement.
+                try:
+                    live_session = self._get_pgn_session()
+                except BaseException:
                     terminal = FileWorkflowEvent(
                         FileWorkflowEventKind.FAILED,
                         "pgn.open",
                         focus_target=previous_focus,
-                        error_code="pgn_open_stale",
+                        error_code="pgn_session_unavailable",
                     )
                 else:
-                    try:
-                        # This is the only publication point and it executes through the
-                        # owner-thread poster supplied by the production Windows runtime.
-                        self._set_pgn_session(session)
-                    except BaseException:
-                        _LOG.warning(
-                            "Version 2 PGN Open session publication failed",
-                            exc_info=True,
-                        )
+                    stale = live_session is not expected_session
+                    if (
+                        not stale
+                        and expected_session is not None
+                        and expected_revision is not None
+                        and expected_session.document_revision != expected_revision
+                    ):
+                        stale = True
+                    if stale:
+                        # The user changed or replaced the document while bounded
+                        # parsing/materialization was in flight. Preserve that newer
+                        # authority and discard the prepared replacement.
                         terminal = FileWorkflowEvent(
                             FileWorkflowEventKind.FAILED,
                             "pgn.open",
                             focus_target=previous_focus,
-                            error_code="pgn_open_publish_failed",
+                            error_code="pgn_open_stale",
                         )
                     else:
-                        terminal = FileWorkflowEvent(
-                            FileWorkflowEventKind.PGN_OPENED,
-                            "pgn.open",
-                            focus_target="pgn-game-list",
-                            game_count=int(getattr(view, "game_count", 0)),
-                            warning_count=len(getattr(view, "global_warnings", ())),
-                        )
+                        try:
+                            # This is the only publication point and it executes through the
+                            # owner-thread poster supplied by the production Windows runtime.
+                            self._set_pgn_session(session)
+                        except BaseException:
+                            _LOG.warning(
+                                "Version 2 PGN Open session publication failed",
+                                exc_info=True,
+                            )
+                            terminal = FileWorkflowEvent(
+                                FileWorkflowEventKind.FAILED,
+                                "pgn.open",
+                                focus_target=previous_focus,
+                                error_code="pgn_open_publish_failed",
+                            )
+                        else:
+                            terminal = FileWorkflowEvent(
+                                FileWorkflowEventKind.PGN_OPENED,
+                                "pgn.open",
+                                focus_target="pgn-game-list",
+                                game_count=game_count,
+                                warning_count=warning_count,
+                            )
 
         with self._lock:
             if (
