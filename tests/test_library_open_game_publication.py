@@ -342,6 +342,103 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIs(self.app.session, replacement)
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
 
+    def test_native_library_modal_preflight_rejects_before_state_or_file_work(self) -> None:
+        self.app._focus = self.app.shell.open_route("library")
+        self.app.shell.open_dialog(
+            "test-dialog",
+            opener_focus_id=self.app._focus,
+            initial_focus_id="dialog-primary",
+        )
+        touched: list[str] = []
+
+        def touched_projection(*_args, **_kwargs):
+            touched.append("projection")
+            raise AssertionError("projection must not run behind modal focus")
+
+        self.app._files = lambda action, payload: touched.append(f"files:{action}")
+
+        with patch.object(
+            self.app.library.projection,
+            "search",
+            side_effect=touched_projection,
+        ), patch.object(
+            self.app.library.projection,
+            "open_selected",
+            side_effect=touched_projection,
+        ), patch.object(
+            self.app.library.projection,
+            "request_export_selected",
+            side_effect=touched_projection,
+        ):
+            for action in (
+                "library.search",
+                "library.open_game",
+                "library.import",
+                "library.export",
+            ):
+                with self.subTest(action=action):
+                    with self.assertRaisesRegex(ValueError, "close the active dialog"):
+                        self.app._delegate(action, {})
+
+        self.assertEqual(touched, [])
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        self.assertEqual(self.app.shell.active_dialog_id, "test-dialog")
+
+    def test_native_library_failed_or_malformed_pagination_preserves_route_and_focus(self) -> None:
+        origin_focus = self.app.shell.open_route("board")
+        self.app._focus = origin_focus
+        error_result = LibraryWebViewEvent(
+            "render",
+            {
+                "snapshot": {
+                    "status": "error",
+                    "message": "Library page could not be loaded.",
+                }
+            },
+        )
+        with patch.object(
+            self.app.library.projection,
+            "next_page",
+            return_value=error_result,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "could not be loaded"):
+                self.app._delegate("library.next_page", {})
+
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, origin_focus)
+
+        malformed = LibraryWebViewEvent(
+            "delegated",
+            {"action": "library.import"},
+        )
+        with patch.object(
+            self.app.library.projection,
+            "previous_page",
+            return_value=malformed,
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid Library projection result"):
+                self.app._delegate("library.previous_page", {})
+
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, origin_focus)
+
+    def test_native_library_valid_pagination_commits_route_and_focus_after_render(self) -> None:
+        self.app._focus = self.app.shell.open_route("board")
+        ready = LibraryWebViewEvent(
+            "render",
+            {"snapshot": {"status": "ready"}},
+        )
+        with patch.object(
+            self.app.library.projection,
+            "next_page",
+            return_value=ready,
+        ):
+            result = self.app._delegate("library.next_page", {})
+
+        self.assertIs(result, ready)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        self.assertEqual(self.app._focus, self.app.shell.restore_focus_target())
+
     def test_full_native_event_queue_without_eviction_preserves_exact_order(self) -> None:
         expected = tuple(
             {
