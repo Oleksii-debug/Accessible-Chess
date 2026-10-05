@@ -6,12 +6,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "current-product-shipping-integration-20261005.yml"
+PORTABLE_GATE = ROOT / ".github" / "workflows" / "current-product-portable-integration-convergence.yml"
+ACCESSIBILITY_GATE = ROOT / ".github" / "workflows" / "current-product-accessibility-formats-convergence.yml"
 
 
 class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.portable_text = PORTABLE_GATE.read_text(encoding="utf-8")
+        cls.accessibility_text = ACCESSIBILITY_GATE.read_text(encoding="utf-8")
 
     def test_gate_targets_only_canonical_shipping_branch(self) -> None:
         pull = self.text.index("  pull_request:\n")
@@ -45,32 +49,64 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" HEAD',
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
-            "test \"$product_count\" -eq 64",
-            "test \"$candidate_count\" -eq 66",
+            'test "$product_count" -eq 64',
+            'test "$candidate_count" -eq 66',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
-    def test_only_two_integration_files_may_exist_beyond_product(self) -> None:
+    def test_only_four_qualification_files_may_differ_from_product(self) -> None:
         required = (
+            "ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml",
+            "PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml",
             "INTEGRATION_WORKFLOW: .github/workflows/current-product-shipping-integration-20261005.yml",
             "INTEGRATION_TEST: tests/test_current_product_shipping_integration_20261005.py",
             'extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"',
-            'expected_extra="$(printf \'%s\\n\' "$INTEGRATION_WORKFLOW" "$INTEGRATION_TEST" | sort)"',
             'test "$extra_paths" = "$expected_extra"',
-            'expected_candidate="$(printf \'%s\\n%s\\n\' "$product_paths" "$expected_extra" | sed \'/^$/d\' | sort -u)"',
+            "QUALIFICATION_DELTA_PATHS=4",
             'test "$candidate_paths" = "$expected_candidate"',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_inherited_package_gate_retains_legacy_mode_and_exact_shipping_mode(self) -> None:
+        required = (
+            "CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d",
+            'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
+            'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
+            'test "$product_count" -eq 64',
+            "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
+            "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
+            'test "$extra" = "$expected_extra"',
+            'test "$candidate_count" -eq 66',
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.portable_text)
+
+    def test_inherited_accessibility_gate_retains_focused_mode_and_exact_shipping_mode(self) -> None:
+        required = (
+            "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
+            "CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d",
+            'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
+            'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
+            'test "$product_scope" = "$expected_paths"',
+            'test "$extra" = "$expected_extra"',
+            "ACCESSIBILITY_FORMATS_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
+            "ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_PRODUCT",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.accessibility_text)
+
     def test_gate_runs_on_both_release_relevant_operating_systems(self) -> None:
-        self.assertIn("os: [ubuntu-22.04, windows-2025]", self.text)
-        self.assertIn("fail-fast: false", self.text)
-        self.assertNotIn("continue-on-error:", self.text)
+        for text in (self.text, self.portable_text, self.accessibility_text):
+            self.assertIn("os: [ubuntu-22.04, windows-2025]", text)
+            self.assertIn("fail-fast: false", text)
+            self.assertNotIn("continue-on-error:", text)
 
     def test_gate_executes_current_high_risk_product_contracts(self) -> None:
         required = (
