@@ -352,12 +352,15 @@ def capture_pgn_save_snapshot(
     # the live document merely to obtain presentation digests on the UI thread.
     games = workspace.games()
     canonical_games, detached_digest = _canonical_detached_games(games)
+    source_after = _detached_source_fingerprint(current.source, allow_none=True)
     if (
         current.workspace is not workspace
         or current.document_revision != document_revision
         or workspace.content_revision != workspace_revision
+        or source_after != source
+        or current._source_overwrite_safe is not source_overwrite_safe
     ):
-        raise _stale("PGN content changed while the save snapshot was being captured")
+        raise _stale("PGN document state changed while the save snapshot was being captured")
 
     session_ref = ref(current)
     capture_binding = _PgnSaveSnapshotBinding(
