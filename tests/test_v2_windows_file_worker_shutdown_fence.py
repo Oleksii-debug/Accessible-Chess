@@ -189,6 +189,60 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.pgn_save_running)
             self.assertFalse(delegate.import_running)
 
+    def test_malformed_dialog_path_base_exceptions_are_sanitized(self) -> None:
+        class PathAbort(BaseException):
+            pass
+
+        class AbortPath:
+            def __fspath__(self):
+                raise PathAbort("path conversion aborted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "malformed-dialog-path.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            malformed = AbortPath()
+
+            class MalformedDialogs(_Dialogs):
+                def open_pgn(self):
+                    return malformed
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return malformed
+
+                def select_library_import(self):
+                    return malformed
+
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=MalformedDialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            opened = delegate("pgn.open", {})
+            saved_as = delegate("pgn.save_as", {})
+            imported = delegate("library.import", {})
+
+            for event, action in (
+                (opened, "pgn.open"),
+                (saved_as, "pgn.save_as"),
+                (imported, "library.import"),
+            ):
+                self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(event.action_id, action)
+                self.assertEqual(event.error_code, "file_dialog_failed")
+                self.assertEqual(event.focus_target, "pgn-tree")
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertFalse(delegate.pgn_save_running)
+            self.assertFalse(delegate.import_running)
+
     def test_unsaved_confirmation_base_exception_is_sanitized(self) -> None:
         class ConfirmationAbort(BaseException):
             pass
