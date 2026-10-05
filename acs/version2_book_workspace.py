@@ -714,6 +714,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         def reading_metadata(value):
             if value is None:
                 return ""
+            # Metadata crosses from the detached reader revision into the
+            # WebView. Low-level corruption of the indexed BookDocument must
+            # fail before len/slice can execute provider-defined text hooks.
+            if type(value) is not str:
+                raise _BookSemanticProjectionError(
+                    "book reading metadata is invalid"
+                )
             # Metadata stays complete in BookDocument; indicate the bounded
             # presentation excerpt rather than scanning a source-sized scalar.
             excerpt = value if len(value) <= 359 else value[:358] + "…"

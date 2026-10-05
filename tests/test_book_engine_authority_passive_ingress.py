@@ -110,6 +110,68 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
         self.assertEqual(visible_reader.index, 0)
         self.assertEqual(workflow_reader.index, 0)
 
+    def test_book_workspace_rejects_active_detached_metadata_before_hooks(self) -> None:
+        class ActiveMetadata(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active Book metadata length hook must not execute")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("active Book metadata slice hook must not execute")
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+        block = projection._presenter.current()
+        reader._indexed_document.title = ActiveMetadata("forged title")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^book reading metadata is invalid$",
+        ):
+            projection._snapshot_from_block(block)
+
+        self.assertFalse(ActiveMetadata.touched)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_book_workspace_rejects_non_text_detached_author(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+        block = projection._presenter.current()
+        reader._indexed_document.author = 7
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^book reading metadata is invalid$",
+        ):
+            projection._snapshot_from_block(block)
+
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_book_workspace_contains_semantic_dispatch_base_exception(self) -> None:
         class DispatchAbort(BaseException):
             pass
