@@ -24,7 +24,7 @@ from pathlib import Path
 from weakref import ReferenceType, ref
 
 from .gametree import PgnGame
-from .import_contract import SourceFingerprint, fingerprint
+from .import_contract import SourceFingerprint, SourceReadCancelledError, fingerprint
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from .pgn_service import save_pgn_atomic
 from .pgn_workspace import PgnWorkspace, PgnWorkspaceError
@@ -180,9 +180,9 @@ def expected_pgn_destination_sha256(
 
     This function is intended for the same worker that performs publication,
     keeping potentially expensive destination hashing away from the Windows UI
-    thread.  Cancellation is checked before and after hashing.  A request that
-    arrives during the hash therefore still prevents later publication without
-    inventing a second fingerprinting implementation.
+    thread. The canonical fingerprint authority polls cancellation between its
+    finite hash chunks on both verification passes, so a large/slow destination
+    does not make Cancel wait for the complete two-pass digest.
     """
 
     check = _validated_cancel_check(cancel_check)
@@ -190,7 +190,12 @@ def expected_pgn_destination_sha256(
     destination = Path(path)
     if not destination.exists():
         return None
-    digest = fingerprint(destination).sha256
+    try:
+        digest = fingerprint(destination, cancel_check=check).sha256
+    except SourceReadCancelledError as exc:
+        raise PgnSaveCancelledError(
+            "PGN save cancelled during destination fingerprinting"
+        ) from exc
     _raise_if_cancelled(check)
     return digest
 
