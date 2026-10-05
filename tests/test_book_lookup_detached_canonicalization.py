@@ -118,7 +118,7 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
             line=VariationLine(moves=[MoveNode("e4")]),
             warnings=["warning one", "warning two"],
         )
-        with patch.object(book_game_content, "MAX_PGN_LEXICAL_TOKENS", 1):
+        with patch.object(book_game_content, "MAX_BOOK_PROVIDER_WARNINGS", 1):
             with self.assertRaises(BookGameContentError) as caught:
                 resolve_book_game(Game(game_id=31), lookup=_Lookup(source))
 
