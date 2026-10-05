@@ -256,6 +256,34 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assertEqual(session.document_revision, 0)
         self.assertFalse(session.dirty)
 
+        assert accepted is not None
+        object.__setattr__(accepted, "path", "mutated-returned-source.pgn")
+        object.__setattr__(accepted, "sha256", "e" * 64)
+        exposed_again = session.source
+        self.assertIsNotNone(exposed_again)
+        self.assertEqual(exposed_again.path, "source.pgn")
+        self.assertEqual(exposed_again.sha256, "0" * 64)
+        self.assertEqual(session.document_revision, 0)
+
+    def test_view_and_bookmark_detach_cursor_from_live_workspace(self) -> None:
+        session = self.session()
+        live_cursor = session.workspace.cursor
+        view = session.view()
+        bookmark = session.bookmark()
+
+        self.assertEqual(view.cursor, live_cursor)
+        self.assertEqual(bookmark.cursor, live_cursor)
+        self.assertIsNot(view.cursor, live_cursor)
+        self.assertIsNot(bookmark.cursor, live_cursor)
+        self.assertIsNot(view.cursor, bookmark.cursor)
+
+        object.__setattr__(view.cursor, "next_move_index", 999)
+        object.__setattr__(bookmark.cursor, "line_path", (VariationStep(0, 0),))
+
+        self.assertEqual(session.workspace.cursor, live_cursor)
+        self.assertEqual(session.workspace.cursor.next_move_index, 0)
+        self.assertEqual(session.workspace.cursor.line_path, ())
+
     def test_restore_rejects_context_subclass_before_attribute_hooks(self) -> None:
         session = self.session()
         bookmark = session.bookmark()
