@@ -10,11 +10,16 @@ from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_actions import build_full_product_action_registry
+from acs.full_product_ui_shell import UILanguage
 from acs.keybindings import BindingContext
 from acs.library_webview_projection import LibraryWebViewEvent
 from acs.pgn_document import PgnDocumentSession
 from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
+from acs.version2_windows_library_export import (
+    LibraryExportHostEvent,
+    LibraryExportHostEventKind,
+)
 
 
 PGN_TEMPLATE = """[Event "{event}"]
@@ -30,6 +35,61 @@ PGN_TEMPLATE = """[Event "{event}"]
 
 
 class LibraryOpenGamePublicationTests(unittest.TestCase):
+    def test_library_export_failures_are_actionable_path_free_and_library_localized(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_args: None,
+                    copy_text=lambda _text: None,
+                )
+                cases = (
+                    ("invalid_export_request", "вибір ігор або фільтр"),
+                    ("library_export_busy", "ще завершується"),
+                    ("library_export_unavailable", "зараз недоступний"),
+                    ("file_dialog_failed", "вікно вибору файла"),
+                    ("library_export_worker_failed", "фоновий експорт"),
+                    ("library_export_failed", "завершити експорт"),
+                    ("no_library_export_running", "вже завершився"),
+                )
+                for error_code, fragment in cases:
+                    with self.subTest(error_code=error_code):
+                        event = LibraryExportHostEvent(
+                            LibraryExportHostEventKind.FAILED,
+                            focus_target="library-search-player",
+                            error_code=error_code,
+                        )
+                        app._file_event(event)
+                        emitted = app.drain_events()
+                        self.assertEqual(emitted[-1]["kind"], "error")
+                        message = emitted[-1]["payload"]["message"]
+                        self.assertIn(fragment, message)
+                        self.assertNotEqual(message, "Не вдалося виконати дію.")
+                        self.assertNotIn(str(root), message)
+
+                # Library owns this surface's locale. Keep the shell in Ukrainian
+                # while switching only the Library projection to English.
+                self.assertIs(app.shell.language, UILanguage.UA)
+                app.library.projection.set_language(UILanguage.EN)
+                event = LibraryExportHostEvent(
+                    LibraryExportHostEventKind.FAILED,
+                    focus_target="library-search-player",
+                    error_code="library_export_failed",
+                )
+                app._file_event(event)
+                english = app.drain_events()[-1]["payload"]["message"]
+                self.assertIn("Library export could not be completed", english)
+                self.assertNotEqual(english, "The action could not be completed.")
+                self.assertIs(app.shell.language, UILanguage.UA)
+            finally:
+                analysis.close()
+                database.close()
+
     def test_library_home_end_are_central_remappable_actions(self) -> None:
         registry = build_full_product_action_registry()
 
