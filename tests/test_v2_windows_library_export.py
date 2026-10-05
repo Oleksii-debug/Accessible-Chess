@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.library_export_service import LibraryExportRequest, LibraryExportService
@@ -124,6 +125,74 @@ class Version2WindowsLibraryExportTests(unittest.TestCase):
         self.assertEqual(dialogs.calls, ["library-export.pgn"])
         self.assertEqual(events, [event])
         self.assertNotIn(str(destination), repr(event))
+
+    def test_existing_destination_is_bound_after_dialog_before_export(self) -> None:
+        request = LibraryExportRequest.selected([self.game_id])
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "existing-library-export.pgn"
+            destination.write_text(
+                '[Event "Existing"]\n[Result "*"]\n\n1. d4 *\n',
+                encoding="utf-8",
+            )
+            reviewed = self.service.expected_destination_sha256(destination)
+            self.assertIsNotNone(reviewed)
+            dialogs = _Dialogs(destination)
+            events: list[object] = []
+
+            with mock.patch.object(
+                self.service,
+                "expected_destination_sha256",
+                wraps=self.service.expected_destination_sha256,
+            ) as bind_destination, mock.patch.object(
+                self.service,
+                "export_to",
+                wraps=self.service.export_to,
+            ) as export_to:
+                event = self._delegate(dialogs, events, [])(
+                    "library.export",
+                    request.browser_payload(),
+                )
+
+            bind_destination.assert_called_once_with(destination)
+            export_to.assert_called_once_with(
+                destination,
+                request,
+                expected_sha256=reviewed,
+            )
+            reopened = open_pgn(destination)
+
+        self.assertEqual(event.kind, LibraryExportHostEventKind.EXPORTED)
+        self.assertEqual(event.game_count, 1)
+        self.assertEqual(events, [event])
+        self.assertEqual(
+            reopened.games,
+            self.service.resolve_games(request),
+        )
+
+    def test_destination_binding_failure_is_path_free_and_never_starts_export(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "private-existing.pgn"
+            destination.write_text(
+                '[Event "Existing"]\n[Result "*"]\n\n1. d4 *\n',
+                encoding="utf-8",
+            )
+            dialogs = _Dialogs(destination)
+            events: list[object] = []
+            with mock.patch.object(
+                self.service,
+                "expected_destination_sha256",
+                side_effect=OSError(f"cannot inspect {destination}"),
+            ), mock.patch.object(self.service, "export_to") as export_to:
+                event = self._delegate(dialogs, events, [])(
+                    "library.export",
+                    LibraryExportRequest.selected([self.game_id]).browser_payload(),
+                )
+
+            export_to.assert_not_called()
+            self.assertEqual(event.kind, LibraryExportHostEventKind.FAILED)
+            self.assertEqual(event.error_code, "library_export_failed")
+            self.assertNotIn(str(destination), repr(event))
+            self.assertEqual(events, [event])
 
     def test_dialog_and_writer_failures_are_path_free_and_do_not_mutate_library(self) -> None:
         before = tuple(
