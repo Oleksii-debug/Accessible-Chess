@@ -62,7 +62,6 @@ jobs:
           tests/test_v2_windows_pgn_open_invalid_session.py
           tests/test_v2_windows_file_worker_preflight.py
           tests/test_v2_windows_file_worker_shutdown_fence.py
-          tests/test_v2_windows_file_worker_shutdown_fence.py
           tests/test_v2_windows_nvda_file_workflows.py
           tests/test_v2_windows_host_runtime.py
 
@@ -84,3 +83,4 @@ jobs:
           tests/test_v2_windows_pgn_open_worker.py
           tests/test_v2_windows_pgn_open_invalid_session.py
           tests/test_v2_windows_file_worker_preflight.py
+          tests/test_v2_windows_file_worker_shutdown_fence.py
