@@ -367,6 +367,7 @@ def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool
     after = fingerprint(path)
     return before.size == after.size and before.sha256 == after.sha256
 
+
 def read_source_snapshot(
     path: str | Path,
     *,
