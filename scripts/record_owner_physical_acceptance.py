@@ -22,10 +22,15 @@ import stat
 import sys
 import tempfile
 
+from acs.version2_package_preflight import Version2PackagePreflightError
 from acs.version2_portable_package import (
     Version2PortablePackageError,
     _stable_bytes,
     _stable_digest,
+)
+from acs.version2_release_receipt import (
+    Version2ReleaseReceiptError,
+    verify_version2_release_receipt,
 )
 from scripts.finalize_owner_final_receipt import (
     BASE_RECEIPT_KEYS,
@@ -72,6 +77,7 @@ ACCEPTANCE_RECORD_KEYS = {
     "observation_mode",
     "observed_at_utc",
     "machine_receipt_sha256",
+    "release_receipt_sha256",
     "final_zip_sha256",
     "product_sha",
     "machine_finalizer_run_id",
@@ -281,6 +287,32 @@ def _validate_machine_receipt(value: dict[str, object]) -> tuple[str, str, int, 
     )
 
 
+def _verified_release_receipt_binding(
+    release_receipt_path: Path,
+    final_zip_path: Path,
+    *,
+    product_sha: str,
+    final_zip_sha256: str,
+) -> str:
+    """Verify canonical package qualification and return its exact receipt digest."""
+
+    try:
+        receipt = verify_version2_release_receipt(
+            release_receipt_path,
+            final_zip_path,
+        )
+    except (Version2ReleaseReceiptError, Version2PackagePreflightError) as exc:
+        raise OwnerPhysicalAcceptanceError(
+            "canonical release receipt does not verify the final ZIP"
+        ) from exc
+
+    if receipt.integration_sha != product_sha:
+        _fail("release receipt product SHA does not match the owner final machine receipt")
+    if receipt.package_sha256 != final_zip_sha256:
+        _fail("release receipt final ZIP digest does not match the owner final machine receipt")
+    return hashlib.sha256(receipt.to_json().encode("utf-8")).hexdigest()
+
+
 def _manual_recording_allowed() -> None:
     for name in ("GITHUB_ACTIONS", "CI"):
         value = os.environ.get(name, "").strip().casefold()
@@ -458,6 +490,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
 
 def record_owner_physical_acceptance(
     machine_receipt_path: str | Path,
+    release_receipt_path: str | Path,
     final_zip_path: str | Path,
     output_path: str | Path,
     *,
@@ -467,6 +500,7 @@ def record_owner_physical_acceptance(
     """Record one manual observation set for exact already-machine-qualified bytes."""
     _manual_recording_allowed()
     machine_receipt = Path(machine_receipt_path)
+    release_receipt = Path(release_receipt_path)
     final_zip = Path(final_zip_path)
     output = Path(output_path)
 
@@ -482,6 +516,12 @@ def record_owner_physical_acceptance(
     actual_zip_sha = _final_zip_sha(final_zip)
     if actual_zip_sha != declared_zip_sha:
         _fail("physical acceptance ZIP does not match the owner final machine receipt")
+    release_receipt_sha = _verified_release_receipt_binding(
+        release_receipt,
+        final_zip,
+        product_sha=product_sha,
+        final_zip_sha256=actual_zip_sha,
+    )
 
     scenarios = _validate_scenarios(scenario_results)
     human_tested, nvda_verified, result = _derived_result(scenarios)
@@ -492,6 +532,7 @@ def record_owner_physical_acceptance(
         "observation_mode": "manual_owner_physical_windows_nvda",
         "observed_at_utc": observed,
         "machine_receipt_sha256": hashlib.sha256(machine_bytes).hexdigest(),
+        "release_receipt_sha256": release_receipt_sha,
         "final_zip_sha256": actual_zip_sha,
         "product_sha": product_sha,
         "machine_finalizer_run_id": finalizer_run_id,
@@ -513,11 +554,13 @@ def record_owner_physical_acceptance(
 def verify_owner_physical_acceptance(
     record_path: str | Path,
     machine_receipt_path: str | Path,
+    release_receipt_path: str | Path,
     final_zip_path: str | Path,
 ) -> dict[str, object]:
     """Verify byte binding and deterministic semantics of a manual acceptance record."""
     record = Path(record_path)
     machine_receipt = Path(machine_receipt_path)
+    release_receipt = Path(release_receipt_path)
     final_zip = Path(final_zip_path)
 
     _, value = _read_stable_json(
@@ -538,6 +581,12 @@ def verify_owner_physical_acceptance(
     actual_zip_sha = _final_zip_sha(final_zip)
     if actual_zip_sha != declared_zip_sha:
         _fail("verified ZIP does not match the owner final machine receipt")
+    release_receipt_sha = _verified_release_receipt_binding(
+        release_receipt,
+        final_zip,
+        product_sha=product_sha,
+        final_zip_sha256=actual_zip_sha,
+    )
 
     if (
         value.get("schema_version") != 1
@@ -548,6 +597,8 @@ def verify_owner_physical_acceptance(
     _validate_timestamp(value.get("observed_at_utc"))
     if value.get("machine_receipt_sha256") != hashlib.sha256(machine_bytes).hexdigest():
         _fail("physical acceptance record machine receipt digest mismatch")
+    if value.get("release_receipt_sha256") != release_receipt_sha:
+        _fail("physical acceptance record release receipt digest mismatch")
     if value.get("final_zip_sha256") != actual_zip_sha:
         _fail("physical acceptance record final ZIP digest mismatch")
     if value.get("product_sha") != product_sha:
@@ -588,6 +639,7 @@ def main(argv: list[str] | None = None) -> int:
         help="manually record observations for exact owner-final package bytes",
     )
     record.add_argument("--machine-receipt", required=True, type=Path)
+    record.add_argument("--release-receipt", required=True, type=Path)
     record.add_argument("--final-zip", required=True, type=Path)
     record.add_argument("--output", required=True, type=Path)
     record.add_argument("--observed-at-utc", required=True)
@@ -599,6 +651,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     verify.add_argument("--record", required=True, type=Path)
     verify.add_argument("--machine-receipt", required=True, type=Path)
+    verify.add_argument("--release-receipt", required=True, type=Path)
     verify.add_argument("--final-zip", required=True, type=Path)
 
     args = parser.parse_args(argv)
@@ -607,6 +660,7 @@ def main(argv: list[str] | None = None) -> int:
             scenarios = {name: getattr(args, name) for name in REQUIRED_SCENARIOS}
             value = record_owner_physical_acceptance(
                 args.machine_receipt,
+                args.release_receipt,
                 args.final_zip,
                 args.output,
                 observed_at_utc=args.observed_at_utc,
@@ -616,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
             value = verify_owner_physical_acceptance(
                 args.record,
                 args.machine_receipt,
+                args.release_receipt,
                 args.final_zip,
             )
     except (OwnerPhysicalAcceptanceError, TypeError) as exc:
