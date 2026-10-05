@@ -767,7 +767,8 @@ class PgnDocumentSession:
     def save(self) -> SourceFingerprint:
         if type(self._source_overwrite_safe) is not bool:
             raise TypeError("PGN source overwrite safety flag is invalid")
-        if self._source is None:
+        source = _passive_source_snapshot(self._source)
+        if source is None:
             raise _error("document has no source; use Save As", PgnDocumentErrorCode.NO_SOURCE)
         if not self._source_overwrite_safe:
             raise _error(
@@ -775,10 +776,10 @@ class PgnDocumentSession:
                 PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
             )
         saved = save_pgn_atomic(
-            self._source.path,
+            source.path,
             self._workspace.games(),
             overwrite=True,
-            expected_sha256=self._source.sha256,
+            expected_sha256=source.sha256,
         )
         self._commit_saved_file(saved, save_as=False)
         return saved
@@ -814,6 +815,7 @@ class PgnDocumentSession:
     ) -> SourceFingerprint:
         if type(self._source_overwrite_safe) is not bool:
             raise TypeError("PGN source overwrite safety flag is invalid")
+        source = _passive_source_snapshot(self._source)
         destination = Path(path)
         expected = self._destination_expectation(
             destination,
@@ -821,9 +823,9 @@ class PgnDocumentSession:
             expected_sha256=expected_sha256,
         )
         if (
-            self._source is not None
+            source is not None
             and not self._source_overwrite_safe
-            and _same_direct_path(destination, self._source.path)
+            and _same_direct_path(destination, source.path)
         ):
             raise _error(
                 "recovery source must be preserved; choose a different Save As destination",
@@ -834,10 +836,10 @@ class PgnDocumentSession:
         # a fresh hash obtained after an external edit is not overwrite authority.
         if (
             overwrite
-            and self._source is not None
-            and _same_direct_path(destination, self._source.path)
+            and source is not None
+            and _same_direct_path(destination, source.path)
         ):
-            expected = self._source.sha256
+            expected = source.sha256
         saved = save_pgn_atomic(
             destination,
             self._workspace.games(),
