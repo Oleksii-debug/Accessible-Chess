@@ -162,7 +162,6 @@ class FileWorkflowEvent:
             raise ValueError("source_bytes_read must not exceed source_total_bytes")
 
 
-@dataclass(frozen=True, slots=True)
 def _snapshot_file_workflow_event(value: FileWorkflowEvent) -> FileWorkflowEvent:
     if type(value) is not FileWorkflowEvent:
         raise TypeError("file workflow event must be an exact passive DTO")
@@ -183,6 +182,7 @@ def _snapshot_file_workflow_event(value: FileWorkflowEvent) -> FileWorkflowEvent
     )
 
 
+@dataclass(frozen=True, slots=True)
 class Version2ImportWorkerServices:
     """Per-worker canonical import services and their connection cleanup."""
 
