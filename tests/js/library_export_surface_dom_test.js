@@ -413,6 +413,73 @@ function snapshot(checked) {
   serialDeferred[1](null);
   await new Promise((resolve) => setImmediate(resolve));
 
+  // An independent full snapshot replaces the whole Library presentation.
+  // Commands queued by the detached old DOM must not execute against that newer
+  // canonical state, and controls in the fresh DOM must not wait behind the old
+  // unresolved transport completion.
+  const refreshRoot = new FakeElement("div");
+  const refreshCalls = [];
+  const refreshDeferred = [];
+  const refreshInvoke = (command, payload) => {
+    refreshCalls.push([command, Object.assign({}, payload)]);
+    return new Promise((resolve) => refreshDeferred.push(resolve));
+  };
+  window.AccessibleChessLibrarySurface.render(
+    refreshRoot,
+    snapshot(false),
+    refreshInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const oldRefreshCheckbox =
+    refreshRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  const oldRefreshFiltered = refreshRoot.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === "library.export_filtered");
+  oldRefreshCheckbox.checked = true;
+  oldRefreshCheckbox.listeners.change({});
+  oldRefreshFiltered.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(refreshCalls.length === 1,
+    "independent-refresh setup let queued old DOM intent enter early");
+
+  window.AccessibleChessLibrarySurface.render(
+    refreshRoot,
+    snapshot(false),
+    refreshInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const freshRefreshFiltered = refreshRoot.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === "library.export_filtered");
+  freshRefreshFiltered.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    refreshCalls.length === 2 &&
+      refreshCalls[1][0] === "library.export_filtered",
+    "fresh full-render controls remained blocked behind stale unresolved work"
+  );
+
+  refreshDeferred[0]({
+    kind: "render",
+    payload: {
+      snapshot: snapshot(true),
+      focus_target: "library-game-0123456789abcdefabcd-export",
+      announcement: "Added to export."
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    refreshCalls.length === 2,
+    "queued command from detached pre-refresh DOM reached the host"
+  );
+  check(
+    refreshRoot.__accessibleChessLibrarySnapshot.export_selection_count === 0,
+    "late pre-refresh response replaced the independent canonical snapshot"
+  );
+  refreshDeferred[1](null);
+  await new Promise((resolve) => setImmediate(resolve));
+
   // Key-repeat from the still-live selected option must not queue stale Open
   // Game intent while the authoritative first Enter remains unresolved.
   const keyRoot = new FakeElement("div");
