@@ -37,7 +37,6 @@ class ClassroomPairingError(ValueError):
 class PairingMode(str, Enum):
     SEQUENTIAL = "sequential"
     RANDOM = "random"
-    RATING = "rating"
 
 
 @dataclass(frozen=True)
@@ -200,7 +199,6 @@ def plan_pairings(
     game_session_ids: tuple[str, ...],
     student_ids: tuple[str, ...] | None = None,
     mode: PairingMode | str = PairingMode.SEQUENTIAL,
-    ratings_by_student: Mapping[str, int] | None = None,
     base_seconds: int = 0,
     increment_seconds: int = 0,
 ) -> PairingBatch:
@@ -237,22 +235,11 @@ def plan_pairings(
 
     ordered = list(selected)
     if mode is PairingMode.RANDOM:
-        if ratings_by_student is not None:
-            raise ClassroomPairingError(
-                "ratings_by_student is valid only for rating pairing mode"
-            )
         ordered.sort(
             key=lambda student_id: (
                 hashlib.sha256(f"{batch_id}:{student_id}".encode("utf-8")).digest(),
                 student_id,
             )
-        )
-    elif mode is PairingMode.RATING:
-        ratings = _rating_map(ratings_by_student, selected)
-        ordered.sort(key=lambda student_id: (ratings[student_id], student_id))
-    elif ratings_by_student is not None:
-        raise ClassroomPairingError(
-            "ratings_by_student is valid only for rating pairing mode"
         )
 
     pair_count = len(ordered) // 2
@@ -368,34 +355,6 @@ def _time(value: object, maximum: int, label: str) -> int:
     if type(value) is not int or not 0 <= value <= maximum:
         raise ClassroomPairingError(f"{label} must be an integer from 0 to {maximum}")
     return value
-
-
-def _rating_map(
-    value: object,
-    student_ids: tuple[str, ...],
-) -> dict[str, int]:
-    if not isinstance(value, Mapping) or any(type(key) is not str for key in value):
-        raise ClassroomPairingError(
-            "rating pairing requires an exact student rating mapping"
-        )
-    expected = set(student_ids)
-    actual = set(value)
-    if actual != expected:
-        raise ClassroomPairingError(
-            "rating mapping must exactly cover pairing students"
-        )
-    checked: dict[str, int] = {}
-    for student_id in student_ids:
-        rating = value[student_id]
-        if (
-            type(rating) is not int
-            or not -MAX_WIRE_INTEGER <= rating <= MAX_WIRE_INTEGER
-        ):
-            raise ClassroomPairingError(
-                "student rating must be an exact JSON-safe integer"
-            )
-        checked[student_id] = rating
-    return checked
 
 
 def _id(value: object, label: str) -> str:
