@@ -55,7 +55,8 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
 
     def test_board_focus_analysis_resolution_tracks_persisted_remap(self):
         with tempfile.TemporaryDirectory() as td:
-            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            path = Path(td) / "keymap.json"
+            api = KeymapAwareAccessibleChessAPI(keymap_path=path)
             changed = api.keymap_save("analysis.pv1", "Ctrl+Shift+J")
             self.assertTrue(changed["ok"], changed)
             self.assertIsNone(api.keymap_resolve_binding("board", "Alt+1"))
@@ -63,6 +64,13 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(resolved)
             self.assertEqual(resolved["actionId"], "analysis.pv1")
             self.assertEqual(resolved["context"], "analysis")
+
+            restarted = KeymapAwareAccessibleChessAPI(keymap_path=path)
+            self.assertIsNone(restarted.keymap_resolve_binding("board", "Alt+1"))
+            persisted = restarted.keymap_resolve_binding("board", "Ctrl+Shift+J")
+            self.assertIsNotNone(persisted)
+            self.assertEqual(persisted["actionId"], "analysis.pv1")
+            self.assertEqual(persisted["context"], "analysis")
 
     def test_import_warning_requires_explicit_bridge_confirmation(self):
         with tempfile.TemporaryDirectory() as td:
