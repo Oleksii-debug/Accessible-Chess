@@ -70,6 +70,8 @@ jobs:
           python -m compileall -q
           acs/pgn_document.py
           tests/test_pgn_document.py
+          tests/test_pgn_document_context_atomicity.py
+          tests/test_pgn_document_setup_fen_integrity.py
           tests/test_pgn_document_passive_ingress.py
 
       - name: Execute focused and canonical PGN document regressions
@@ -77,8 +79,8 @@ jobs:
           python -m unittest -v
           tests.test_pgn_document_passive_ingress
           tests.test_pgn_document
-          tests.test_pgn_document_integrity
-          tests.test_pgn_save_snapshot
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document_setup_fen_integrity
 
       - name: Core selftest
         run: python -m acs.selftest
