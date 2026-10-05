@@ -59,7 +59,7 @@ class _OwnerPoster:
 
 
 class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
-    def test_late_cancel_cannot_relabel_completed_worker_failure_as_cancelled(self) -> None:
+    def test_late_cancel_resolves_completed_worker_failure_without_false_cancelling(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "failure.pgn"
             source.write_text(_PGN, encoding="utf-8")
@@ -88,20 +88,25 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
                 self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
                 self.assertTrue(controller.wait_for_pgn_save(5.0))
 
-            # The worker has already classified a real publication failure. A
-            # later Cancel click can request no further work, but must not rewrite
-            # that completed failure into a false cancellation announcement.
-            cancelling = controller("pgn.cancel_save", {})
-            self.assertEqual(cancelling.kind, FileWorkflowEventKind.PGN_SAVE_CANCELLING)
-            poster.drain()
-
-            self.assertTrue(session.dirty)
-            self.assertEqual(len(async_events), 1)
-            terminal = async_events[0]
+            # The worker has already classified a real publication failure.
+            # A later Cancel click cannot affect publication and therefore must
+            # resolve that exact terminal immediately instead of announcing a
+            # false new cancellation request to NVDA/browser status surfaces.
+            terminal = controller("pgn.cancel_save", {})
             self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(terminal.error_code, "pgn_save_failed")
+            self.assertEqual(async_events, [terminal])
+            self.assertEqual(sync_events, [started])
+            self.assertTrue(session.dirty)
             self.assertNotIn("private writer failure", repr(terminal))
             self.assertFalse(controller.pgn_save_running)
+
+            # The worker's already-queued owner callback is now stale and must
+            # not publish the same terminal a second time when the UI pump drains.
+            self.assertTrue(poster.callbacks)
+            event_count = len(async_events)
+            poster.drain()
+            self.assertEqual(len(async_events), event_count)
 
 
 if __name__ == "__main__":
