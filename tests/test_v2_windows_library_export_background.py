@@ -20,7 +20,12 @@ from acs.library_export_service import (
 )
 from acs.library_export_workspace import build_library_export_webview
 from acs.pgn_service import open_pgn
-from acs.search_service import GameSearchPage, GameSearchQuery, GameSearchService
+from acs.search_service import (
+    GameSearchPage,
+    GameSearchQuery,
+    GameSearchService,
+    SearchCancelledError,
+)
 from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_application import Version2Application
 from acs.version2_windows_library_export import (
@@ -204,6 +209,45 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                         with self.assertRaises(LibraryExportError):
                             service.export_to(destination, request)
                         self.assertFalse(destination.exists())
+        finally:
+            database.close()
+
+    def test_filtered_export_cancel_reaches_search_progress_boundary(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="cancel-search.pgn")
+            polls = 0
+
+            def cancel_check() -> bool:
+                nonlocal polls
+                polls += 1
+                return polls >= 3
+
+            class CancelInsideSearch(GameSearchService):
+                def search(self, query=None, *, cancel_check=None):
+                    self_assert = cancel_check
+                    if self_assert is None:
+                        raise AssertionError("filtered export did not pass cancel_check")
+                    if self_assert():
+                        raise SearchCancelledError("cancelled inside SQLite search")
+                    return super().search(query, cancel_check=cancel_check)
+
+            service = LibraryExportService(
+                database,
+                search_service=CancelInsideSearch(database),
+            )
+            request = LibraryExportRequest.filtered(GameSearchQuery())
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "cancel-search.pgn"
+                with self.assertRaises(LibraryExportCancelledError):
+                    service.export_to(
+                        destination,
+                        request,
+                        cancel_check=cancel_check,
+                    )
+                self.assertFalse(destination.exists())
+                self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+            self.assertEqual(polls, 3)
         finally:
             database.close()
 
