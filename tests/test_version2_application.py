@@ -290,6 +290,7 @@ class Version2ApplicationTests(unittest.TestCase):
             ("pgn.open", "unsaved_confirmation_unavailable", "Інший PGN не відкрито"),
             ("pgn.open", "unsaved_confirmation_failed", "Інший PGN не відкрито"),
             ("pgn.save", "pgn_session_unavailable", "безпечно отримати поточний PGN"),
+            ("pgn.save", "ui_event_queue_overflow", "Не повторюйте дію навмання"),
             ("pgn.save_as", "pgn_save_as_failed", "вибраний файл"),
         )
         for action_id, error_code, fragment in cases:
