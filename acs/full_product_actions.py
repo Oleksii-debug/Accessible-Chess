@@ -70,6 +70,8 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("library.previous_page", BindingContext.DATABASE, "Previous library page"),
     _action("library.previous_result", BindingContext.LIBRARY_RESULTS, "Previous library result", "Up"),
     _action("library.next_result", BindingContext.LIBRARY_RESULTS, "Next library result", "Down"),
+    _action("library.first_result", BindingContext.LIBRARY_RESULTS, "First library result", "Home"),
+    _action("library.last_result", BindingContext.LIBRARY_RESULTS, "Last library result", "End"),
     _action("library.open_game", BindingContext.LIBRARY_RESULTS, "Open selected library game", "Enter"),
     _action("library.import", BindingContext.DATABASE, "Import into library"),
     _action(
