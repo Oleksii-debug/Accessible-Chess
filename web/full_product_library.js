@@ -160,6 +160,15 @@
     "library.export_filtered",
     "library.clear_export_selection"
   ];
+  const LIBRARY_ACTION_DOM_IDS = new Map([
+    ["library.previous_page", "library-previous-page"],
+    ["library.next_page", "library-next-page"],
+    ["library.open_game", "library-open-game"],
+    ["library.reset_filters", "library-reset-filters"],
+    ["library.export_selected", "library-export-selected"],
+    ["library.export_filtered", "library-export-filtered"],
+    ["library.clear_export_selection", "library-clear-export-selection"]
+  ]);
   const GAME_DOM_PATTERN = /^library-game-[0-9a-f]{20}$/;
 
   function requireSafePositiveInteger(value, name) {
@@ -287,6 +296,7 @@
       allowed.add(row.dom_id);
       if (row.export_dom_id) allowed.add(row.export_dom_id);
     });
+    LIBRARY_ACTION_DOM_IDS.forEach(function (domId) { allowed.add(domId); });
     if (!allowed.has(target)) throw new TypeError("Library focus target is invalid");
     return target;
   }
@@ -460,19 +470,20 @@
     if (!focusTarget) return false;
     const importTarget = focusTarget === "library-import-file" ||
       focusTarget === "library-import-cancel";
+    const actionTarget = Array.from(LIBRARY_ACTION_DOM_IDS.values()).indexOf(focusTarget) >= 0;
     if (LIBRARY_FILTERS.some(function (filter) { return focusTarget === "library-search-" + filter[0]; }) ||
         importTarget ||
+        actionTarget ||
         (focusTarget.indexOf("library-game-") === 0 && focusTarget.endsWith("-export"))) {
       const control = root.querySelector("#" + focusTarget);
       if (control && !control.disabled && typeof control.focus === "function") {
         control.focus({ preventScroll: true });
         return true;
       }
-      // Import/export operation updates replace only their shared control region.
-      // Once cancellation begins, both operation buttons can be disabled. A real
-      // browser will reject focus on that disabled replacement, so move keyboard/
-      // NVDA focus to the stable enabled Library search field instead of body.
-      if (importTarget) {
+      // Import/export operation and toolbar state can replace or disable the
+      // previously focused control. A real browser rejects focus on disabled
+      // controls, so keep keyboard/NVDA focus on the stable Library search field.
+      if (importTarget || actionTarget) {
         const search = root.querySelector("#library-search-player");
         if (search && !search.disabled && typeof search.focus === "function") {
           search.focus({ preventScroll: true });
@@ -909,6 +920,7 @@
     (Array.isArray(snapshot.actions) ? snapshot.actions : []).forEach(function (action) {
       const button = node("button", action.label || action.action || "");
       button.type = "button";
+      button.id = LIBRARY_ACTION_DOM_IDS.get(action.action) || "";
       button.disabled = !action.enabled;
       button.dataset.action = String(action.action || "");
       button.addEventListener("click", function () {
