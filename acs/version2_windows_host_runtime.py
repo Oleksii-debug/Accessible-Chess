@@ -9,6 +9,7 @@ thread; long Library import and Library export work use worker-local database st
 
 from collections.abc import Callable, Mapping
 import threading
+from types import MethodType
 from typing import Any
 
 from .acsdb import AcsDatabase
@@ -195,22 +196,28 @@ class Version2WindowsFileWorkflowRuntime:
 
         def create() -> LibraryExportWorkerServices:
             services = import_services_factory()
-            if not isinstance(services, Version2ImportWorkerServices):
+            if type(services) is not Version2ImportWorkerServices:
                 raise TypeError("import services factory returned an invalid bundle")
             close = services.close
-            database = getattr(close, "__self__", None)
-            if not isinstance(database, AcsDatabase):
-                try:
-                    close()
-                finally:
-                    raise TypeError(
-                        "worker services do not expose their canonical AcsDatabase owner"
-                    )
+            if (
+                type(close) is not MethodType
+                or close.__func__ is not AcsDatabase.close
+                or type(close.__self__) is not AcsDatabase
+            ):
+                raise TypeError(
+                    "worker services do not expose their canonical AcsDatabase owner"
+                )
+            database = close.__self__
             try:
                 library = LibraryExportService(database)
                 return LibraryExportWorkerServices(library, close)
-            except Exception:
-                close()
+            except BaseException:
+                try:
+                    close()
+                except BaseException:
+                    # Preserve the construction failure; cleanup is secondary and
+                    # no export worker has received this service bundle yet.
+                    pass
                 raise
 
         return create
