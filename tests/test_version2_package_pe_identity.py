@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -75,27 +74,38 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             report = _validate_tree(root)
             self.assertIn(relative, report.inventory)
 
-    def test_pe_validation_rejects_path_replacement_during_single_identity_read(self):
+    def test_pe_validation_reads_machine_and_magic_from_one_open_handle(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            target = root / "runtime.dll"
-            replacement = root / "replacement.dll"
+            target = Path(td) / "runtime.dll"
             target.write_bytes(_minimal_windows_pe(machine=0x8664))
-            replacement.write_bytes(b"MZ" + b"\x00" * 510)
-
             real_open = Path.open
-            swapped = False
+            read_opens = 0
 
-            def racing_open(path: Path, *args, **kwargs):
-                nonlocal swapped
-                handle = real_open(path, *args, **kwargs)
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
                 mode = args[0] if args else kwargs.get("mode", "r")
-                if path == target and mode == "rb" and not swapped:
-                    os.replace(replacement, target)
-                    swapped = True
-                return handle
+                if path == target and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
 
-            with patch.object(Path, "open", new=racing_open):
+            with patch.object(Path, "open", new=counting_open):
+                preflight._validate_windows_pe_executable(
+                    target,
+                    label="test runtime",
+                    expected_machine=0x8664,
+                )
+            self.assertEqual(read_opens, 1)
+
+    def test_pe_validation_rejects_identity_change_after_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "runtime.dll"
+            target.write_bytes(_minimal_windows_pe(machine=0x8664))
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                side_effect=(True, True, False),
+            ):
                 with self.assertRaisesRegex(
                     Version2PackagePreflightError,
                     "changed while being read",
@@ -105,7 +115,6 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
                         label="test runtime",
                         expected_machine=0x8664,
                     )
-            self.assertTrue(swapped)
 
 
 if __name__ == "__main__":
