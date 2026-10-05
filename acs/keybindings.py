@@ -28,6 +28,7 @@ class BindingContext(str, Enum):
     LIBRARY_RESULTS = "library_results"
     EDUCATION_LIST = "education_list"
     CLASSROOM_LIST = "classroom_list"
+    TOOLBAR = "toolbar"
 
 
 @dataclass(frozen=True)

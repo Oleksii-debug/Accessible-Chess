@@ -150,6 +150,25 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         ):
             self.assertIn(action_id, source)
 
+    def test_shipping_toolbars_use_one_remappable_context_with_bootstrap_fallback(self) -> None:
+        for relative_path in (
+            "web/full_product_books_training.js",
+            "web/full_product_pgn.js",
+        ):
+            with self.subTest(relative_path=relative_path):
+                source = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn('resolve(event, "toolbar")', source)
+                self.assertIn('typeof resolve === "function"', source)
+                self.assertIn("resolved !== null && resolved !== undefined", source)
+                self.assertIn("!resolverReady", source)
+                for action_id in (
+                    "toolbar.previous_control",
+                    "toolbar.next_control",
+                    "toolbar.first_control",
+                    "toolbar.last_control",
+                ):
+                    self.assertIn(action_id, source)
+
 
 if __name__ == "__main__":
     unittest.main()

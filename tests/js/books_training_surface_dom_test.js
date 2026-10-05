@@ -87,6 +87,17 @@ global.window = {};
 const source = fs.readFileSync("web/full_product_books_training.js", "utf8");
 vm.runInThisContext(source, { filename: "full_product_books_training.js" });
 
+const toolbarBindings = {
+  ArrowLeft: "toolbar.previous_control",
+  ArrowRight: "toolbar.next_control",
+  Home: "toolbar.first_control",
+  End: "toolbar.last_control"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "toolbar") return "";
+  return toolbarBindings[event.key] || "";
+};
+
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -585,6 +596,26 @@ async function run() {
     document.activeElement === trainingToolbarButtons[0],
     "training toolbar did not wrap to first enabled action"
   );
+  delete toolbarBindings.ArrowRight;
+  toolbarBindings.j = "toolbar.next_control";
+  check(
+    !pressKey(trainingToolbarButtons[0], trainingToolbar, "ArrowRight"),
+    "unbound former toolbar ArrowRight was still claimed"
+  );
+  check(
+    document.activeElement === trainingToolbarButtons[0],
+    "unbound former toolbar ArrowRight still moved focus"
+  );
+  check(
+    pressKey(trainingToolbarButtons[0], trainingToolbar, "j"),
+    "remapped toolbar next-control key was not handled"
+  );
+  check(
+    document.activeElement === trainingToolbarButtons[1],
+    "remapped toolbar next-control key did not move focus"
+  );
+  toolbarBindings.ArrowRight = "toolbar.next_control";
+  delete toolbarBindings.j;
   firstAnswer.value = "d4";
   const firstForm = find(trainingRoot, "FORM");
   firstForm.listeners.submit({ preventDefault: () => {} });
@@ -1914,6 +1945,7 @@ async function run() {
   unavailableGameSnapshot.block.role = "group";
   unavailableGameSnapshot.block.title = "Readable unavailable game";
   unavailableGameSnapshot.block.warning = "Game content is unavailable";
+  unavailableGameSnapshot.semantic_tree = null;
   unavailableGameSnapshot.board_active = false;
   unavailableGameSnapshot.actions[9].enabled = false;
   unavailableGameSnapshot.actions[10].enabled = false;
@@ -1938,6 +1970,7 @@ async function run() {
   unavailableVariationSnapshot.block.title = "Readable unavailable variation";
   unavailableVariationSnapshot.block.has_position = true;
   unavailableVariationSnapshot.block.warning = "Variation content is unavailable";
+  unavailableVariationSnapshot.semantic_tree = null;
   unavailableVariationSnapshot.board_active = false;
   unavailableVariationSnapshot.actions[8].enabled = false;
   unavailableVariationSnapshot.actions[10].enabled = false;
@@ -1959,6 +1992,7 @@ async function run() {
   const activeGameSnapshot = bookSnapshot(27, "Active game board state");
   activeGameSnapshot.block.kind = "Game";
   activeGameSnapshot.block.role = "group";
+  activeGameSnapshot.semantic_tree = semanticBookTree("game");
   activeGameSnapshot.board_active = true;
   activeGameSnapshot.actions[9].enabled = false;
   activeGameSnapshot.actions[10].enabled = true;
@@ -2016,6 +2050,8 @@ async function run() {
   const delegatedRoot = new FakeElement("div");
   const delegatedAnnouncements = [];
   const delegatedSnapshot = bookSnapshot(28, "Position handoff");
+  delegatedSnapshot.block.kind = "Position";
+  delegatedSnapshot.block.role = "group";
   delegatedSnapshot.block.has_position = true;
   delegatedSnapshot.actions[8].enabled = true;
   window.AccessibleChessBookSurface.render(
@@ -2062,6 +2098,7 @@ async function run() {
   const delegatedGameSnapshot = bookSnapshot(30, "Game handoff");
   delegatedGameSnapshot.block.kind = "Game";
   delegatedGameSnapshot.block.role = "group";
+  delegatedGameSnapshot.semantic_tree = semanticBookTree("game");
   delegatedGameSnapshot.actions[9].enabled = true;
   window.AccessibleChessBookSurface.render(
     delegatedGameRoot,
@@ -2106,6 +2143,8 @@ async function run() {
   const malformedDelegatedRoot = new FakeElement("div");
   const malformedDelegatedAnnouncements = [];
   const malformedDelegatedSnapshot = bookSnapshot(29, "Malformed handoff");
+  malformedDelegatedSnapshot.block.kind = "Position";
+  malformedDelegatedSnapshot.block.role = "group";
   malformedDelegatedSnapshot.block.has_position = true;
   malformedDelegatedSnapshot.actions[8].enabled = true;
   window.AccessibleChessBookSurface.render(
@@ -2373,6 +2412,7 @@ async function run() {
   );
 
   const listSnapshot = bookSnapshot(4, "List");
+  listSnapshot.block.kind = "List";
   listSnapshot.block.role = "list";
   listSnapshot.block.list = { ordered: true, start: 4, items: ["Centre", "<img onerror=bad()>"] };
   window.AccessibleChessBookSurface.render(bookRoot, listSnapshot, bookInvoke, announce, "book-block-4", "Action failed");
@@ -2551,6 +2591,7 @@ async function run() {
   const oversizedListRoot = new FakeElement("div");
   const oversizedListAnnouncements = [];
   const oversizedListSnapshot = bookSnapshot(32, "Oversized list");
+  oversizedListSnapshot.block.kind = "List";
   oversizedListSnapshot.block.role = "list";
   oversizedListSnapshot.block.list = {
     ordered: false,

@@ -78,3 +78,17 @@ def test_classroom_navigation_is_projected_as_one_remappable_context():
         assert rows[action_id]["registryContext"] == "classroom_list"
         assert rows[action_id]["context"] == "classroom_list"
         assert rows[action_id]["binding"] == binding
+
+
+def test_toolbar_roving_focus_is_projected_as_one_remappable_context():
+    rows = _by_id(build_web_keymap(build_full_product_action_registry()))
+    expected = {
+        "toolbar.previous_control": "Left",
+        "toolbar.next_control": "Right",
+        "toolbar.first_control": "Home",
+        "toolbar.last_control": "End",
+    }
+    for action_id, binding in expected.items():
+        assert rows[action_id]["registryContext"] == "toolbar"
+        assert rows[action_id]["context"] == "toolbar"
+        assert rows[action_id]["binding"] == binding

@@ -62,6 +62,20 @@ def test_classroom_context_is_localized_without_exposing_transport_tokens():
     assert all(row.context_label == "Classroom list" for row in en_rows)
 
 
+def test_toolbar_context_is_localized():
+    from acs.full_product_actions import build_full_product_action_registry
+
+    uk_model = KeymapEditorModel(build_full_product_action_registry(), lang="uk")
+    uk_rows = uk_model.rows(context=BindingContext.TOOLBAR)
+    assert uk_rows
+    assert all(row.context_label == "Панель інструментів" for row in uk_rows)
+
+    en_model = KeymapEditorModel(build_full_product_action_registry(), lang="en")
+    en_rows = en_model.rows(context=BindingContext.TOOLBAR)
+    assert en_rows
+    assert all(row.context_label == "Toolbar" for row in en_rows)
+
+
 def test_preview_is_non_mutating_and_reports_exact_conflict_before_save():
     registry = ActionRegistry()
     model = KeymapEditorModel(registry)

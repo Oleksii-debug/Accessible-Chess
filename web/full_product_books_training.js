@@ -100,19 +100,40 @@
     toolbar.addEventListener("keydown", function (event) {
       const current = controls.indexOf(event.target);
       if (current < 0) return;
-      let next = current;
-      if (event.key === "ArrowRight") {
+      const resolve = global.accessibleChessKeymapAction;
+      let actionId = "";
+      let resolverReady = false;
+      if (typeof resolve === "function") {
+        const resolved = resolve(event, "toolbar");
+        if (resolved !== null && resolved !== undefined) {
+          resolverReady = true;
+          actionId = typeof resolved === "string" ? resolved : "";
+        }
+      }
+      if (
+        !resolverReady &&
+        !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
+      ) {
+        if (event.key === "ArrowRight") actionId = "toolbar.next_control";
+        else if (event.key === "ArrowLeft") actionId = "toolbar.previous_control";
+        else if (event.key === "Home") actionId = "toolbar.first_control";
+        else if (event.key === "End") actionId = "toolbar.last_control";
+      }
+
+      let next = -1;
+      if (actionId === "toolbar.next_control") {
         next = (current + 1) % controls.length;
-      } else if (event.key === "ArrowLeft") {
+      } else if (actionId === "toolbar.previous_control") {
         next = (current - 1 + controls.length) % controls.length;
-      } else if (event.key === "Home") {
+      } else if (actionId === "toolbar.first_control") {
         next = 0;
-      } else if (event.key === "End") {
+      } else if (actionId === "toolbar.last_control") {
         next = controls.length - 1;
       } else {
         return;
       }
       if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
       const target = controls[next];
       setActive(target);
       if (typeof target.focus === "function") target.focus({ preventScroll: true });

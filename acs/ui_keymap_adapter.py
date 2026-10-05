@@ -28,6 +28,7 @@ _UI_CONTEXT = {
     BindingContext.LIBRARY_RESULTS: "library_results",
     BindingContext.EDUCATION_LIST: "education_list",
     BindingContext.CLASSROOM_LIST: "classroom_list",
+    BindingContext.TOOLBAR: "toolbar",
 }
 
 _UK_LABELS = {
@@ -109,6 +110,10 @@ _UK_LABELS = {
     "classroom.first_item": "Перший елемент класу",
     "classroom.last_item": "Останній елемент класу",
     "classroom.open_selected": "Відкрити вибраний елемент класу",
+    "toolbar.previous_control": "Попередній елемент панелі інструментів",
+    "toolbar.next_control": "Наступний елемент панелі інструментів",
+    "toolbar.first_control": "Перший елемент панелі інструментів",
+    "toolbar.last_control": "Останній елемент панелі інструментів",
 }
 
 _EN_LABELS: dict[str, str] = {
@@ -127,6 +132,10 @@ _EN_LABELS: dict[str, str] = {
     "classroom.first_item": "First classroom item",
     "classroom.last_item": "Last classroom item",
     "classroom.open_selected": "Open selected classroom item",
+    "toolbar.previous_control": "Previous toolbar control",
+    "toolbar.next_control": "Next toolbar control",
+    "toolbar.first_control": "First toolbar control",
+    "toolbar.last_control": "Last toolbar control",
 }
 
 for _number in range(1, 9):

@@ -30,6 +30,7 @@ _CONTEXT_LABELS_UK = {
     BindingContext.LIBRARY_RESULTS.value: "Результати бібліотеки",
     BindingContext.EDUCATION_LIST.value: "Навчальний список",
     BindingContext.CLASSROOM_LIST.value: "Список класу",
+    BindingContext.TOOLBAR.value: "Панель інструментів",
 }
 
 _CONTEXT_LABELS_EN = {
@@ -47,6 +48,7 @@ _CONTEXT_LABELS_EN = {
     BindingContext.LIBRARY_RESULTS.value: "Library results",
     BindingContext.EDUCATION_LIST.value: "Education list",
     BindingContext.CLASSROOM_LIST.value: "Classroom list",
+    BindingContext.TOOLBAR.value: "Toolbar",
 }
 
 

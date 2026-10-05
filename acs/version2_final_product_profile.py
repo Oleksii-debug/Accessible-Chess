@@ -48,6 +48,14 @@ FINAL_PRODUCT_SAFE_CLASSROOM_KEYBOARD_ACTION_IDS = frozenset(
         "classroom.open_selected",
     }
 )
+FINAL_PRODUCT_SAFE_TOOLBAR_KEYBOARD_ACTION_IDS = frozenset(
+    {
+        "toolbar.previous_control",
+        "toolbar.next_control",
+        "toolbar.first_control",
+        "toolbar.last_control",
+    }
+)
 FINAL_PRODUCT_COMPOSED_COACHING_KEYBOARD_ACTION_IDS = frozenset(
     {
         "teacher.prepared_previous",
@@ -62,6 +70,7 @@ FINAL_PRODUCT_EXTRA_ACTION_IDS = (
     FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS
     | FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS
     | FINAL_PRODUCT_SAFE_CLASSROOM_KEYBOARD_ACTION_IDS
+    | FINAL_PRODUCT_SAFE_TOOLBAR_KEYBOARD_ACTION_IDS
     | FINAL_PRODUCT_COMPOSED_COACHING_KEYBOARD_ACTION_IDS
 )
 FINAL_PRODUCT_EXTRA_ACTIONS = tuple(

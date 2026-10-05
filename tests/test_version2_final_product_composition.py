@@ -28,6 +28,10 @@ def test_final_profile_exposes_teacher_and_classes_but_not_remote_or_mutations()
         "classroom.first_item",
         "classroom.last_item",
         "classroom.open_selected",
+        "toolbar.previous_control",
+        "toolbar.next_control",
+        "toolbar.first_control",
+        "toolbar.last_control",
     } <= ids
 
 

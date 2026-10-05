@@ -174,6 +174,36 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
             )
             self.assertIsNone(restarted.resolve_binding("classroom_list", "J"))
 
+    def test_toolbar_remap_survives_restart_and_context_reset(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            service.adopt_registry(build_final_product_action_registry())
+
+            saved = service.save("toolbar.next_control", "J")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(
+                service.resolve_binding("toolbar", "J")["actionId"],
+                "toolbar.next_control",
+            )
+            self.assertIsNone(service.resolve_binding("toolbar", "Right"))
+
+            restarted = KeymapService(path, lang="en")
+            restarted.adopt_registry(build_final_product_action_registry())
+            self.assertEqual(
+                restarted.resolve_binding("toolbar", "J")["actionId"],
+                "toolbar.next_control",
+            )
+            self.assertIsNone(restarted.resolve_binding("toolbar", "Right"))
+
+            reset = restarted.reset_context("toolbar")
+            self.assertTrue(reset["ok"])
+            self.assertEqual(
+                restarted.resolve_binding("toolbar", "Right")["actionId"],
+                "toolbar.next_control",
+            )
+            self.assertIsNone(restarted.resolve_binding("toolbar", "J"))
+
     def test_valid_versioned_and_legacy_profiles_still_import(self):
         with TemporaryDirectory() as root:
             service = self._service(root)
