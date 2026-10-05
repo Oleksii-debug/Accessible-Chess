@@ -167,6 +167,27 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, PgnWorkspaceErrorCode.NO_VARIATION)
         self.assertEqual(self.workspace.view(), before)
 
+    def test_exact_content_revert_returns_to_clean_cached_baseline(self):
+        baseline = self.workspace.content_digest
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        self.assertTrue(self.workspace.dirty)
+        self.assertNotEqual(self.workspace.content_digest, baseline)
+
+        fresh = move_annotation_target(self.workspace.current_game(), (), 0)
+        self.workspace.edit_move_annotations(
+            fresh,
+            MoveAnnotationPatch(nags=()),
+        )
+
+        self.assertEqual(self.workspace.content_digest, baseline)
+        self.assertFalse(self.workspace.dirty)
+        self.assertEqual(self.workspace.content_revision, 2)
+
     def test_annotation_edit_marks_dirty_increments_revision_and_preserves_other_game(self):
         other_before = deepcopy(self.workspace.games()[1])
         game = self.workspace.current_game()
