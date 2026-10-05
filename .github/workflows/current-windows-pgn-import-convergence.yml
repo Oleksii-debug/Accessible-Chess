@@ -120,6 +120,7 @@ jobs:
           tests.test_v2_windows_nvda_file_workflows
           tests.test_version2_application
           tests.test_version2_composition_startup_cleanup_current
+          tests.test_work_v2_shutdown_progress_failure_cleanup
           tests.test_chessbase_library_import_report_passive
 
       - name: Core selftest

@@ -2455,15 +2455,20 @@ class Version2Application:
             # any Training or Book progress publication.
             token = self._pending_shell_publication[0]
             self._finish_shell_publication(token, commit=False)
-        self.save_training_progress()
-        try:
-            self.save_book_progress()
-        except BaseException as progress_error:
-            progress_traceback = progress_error.__traceback__
+        progress_error: BaseException | None = None
+        progress_traceback = None
+        for save_progress in (self.save_training_progress, self.save_book_progress):
             try:
-                self.database.close()
-            except BaseException:
-                pass
+                save_progress()
+            except BaseException as error:
+                if progress_error is None:
+                    progress_error = error
+                    progress_traceback = error.__traceback__
+        try:
+            self.database.close()
+        except BaseException:
+            if progress_error is None:
+                raise
+        if progress_error is not None:
             raise progress_error.with_traceback(progress_traceback)
-        self.database.close()
         return True
