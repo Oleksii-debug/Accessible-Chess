@@ -310,6 +310,11 @@ class Version2WindowsLibraryExportDelegate:
             )
             if not isinstance(result, LibraryExportResult):
                 raise TypeError("Library export worker returned an invalid result")
+            terminal = LibraryExportHostEvent(
+                LibraryExportHostEventKind.EXPORTED,
+                focus_target=previous_focus,
+                game_count=result.game_count,
+            )
         except LibraryExportCancelledError:
             terminal = LibraryExportHostEvent(
                 LibraryExportHostEventKind.DIALOG_CANCELLED,
@@ -320,12 +325,6 @@ class Version2WindowsLibraryExportDelegate:
                 LibraryExportHostEventKind.FAILED,
                 focus_target=previous_focus,
                 error_code="library_export_failed",
-            )
-        else:
-            terminal = LibraryExportHostEvent(
-                LibraryExportHostEventKind.EXPORTED,
-                focus_target=previous_focus,
-                game_count=result.game_count,
             )
         finally:
             if services is not None:
