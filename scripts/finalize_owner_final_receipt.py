@@ -16,9 +16,11 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 from acs.version2_portable_package import (
     Version2PortablePackageError,
+    _complete_file_identity,
     _same_file_snapshot,
     _stable_bytes,
     _stable_digest,
@@ -171,6 +173,24 @@ def _canonical_receipt_bytes(value: dict[str, object]) -> bytes:
         raise OwnerFinalReceiptError(
             "finalized owner receipt cannot be serialized canonically"
         ) from exc
+
+
+def _remove_owned_staging_file(
+    path: Path,
+    expected_identity: os.stat_result,
+) -> None:
+    """Remove only the exact private staging object created by this invocation."""
+
+    try:
+        current = path.lstat()
+    except OSError:
+        return
+    if not _complete_file_identity(expected_identity, current):
+        return
+    try:
+        path.unlink()
+    except OSError:
+        return
 
 
 def _confirm_final_receipt_durable(
@@ -351,22 +371,52 @@ def finalize_owner_final_receipt(
         _fail("finalized owner receipt exceeds its byte budget")
     serialized = serialized_bytes.decode("utf-8")
 
-    temporary = receipt.with_name(f".{receipt.name}.publish.tmp")
+    temporary: Path | None = None
+    staging_identity: os.stat_result | None = None
+    fd: int | None = None
     try:
-        with temporary.open("x", encoding="utf-8", newline="\n") as stream:
+        try:
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{receipt.name}.publish-",
+                suffix=".tmp",
+                dir=receipt.parent,
+            )
+            temporary = Path(temporary_name)
+            staging_identity = os.fstat(fd)
+        except OSError as exc:
+            raise OwnerFinalReceiptError(
+                "owner final receipt staging file could not be created"
+            ) from exc
+
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            fd = None
             stream.write(serialized)
             stream.flush()
             os.fsync(stream.fileno())
+            staged = os.fstat(stream.fileno())
+
+        try:
+            staged_path = temporary.lstat()
+        except OSError as exc:
+            raise OwnerFinalReceiptError(
+                "owner final receipt staging pathname cannot be inspected"
+            ) from exc
+        if not _same_file_snapshot(staged, staged_path):
+            _fail("owner final receipt staging pathname changed before publication")
+
         os.replace(temporary, receipt)
     except OwnerFinalReceiptError:
         raise
     except OSError as exc:
         raise OwnerFinalReceiptError("owner final receipt could not be published") from exc
     finally:
-        try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if temporary is not None and staging_identity is not None:
+            _remove_owned_staging_file(temporary, staging_identity)
 
     _confirm_final_receipt_durable(receipt, value)
     return value
