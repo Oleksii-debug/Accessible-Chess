@@ -368,6 +368,55 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertTrue(target.exists())
         self.assertEqual(Path(session.source.path), source)
 
+    def test_commit_rejects_changed_live_source_safety_before_rebind(self) -> None:
+        source = self.write_document("source-safety-generation.pgn")
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "source-safety-generation-destination.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+
+        # Simulate a newer owner-thread recovery decision made while worker I/O
+        # was in flight.  The old durable Save As must not erase that safety
+        # generation or clear its warning when its completion arrives later.
+        session._source_overwrite_safe = False
+        session._global_warnings = ("newer recovery safety decision",)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertTrue(target.exists())
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertFalse(session.view().source_overwrite_safe)
+        self.assertEqual(
+            session.view().global_warnings,
+            ("newer recovery safety decision",),
+        )
+
+    def test_commit_rejects_malformed_live_source_safety_before_rebind(self) -> None:
+        source = self.write_document("malformed-source-safety.pgn")
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "malformed-source-safety-destination.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+
+        session._source_overwrite_safe = 1  # type: ignore[assignment]
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertTrue(target.exists())
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session._source_overwrite_safe, 1)
+
     def test_commit_rejects_active_live_workspace_digest_before_rebind(self) -> None:
         source = self.write_document("active-live-workspace-digest.pgn")
         session = PgnDocumentSession.open(source)
