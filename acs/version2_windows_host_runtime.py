@@ -147,6 +147,10 @@ class Version2WindowsFileWorkflowRuntime:
         return self._file_delegate.pgn_open_running
 
     @property
+    def pgn_save_running(self) -> bool:
+        return self._file_delegate.pgn_save_running
+
+    @property
     def import_mailbox(self) -> Version2ImportUiEventMailbox:
         return self._mailbox
 
