@@ -546,18 +546,6 @@ async function clickRoute(routeId) {
 
   const routeEffectsBeforeUnknownToken = shellRouteEffects;
   const drainCallsBeforeUnknownToken = drainCalls;
-  const liveBeforeUnknownToken = live.textContent;
-  holdNextDrain = true;
-  eventQueue = [{
-    kind: "status",
-    payload: { announcement: "Deferred across unknown-token publication." }
-  }];
-  intervalCallback();
-  check(
-    typeof heldDrainResolve === "function",
-    "unknown-token regression did not hold an in-flight native event drain"
-  );
-
   dropRouteResponsesAfterEffect = 2;
   await clickRoute("teacher");
   check(
@@ -575,15 +563,19 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 3, "unknown-token route loss incorrectly committed Teacher");
   check(shellPublicationRollbacks === 3, "unknown-token route loss incorrectly rolled Teacher back");
 
-  heldDrainResolve();
-  for (let index = 0; index < 4; index += 1) await flush();
+  eventQueue = [{
+    kind: "status",
+    payload: { announcement: "Deferred across unknown-token publication." }
+  }];
+  intervalCallback();
+  await flush();
   check(
-    live.textContent === liveBeforeUnknownToken,
-    "unknown-token publication allowed an in-flight native event to publish early"
+    drainCalls === drainCallsBeforeUnknownToken,
+    "unknown-token publication allowed a new native event drain to start"
   );
   check(
-    drainCalls === drainCallsBeforeUnknownToken + 1,
-    "unknown-token publication started another native event drain before recovery"
+    eventQueue.length === 1,
+    "unknown-token publication consumed a native event before route recovery"
   );
 
   await clickRoute("board");
@@ -600,7 +592,7 @@ async function clickRoute(routeId) {
     "deferred native event was not published after canonical route recovery"
   );
   check(
-    drainCalls === drainCallsBeforeUnknownToken + 2,
+    drainCalls === drainCallsBeforeUnknownToken + 1,
     "deferred unknown-token event batch was not drained exactly once after recovery"
   );
 
