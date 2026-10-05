@@ -54,6 +54,24 @@ class LegacyCbfManifestPairTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(any("family is incomplete or changed" in problem for problem in problems))
 
+    def test_added_cbh_companion_invalidates_manifest_family_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = root / "study.cbh"
+            existing = root / "study.cbg"
+            added = root / "study.cba"
+            primary.write_bytes(b"header")
+            existing.write_bytes(b"moves")
+            manifest = build_chessbase_manifest(primary)
+            added.write_bytes(b"annotation")
+
+            ok, problems = verify_manifest_unchanged(manifest)
+            self.assertFalse(ok)
+            self.assertTrue(
+                any("component family membership changed" in problem for problem in problems)
+            )
+
+
     def test_cbi_added_after_damaged_manifest_invalidates_family_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             primary = Path(directory) / "legacy.cbf"

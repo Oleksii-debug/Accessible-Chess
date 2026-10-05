@@ -185,6 +185,25 @@ def build_chessbase_manifest(path: str | Path) -> ChessBaseBundleManifest:
 
 def verify_manifest_unchanged(manifest: ChessBaseBundleManifest) -> tuple[bool, tuple[str, ...]]:
     problems: list[str] = []
+    if Path(manifest.primary_path).suffix.lower() == ".cbh":
+        try:
+            probe = probe_chessbase_source(manifest.primary_path)
+            observed_components = {
+                component.path.absolute()
+                for component in probe.existing_components
+            }
+            recorded_components = {
+                Path(evidence.path).absolute()
+                for evidence in manifest.components
+            }
+            if observed_components != recorded_components:
+                problems.append(
+                    "ChessBase component family membership changed since manifest creation."
+                )
+        except (OSError, ValueError, RuntimeError) as exc:
+            problems.append(
+                f"ChessBase component family could not be revalidated: {type(exc).__name__}"
+            )
     if Path(manifest.primary_path).suffix.lower() == ".cbf":
         try:
             probe = probe_chessbase_source(manifest.primary_path)
