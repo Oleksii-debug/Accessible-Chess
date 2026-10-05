@@ -53,6 +53,7 @@ global.keymap = [
 ];
 
 vm.runInThisContext(match[0], { filename: "index.renderHelp.js" });
+const renderHelp = global.renderHelp;
 check(typeof renderHelp === "function", "Help renderer did not evaluate");
 
 renderHelp();
@@ -74,7 +75,7 @@ check(
   "Ukrainian Help did not follow live labels"
 );
 
-keymap = [];
+global.keymap = [];
 renderHelp();
 check(helpNode.textContent === "", "empty keymap left stale Help text visible");
 
