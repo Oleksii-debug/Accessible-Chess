@@ -574,6 +574,18 @@ class Version2WindowsFileActionDelegate:
                 focus_target="pgn-open-cancel",
             )
         )
+        with self._lock:
+            start_blocked_by_shutdown = (
+                self._shutdown_requested
+                and generation == self._generation
+                and self._worker is worker
+            )
+            if start_blocked_by_shutdown:
+                self._clear_worker_locked()
+        if start_blocked_by_shutdown:
+            return self._failed(
+                "pgn.open", "file_workflow_closed", focus_target=previous_focus
+            )
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
@@ -640,6 +652,7 @@ class Version2WindowsFileActionDelegate:
                 current = (
                     generation == self._generation
                     and self._worker_kind == "pgn_open"
+                    and not self._shutdown_requested
                 )
                 if current:
                     self._clear_worker_locked()
@@ -972,6 +985,20 @@ class Version2WindowsFileActionDelegate:
                 focus_target="library-import-cancel",
             )
         )
+        with self._lock:
+            start_blocked_by_shutdown = (
+                self._shutdown_requested
+                and generation == self._generation
+                and self._worker is worker
+            )
+            if start_blocked_by_shutdown:
+                self._clear_worker_locked()
+        if start_blocked_by_shutdown:
+            return self._failed(
+                "library.import",
+                "file_workflow_closed",
+                focus_target=previous_focus,
+            )
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
