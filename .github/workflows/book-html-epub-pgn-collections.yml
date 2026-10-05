@@ -11,12 +11,14 @@ on:
       - 'acs/bookdocument.py'
       - 'acs/bookreader.py'
       - 'acs/book_library_import.py'
+      - 'acs/book_training.py'
       - 'acs/import_contract.py'
       - 'acs/version2_windows_file_workflows.py'
       - 'acs/chesscore.py'
       - 'tests/test_book_html_pgn_loss_accounting.py'
       - 'tests/test_pgn_board_start_authority.py'
       - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_book_training_variant_authority.py'
       - 'tests/test_book_html_inline_image_order.py'
       - '.github/workflows/book-html-epub-pgn-collections.yml'
   workflow_dispatch:
@@ -48,6 +50,12 @@ jobs:
         run: python -m unittest discover -s tests -p test_v2_pgn_semantic_fidelity.py -v
       - name: Book Library search export and native import journey
         run: python -m unittest discover -s tests -p test_book_library_import_journey.py -v
+      - name: Book Training Standard variant authority
+        run: python -m unittest discover -s tests -p test_book_training_variant_authority.py -v
+      - name: Retained Book Training contract
+        run: python -m unittest discover -s tests -p test_d08_book_training_contract.py -v
+      - name: Retained Book Training canonical PGN ingress
+        run: python -m unittest discover -s tests -p test_w2_book_training_canonical_ingress.py -v
       - name: Retained atomic Library import
         run: python -m unittest discover -s tests -p test_d07_library_import_service.py -v
       - name: Retained Library export

@@ -60,6 +60,13 @@ class GameTreeLegalityReport:
         return len(self.moves)
 
 
+def supports_standard_variant(variant: object) -> bool:
+    """Shared source-variant boundary for Board and book training ingress."""
+    return variant is None or (
+        type(variant) is str and variant.strip().casefold() in {"standard", "chess"}
+    )
+
+
 def _start_board(game: PgnGame) -> tuple[Board | None, list[LegalityIssue]]:
     issues: list[LegalityIssue] = []
     if type(game.tags) is not dict:
@@ -75,10 +82,7 @@ def _start_board(game: PgnGame) -> tuple[Board | None, list[LegalityIssue]]:
     # must not disappear at the projection boundary, even when its moves/FEN
     # happen to look legal under Standard rules.
     variant = game.tags.get("Variant")
-    if variant is not None and (
-        type(variant) is not str
-        or variant.strip().casefold() not in {"standard", "chess"}
-    ):
+    if not supports_standard_variant(variant):
         return None, [
             LegalityIssue(
                 GameTreeLegalityCode.UNSUPPORTED_VARIANT,
