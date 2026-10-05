@@ -731,7 +731,7 @@ def commit_pgn_save_publication(
             # Keep workspace-level dirty tracking aligned with the session's
             # saved digest so returning exactly to the published generation
             # becomes clean in both authorities.
-            current.workspace._mark_saved_digest(binding.content_digest)
+            current.workspace._rebase_saved_digest(binding.content_digest)
     except BaseException as exc:
         raise PgnDocumentError(
             "PGN file was written but the document checkpoint could not be finalized",

@@ -405,6 +405,9 @@ class PgnDocumentSession:
                 )
             ):
                 raise ValueError("saved_digest must be lowercase SHA-256 hex")
+        # Workspace edit views are a public dirty-state surface too. Align
+        # them to the same persisted generation used by PgnDocumentSession.
+        workspace._rebase_saved_digest(saved_digest)
         self._workspace = workspace
         self._source = source
         self._global_warnings = global_warnings
@@ -644,10 +647,10 @@ class PgnDocumentSession:
         replacement = PgnWorkspace(games)
         replacement.select_game(selected_game_index)
         replacement.set_cursor(cursor)
-        # Materialize the complete candidate presentation before publishing the
-        # replacement workspace. A projection abort must not leave document
-        # content advanced while the caller receives a failure.
-        replacement_view = replacement.view()
+        # Inherit the document's persisted generation rather than treating
+        # newly edited bytes as a clean baseline. Build the complete dirty
+        # projection before publishing the replacement workspace.
+        replacement_view = replacement._rebase_saved_digest(self._saved_digest)
         self._workspace = replacement
         self._document_revision = revision + 1
         return replacement_view

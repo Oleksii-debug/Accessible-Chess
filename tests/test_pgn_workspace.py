@@ -249,7 +249,7 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertNotEqual(self.workspace.content_digest, persisted_digest)
         self.assertTrue(self.workspace.dirty)
 
-        rebased = self.workspace._mark_saved_digest(persisted_digest)
+        rebased = self.workspace._rebase_saved_digest(persisted_digest)
 
         self.assertTrue(rebased.dirty)
         self.assertTrue(self.workspace.dirty)
@@ -271,11 +271,29 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         revision_before = self.workspace.content_revision
 
         with self.assertRaises(TypeError):
-            self.workspace._mark_saved_digest("not-a-canonical-digest")
+            self.workspace._rebase_saved_digest("not-a-canonical-digest")
 
         self.assertEqual(self.workspace._baseline_digest, baseline_before)
         self.assertEqual(self.workspace.dirty, dirty_before)
         self.assertEqual(self.workspace.content_revision, revision_before)
+
+    def test_unsaved_baseline_stays_dirty_through_content_edits_until_saved(self):
+        self.workspace._rebase_saved_digest(None)
+        self.assertTrue(self.workspace.dirty)
+
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        edited = self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        self.assertTrue(edited.dirty)
+        self.assertTrue(self.workspace.dirty)
+
+        saved = self.workspace.mark_saved()
+        self.assertFalse(saved.dirty)
+        self.assertFalse(self.workspace.dirty)
+        self.assertEqual(self.workspace._baseline_digest, self.workspace.content_digest)
 
     def test_stale_annotation_target_fails_without_partial_workspace_mutation(self):
         game = self.workspace.current_game()

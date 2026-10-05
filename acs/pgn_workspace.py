@@ -261,24 +261,24 @@ class PgnWorkspace:
     def to_bytes(self) -> bytes:
         return serialize_pgn_bytes(tuple(self._games))
 
-    def _mark_saved_digest(self, saved_digest: object) -> PgnWorkspaceView:
+    def _rebase_saved_digest(self, saved_digest: object) -> PgnWorkspaceView:
         """Rebase dirty tracking to one verified persisted document generation.
 
-        Background Save/Save As may durably publish an older snapshot while newer
-        edits already exist in memory.  In that case the persisted digest becomes
-        the dirty baseline even though the live workspace must remain dirty.
+        A document may have no persisted generation yet, or background Save/Save As
+        may durably publish an older snapshot while newer edits already exist in
+        memory. The workspace baseline follows that exact persistence authority.
         Build the complete next projection before mutating the checkpoint so a
         semantic identity failure cannot leave a partially rebased workspace.
         """
 
-        if (
+        if saved_digest is not None and (
             type(saved_digest) is not str
             or len(saved_digest) != 64
             or any(character not in "0123456789abcdef" for character in saved_digest)
         ):
-            raise TypeError("PGN saved digest must be lowercase SHA-256 hex")
+            raise TypeError("PGN saved digest must be lowercase SHA-256 hex or None")
         game = self._current_game_ref()
-        dirty = self._content_digest != saved_digest
+        dirty = saved_digest is None or self._content_digest != saved_digest
         next_view = PgnWorkspaceView(
             game_count=self.game_count,
             selected_game_index=self._selected_game_index,
@@ -294,7 +294,7 @@ class PgnWorkspace:
 
     def mark_saved(self) -> PgnWorkspaceView:
         # The ordinary synchronous save persists the current generation.
-        return self._mark_saved_digest(self.content_digest)
+        return self._rebase_saved_digest(self.content_digest)
 
     def _current_game_ref(self) -> PgnGame:
         return self._games[self._selected_game_index]
