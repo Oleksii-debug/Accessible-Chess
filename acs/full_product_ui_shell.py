@@ -129,7 +129,7 @@ class AccessibleShellState:
         return _ShellPresentationState(
             language=self._language,
             route_id=self._route_id,
-            focus_by_route=tuple(sorted(self._focus_by_route.items())),
+            focus_by_route=tuple(self._focus_by_route.items()),
             dialogs=tuple(self._dialogs),
         )
 
@@ -148,7 +148,10 @@ class AccessibleShellState:
 
     @staticmethod
     def _clean_focus_id(element_id: str) -> str:
-        if not isinstance(element_id, str):
+        # Browser/native identifiers are passive JSON text. Reject subclasses
+        # before regex/string operations can execute provider-defined hooks or
+        # let an active object survive into the focus map/dialog stack.
+        if type(element_id) is not str:
             raise TypeError("focus target id must be text")
         if not element_id:
             return ""
