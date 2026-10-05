@@ -122,6 +122,7 @@ let shellPublicationCommits = 0;
 let shellPublicationRollbacks = 0;
 let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
+let failPublicationTransportBeforeEffect = 0;
 
 function snapshot(route) {
   const focus = {
@@ -215,6 +216,10 @@ const windowObject = {
             return Promise.reject(new Error("invalid publication acknowledgement"));
           }
           const commit = command === "shell.presentation_commit";
+          if (failPublicationTransportBeforeEffect > 0) {
+            failPublicationTransportBeforeEffect -= 1;
+            return Promise.reject(new Error("simulated publication transport outage"));
+          }
           if (pendingShellPublication === null) {
             if (lastShellPublicationResolution &&
                 lastShellPublicationResolution.token === payload.token &&
@@ -354,7 +359,7 @@ async function clickRoute(routeId) {
   const button = documentRef.getElementById("v2-nav-" + routeId);
   check(button && typeof button.listeners.click === "function", "missing route button: " + routeId);
   button.listeners.click({});
-  for (let index = 0; index < 6; index += 1) await flush();
+  for (let index = 0; index < 10; index += 1) await flush();
 }
 
 (async () => {
@@ -457,6 +462,20 @@ async function clickRoute(routeId) {
   check(currentRoute === "board", "lost commit response changed the committed Board route");
   check(shellPublicationCommits === 2, "commit response retry duplicated or lost the Board commit");
   check(pendingShellPublication === null, "lost commit response left a pending route");
+
+  failPublicationTransportBeforeEffect = 4;
+  await clickRoute("teacher");
+  check(currentRoute === "teacher", "transport outage changed the candidate Teacher route");
+  check(pendingShellPublication !== null, "transport outage forgot the unresolved host publication");
+  check(shellPublicationCommits === 2, "transport outage incorrectly committed Teacher");
+  check(shellPublicationRollbacks === 2, "transport outage incorrectly rolled Teacher back");
+
+  await clickRoute("board");
+  check(currentRoute === "board", "next route did not recover the unresolved publication first");
+  check(pendingShellPublication === null, "next route left an unresolved host publication");
+  check(shellPublicationRollbacks === 3, "next route did not roll back the stale Teacher publication once");
+  check(shellPublicationCommits === 3, "next route did not commit Board exactly once after recovery");
+
   booksAvailable = false;
   trainingAvailable = false;
   check(
