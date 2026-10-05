@@ -2452,6 +2452,16 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _file_event(self, event):
+        if type(event) not in (FileWorkflowEvent, LibraryExportHostEvent):
+            self._events.append(
+                {
+                    "kind": "error",
+                    "payload": {
+                        "message": concise_user_error("", language=self.shell.language),
+                    },
+                }
+            )
+            return
         kind = getattr(event.kind, "value", "")
         action_id = getattr(event, "action_id", "")
         error_code = getattr(event, "error_code", "")
