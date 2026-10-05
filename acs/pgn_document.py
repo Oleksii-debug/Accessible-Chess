@@ -145,6 +145,50 @@ def _passive_context_cursor(cursor: object) -> GameTreeCursor:
     )
 
 
+def _passive_position_state(position: object) -> PositionState:
+    """Re-detach a canonical position without executing tampered nested hooks."""
+
+    if type(position) is not PositionState:
+        raise _error(
+            "PGN start position must be canonical PositionState",
+            PgnDocumentErrorCode.INVALID_POSITION,
+        )
+    pieces = position.pieces
+    turn = position.turn
+    castling = position.castling
+    en_passant = position.en_passant
+    halfmove = position.halfmove
+    fullmove = position.fullmove
+    if (
+        type(pieces) is not tuple
+        or len(pieces) != 64
+        or any(piece is not None and type(piece) is not str for piece in pieces)
+        or type(turn) is not str
+        or type(castling) is not str
+        or type(en_passant) is not str
+        or type(halfmove) is not int
+        or type(fullmove) is not int
+    ):
+        raise _error(
+            "PGN start position is not canonical",
+            PgnDocumentErrorCode.INVALID_POSITION,
+        )
+    try:
+        return PositionState(
+            pieces=tuple(pieces),
+            turn=turn,
+            castling=castling,
+            en_passant=en_passant,
+            halfmove=halfmove,
+            fullmove=fullmove,
+        )
+    except ValueError as exc:
+        raise _error(
+            "PGN start position is not valid",
+            PgnDocumentErrorCode.INVALID_POSITION,
+        ) from exc
+
+
 def _passive_new_game_tags(tags: Mapping[str, str] | None) -> dict[str, str]:
     """Detach plain metadata without executing caller-defined mapping/text hooks."""
 
@@ -321,11 +365,7 @@ class PgnDocumentSession:
         # canonical PositionState values. Reject the position before touching
         # caller-supplied metadata so invalid-position classification remains
         # deterministic and no unrelated mapping code executes first.
-        if type(position) is not PositionState:
-            raise _error(
-                "PGN start position must be canonical PositionState",
-                PgnDocumentErrorCode.INVALID_POSITION,
-            )
+        position = _passive_position_state(position)
         game, _metadata_workspace = _validated_new_game(tags)
 
         try:
