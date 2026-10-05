@@ -180,7 +180,21 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
         self.assertNotIn("safe_error_", repr(events[0]))
         self.assertFalse(mailbox.overflowed)
 
-    def test_non_import_worker_event_is_rejected(self) -> None:
+    def test_background_pgn_save_terminal_is_accepted_and_drained(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_SAVED,
+            "pgn.save",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+
+        _run_thread(lambda: mailbox(event))
+
+        self.assertEqual(mailbox.pending_count, 1)
+        self.assertEqual(mailbox.drain(), (event,))
+
+    def test_unowned_worker_event_is_rejected(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
         errors: list[BaseException] = []
 
@@ -188,8 +202,9 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
             try:
                 mailbox(
                     FileWorkflowEvent(
-                        FileWorkflowEventKind.PGN_SAVED,
-                        "pgn.save",
+                        FileWorkflowEventKind.FAILED,
+                        "pgn.cancel_save",
+                        error_code="not_an_async_terminal_owner",
                     )
                 )
             except BaseException as exc:
@@ -199,6 +214,28 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], ValueError)
         self.assertEqual(mailbox.pending_count, 0)
+
+    def test_pgn_save_overflow_keeps_save_action_and_safe_focus(self) -> None:
+        mailbox = Version2ImportUiEventMailbox(max_events=4)
+
+        def produce() -> None:
+            for index in range(5):
+                mailbox(
+                    FileWorkflowEvent(
+                        FileWorkflowEventKind.FAILED,
+                        "pgn.save_as",
+                        focus_target="pgn-game-list",
+                        error_code=f"safe_save_error_{index}",
+                    )
+                )
+
+        _run_thread(produce)
+        event, = mailbox.drain()
+        self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(event.action_id, "pgn.save_as")
+        self.assertEqual(event.focus_target, "pgn-game-list")
+        self.assertEqual(event.error_code, "ui_event_queue_overflow")
+        self.assertNotIn("safe_save_error_", repr(event))
 
     def test_real_background_import_uses_mailbox_without_cross_thread_projection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
