@@ -1,0 +1,62 @@
+name: Keymap Persisted Read IO Recovery
+
+on:
+  pull_request:
+    paths:
+      - 'acs/ui_keymap_service.py'
+      - 'tests/test_ui_keymap_io_recovery.py'
+      - '.github/workflows/keymap-persisted-read-io-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify live PR-base ancestry and bounded scope
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EVENT_BASE_SHA" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+            git diff --check "$EVENT_BASE_SHA" HEAD
+            mapfile -t changed < <(git diff --name-only "$EVENT_BASE_SHA" HEAD | sort)
+            expected=(
+              '.github/workflows/keymap-persisted-read-io-recovery.yml'
+              'acs/ui_keymap_service.py'
+              'tests/test_ui_keymap_io_recovery.py'
+            )
+            mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+            if [ "${changed[*]}" != "${expected_sorted[*]}" ]; then
+              printf 'Unexpected changed paths:\n'
+              printf '  %s\n' "${changed[@]}"
+              exit 1
+            fi
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+      - name: Compile keymap recovery surface
+        run: >-
+          python -m py_compile
+          acs/ui_keymap_service.py
+          tests/test_ui_keymap_io_recovery.py
+      - name: Run focused recovery and existing keymap service regressions
+        run: >-
+          python -m unittest -v
+          tests.test_ui_keymap_io_recovery
+          tests.test_ui_keymap_service
