@@ -235,17 +235,16 @@ class Version2WindowsLibraryExportDelegate:
                 request,
                 expected_sha256=expected_sha256,
             )
-        except Exception:
-            return self._failed("library_export_failed", previous_focus)
-        if not isinstance(result, LibraryExportResult):
-            return self._failed("library_export_failed", previous_focus)
-        return self._emit(
-            LibraryExportHostEvent(
+            if not isinstance(result, LibraryExportResult):
+                raise TypeError("Library export service returned an invalid result")
+            terminal = LibraryExportHostEvent(
                 LibraryExportHostEventKind.EXPORTED,
                 focus_target=previous_focus,
                 game_count=result.game_count,
             )
-        )
+        except Exception:
+            return self._failed("library_export_failed", previous_focus)
+        return self._emit(terminal)
 
     def _start_export(
         self,
