@@ -111,6 +111,7 @@ jobs:
           tests.test_v2_windows_import_progress_coherence
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_library_import_observer
+          tests.test_dev1_library_webview_projection
           tests.test_v2_windows_nvda_file_workflows
           tests.test_version2_application
           tests.test_chessbase_library_import_report_passive

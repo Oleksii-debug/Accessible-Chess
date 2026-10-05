@@ -655,6 +655,53 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertIsNone(self.app._progress)
             self.assertIsNone(self.app._result)
 
+    def test_import_ui_delivery_rolls_back_library_refresh_abort_and_retries(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+
+        ui = self.app.library.projection.import_projection
+        library = self.app.library.projection
+        before_ui = ui.snapshot()
+        before_library = library.snapshot()
+        before_query = library.query
+        before_events = tuple(self.app._events)
+        before_pending = self.mailbox.pending_count
+        with self.app._observation_lock:
+            before_progress = self.app._progress
+            before_result = self.app._result
+        self.assertIsNotNone(before_result)
+        self.assertGreater(before_pending, 0)
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        with patch.object(
+            library,
+            "_snapshot_from_view",
+            side_effect=ProjectionAbort(),
+        ):
+            with self.assertRaises(ProjectionAbort):
+                self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(ui.snapshot(), before_ui)
+        self.assertEqual(library.query, before_query)
+        self.assertEqual(library.snapshot(), before_library)
+        self.assertEqual(tuple(self.app._events), before_events)
+        self.assertEqual(self.mailbox.pending_count, before_pending)
+        with self.app._observation_lock:
+            self.assertIs(self.app._progress, before_progress)
+            self.assertIs(self.app._result, before_result)
+
+        self.app.import_ui_ready(self.mailbox)
+
+        self.assertEqual(self.mailbox.pending_count, 0)
+        self.assertEqual(ui.phase.value, "completed")
+        self.assertEqual(ui.snapshot()["processed_games"], 1)
+        self.assertEqual(len(library.snapshot()["rows"]), 1)
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
     def test_import_ui_delivery_rolls_back_pgn_terminal_event_and_retries(self):
         saved = FileWorkflowEvent(
             kind=FileWorkflowEventKind.PGN_SAVED,

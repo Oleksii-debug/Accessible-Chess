@@ -181,6 +181,34 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             {field["id"]: field["value"] for field in after["filters"]},
         )
 
+    def test_abort_class_search_render_restores_query_page_and_selection(self) -> None:
+        _service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.select(2)
+        before_query = projection.query
+        before = projection.snapshot()
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ProjectionAbort(),
+        ):
+            with self.assertRaises(ProjectionAbort):
+                projection.search(GameSearchQuery(player="Gamma", limit=2))
+
+        self.assertEqual(before_query, projection.query)
+        self.assertEqual(2, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(
+            {field["id"]: field["value"] for field in before["filters"]},
+            {field["id"]: field["value"] for field in after["filters"]},
+        )
+
     def test_failed_selection_render_restores_previous_nvda_cursor(self) -> None:
         _service, presenter, projection, bridge, _calls = self.build()
         projection.search(GameSearchQuery(limit=2))
@@ -397,6 +425,39 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             before["import"]["document"],
             committed["import"]["document"],
         )
+
+    def test_abort_class_language_render_restores_all_locale_owners(self) -> None:
+        service = FakeSearchService()
+        service.pages[None] = GameSearchPage(
+            items=(item(1, white=None, black=None),),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        _service, presenter, projection, _bridge, _calls = self.build(
+            service,
+            language=UILanguage.UA,
+        )
+        projection.search(GameSearchQuery(limit=25))
+        before = projection.snapshot()
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ProjectionAbort(),
+        ):
+            with self.assertRaises(ProjectionAbort):
+                projection.set_language(UILanguage.EN)
+
+        self.assertEqual(UILanguage.UA, projection.language)
+        after = projection.snapshot()
+        self.assertEqual(before["document"], after["document"])
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["import"]["document"], after["import"]["document"])
+        self.assertIn("невідомо", after["rows"][0]["label"])
+        self.assertIn("невідомо", presenter.view().rows[0].label)
 
     def test_presenter_subclass_is_rejected_before_presentation_hooks(self) -> None:
         service = FakeSearchService()

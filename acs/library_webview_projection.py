@@ -686,7 +686,7 @@ class LibraryWebViewProjection:
         previous = self._presenter._capture_presentation_state()
         try:
             return self._render_event(operation(), announce=announce)
-        except Exception:
+        except BaseException:
             self._presenter._restore_presentation_state(previous)
             raise
 
@@ -703,7 +703,7 @@ class LibraryWebViewProjection:
                 lambda: self._presenter.search(normalized),
                 announce=True,
             )
-        except Exception:
+        except BaseException:
             self._query = previous_query
             raise
 
@@ -782,7 +782,7 @@ class LibraryWebViewProjection:
             self._language = language
             view = self._presenter.view()
             return self._render_event(view, announce=False)
-        except Exception:
+        except BaseException:
             self._presenter.set_language(previous_language)
             self._import.set_language(previous_language)
             self._language = previous_language
