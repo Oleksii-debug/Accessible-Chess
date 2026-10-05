@@ -1969,6 +1969,18 @@ class Version2Application:
                     return self._book_browser_recovery_result()
             if area_id == "library" and command == "library.open_game":
                 raise ValueError("Library game open requires presentation protocol")
+            if (
+                area_id == "library"
+                and (
+                    self.shell.current_route.route_id != "library"
+                    or self.shell.active_dialog_id is not None
+                )
+            ):
+                # A retained Library WebView is not an authority surface after
+                # route departure or while modal focus is owned elsewhere.
+                # Reject before bridge dispatch so a late/stale DOM command
+                # cannot mutate canonical search, selection or export/import state.
+                raise ValueError("Library command requires the visible Library")
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             pgn_refresh = (
