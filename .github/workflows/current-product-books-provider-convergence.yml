@@ -83,6 +83,10 @@ jobs:
           CONVERSION_CAS_HEAD: 839523de8fb923369c9220b257ffc321c6db86a9
           PRE_CONVERSION_CAS_PRODUCT: 8f78c4c88890f07f974b5d552fda7e274beadc50
           CONVERSION_CAS_MERGE: 95fcc6501010f8f57071bfe5668e1332b6df832c
+          EXPORT_PARENT_REF: fix/pgn-export-parent-identity-20261005-ooxple7
+          EXPORT_PARENT_HEAD: 38cef9a0ef839ec55366fa1685761f2322b3bea5
+          PRE_EXPORT_PARENT_PRODUCT: ee3fe93aa379284d8af0672ae0cafb9961e88152
+          EXPORT_PARENT_MERGE: a93d71be0c341ca848fadf01a45d944d6f580a8a
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -110,6 +114,7 @@ jobs:
           fetch_exact "$REPORT_REF" "$REPORT_HEAD" CURRENT_PRODUCT_REPORT_PRIVACY
           fetch_exact "$CONVERSION_INTEGRITY_REF" "$CONVERSION_INTEGRITY_HEAD" CURRENT_PRODUCT_CONVERSION_INTEGRITY
           fetch_exact "$CONVERSION_CAS_REF" "$CONVERSION_CAS_HEAD" CURRENT_PRODUCT_CONVERSION_CAS
+          fetch_exact "$EXPORT_PARENT_REF" "$EXPORT_PARENT_HEAD" CURRENT_PRODUCT_EXPORT_PARENT
 
           test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
@@ -128,8 +133,10 @@ jobs:
           git merge-base --is-ancestor "$CONVERSION_INTEGRITY_MERGE" HEAD
           test "$(git show -s --format=%P "$CONVERSION_CAS_MERGE")" = "$PRE_CONVERSION_CAS_PRODUCT $CONVERSION_CAS_HEAD"
           git merge-base --is-ancestor "$CONVERSION_CAS_MERGE" HEAD
+          test "$(git show -s --format=%P "$EXPORT_PARENT_MERGE")" = "$PRE_EXPORT_PARENT_PRODUCT $EXPORT_PARENT_HEAD"
+          git merge-base --is-ancestor "$EXPORT_PARENT_MERGE" HEAD
 
-          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD"; do
+          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
 
@@ -186,11 +193,11 @@ jobs:
           test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = '94c56b2edbe4b865126b665a899830f8a6298be4'
           test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '731f55c8c91ecdcdb2ec716e9840eee43a4b4889'
           test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = '12a0167c93ed7b60898262314319ad181acb7094'
-          test "$(git rev-parse HEAD:acs/pgn_service.py)" = '8722f3e5a95b0188c7f160ad16988d71ae605e54'
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = 'aa74b3727d0313b76676b753e32100cf8f6d90b8'
           test "$(git rev-parse HEAD:tests/test_pgn_conversion.py)" = '071ceca060b27ad8cbf7facb313e9cfd3af935e2'
           test "$(git rev-parse HEAD:tests/test_pgn_conversion_windows.py)" = '2258ad3b4146161fd1bf7e667be7f3ac40273981'
-          test "$(git rev-parse HEAD:tests/test_pgn_service.py)" = '8b3070d6913e6a0eef87fe6370830ee13fd5e611'
-          test "$(git rev-parse HEAD:.github/workflows/pgn-conversion-prepublish-cancel.yml)" = 'c79f01d9033e40fe2c6d1755e2179ff9ffdf45c3'
+          test "$(git rev-parse HEAD:tests/test_pgn_service.py)" = '0759b31deceffa8f778a2ca2ee9181d7066b724b'
+          test "$(git rev-parse HEAD:.github/workflows/pgn-conversion-prepublish-cancel.yml)" = 'b30f41f0d184554cdd6b18eefa17a9f0a31ef7d1'
           test "$(git rev-parse HEAD:acs/report_paths.py)" = 'fafc8696a846a1b9c96a8ce89a76ce82593fd582'
           test "$(git rev-parse HEAD:tests/test_report_paths.py)" = 'dc3bd5c1be6259b83cb6316648663a213aeeae0e'
           test "$(git rev-parse HEAD:.github/workflows/pgn-reviewed-encoding-conversion.yml)" = '90494595a4158d302999575601a76440a7e1b9f4'
