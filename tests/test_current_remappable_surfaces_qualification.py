@@ -127,6 +127,34 @@ class CurrentRemappableSurfaceQualificationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("python -m pytest -q tests/test_ui_keymap_service.py", source)
 
+    def test_package_gates_accept_only_exact_current_source_test_pairs(self):
+        gates = (
+            ("w6-v2-release-payload-current-assembler.yml", "payload_pair",
+             "RESOURCE_PAYLOAD_BLOB", "acs/version2_release_payload.py",
+             "RESOURCE_PAYLOAD_TEST_BLOB", "tests/test_version2_release_payload.py"),
+            ("w6-v2-package-preflight-current-runtime.yml", "preflight_pair",
+             "RESOURCE_PREFLIGHT_BLOB", "acs/version2_package_preflight.py",
+             "RESOURCE_PREFLIGHT_TEST_BLOB", "tests/test_version2_package_preflight.py"),
+            ("w6-v2-package-assembler.yml", "resource_pair",
+             "RESOURCE_PREFLIGHT_BLOB", "acs/version2_package_preflight.py",
+             "RESOURCE_ASSEMBLER_TEST_BLOB", "tests/test_version2_package_assembler.py"),
+        )
+        for filename, variable, runtime_var, runtime_path, test_var, test_path in gates:
+            with self.subTest(workflow=filename):
+                source = (WORKFLOWS / filename).read_text(encoding="utf-8")
+                values = dict(re.findall(r"^  (\w+_BLOB): ([0-9a-f]{40})$", source, re.M))
+                self.assertEqual(values[runtime_var], _blob(runtime_path))
+                self.assertEqual(values[test_var], _blob(test_path))
+                match = re.search(r'case "\$' + variable + r'" in\n.*?\n\s+esac', source, re.S)
+                self.assertIsNotNone(match)
+                pair = values[runtime_var] + ":" + values[test_var]
+                for candidate, accepted in ((pair, True), (values[runtime_var] + ":" + "0" * 40, False)):
+                    result = subprocess.run(["bash", "-c", "set -eu\n" + match.group(0)],
+                                            env={**os.environ, **values, variable: candidate},
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertNotIn("continue-on-error", source)
+
 
 if __name__ == "__main__":
     unittest.main()

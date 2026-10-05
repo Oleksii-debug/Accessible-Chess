@@ -30,6 +30,8 @@ _REQUIRED_WEB_FILES = (
     "full_product_teacher.js",
     "full_product_education.js",
     "version2_final_product_bootstrap.js",
+    "version2_local_profile.js",
+    "p0_accessibility_runtime.js",
     "version2_release_bootstrap.js",
     "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
     "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
@@ -357,7 +359,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
 
         manifest = PackagedSoundAssetResolver(result.product_dir).load_manifest()
         self.assertEqual(set(manifest.files), set(SoundEvent))
-        self.assertEqual(len(set(manifest.files.values())), 9)
+        self.assertEqual(len(set(manifest.files.values())), len(SoundEvent))
         for wav in manifest.files.values():
             with wave.open(str(wav), "rb") as reader:
                 self.assertEqual(reader.getcomptype(), "NONE")
@@ -751,7 +753,11 @@ class Version2ReleasePayloadTests(unittest.TestCase):
 
     def test_non_default_variant_valid_pcm_substitution_fails_inventory_binding(self) -> None:
         count, inventory_sha, alt = self._enable_inventory_sound_pack()
-        self._write_wav(alt, sample=778)
+        original_size = alt.stat().st_size
+        original_digest = self._digest(alt)
+        self._write_wav(alt, sample=77, sample_width=1)
+        self.assertEqual(alt.stat().st_size, original_size)
+        self.assertNotEqual(self._digest(alt), original_digest)
         output = self.root / "payload-inventory-tamper"
         with (
             patch.object(payload, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
