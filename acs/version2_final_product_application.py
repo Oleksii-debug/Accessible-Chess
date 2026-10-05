@@ -625,6 +625,8 @@ class Version2FinalProductApplication(Version2Application):
         """Bind the exact current pairing batch as the rotation's opaque pair ref."""
 
         self._assert_thread()
+        if self._rotation_load_error:
+            raise RuntimeError("Group rotation requires recovery")
         lesson, plan, state, store = self._rotation_authorities()
         batch = self._pairing_batch
         if batch is None:
@@ -666,6 +668,8 @@ class Version2FinalProductApplication(Version2Application):
         """Advance one CAS-bound rotation round; pair play requires a bound batch."""
 
         self._assert_thread()
+        if self._rotation_load_error:
+            raise RuntimeError("Group rotation requires recovery")
         _lesson, plan, state, store = self._rotation_authorities()
         next_state = advance_rotation(
             plan,
@@ -868,6 +872,17 @@ class Version2FinalProductApplication(Version2Application):
 
     def _rotation_keyboard_result(self) -> dict[str, object]:
         snapshot = self.group_rotation_snapshot()
+        if self._rotation_load_error:
+            announcement = self._teacher_keyboard_announcement(
+                "Групова ротація потребує відновлення. Відновіть ротацію, щоб перечитати збережений стан.",
+                "Group rotation requires recovery. Resume the rotation to reload the saved state.",
+            )
+            return {
+                "kind": "group-rotation",
+                **snapshot,
+                "recovery_required": True,
+                "announcement": announcement,
+            }
         phase = snapshot["phase"]
         if phase == RotationPhase.COMPLETED.value:
             announcement = self._teacher_keyboard_announcement(
@@ -899,6 +914,7 @@ class Version2FinalProductApplication(Version2Application):
         return {
             "kind": "group-rotation",
             **snapshot,
+            "recovery_required": False,
             "announcement": announcement,
         }
 
