@@ -314,7 +314,7 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
         target = self.root / "active-live-source-destination.pgn"
         publication = publish_pgn_save_snapshot(snapshot, path=target)
-        live_source = session.source
+        live_source = session._source
         assert live_source is not None
         touched: list[str] = []
 
