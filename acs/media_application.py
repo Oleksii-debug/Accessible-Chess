@@ -202,8 +202,16 @@ class MediaApplicationService:
             self._revision += 1
         return self.snapshot()
 
-    def restore_media_position(self) -> RestoreMediaPositionResult:
-        candidate, resolution = self._session.sync_chess_from_media(self._timeline)
+    def restore_media_position(
+        self, position_ms: int | None = None
+    ) -> RestoreMediaPositionResult:
+        working_session = self._session
+        if position_ms is not None:
+            working_session = working_session.seek_media(
+                position_ms,
+                duration_ms=self._source.duration_ms,
+            )
+        candidate, resolution = working_session.sync_chess_from_media(self._timeline)
         if resolution.ambiguous:
             raise MediaApplicationError(
                 "media position has conflicting canonical chess references",
