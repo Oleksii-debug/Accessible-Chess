@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from acs.gametree_navigation import GameTreeCursor
+from acs.gametree_navigation import GameTreeCursor, VariationStep
 from acs.import_contract import SourceFingerprint
 from acs.pgn_document import (
     PgnDocumentContext,
@@ -82,6 +82,20 @@ class AlternateWorkspace(PgnWorkspace):
 
 class AlternateCursor(GameTreeCursor):
     pass
+
+
+class ActiveVariationStep(VariationStep):
+    def __getattribute__(self, name: str):
+        if name in {"parent_move_index", "variation_index"}:
+            armed = object.__getattribute__(self, "__dict__").get("armed", False)
+            if armed:
+                raise AssertionError("active variation-step attribute hook executed")
+        return super().__getattribute__(name)
+
+
+class ActivePath(tuple):
+    def __iter__(self):
+        raise AssertionError("active variation-path iteration executed")
 
 
 class ActiveContext(PgnDocumentContext):
@@ -225,6 +239,39 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
             session.workspace.content_digest,
             0,
             AlternateCursor(),
+        )
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
+    def test_restore_rejects_nested_variation_step_subclass_before_attribute_hooks(self) -> None:
+        session = self.session()
+        step = ActiveVariationStep(0, 0)
+        step.armed = True
+        cursor = GameTreeCursor(line_path=(step,), next_move_index=0)
+        context = PgnDocumentContext(
+            session.workspace.content_digest,
+            0,
+            cursor,
+        )
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
+    def test_restore_rejects_tampered_path_container_before_iteration_hook(self) -> None:
+        session = self.session()
+        cursor = GameTreeCursor()
+        object.__setattr__(
+            cursor,
+            "line_path",
+            ActivePath((VariationStep(0, 0),)),
+        )
+        context = PgnDocumentContext(
+            session.workspace.content_digest,
+            0,
+            cursor,
         )
         self.assert_document_error(
             PgnDocumentErrorCode.CONTEXT_STALE,
