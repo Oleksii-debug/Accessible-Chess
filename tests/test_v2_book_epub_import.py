@@ -1084,13 +1084,14 @@ class BookEpubImportTests(unittest.TestCase):
             _set_central_zip_flags(raw, "unused.bin", 1 << 6),
             _set_central_zip_flags(raw, "unused.bin", 1 << 13),
         )
-        for damaged in cases:
+        for case_index, damaged in enumerate(cases):
             with self.subTest(damaged=sha256(damaged).hexdigest()[:12]):
                 with self.assertRaises(BookEpubImportError) as raised:
                     import_epub_book(damaged, source_name="zip-encryption-flags.epub")
                 self.assertEqual(
                     raised.exception.code,
-                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER if case_index < 2
+                    else BookEpubImportErrorCode.UNSAFE_PACKAGE,
                 )
 
     def test_multi_disk_zip_entry_is_not_an_ocf_container(self) -> None:
@@ -2923,7 +2924,7 @@ class BookEpubImportTests(unittest.TestCase):
                         spine='    <itemref idref="c1"/>',
                     ),
                     entries={
-                        f"OEBPS/Text/chap{control}ter.xhtml": (
+                        "OEBPS/Text/chapter.xhtml": (
                             b"<html><body><p>Control path.</p></body></html>"
                         ),
                     },
@@ -3014,7 +3015,7 @@ class BookEpubImportTests(unittest.TestCase):
                         spine='    <itemref idref="c1"/>',
                     ),
                     entries={
-                        "OEBPS/Text/�.xhtml": (
+                        "OEBPS/Text/unused.xhtml": (
                             b"<html><body><p>Wrong replacement target.</p></body></html>"
                         ),
                     },
@@ -4110,12 +4111,23 @@ class BookEpubImportTests(unittest.TestCase):
             import_epub_book(raw, source_name="image-only.epub")
         self.assertEqual(raised.exception.code, BookEpubImportErrorCode.NO_READABLE_CONTENT)
 
-    def test_utf16_spine_is_explicitly_unsupported(self) -> None:
-        chapter = "<html><body><p>UTF sixteen</p></body></html>".encode("utf-16")
-        raw = _simple_epub(chapter)
-        with self.assertRaises(BookEpubImportError) as raised:
-            import_epub_book(raw, source_name="utf16.epub")
-        self.assertEqual(raised.exception.code, BookEpubImportErrorCode.UNSUPPORTED_CONTENT)
+    def test_bom_utf16_spine_preserves_unicode_and_deterministic_chess(self) -> None:
+        text = f'<html><body><h1 id="lesson">Український урок</h1><p>Читайте позицію.</p><img data-acs-fen="{Board.START}" alt="Початкова позиція"/></body></html>'
+        for bom, encoding in ((b'\xff\xfe', 'utf-16-le'), (b'\xfe\xff', 'utf-16-be')):
+            with self.subTest(encoding=encoding):
+                result = import_epub_book(_simple_epub(bom + text.encode(encoding)), source_name='utf16.epub')
+                self.assertEqual(['Український урок'], [b.text for b in result.document.blocks if isinstance(b, Heading)])
+                self.assertEqual(['Читайте позицію.'], [b.text for b in result.document.blocks if isinstance(b, Paragraph)])
+                diagrams = [b for b in result.document.blocks if isinstance(b, Diagram)]
+                self.assertEqual([Board.START], [b.fen for b in diagrams])
+                self.assertEqual(diagrams[0].fen, Board(diagrams[0].fen).fen())
+                self.assertEqual('OEBPS/Text/ch1.xhtml#lesson', result.document.blocks[0].source_anchor)
+        self.assertIn('BOM-declared UTF-16 spine text', SUPPORTED_EPUB_BOOK_CAPABILITY['preserves'])
+
+    def test_malformed_bom_utf16_spine_fails_closed(self) -> None:
+        with self.assertRaises(BookEpubImportError) as caught:
+            import_epub_book(_simple_epub(b'\xff\xfe\x00'), source_name='truncated-utf16.epub')
+        self.assertEqual(BookEpubImportErrorCode.UNSUPPORTED_CONTENT, caught.exception.code)
 
     def test_source_contract_and_capability_are_explicit(self) -> None:
         with self.assertRaises(BookEpubImportError) as raised:

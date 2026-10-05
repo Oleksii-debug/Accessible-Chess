@@ -1,6 +1,11 @@
 import unittest
 
-from acs.notation import NotationError, format_accessible_compact_san, format_san
+from acs.notation import (
+    NotationError,
+    format_accessible_compact_san,
+    format_san,
+    parse_san,
+)
 
 
 class NotationFormatterTests(unittest.TestCase):
@@ -55,11 +60,58 @@ class NotationFormatterTests(unittest.TestCase):
         self.assertEqual(format_accessible_compact_san("exd5", "uk"), "e б’є d 5")
         self.assertEqual(format_accessible_compact_san("O-O#", "uk"), "коротка рокіровка, мат")
 
+    def test_coordinate_like_pawn_text_is_not_san(self):
+        for token in ("e2e4", "ee4", "1e4"):
+            with self.subTest(token=token):
+                with self.assertRaisesRegex(NotationError, "pawn move SAN"):
+                    parse_san(token)
+                with self.assertRaises(NotationError):
+                    format_san(token, "san")
+
+    def test_promotion_is_pawn_only_and_requires_last_rank(self):
+        invalid = ("Ne8=Q", "Nxe8=Q", "e4=Q", "exd4=N", "e8", "exd8")
+        for token in invalid:
+            with self.subTest(token=token):
+                with self.assertRaises(NotationError):
+                    parse_san(token)
+                with self.assertRaises(NotationError):
+                    format_accessible_compact_san(token, "en")
+
+        self.assertEqual(format_san("e8=Q", "san"), "e8=Q")
+        self.assertEqual(format_san("exd1=N+", "san"), "exd1=N+")
+
+    def test_two_character_piece_disambiguation_must_be_source_square(self):
+        for token in ("Nabe4", "N12e4", "N1ae4"):
+            with self.subTest(token=token):
+                with self.assertRaises(NotationError):
+                    parse_san(token)
+        self.assertEqual(parse_san("Qh4e1").disambiguation, "h4")
+
+    def test_san_boundary_rejects_active_text_subclasses(self):
+        class ActiveText(str):
+            def __str__(self):
+                raise AssertionError("__str__ must not run")
+
+            def strip(self, *args, **kwargs):
+                raise AssertionError("strip must not run")
+
+            def __hash__(self):
+                raise AssertionError("hash must not run")
+
+        with self.assertRaisesRegex(NotationError, "SAN token must be text"):
+            parse_san(ActiveText("e4"))
+        with self.assertRaisesRegex(NotationError, "SAN token must be text"):
+            format_san(ActiveText("e4"), "san")
+        with self.assertRaisesRegex(NotationError, "unknown notation profile"):
+            format_san("e4", ActiveText("san"))
+
     def test_invalid_profile_or_token_fails_precisely(self):
         with self.assertRaisesRegex(NotationError, "unknown notation profile"):
             format_san("e4", "robot")
         with self.assertRaisesRegex(NotationError, "unsupported SAN token"):
             format_san("not-a-move", "uk_literal")
+        with self.assertRaisesRegex(NotationError, "unsupported SAN token"):
+            format_san("not-a-move", "san")
 
 
 if __name__ == "__main__":

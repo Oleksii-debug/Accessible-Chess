@@ -20,6 +20,7 @@ from .bookdocument import BookDocument, Exercise
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
 from .gametree import MoveNode, PgnGame
+from .gametree_legality import supports_standard_variant
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 from .training import (
     ExerciseDefinition,
@@ -110,6 +111,8 @@ def _sha256_json(value: object) -> str:
 
 
 def _book_fingerprint(document: BookDocument) -> str:
+    if type(document) is not BookDocument:
+        raise TypeError("document must be a BookDocument")
     # The fingerprint binds stable book-level provenance while keeping source_name
     # (which may be a private local path) out of exported training payloads.
     return _sha256_json(
@@ -123,6 +126,8 @@ def _book_fingerprint(document: BookDocument) -> str:
 
 
 def _block_digest(block: Exercise) -> str:
+    if type(block) is not Exercise:
+        raise TypeError("book training block must be an exact Exercise")
     return _sha256_json(block.as_dict())
 
 
@@ -657,6 +662,11 @@ def _canonical_steps_from_pgn(start_board: Board, solution_pgn: str) -> tuple[Ex
             code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION_STRUCTURE,
         )
     game = games[0]
+    if not supports_standard_variant(game.tags.get("Variant")):
+        raise BookTrainingError(
+            "book exercise solution variant is not supported by the canonical Standard board",
+            code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION,
+        )
     if game.warnings:
         raise BookTrainingError(
             "book exercise solution_pgn contains recovery warnings",
@@ -768,7 +778,7 @@ def build_book_training_material(
     Semantic duplicate keys fail closed through BookIndex instead of silently
     selecting the first matching exercise.
     """
-    if not isinstance(document, BookDocument):
+    if type(document) is not BookDocument:
         raise TypeError("document must be a BookDocument")
     index = BookIndex(document)
     if type(target) is int:
@@ -800,7 +810,7 @@ def build_book_training_material(
         )
 
     block = document.blocks[entry.target.index]
-    if not isinstance(block, Exercise):
+    if type(block) is not Exercise:
         raise BookTrainingError(
             "book target is not an Exercise block",
             code=BookTrainingErrorCode.INVALID_TARGET,
@@ -826,7 +836,7 @@ def build_book_training_material(
 
 def build_current_book_training_material(reader: BookReader) -> BookTrainingMaterial:
     """Create training from the reader's exact current semantic exercise."""
-    if not isinstance(reader, BookReader):
+    if type(reader) is not BookReader:
         raise TypeError("reader must be a BookReader")
     location = reader.location()
     if location.kind != "Exercise":
@@ -834,7 +844,12 @@ def build_current_book_training_material(reader: BookReader) -> BookTrainingMate
             "current BookReader location is not an Exercise",
             code=BookTrainingErrorCode.INVALID_TARGET,
         )
-    return build_book_training_material(reader.document, location.index)
+    indexed_document = reader.document_snapshot()
+    material = build_book_training_material(indexed_document, location.index)
+    # Authoring can change while detached provenance work runs. Recheck the
+    # live revision before publication without traversing it outside BookReader.
+    reader.block_snapshot(location.index)
+    return material
 
 
 def resolve_book_training_origin(
@@ -842,9 +857,9 @@ def resolve_book_training_origin(
     origin: BookTrainingOrigin,
 ) -> ReadingLocation:
     """Resolve a durable origin without mutating chess/application state."""
-    if not isinstance(document, BookDocument):
+    if type(document) is not BookDocument:
         raise TypeError("document must be a BookDocument")
-    if not isinstance(origin, BookTrainingOrigin):
+    if type(origin) is not BookTrainingOrigin:
         raise TypeError("origin must be a BookTrainingOrigin")
     if _book_fingerprint(document) != origin.book_fingerprint:
         raise BookTrainingError(
@@ -860,7 +875,7 @@ def resolve_book_training_origin(
             code=BookTrainingErrorCode.STALE_ORIGIN,
         ) from exc
     block = document.blocks[entry.target.index]
-    if not isinstance(block, Exercise) or _block_digest(block) != origin.block_digest:
+    if type(block) is not Exercise or _block_digest(block) != origin.block_digest:
         raise BookTrainingError(
             "book training origin exercise content changed",
             code=BookTrainingErrorCode.STALE_ORIGIN,
@@ -883,9 +898,13 @@ def return_reader_to_book_training_origin(
     This moves only the presentation-neutral reading cursor.  It never changes a
     chess Position, ExerciseSession, Teacher/Classroom state or persistence.
     """
-    if not isinstance(reader, BookReader):
+    if type(reader) is not BookReader:
         raise TypeError("reader must be a BookReader")
-    location = resolve_book_training_origin(reader.document, origin)
+    if type(origin) is not BookTrainingOrigin:
+        raise TypeError("origin must be a BookTrainingOrigin")
+    location = resolve_book_training_origin(reader.document_snapshot(), origin)
+    # go_to() rechecks the live authoring revision before moving the canonical
+    # reader cursor, so provenance resolution never needs to traverse live state.
     return reader.go_to(location.index)
 
 
@@ -899,6 +918,8 @@ def restore_book_training_material(
     resolved back to BookDocument and the canonical definition is regenerated;
     any stale/tampered definition fails closed.
     """
+    if type(document) is not BookDocument:
+        raise TypeError("document must be a BookDocument")
     _require_exact_fields(payload, _MATERIAL_FIELDS, "book training material")
     version = payload["schema_version"]
     if type(version) is not int:

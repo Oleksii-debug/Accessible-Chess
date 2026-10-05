@@ -349,7 +349,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("ac_direct_directory(g_root)", self.source)
         self.assertIn("ac_direct_directory(g_app_dir)", self.source)
         self.assertIn("ac_direct_directory(g_data)", self.source)
-        self.assertIn("ac_direct_file(g_core)", self.source)
+        self.assertIn("ac_open_direct_private_file(g_core)", self.source)
 
 
 if __name__ == "__main__":

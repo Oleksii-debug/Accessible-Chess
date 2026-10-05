@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from acs.student_progress import (
     ReviewKind,
@@ -11,6 +13,7 @@ from acs.student_progress import (
     StudentReviewRecord,
 )
 from acs.student_progress_store import StudentProgressStore
+from acs import student_progress_store as persistence
 
 
 class StudentProgressStoreSafetyTests(unittest.TestCase):
@@ -33,6 +36,56 @@ class StudentProgressStoreSafetyTests(unittest.TestCase):
             )
         )
         return ledger
+
+    def test_only_windows_cross_interface_ctime_is_incomparable(self) -> None:
+        common = dict(st_dev=1, st_ino=2, st_size=3, st_mtime_ns=4)
+        descriptor = SimpleNamespace(**common, st_ctime_ns=5)
+        pathname = SimpleNamespace(**common, st_ctime_ns=6)
+        with patch.object(persistence.os, 'name', 'nt'):
+            self.assertTrue(persistence._same_file_version(descriptor, pathname, cross_interface=True))
+            self.assertFalse(persistence._same_file_version(descriptor, pathname))
+        with patch.object(persistence.os, 'name', 'posix'):
+            self.assertFalse(persistence._same_file_version(descriptor, pathname, cross_interface=True))
+
+    def test_same_size_mutation_with_restored_mtime_fails_and_releases_handle(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            path = Path(raw_dir) / 'student-progress.json'
+            store = StudentProgressStore(path)
+            store.save(self._ledger(), expected_revision=None)
+            original = path.read_bytes()
+            info = path.stat()
+            changed = original.replace(b'review-1', b'review-2')
+            self.assertNotEqual(original, changed)
+            self.assertEqual(len(original), len(changed))
+            seek = os.lseek
+            descriptors = []
+            def mutate(descriptor, offset, whence):
+                descriptors.append(descriptor)
+                path.write_bytes(changed)
+                os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+                return seek(descriptor, offset, whence)
+            with patch.object(persistence.os, 'lseek', side_effect=mutate):
+                with self.assertRaisesRegex(ValueError, 'changed while reading'):
+                    store.load()
+            self.assertEqual(1, len(descriptors))
+            with self.assertRaises(OSError):
+                os.fstat(descriptors[0])
+            self.assertEqual(changed, path.read_bytes())
+            path.unlink()
+
+    def test_confirmation_read_remains_bounded_after_source_growth(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            path = Path(raw_dir) / 'student-progress.json'
+            path.write_bytes(b'12345678')
+            seek = os.lseek
+            def grow(descriptor, offset, whence):
+                path.write_bytes(b'123456789')
+                return seek(descriptor, offset, whence)
+            with patch.object(persistence, 'STUDENT_PROGRESS_STORE_MAX_BYTES', 8):
+                with patch.object(persistence.os, 'lseek', side_effect=grow):
+                    with self.assertRaisesRegex(ValueError, 'maximum size'):
+                        persistence._read_bounded_file(path)
+            path.unlink()
 
     def test_relative_path_is_bound_at_construction_time(self) -> None:
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:

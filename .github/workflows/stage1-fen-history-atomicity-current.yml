@@ -1,0 +1,98 @@
+name: Stage1 FEN History Atomicity Current
+
+on:
+  pull_request:
+    branches:
+      - fix/settings-keymap-refresh-recovery-20261004-c2mbezb
+    paths:
+      - 'acs/webapp.py'
+      - 'tests/test_stage1_fen_history_atomicity_current.py'
+      - '.github/workflows/stage1-fen-history-atomicity-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WEBAPP_BLOB: 2fd75e82e2c69dba9ac534ba07b00f32920f7da0
+  ATOMICITY_TEST_BLOB: f465e0405021bb028fdacd6fa692132b1fc3df08
+
+concurrency:
+  group: stage1-fen-history-atomicity-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fen-history-atomicity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact live parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$head"
+          test "$(git hash-object acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git hash-object tests/test_stage1_fen_history_atomicity_current.py)" = "$ATOMICITY_TEST_BLOB"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            event_base="$PR_BASE_SHA"
+            base_ref="$PR_BASE_REF"
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "$base_ref"
+            live_base="$(git rev-parse "origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            upstream="$live_base"
+          else
+            base_ref="fix/settings-keymap-refresh-recovery-20261004-c2mbezb"
+            git fetch --no-tags origin "$base_ref"
+            upstream="$(git rev-parse "origin/$base_ref")"
+          fi
+
+          git cat-file -e "$upstream^{commit}"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/stage1-fen-history-atomicity-current.yml' \
+            'acs/webapp.py' \
+            'tests/test_stage1_fen_history_atomicity_current.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check "$upstream" HEAD
+          git diff --quiet "$upstream" HEAD --             acs/chesscore.py             acs/history.py             acs/ui_review_adapter.py
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded FEN transaction surfaces
+        run: >-
+          python -m py_compile
+          acs/webapp.py
+          tests/test_stage1_fen_history_atomicity_current.py
+
+      - name: Run FEN transaction and Stage1 regression set
+        run: >-
+          python -m unittest -v
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_accessible_webui
+          tests.test_stage1_release_composition_ui

@@ -18,6 +18,12 @@ from .engine_ports import (
     EngineContractErrorCode,
     RawAnalysisLine,
 )
+from .input_limits import MAX_FEN_CHARS
+
+
+ANALYSIS_MAX_LINES = 10
+ANALYSIS_MAX_PV_PLIES = 256
+ANALYSIS_MAX_ERROR_CHARS = 180
 
 
 @dataclass(frozen=True)
@@ -30,12 +36,21 @@ class AnalysisLine:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.multipv, int)
-            or isinstance(self.multipv, bool)
-            or not 1 <= self.multipv <= 10
+            type(self.multipv) is not int
+            or not 1 <= self.multipv <= ANALYSIS_MAX_LINES
         ):
             raise EngineContractError(
                 "analysis multipv index must be an integer between 1 and 10",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if type(self.pv) is not tuple:
+            raise EngineContractError(
+                "analysis PV must be a tuple",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if len(self.pv) > ANALYSIS_MAX_PV_PLIES:
+            raise EngineContractError(
+                "analysis PV exceeds supported bound",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         raw = RawAnalysisLine(
@@ -66,36 +81,58 @@ class AnalysisResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        # Keep result publication behind the same raw representation budget as
+        # canonical Board FEN ingress. Reject active str subclasses and oversized
+        # exact text before strip() can execute or scan unbounded input.
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "analysis result FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "analysis result FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if (
-            not isinstance(self.generation, int)
-            or isinstance(self.generation, bool)
+            type(self.generation) is not int
             or self.generation < 0
         ):
             raise EngineContractError(
                 "analysis generation must be a non-negative integer",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.stale, bool):
+        if type(self.stale) is not bool:
             raise EngineContractError(
                 "analysis stale flag must be boolean",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.lines, tuple) or any(
-            not isinstance(line, AnalysisLine) for line in self.lines
-        ):
+        if type(self.lines) is not tuple:
+            raise EngineContractError(
+                "analysis result lines must be an AnalysisLine tuple",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if len(self.lines) > ANALYSIS_MAX_LINES:
+            raise EngineContractError(
+                "analysis result contains too many lines",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if any(type(line) is not AnalysisLine for line in self.lines):
             raise EngineContractError(
                 "analysis result lines must be an AnalysisLine tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if self.error is not None:
-            if not isinstance(self.error, str) or not self.error.strip():
+            if (
+                type(self.error) is not str
+                or len(self.error) > ANALYSIS_MAX_ERROR_CHARS
+                or "\n" in self.error
+                or "\r" in self.error
+                or not self.error.strip()
+            ):
                 raise EngineContractError(
-                    "analysis error must be non-empty text or None",
+                    "analysis error must be bounded non-empty text or None",
                     code=EngineContractErrorCode.INVALID_RESULT,
                 )
             object.__setattr__(self, "error", self.error.strip())
@@ -104,7 +141,7 @@ class AnalysisResult:
                 "stale or failed analysis cannot carry lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -144,7 +181,7 @@ class AnalysisService:
                 "engine_factory must be callable",
                 code=EngineContractErrorCode.INVALID_PROVIDER,
             )
-        if not isinstance(owns_engine, bool):
+        if type(owns_engine) is not bool:
             raise EngineContractError(
                 "owns_engine must be boolean",
                 code=EngineContractErrorCode.INVALID_CONFIG,
@@ -179,8 +216,24 @@ class AnalysisService:
             return generation != self._generation or fen != self._current_fen
 
     @staticmethod
+    def _safe_error_text(exc: Exception) -> str:
+        fallback = type(exc).__name__[:ANALYSIS_MAX_ERROR_CHARS] or "Exception"
+        try:
+            text = str(exc).strip()
+        except Exception:
+            return fallback
+        if (
+            not text
+            or len(text) > ANALYSIS_MAX_ERROR_CHARS
+            or "\n" in text
+            or "\r" in text
+        ):
+            return fallback
+        return text
+
+    @staticmethod
     def _normalize_line(item: object, multipv: int) -> AnalysisLine:
-        if isinstance(item, RawAnalysisLine):
+        if type(item) is RawAnalysisLine:
             return AnalysisLine(
                 multipv=multipv,
                 depth=item.depth,
@@ -189,13 +242,13 @@ class AnalysisService:
                 pv=item.pv,
             )
 
-        if not isinstance(item, tuple) or len(item) != 3:
+        if type(item) is not tuple or len(item) != 3:
             raise EngineContractError(
                 "legacy analysis line must be a three-item tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         item_depth, score, pv = item
-        if not isinstance(score, tuple) or len(score) != 2:
+        if type(score) is not tuple or len(score) != 2:
             raise EngineContractError(
                 "legacy analysis score must be a two-item tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -203,6 +256,11 @@ class AnalysisService:
         if isinstance(pv, (str, bytes, bytearray)) or not isinstance(pv, Sequence):
             raise EngineContractError(
                 "legacy analysis PV must be a move sequence",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        if len(pv) > ANALYSIS_MAX_PV_PLIES:
+            raise EngineContractError(
+                "legacy analysis PV exceeds supported bound",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         score_kind, score_value = score
@@ -222,22 +280,30 @@ class AnalysisService:
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
-        if not isinstance(fen, str) or not fen.strip():
+        # This is a representation/resource boundary, not a chess-rules parser.
+        # Match canonical Board's shared FEN budget before any normalization.
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
             raise EngineContractError(
                 "analysis FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if not normalized:
+            raise EngineContractError(
+                "analysis FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return normalized
 
     @staticmethod
     def _normalize_limits(multipv: int, depth: int) -> tuple[int, int]:
         for name, value in (("multipv", multipv), ("depth", depth)):
-            if not isinstance(value, int) or isinstance(value, bool):
+            if type(value) is not int:
                 raise EngineContractError(
                     f"analysis {name} must be an integer",
                     code=EngineContractErrorCode.INVALID_REQUEST,
                 )
-        return max(1, min(10, multipv)), max(1, min(40, depth))
+        return max(1, min(ANALYSIS_MAX_LINES, multipv)), max(1, min(40, depth))
 
     @classmethod
     def _snapshot_provider_result(
@@ -250,8 +316,17 @@ class AnalysisService:
                 "analysis provider must return a sequence",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
+        # Sequence is the provider protocol. Reject an advertised over-width
+        # result before tuple() can materialize provider-controlled elements.
+        if len(raw) > multipv:
+            raise EngineContractError(
+                "analysis provider returned more lines than requested",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
         items = tuple(raw)
         if len(items) > multipv:
+            # Preserve the post-materialization check for unstable provider
+            # sequences whose reported size changes while being read.
             raise EngineContractError(
                 "analysis provider returned more lines than requested",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -299,7 +374,7 @@ class AnalysisService:
         except Exception as exc:
             if self._is_stale(generation, fen):
                 return AnalysisResult(fen, generation, True, ())
-            error = str(exc).strip() or type(exc).__name__
+            error = self._safe_error_text(exc)
             return AnalysisResult(fen, generation, False, (), error)
 
     def close(self) -> None:

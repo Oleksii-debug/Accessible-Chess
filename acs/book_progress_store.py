@@ -1950,7 +1950,7 @@ class BookProgressStore:
     def save(self, book_key: str, reader: BookReader) -> dict[str, object]:
         """Save one reader snapshot without losing other concurrent book updates."""
         key = _book_key(book_key)
-        if not isinstance(reader, BookReader):
+        if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
         snapshot = _snapshot_copy(reader.snapshot())
 
@@ -1988,7 +1988,7 @@ class BookProgressStore:
     def restore(self, book_key: str, document: BookDocument) -> BookReader:
         """Restore exact semantic cursor/bookmarks for one BookDocument."""
         key = _book_key(book_key)
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
             raise TypeError("document must be BookDocument")
         with self._exclusive_access():
             payload, _, _ = self._load_state_unlocked(allow_backup_recovery=True)
@@ -2002,7 +2002,7 @@ class BookProgressStore:
     def restore_primary(self, book_key: str, document: BookDocument) -> BookReader:
         """Restore only the current canonical primary; never fall back to backup."""
         key = _book_key(book_key)
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
             raise TypeError("document must be BookDocument")
         with self._exclusive_access():
             payload, _, _ = self._read_state_unlocked(
@@ -2030,7 +2030,7 @@ class BookProgressStore:
         exact semantically valid snapshot that may later be published.
         """
         key = _book_key(book_key)
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
             raise TypeError("document must be BookDocument")
         with self._exclusive_access():
             primary_identity = self._data_path_identity_unlocked(
@@ -2098,7 +2098,7 @@ class BookProgressStore:
         validated_recovery_revisions() so the discarded primary state is bound too.
         """
         key = _book_key(book_key)
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
             raise TypeError("document must be BookDocument")
         with self._exclusive_access():
             payload, raw, revision = self._read_state_unlocked(

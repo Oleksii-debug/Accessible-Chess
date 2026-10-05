@@ -4,9 +4,18 @@ on:
   pull_request:
     branches:
       - integration/book-html-semantic-reading-apex-20261004-sol6p3
+      - converge/current-product-settings-a11y-20261004-sol56-q8t2
+      - converge/current-product-settings-launcher-20261004-c2mbezb
+      - fix/settings-keymap-refresh-recovery-20261004-c2mbezb
+      - fix/current-product-fen-history-atomicity-20261004-c2mbezb
+      - fix/current-product-user-facing-engine-status-20261004-sol56f9k2
+      - converge/current-product-position-root-atomicity-20261004-hy6ez0h
+      - fix/books-nested-copy-hook-20261004-sol56k8m2
+      - fix/stage1-review-navigation-atomicity-20261004-hy6ez0h
     paths:
       - 'acs/book_game_content.py'
       - 'tests/test_v2_book_game_content.py'
+      - 'tests/test_book_lookup_detached_canonicalization.py'
       - '.github/workflows/book-variation-fen-equivalence.yml'
   workflow_dispatch:
 
@@ -67,14 +76,16 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             upstream="$live_base"
           else
-            upstream="$(git rev-parse HEAD^)"
+            base_ref="fix/stage1-review-navigation-atomicity-20261004-hy6ez0h"
+            git fetch --no-tags origin "$base_ref"
+            upstream="$(git rev-parse "origin/$base_ref")"
           fi
           git cat-file -e "$upstream^{commit}"
           git merge-base --is-ancestor "$upstream" HEAD
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/book-variation-fen-equivalence.yml'             'acs/book_game_content.py'             'tests/test_v2_book_game_content.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/book-variation-fen-equivalence.yml'             'acs/book_game_content.py'             'tests/test_book_lookup_detached_canonicalization.py' | sort)"
           test "$changed" = "$expected"
           git diff --quiet "$upstream" HEAD --             acs/chesscore.py             acs/gametree.py             acs/pgn_roundtrip.py             acs/bookdocument.py             acs/bookreader.py             acs/book_html_import.py             acs/book_epub_import.py
 
@@ -82,11 +93,13 @@ jobs:
         run: >-
           python -m compileall -q
           acs/book_game_content.py
+          tests/test_book_lookup_detached_canonicalization.py
           tests/test_v2_book_game_content.py
 
       - name: Focused Book canonical game regressions
         run: >-
           python -m unittest -v
+          tests.test_book_lookup_detached_canonicalization
           tests.test_v2_book_game_content
           tests.test_bookdocument
           tests.test_v2_book_board_workflow

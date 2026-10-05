@@ -1,0 +1,172 @@
+name: Current Product Package Manifest Integration Convergence
+
+on:
+  pull_request:
+    branches:
+      - integration/current-product-main-candidate-20261004-c2mbezb
+    paths:
+      - '.github/workflows/current-product-portable-integration-convergence.yml'
+      - '.github/workflows/current-portable-manifest-json-prehash-bounds.yml'
+      - '.github/workflows/current-bookdocument-total-text-budget.yml'
+      - '.github/workflows/current-bookdocument-training-resource-convergence.yml'
+      - '.github/workflows/current-settings-bookreader-resource-convergence.yml'
+      - '.github/workflows/current-training-progress-json-prehash-bounds.yml'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_portable_package.py'
+      - 'acs/bookdocument.py'
+      - 'acs/bookreader.py'
+      - 'acs/settings.py'
+      - 'acs/training_progress_store.py'
+      - 'tests/test_portable_manifest_json_prehash_bounds_current.py'
+      - 'tests/test_bookdocument_total_text_budget_current.py'
+      - 'tests/test_bookreader.py'
+      - 'tests/test_bookreader_revision_barriers_current.py'
+      - 'tests/test_settings_corruption_security.py'
+      - 'tests/test_training_progress_json_prehash_bounds_current.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-product-package-manifest-integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout exact combined integration candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove live integration Product and package-manifest geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
+          PRIOR_INTEGRATION_BRANCH: converge/current-product-portable-integration-20261004-ooxple7-g12
+          PORTABLE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
+          PRODUCT_BRANCH: converge/current-settings-bookreader-resource-20261004-ooxple7-g11
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          base_ref="${EVENT_BASE_REF:-$BASE_BRANCH}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+
+          git fetch --no-tags origin "+refs/heads/$PRIOR_INTEGRATION_BRANCH:refs/remotes/origin/$PRIOR_INTEGRATION_BRANCH"
+          live_prior="$(git rev-parse "refs/remotes/origin/$PRIOR_INTEGRATION_BRANCH")"
+          git fetch --no-tags origin "+refs/heads/$PORTABLE_BRANCH:refs/remotes/origin/$PORTABLE_BRANCH"
+          live_portable="$(git rev-parse "refs/remotes/origin/$PORTABLE_BRANCH")"
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+          live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+
+          test "$(git merge-base "$live_base" "$live_portable")" = "$live_base"
+          git merge-base --is-ancestor "$live_prior" HEAD
+          git merge-base --is-ancestor "$live_portable" HEAD
+          git merge-base --is-ancestor "$live_product" HEAD
+          git merge-base --is-ancestor "$live_product" "$live_prior"
+
+          matches=0
+          convergence=""
+          while IFS= read -r candidate; do
+            parents="$(git show -s --format=%P "$candidate")"
+            if [ "$parents" = "$live_prior $live_portable" ]; then
+              convergence="$candidate"
+              matches=$((matches + 1))
+            fi
+          done < <(git rev-list --merges HEAD)
+          test "$matches" -eq 1
+          test -n "$convergence"
+
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-bookdocument-total-text-budget.yml' \
+            '.github/workflows/current-bookdocument-training-resource-convergence.yml' \
+            '.github/workflows/current-bookreader-revision-barriers.yml' \
+            '.github/workflows/current-bookreader-training-resource-convergence.yml' \
+            '.github/workflows/current-portable-manifest-json-prehash-bounds.yml' \
+            '.github/workflows/current-product-portable-integration-convergence.yml' \
+            '.github/workflows/current-settings-bookreader-resource-convergence.yml' \
+            '.github/workflows/current-training-progress-json-prehash-bounds.yml' \
+            'acs/bookdocument.py' \
+            'acs/bookreader.py' \
+            'acs/settings.py' \
+            'acs/training_progress_store.py' \
+            'acs/version2_package_preflight.py' \
+            'acs/version2_portable_package.py' \
+            'tests/test_bookdocument_total_text_budget_current.py' \
+            'tests/test_bookreader.py' \
+            'tests/test_bookreader_revision_barriers_current.py' \
+            'tests/test_portable_manifest_json_prehash_bounds_current.py' \
+            'tests/test_settings_corruption_security.py' \
+            'tests/test_training_progress_json_prehash_bounds_current.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected combined integration scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile combined integration surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/bookdocument.py
+          acs/bookreader.py
+          acs/settings.py
+          acs/training_progress_store.py
+          tests/test_portable_manifest_json_prehash_bounds_current.py
+          tests/test_bookdocument_total_text_budget_current.py
+          tests/test_bookreader_revision_barriers_current.py
+          tests/test_settings_corruption_security.py
+          tests/test_training_progress_json_prehash_bounds_current.py
+
+      - name: Execute focused resource-safety regressions
+        run: >-
+          python -m unittest -v
+          tests.test_portable_manifest_json_prehash_bounds_current
+          tests.test_bookdocument_total_text_budget_current
+          tests.test_bookreader_revision_barriers_current
+          tests.test_settings_corruption_security
+          tests.test_training_progress_json_prehash_bounds_current
+
+      - name: Execute retained package persistence and application contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_portable_package
+          tests.test_bookreader
+          tests.test_book_training_passive_roots_current
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_version2_training_current_runtime
+          tests.test_version2_application
+
+      - name: Execute integration qualification contracts
+        run: >-
+          python -m unittest -v
+          tests.test_current_main_full_product_convergence_workflow
+          tests.test_p0_release_critical_triad_convergence
+
+      - name: Core selftest
+        run: python -m acs.selftest

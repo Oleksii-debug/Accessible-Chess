@@ -95,6 +95,8 @@ class EpubDublinCoreMetadataIdentityTests(unittest.TestCase):
     def test_nested_dublin_core_elements_are_not_promoted_to_package_metadata(self) -> None:
         metadata = '''
     <dc:identifier id="bookid">urn:uuid:real</dc:identifier>
+    <dc:title>Canonical title</dc:title>
+    <dc:language>uk</dc:language>
     <x:wrapper>
       <dc:title>Nested title</dc:title>
       <dc:creator>Nested creator</dc:creator>
@@ -107,10 +109,18 @@ class EpubDublinCoreMetadataIdentityTests(unittest.TestCase):
             source_name="nested-metadata.epub",
         )
 
-        self.assertEqual(result.document.title, "Chapter fallback")
+        self.assertEqual(result.document.title, "Canonical title")
         self.assertIsNone(result.document.author)
-        self.assertIsNone(result.document.language)
+        self.assertEqual(result.document.language, "uk")
         self.assertIsNone(result.document.source_rights)
+
+    def test_nested_title_and_language_cannot_satisfy_required_package_metadata(self) -> None:
+        metadata = '''
+    <dc:identifier id="bookid">urn:uuid:real</dc:identifier>
+    <x:wrapper><dc:title>Nested title</dc:title><dc:language>uk</dc:language></x:wrapper>'''
+        with self.assertRaises(BookEpubImportError) as caught:
+            import_epub_book(_epub(_package(metadata)), source_name='nested-required-metadata.epub')
+        self.assertEqual(BookEpubImportErrorCode.MALFORMED_PACKAGE, caught.exception.code)
 
     def test_unique_identifier_must_bind_one_direct_dc_identifier(self) -> None:
         invalid_metadata = (
@@ -192,7 +202,8 @@ class EpubDublinCoreMetadataIdentityTests(unittest.TestCase):
         metadata = '''
     <dc:identifier id="bookid">urn:uuid:real</dc:identifier>
     <x:title id="bookid">Foreign extension title</x:title>
-    <dc:title>Canonical title</dc:title>'''
+    <dc:title>Canonical title</dc:title>
+    <dc:language>uk</dc:language>'''
 
         result = import_epub_book(
             _epub(_package(metadata)),

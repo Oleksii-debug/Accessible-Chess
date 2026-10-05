@@ -68,10 +68,9 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn('dialog.showModal()', text)
         self.assertIn('opener.focus({ preventScroll: true })', text)
         self.assertIn('{ confirmed: true }', text)
-        self.assertIn(
-            'if (result && result.kind === "render" && dialog.open) dialog.close()',
-            text,
-        )
+        self.assertIn('if (result && result.kind === "error")', text)
+        self.assertIn('if (dialog.open) dialog.close()', text)
+        self.assertIn('if (resetPending) return', text)
         self.assertGreaterEqual(
             text.count("const activeFlight = inFlightRoots.get(root)"),
             2,
@@ -96,15 +95,14 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn("if (inFlightRoots.get(root) !== flight) return", text)
         self.assertIn('root.setAttribute("aria-busy", "true")', text)
         self.assertIn('root.removeAttribute("aria-busy")', text)
-        self.assertIn("renderEpoch(root) !== startedAtEpoch", text)
-        self.assertGreaterEqual(text.count("renderEpoch(root) === startedAtEpoch"), 2)
+        self.assertIn("renderEpoch(root) === startedAtEpoch", text)
         self.assertGreaterEqual(text.count("markRendered(root)"), 2)
         self.assertIn("try {", text)
         self.assertIn("result = invoke(command, payload || {})", text)
         self.assertIn("catch (_)", text)
         self.assertIn("Promise.resolve(result)", text)
-        self.assertIn(".catch(function ()", text)
-        self.assertIn("announce(String(fallbackMessage))", text)
+        self.assertIn(".catch(fail)", text)
+        self.assertIn("if (fallbackMessage) announce(fallbackMessage)", text)
         self.assertEqual(text.count("inFlightRoots.delete(root)"), 2)
         self.assertNotIn("new WeakSet()", text)
         self.assertNotIn("Promise.resolve(invoke(", text)
@@ -223,12 +221,12 @@ class BooksTrainingWebAssetTests(unittest.TestCase):
         self.assertIn("const MAX_STARTER_BOOKLETS = 24", text)
         self.assertIn("const MAX_TRAINING_SOLUTION_MOVES = 64", text)
         self.assertIn("function requireBoundedText(value, label, allowEmpty, limit)", text)
-        self.assertIn('text.indexOf("\\x00") >= 0 || text.length > limit', text)
+        self.assertIn('text.length > limit || text.indexOf("\\x00") >= 0', text)
         self.assertIn('bookmark.max_length !== MAX_BOOKMARK_NAME', text)
         self.assertIn('block.heading_path.length > MAX_BOOK_HEADING_PATH_PARTS', text)
         self.assertIn('listVisibleChars > MAX_BOOK_BLOCK_VISIBLE_CHARS', text)
         self.assertIn('catalogue.booklet_count > MAX_STARTER_BOOKLETS', text)
-        self.assertIn('payload.solution.length > MAX_TRAINING_SOLUTION_MOVES', text)
+        self.assertIn('solution.length > MAX_TRAINING_SOLUTION_MOVES', text)
         self.assertIn('move.length > MAX_TRAINING_SOLUTION_TEXT', text)
         self.assertIn(
             'requireBoundedText(payload.announcement, "Book announcement", true, 1000)',

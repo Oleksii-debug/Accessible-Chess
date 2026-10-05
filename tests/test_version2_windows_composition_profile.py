@@ -6,6 +6,8 @@ from acs.full_product_actions import FullProductActionRouter, build_full_product
 from acs.full_product_native_menu import NativeMenuItemKind, build_full_product_menu_spec
 from acs.full_product_ui_shell import AccessibleShellState, ROUTES, UILanguage
 from acs.full_product_webview_adapter import FullProductWebViewAdapter
+from acs.keybindings import BindingContext
+from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_profile import (
     VERSION2_ROUTE_IDS,
     VERSION2_TOP_MENU_IDS,
@@ -20,6 +22,21 @@ from acs.version2_profile import (
 
 
 class Version2WindowsCompositionProfileTests(unittest.TestCase):
+    def test_shipped_toolbars_have_live_bindings_in_the_base_v2_profile(self):
+        registry = build_version2_action_registry()
+        expected = {
+            "toolbar.previous_control": "Left",
+            "toolbar.next_control": "Right",
+            "toolbar.first_control": "Home",
+            "toolbar.last_control": "End",
+        }
+        rows = {row["id"]: row for row in build_web_keymap(registry)["actions"]}
+        for action_id, binding in expected.items():
+            with self.subTest(action_id=action_id):
+                self.assertEqual(registry.definition(action_id).context, BindingContext.TOOLBAR)
+                self.assertEqual(registry.get_binding(action_id), binding)
+                self.assertEqual(rows[action_id]["registryContext"], "toolbar")
+
     def _composition(self):
         delegated: list[tuple[str, dict[str, object]]] = []
 

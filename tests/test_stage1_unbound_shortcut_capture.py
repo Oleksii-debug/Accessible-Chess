@@ -89,6 +89,14 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
             HTML,
         )
         self.assertIn("o.textContent=keymapContextLabel(ctx)", HTML)
+        self.assertIn(
+            "document.documentElement.lang==='en'?(x.labelEn||x.labelUk||''):(x.labelUk||x.labelEn||'')",
+            HTML,
+        )
+        self.assertIn(
+            "+' '+keymapContextLabel(x.registryContext||x.context)+' '+(x.binding||x.alias||'')+' '+(x.defaultBinding||x.defaultAlias||'')",
+            HTML,
+        )
         self.assertIn("meta.id='binding-meta-'+token", HTML)
         self.assertIn("meta.className='binding-meta'", HTML)
         self.assertIn(
@@ -107,7 +115,9 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         self.assertNotIn("if(keymap.length)renderKeymap();renderHelp()", HTML)
 
     def test_shortcut_capture_remains_keyboard_first_and_backend_validated(self) -> None:
-        self.assertIn("b.textContent='Нова комбінація'", HTML)
+        self.assertIn("b.textContent=en?'New shortcut':'Нова комбінація'", HTML)
+        self.assertIn("save.textContent=en?'Save':'Зберегти'", HTML)
+        self.assertIn("reset.textContent=en?'Restore default':'За замовчуванням'", HTML)
         self.assertIn("b.setAttribute('aria-pressed','false')", HTML)
         self.assertIn(
             "b.addEventListener('click',()=>beginCapture(item,inp,status,b))",
@@ -115,6 +125,102 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
         )
         self.assertIn("typeof a.keymap_capture_shortcut==='function'", HTML)
         self.assertIn("typeof a.keymap_preview==='function'", HTML)
+
+
+    def test_keymap_mutations_restore_row_focus_and_async_capture_is_transactional(self) -> None:
+        self.assertIn(
+            "const active=document.activeElement,listNode=el('key-list'),focusId=active&&listNode.contains(active)?active.id:''",
+            HTML,
+        )
+        for token in (
+            "inp.id='binding-value-'+token",
+            "b.id='binding-capture-'+token",
+            "save.id='binding-save-'+token",
+            "reset.id='binding-reset-'+token",
+        ):
+            self.assertIn(token, HTML)
+        self.assertIn(
+            "if(focusId){const next=el(focusId);if(next&&typeof next.focus==='function')next.focus();else el('key-search').focus()}",
+            HTML,
+        )
+        self.assertIn("if(e.key==='Tab'){stopCapture(false);return}", HTML)
+        self.assertIn("if(capture!==c)return", HTML)
+        self.assertIn("Shortcut capture unavailable.", HTML)
+        self.assertIn("Захоплення комбінації недоступне.", HTML)
+        self.assertIn(
+            "if(version!==previewVersion||inp.value!==value)return",
+            HTML,
+        )
+        self.assertIn(
+            "if(inp.value!==value){const message=en?'Value changed; review and save again.':'Значення змінено; перевірте та збережіть ще раз.'",
+            HTML,
+        )
+
+    def test_capture_announcements_follow_active_ui_language(self) -> None:
+        self.assertIn(
+            "c.button.textContent=en?'New shortcut':'Нова комбінація'",
+            HTML,
+        )
+        self.assertIn(
+            "button.textContent=en?'Press shortcut':'Натисніть комбінацію'",
+            HTML,
+        )
+        self.assertIn("announce(en?'Cancelled.':'Скасовано.')", HTML)
+        self.assertIn(
+            "announce(en?'Waiting for shortcut.':'Очікую комбінацію.')",
+            HTML,
+        )
+
+
+    def test_keymap_dialog_chrome_and_failure_feedback_are_localized(self) -> None:
+        self.assertIn("function applyKeymapLanguage()", HTML)
+        for token in (
+            "setText('h-settings',en?'Settings':'Налаштування')",
+            "setText('language-label',en?'Language':'Мова')",
+            "setText('open-keymap',en?'Keyboard and commands':'Клавіатура і команди')",
+            "setText('key-search-label',en?'Search':'Пошук')",
+            "setText('key-context-label',en?'Section':'Розділ')",
+            "setText('key-reset-all',en?'Restore all':'Відновити всі')",
+            "setText('key-import-label',en?'Import':'Імпорт')",
+            "setText('close-keymap',en?'Close':'Закрити')",
+            "applyKeymapLanguage();applyCoreUiLanguage(next==='en')",
+            "renderKeymapRecovery(keymapBase,false);if(changed&&keymap.length)renderKeymap()",
+        ):
+            self.assertIn(token, HTML)
+        self.assertIn(
+            "announce(result&&result.message|| (en?'Keyboard settings could not be changed.':'Не вдалося змінити налаштування клавіш.'))",
+            HTML,
+        )
+        self.assertIn(
+            "announce(en?'Select a section first.':'Спочатку виберіть розділ.')",
+            HTML,
+        )
+        self.assertIn("Keyboard profile exported.", HTML)
+        self.assertIn("Профіль клавіш експортовано.", HTML)
+        self.assertIn("Keyboard settings could not be imported.", HTML)
+        self.assertIn("Не вдалося імпортувати налаштування.", HTML)
+
+
+    def test_keymap_mutation_refresh_is_fail_closed_and_recoverable(self) -> None:
+        self.assertIn(
+            "installKeymapSnapshot(nextBase,nextCentral);renderKeymapRecovery(nextBase,true);return true",
+            HTML,
+        )
+        self.assertNotIn("Keyboard settings restored.", HTML)
+        self.assertNotIn("Налаштування клавіш відновлено.", HTML)
+        self.assertIn(
+            "announce(document.documentElement.lang==='en'?'Keyboard settings unavailable.':'Налаштування клавіш недоступні.');return false",
+            HTML,
+        )
+        self.assertIn(
+            "if(result.snapshot){try{installKeymapSnapshot(result.snapshot,true);refreshed=true}catch(e){refreshed=await loadKeymap()}}else refreshed=await loadKeymap()",
+            HTML,
+        )
+        self.assertIn("if(!refreshed)return false", HTML)
+        self.assertNotIn(
+            "else await loadKeymap()}catch(e){announce(en?'Keyboard settings could not be refreshed.'",
+            HTML,
+        )
 
 
 if __name__ == "__main__":

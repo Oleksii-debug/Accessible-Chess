@@ -42,6 +42,20 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_current_main_qualification_binds_live_product_apex(self) -> None:
+        required = (
+            "DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}",
+            "CURRENT_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb",
+            'if [ "$event_base_ref" = "$DEFAULT_BRANCH" ]; then',
+            'git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"',
+            'live_product="$(git rev-parse "origin/$CURRENT_PRODUCT_BRANCH")"',
+            'git merge-base --is-ancestor "$live_product" HEAD',
+            "FULL_PRODUCT_CURRENT_PRODUCT_ANCESTRY=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.text)
+
     def test_current_main_non_pr_qualification_late_binds_live_main(self) -> None:
         required = (
             'elif [ "${GITHUB_REF_NAME:-}" = "integration/current-main-windows-apex-reconvergence-20261004-sol" ]; then',

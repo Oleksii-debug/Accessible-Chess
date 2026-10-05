@@ -5,14 +5,18 @@ on:
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_core_guard.py'
       - '.github/workflows/portable-launch-report-reparse-safety.yml'
   push:
     branches:
       - 'fix/portable-launch-report-reparse-20261004-sol56a4'
       - 'converge/books-training-owner-current-20261004-zftrkmo'
+      - 'fix/portable-launcher-core-inode-guard-20261004-sol56r9k4'
+      - 'converge/current-product-settings-launcher-20261004-c2mbezb'
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_core_guard.py'
       - '.github/workflows/portable-launch-report-reparse-safety.yml'
   workflow_dispatch:
 
@@ -20,8 +24,10 @@ permissions:
   contents: read
 
 env:
-  LAUNCHER_BLOB: 38c71f634fba5c8f107ff833da2bb87310a10914
-  CONTRACT_TEST_BLOB: d5ad1a1e46ae975d10b27471b51bc762a2925164
+  PRODUCT_BASE: f726f9a82073f10e47dc095a2a10c974be0c1873
+  LAUNCHER_BLOB: 6f0ec228a8ae1ef1f4a831f45f3d89eff3713f0f
+  CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
+  CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 concurrency:
   group: portable-launch-report-reparse-${{ github.ref }}
@@ -41,22 +47,36 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: Prove exact candidate checkout
+      - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
-          git diff --check
+          test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
+          actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            'packaging/portable_launcher.c' \
+            'tests/test_portable_launcher_contract.py' \
+            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          git diff --check "$PRODUCT_BASE" HEAD
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
-      - name: Run canonical launcher contract
-        run: python -m unittest tests.test_portable_launcher_contract -v
+      - name: Run canonical launcher contracts
+        run: >-
+          python -m unittest
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_core_guard
+          -v
 
   windows-native-build:
     runs-on: windows-2025
@@ -67,16 +87,26 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: Prove exact candidate checkout
+      - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
-          git diff --check
+          test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
+          actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            'packaging/portable_launcher.c' \
+            'tests/test_portable_launcher_contract.py' \
+            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          git diff --check "$PRODUCT_BASE" HEAD
       - name: Build native x64 launcher with warnings as errors
         shell: cmd
         run: |
@@ -103,4 +133,52 @@ jobs:
           $expected = @('KERNEL32.DLL', 'USER32.DLL')
           if (@(Compare-Object $expected $deps).Count -ne 0) {
             throw "Portable launcher dependency drift: $($deps -join ', ')"
+          }
+      - name: Reject hard-linked core before process creation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $PWD 'build/hardlink-package'
+          $app = Join-Path $package 'App'
+          New-Item -ItemType Directory -Path $app -Force | Out-Null
+          Copy-Item build/AccessibleChess.exe (Join-Path $package 'AccessibleChess.exe')
+          $foreign = Join-Path $package 'foreign-core.bin'
+          [IO.File]::WriteAllBytes($foreign, [byte[]](1,2,3,4,5,6,7,8))
+          $core = Join-Path $app 'AccessibleChess.exe'
+          New-Item -ItemType HardLink -Path $core -Target $foreign | Out-Null
+          $launcher = Join-Path $package 'AccessibleChess.exe'
+          $report = Join-Path $package 'launch-report.txt'
+          $process = Start-Process -FilePath $launcher -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(8)
+            $observed = $false
+            while ([DateTime]::UtcNow -lt $deadline) {
+              if (Test-Path $report) {
+                $text = Get-Content -Raw -Encoding UTF8 $report
+                if ($text -match 'STAGE: core process creation') {
+                  throw 'Hard-linked core reached CreateProcessW instead of failing the authenticated core guard'
+                }
+                if ($text -match 'STAGE: core executable validation') {
+                  $observed = $true
+                  break
+                }
+              }
+              Start-Sleep -Milliseconds 100
+            }
+            if (-not $observed) {
+              throw 'Authenticated core guard rejection was not observed in launch-report.txt'
+            }
+            $links = (Get-Item $core).LinkType
+            if ($links -ne 'HardLink') {
+              throw "Expected hard-link fixture, got LinkType=$links"
+            }
+            $foreignBytes = [IO.File]::ReadAllBytes($foreign)
+            if ($foreignBytes.Length -ne 8) {
+              throw 'Hard-link target bytes were unexpectedly changed'
+            }
+          }
+          finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
           }

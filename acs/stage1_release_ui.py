@@ -426,6 +426,13 @@ def complete_user_flow_diagnostic(
         result = _core.complete_user_flow_diagnostic(api)
         checks = dict(result.get("checks") or {})
         api.new_game()
+        # The frozen Stage 1 diagnostic expects its historical terse error.
+        # The current atomic move path uses the localized canonical message.
+        invalid = api.make_move("e9")
+        checks["invalid_move_concise"] = (
+            invalid.get("ok") is False
+            and invalid.get("announcement") == api._t("move_invalid")
+        )
         current = api.dispatch_action("board.current", "e2")
         legal = api.dispatch_action("board.legal_moves", "e2")
         cycle = api.dispatch_action("board.next_knight", "b1")

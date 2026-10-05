@@ -146,6 +146,8 @@ jobs:
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CURRENT_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -169,6 +171,14 @@ jobs:
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
             echo "FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS base=$event_base"
             echo "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS base=$live_base"
+
+            if [ "$event_base_ref" = "$DEFAULT_BRANCH" ]; then
+              git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"
+              live_product="$(git rev-parse "origin/$CURRENT_PRODUCT_BRANCH")"
+              git cat-file -e "$live_product^{commit}"
+              git merge-base --is-ancestor "$live_product" HEAD
+              echo "FULL_PRODUCT_CURRENT_PRODUCT_ANCESTRY=PASS product=$live_product"
+            fi
           elif [ "${GITHUB_REF_NAME:-}" = "integration/current-main-windows-apex-reconvergence-20261004-sol" ]; then
             # A direct push/dispatch on the canonical current-main integration
             # branch has no pull_request.base fields. It must still prove that
@@ -330,6 +340,7 @@ jobs:
           tests.test_version2_book_board_refresh_focus_order_evidence
           tests.test_version2_release_accessibility_contract
           tests.test_version2_training_current_runtime
+          tests.test_book_training_passive_roots_current
           tests.test_w3_p0f_starter_books_training_content
           tests.test_p0f_starter_training_canonical_legality
           tests.test_p0f_lawful_starter_bundle
@@ -407,6 +418,7 @@ jobs:
           tests.test_pgn_workspace
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_webview_atomicity
+          tests.test_pgn_presenter_graph_safety_current
           tests.test_v2_pgn_nested_comment_recovery
           tests.test_v2_pgn_semantic_fidelity
           tests.test_pgn_document_context_atomicity
@@ -461,6 +473,10 @@ jobs:
           tests.test_keymap_corruption_security
           tests.test_v2_remapped_keyboard_routing
           tests.test_v2_remapped_keyboard_native_editing
+          tests.test_stage1_v2_board_command_passive_ingress
+          tests.test_stage1_board_clock_projection_passive
+          tests.test_v2_keymap_context_passive
+          tests.test_v2_review_fen_bounds
           tests.test_stage1_webview2_accessibility_boundary
           tests.test_dev1_full_product_accessible_shell
           tests.test_full_product_native_menu

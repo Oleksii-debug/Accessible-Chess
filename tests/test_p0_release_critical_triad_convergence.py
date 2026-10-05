@@ -13,6 +13,12 @@ REQUIRED_QA_PATHS = (
     "scripts/p0g_packaged_hotkey_result_probe.ps1",
     "tests/test_p0g_packaged_hotkey_result_probe.py",
 )
+MAIN_INTEGRATION_NARROW_WORKFLOWS = (
+    ".github/workflows/current-indexed-book-training-source.yml",
+    ".github/workflows/current-library-browser-passive-ingress.yml",
+    ".github/workflows/current-library-presenter-passive-root.yml",
+    ".github/workflows/current-pgn-presenter-passive-root.yml",
+)
 
 P0F_MARKER = "P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS"
 P0F_PACKAGE_PATH = "release-content/w2-starter"
@@ -40,8 +46,13 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("EVENT_BASE_REF:", workflow)
         self.assertIn("EVENT_HEAD_SHA:", workflow)
         self.assertIn("CHECKED_SHA:", workflow)
+        self.assertIn("DEFAULT_BRANCH:", workflow)
         self.assertIn(
             "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
+            workflow,
+        )
+        self.assertIn(
+            "INTEGRATION_PRODUCT_BRANCH: converge/current-product-pgn-graph-safety-20261004-sol60a1",
             workflow,
         )
         self.assertIn('test "$(git rev-parse HEAD)" = "$CHECKED_SHA"', workflow)
@@ -65,10 +76,34 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
             'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_event_base"',
             workflow,
         )
+        self.assertIn('if [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then', workflow)
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$INTEGRATION_PRODUCT_BRANCH:refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH"',
+            workflow,
+        )
+        self.assertIn(
+            'live_integration_product="$(git rev-parse "refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_product" "$live_integration_product"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$live_integration_product" "$EVENT_HEAD_SHA"',
+            workflow,
+        )
+        self.assertIn("P0_TRIAD_CURRENT_PRODUCT_ANCESTOR=", workflow)
+        self.assertIn("P0_TRIAD_MODE=DEFAULT_BRANCH_INTEGRATION", workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$live_product" "$live_event_base"',
             workflow,
         )
+        self.assertIn("P0_TRIAD_MODE=STACKED_PRODUCT", workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$live_event_base" "$EVENT_HEAD_SHA"',
             workflow,
@@ -90,9 +125,18 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("fetch-depth: 0", workflow)
         self.assertNotIn('case "$base" in', workflow)
         self.assertNotIn("release/w4-v2-current-p0-candidate-20260926", workflow)
+        self.assertIn('test -n "$DEFAULT_BRANCH"', workflow)
         for path in REQUIRED_QA_PATHS:
             with self.subTest(trigger_path=path):
                 self.assertIn("      - '" + path + "'", workflow)
+
+    def test_narrow_integration_gates_are_reachable_from_main_pull_request(self) -> None:
+        for workflow_path in MAIN_INTEGRATION_NARROW_WORKFLOWS:
+            with self.subTest(workflow_path=workflow_path):
+                workflow = (ROOT / workflow_path).read_text(encoding="utf-8")
+                self.assertIn("  pull_request:\n    branches:\n", workflow)
+                self.assertIn("      - main\n", workflow)
+                self.assertIn("NARROW_SCOPE_MODE=DEFAULT_BRANCH_INTEGRATION", workflow)
 
     def test_packaged_copy_and_hotkey_qa_lineages_are_present(self) -> None:
         missing = [path for path in REQUIRED_QA_PATHS if not (ROOT / path).is_file()]

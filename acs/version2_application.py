@@ -27,6 +27,8 @@ from .book_progress_store import (
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .input_limits import MAX_FEN_CHARS
+from .import_contract import read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
@@ -76,7 +78,7 @@ class Version2Application:
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
     _BOOK_BOARD_RETURN_COMMANDS = frozenset({"book.return", "book.return_from_board"})
-    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books"})
+    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books", "library"})
     _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
         {
             "book.board_next_move",
@@ -350,8 +352,10 @@ class Version2Application:
             limit = MAX_HTML_SOURCE_BYTES
         else:
             limit = MAX_TEXT_SOURCE_BYTES
-        with source.open("rb") as handle: raw = handle.read(limit + 1)
-        if len(raw) > limit: raise ValueError("book source exceeds the supported limit")
+        # Book Open and Library must bind the same stable read-only source
+        # authority. A normal path open can follow a reparse point or publish
+        # mixed bytes from a concurrently modified book under a durable key.
+        _, raw = read_source_snapshot(source, max_bytes=limit)
         if suffix == ".epub":
             imported = import_epub_book(raw, source_name=report_safe_name(source))
         elif suffix in {".html", ".htm", ".xhtml"}:
@@ -617,6 +621,10 @@ class Version2Application:
             language=language,
         )
         restored_books.projection.restore_bookmark_name(bookmark_name)
+        # Recovery/reload is a staged owner replacement just like initial Book
+        # install/import. Prove the replacement bridge can render its exact
+        # semantic WebView contract before publishing any canonical owner.
+        restored_books.projection.snapshot()
         self.reader = restored_reader
         self.book_workflow = restored_workflow
         self.book_delegate = restored_delegate
@@ -992,7 +1000,7 @@ class Version2Application:
         if type(position) is not str:
             raise RuntimeError("canonical board position is unavailable")
         if (
-            len(position) > self._MAX_CANONICAL_BOARD_POSITION_CHARS
+            len(position) > MAX_FEN_CHARS
             or "\x00" in position
             or not position.strip()
         ):
@@ -1697,18 +1705,26 @@ class Version2Application:
                 self._file_event(event)
                 continue
             rendered = None
+            if (event.kind in {FileWorkflowEventKind.IMPORT_COMPLETED, FileWorkflowEventKind.IMPORT_EMPTY}
+                    and event.source_format and ui.phase in active):
+                ui.book_source_report(event.source_format, event.retained_book_blocks)
             if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
                 if ui.phase not in active: rendered = ui.prepare()
                 if event.total_games and ui.snapshot()["total_games"] == 0: ui.begin(event.total_games)
+                if event.source_format:
+                    ui.book_source_report(event.source_format, event.retained_book_blocks)
             elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING and ui.phase in active:
                 rendered = ui.host_cancelling()
+            elif (event.kind is FileWorkflowEventKind.IMPORT_PROGRESS and event.source_parsing
+                  and ui.phase is LibraryImportPhase.RUNNING and ui.snapshot()["total_games"] == 0):
+                rendered = ui.source_reading(event.source_bytes_read, event.source_total_bytes, event.processed_games)
             elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
-                rendered = ui.empty()
+                rendered = ui.empty(warning_count=event.warning_count)
             elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLED and ui.phase in active:
                 rendered = ui.cancelled()
             elif event.kind is FileWorkflowEventKind.FAILED:
                 if ui.phase not in active: ui.prepare()
-                rendered = ui.fail("")
+                rendered = ui.fail(self._native_file_error_message(event))
             if rendered: self._events.append(asdict(rendered))
         if progress is not None and ui.phase in active:
             if ui.snapshot()["total_games"] == 0: ui.begin(progress.total_games)
@@ -1719,10 +1735,51 @@ class Version2Application:
             # Update rows without moving focus from another surface.
             self.library.projection.search(self.library.projection.query)
 
+    def _native_file_error_message(self, event):
+        if not isinstance(event, FileWorkflowEvent):
+            return concise_user_error("", language=self.shell.language)
+        language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
+        messages = {
+            "unsupported_import_source": (
+                "Імпорт підтримує PGN, EPUB, HTML, Markdown та CBH/CBV з підтримуваним декодером. Інші формати не можна імпортувати.",
+                "Import supports PGN, EPUB, HTML, Markdown and CBH/CBV with a supported decoder. Other formats cannot be imported.",
+            ),
+            "chessbase_backend_unavailable": (
+                "Для імпорту CBH/CBV потрібен налаштований підтримуваний декодер. Можна імпортувати PGN.",
+                "CBH/CBV import requires a configured supported decoder. You can import PGN instead.",
+            ),
+            "chessbase_import_failed": (
+                "Не вдалося імпортувати ChessBase. Перевірте повноту сімейства файлів і налаштування декодера.",
+                "ChessBase import failed. Check the complete file family and the decoder configuration.",
+            ),
+            "pgn_import_failed": (
+                "Не вдалося імпортувати PGN. Перевірте формат і коректність партій.",
+                "PGN import failed. Check the format and game validity.",
+            ),
+            "book_source_read_failed": (
+                "Не вдалося безпечно прочитати джерело книги. Перевірте файл і повторіть імпорт.",
+                "The book source could not be read safely. Check the file and retry the import.",
+            ),
+            "import_already_running": (
+                "Попередній імпорт ще завершується. Повторіть дію після завершення.",
+                "The previous import is still finishing. Retry after it completes.",
+            ),
+            "no_import_running": (
+                "Імпорт уже завершився або не був розпочатий.",
+                "The import has finished or has not started.",
+            ),
+        }
+        code = event.error_code
+        if type(code) is str and len(code) <= 64:
+            message = messages.get(code)
+            if message is not None:
+                return message[language is UILanguage.EN]
+        return concise_user_error("", language=language)
+
     def _file_event(self, event):
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
-            self._events.append(self._error())
+            self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
             return
         kind = getattr(event.kind, "value", "")
         messages = {

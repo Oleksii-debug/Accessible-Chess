@@ -355,6 +355,21 @@ async function run() {
   check(!calls.some((call) => Object.prototype.hasOwnProperty.call(call[1], "record_id") || Object.prototype.hasOwnProperty.call(call[1], "student_id")), "browser sent raw education identity");
   check(!calls.some((call) => /submit|update|delete|move$/.test(call[0])), "education view gained mutation authority");
 
+  for (const synchronous of [true, false]) {
+    const failedRoot = new FakeElement("div");
+    const failedAnnouncements = [];
+    const focusId = "education-class-" + "a".repeat(64);
+    window.AccessibleChessEducationSurface.render(failedRoot, initialSnapshot(), () => {
+      if (synchronous) throw new Error("private transport detail");
+      return Promise.reject(new Error("private transport detail"));
+    }, (message) => failedAnnouncements.push(message), focusId, "Не вдалося виконати дію.");
+    const selected = failedRoot.querySelector("#" + focusId);
+    const beforeRenders = failedRoot.replaceChildrenCalls;
+    selected.listeners.keydown({ key: "Enter", preventDefault() {}, stopPropagation() {} });
+    await flushPromises();
+    check(failedAnnouncements.length === 1 && failedAnnouncements[0] === "Не вдалося виконати дію.", "Education transport failure was not announced safely");
+    check(document.activeElement === selected && failedRoot.replaceChildrenCalls === beforeRenders, "Education transport failure changed canonical focus/render state");
+  }
   console.log("Education collections paging/privacy/open-selected DOM contract PASS");
 }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -13,6 +14,10 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = 2
 _MAX_SETTINGS_BYTES = 1024 * 1024
+_MAX_SETTINGS_JSON_DEPTH = 32
+_MAX_SETTINGS_JSON_SEPARATORS = 8192
+_MAX_SETTINGS_JSON_OBJECT_MEMBERS = 512
+_MAX_SETTINGS_JSON_NUMBER_CHARS = 128
 
 DEFAULTS: dict[str, Any] = {
     "language": "uk",
@@ -442,35 +447,44 @@ class _SettingsSaveLock:
                 pass
 
 
-def _validated_value(key: str, value: Any) -> Any:
+def _validated_setting_key(key: object) -> str:
+    """Return one passive canonical settings key without invoking subclass hooks."""
+
+    if type(key) is not str:
+        raise KeyError("unknown setting")
     if key not in DEFAULTS:
         raise KeyError(f"unknown setting: {key}")
+    return key
+
+
+def _validated_value(key: str, value: Any) -> Any:
+    key = _validated_setting_key(key)
     if key == "language":
-        if value not in _ALLOWED_LANGUAGE:
+        if type(value) is not str or value not in _ALLOWED_LANGUAGE:
             raise SettingsError("language must be 'uk' or 'en'")
         return value
     if key == "notation":
-        if value not in _ALLOWED_NOTATION:
+        if type(value) is not str or value not in _ALLOWED_NOTATION:
             raise SettingsError("notation must be san, uk_literal, or en_literal")
         return value
     if key in {"sounds", "newgame_animation"}:
-        if not isinstance(value, bool):
+        if type(value) is not bool:
             raise SettingsError(f"{key} must be boolean")
         return value
     if key == "volume":
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+        if type(value) is not int or not 0 <= value <= 100:
             raise SettingsError("volume must be an integer in 0..100")
         return value
     if key in {"tick_policy", "low_time_policy"}:
-        if value not in _ALLOWED_TICK_POLICY:
+        if type(value) is not str or value not in _ALLOWED_TICK_POLICY:
             raise SettingsError(f"{key} must be off, my_turn, or both")
         return value
     if key in {"tick_last_seconds", "low_time_seconds"}:
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 3600:
+        if type(value) is not int or not 0 <= value <= 3600:
             raise SettingsError(f"{key} must be an integer in 0..3600")
         return value
     if key in _SOUND_VARIANT_KEYS:
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise SettingsError("sound variant must be text")
         token = value.strip()
         if (
@@ -482,10 +496,104 @@ def _validated_value(key: str, value: Any) -> Any:
             raise SettingsError("sound variant id is invalid")
         return token
     if key == "engine_path":
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise SettingsError("engine_path must be a string")
         return value
+    raise SettingsError(f"validation policy is missing for setting: {key}")
+
+
+def _validated_import_text(text: object) -> str:
+    """Bound direct profile ingress to the same passive UTF-8 envelope as disk."""
+
+    if type(text) is not str:
+        raise SettingsError("settings profile must be text")
+    # Every Unicode scalar needs at least one UTF-8 byte, so reject an oversized
+    # Python string before allocating an encoded copy.
+    if len(text) > _MAX_SETTINGS_BYTES:
+        raise SettingsError("settings profile is too large")
+    try:
+        encoded = text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise SettingsError("settings profile is not valid UTF-8") from exc
+    if len(encoded) > _MAX_SETTINGS_BYTES:
+        raise SettingsError("settings profile is too large")
+    return text
+
+
+def _validate_settings_json_lexical_bounds(text: str) -> None:
+    """Reject hostile JSON shape before the recursive stdlib decoder runs."""
+
+    depth = 0
+    separators = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > _MAX_SETTINGS_JSON_DEPTH:
+                raise SettingsError("settings JSON nesting is too deep")
+        elif character in "]}":
+            if depth:
+                depth -= 1
+        elif character in ",:":
+            separators += 1
+            if separators > _MAX_SETTINGS_JSON_SEPARATORS:
+                raise SettingsError("settings JSON has too many structural items")
+
+
+def _reject_nonfinite_settings_json(token: str) -> None:
+    raise SettingsError("settings JSON contains a non-finite number")
+
+
+def _parse_settings_json_int(token: str) -> int:
+    if len(token) > _MAX_SETTINGS_JSON_NUMBER_CHARS:
+        raise SettingsError("settings JSON number token is too long")
+    return int(token)
+
+
+def _parse_settings_json_float(token: str) -> float:
+    if len(token) > _MAX_SETTINGS_JSON_NUMBER_CHARS:
+        raise SettingsError("settings JSON number token is too long")
+    value = float(token)
+    if not math.isfinite(value):
+        raise SettingsError("settings JSON contains a non-finite number")
     return value
+
+
+def _reject_duplicate_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build one passive JSON object while rejecting ambiguous duplicate keys."""
+
+    if len(pairs) > _MAX_SETTINGS_JSON_OBJECT_MEMBERS:
+        raise SettingsError("settings JSON object has too many members")
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SettingsError("settings JSON contains a duplicate object key")
+        result[key] = value
+    return result
+
+
+def _parse_settings_json(text: str) -> Any:
+    """Parse one bounded, unambiguous JSON settings document."""
+
+    _validate_settings_json_lexical_bounds(text)
+    return json.loads(
+        text,
+        object_pairs_hook=_reject_duplicate_json_object,
+        parse_constant=_reject_nonfinite_settings_json,
+        parse_int=_parse_settings_json_int,
+        parse_float=_parse_settings_json_float,
+    )
 
 
 def _migrate(raw: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
@@ -569,7 +677,7 @@ class Settings:
             return
 
         try:
-            raw = json.loads(text)
+            raw = _parse_settings_json(text)
             if not isinstance(raw, Mapping):
                 raise SettingsError("settings file must contain a JSON object")
             values, migration_warnings = _migrate(raw)
@@ -588,6 +696,8 @@ class Settings:
             self.warning = f"settings recovery: {exc}"
 
     def get(self, key: str, default: Any = None) -> Any:
+        if type(key) is not str:
+            return default
         return self.data.get(key, default)
 
     def _persist_or_reload(self) -> None:
@@ -603,17 +713,17 @@ class Settings:
             raise
 
     def set(self, key: str, value: Any) -> None:
-        validated = _validated_value(key, value)
-        self.data[key] = validated
+        canonical_key = _validated_setting_key(key)
+        validated = _validated_value(canonical_key, value)
+        self.data[canonical_key] = validated
         self._persist_or_reload()
 
     def reset(self, key: str | None = None) -> None:
         if key is None:
             self.data = dict(DEFAULTS)
         else:
-            if key not in DEFAULTS:
-                raise KeyError(f"unknown setting: {key}")
-            self.data[key] = DEFAULTS[key]
+            canonical_key = _validated_setting_key(key)
+            self.data[canonical_key] = DEFAULTS[canonical_key]
         self._persist_or_reload()
 
     def to_profile(self) -> dict[str, Any]:
@@ -624,7 +734,9 @@ class Settings:
         return json.dumps(self.to_profile(), ensure_ascii=False, indent=indent, sort_keys=True)
 
     def import_json(self, text: str, *, persist: bool = True) -> tuple[str, ...]:
-        raw = json.loads(text)
+        if type(persist) is not bool:
+            raise SettingsError("settings import persist flag must be boolean")
+        raw = _parse_settings_json(_validated_import_text(text))
         if not isinstance(raw, Mapping):
             raise SettingsError("settings profile must be a JSON object")
         values, warnings = _migrate(raw)

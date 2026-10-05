@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
@@ -127,7 +128,7 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         snapshot = projection.snapshot()
         ids = {field["id"] for field in snapshot["filters"]}
         self.assertEqual(
-            {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit"},
+            {"player", "event", "eco", "opening", "result", "source_id", "source_name", "limit", "date_from", "date_to"},
             ids,
         )
         self.assertNotIn("after_game_id", repr(snapshot))
@@ -191,6 +192,84 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             self.assertNotIn("select *", visible)
             self.assertNotIn("999999", visible)
 
+    def test_bridge_rejects_active_browser_subclasses_before_hooks(self) -> None:
+        _service, _presenter, _projection, bridge, _calls = self.build()
+
+        class HostileText(str):
+            armed = False
+            touched = False
+
+            def _touch(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile browser text hook must not execute")
+
+            def __len__(self):
+                self._touch()
+                return super().__len__()
+
+            def __eq__(self, other):
+                self._touch()
+                return super().__eq__(other)
+
+            def __hash__(self):
+                self._touch()
+                return super().__hash__()
+
+            def strip(self, *args, **kwargs):
+                self._touch()
+                return super().strip(*args, **kwargs)
+
+            def isascii(self):
+                self._touch()
+                return super().isascii()
+
+            def isdecimal(self):
+                self._touch()
+                return super().isdecimal()
+
+        class HostileDict(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile browser mapping length must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("hostile browser mapping iteration must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("hostile browser mapping items must not execute")
+
+        hostile_command = HostileText("library.search")
+        hostile_key = HostileText("player")
+        hostile_value = HostileText("Alpha")
+        hostile_key_payload = {hostile_key: "Alpha"}
+        hostile_value_payload = {"player": hostile_value}
+        hostile_numeric_payload = {"source_id": HostileText("10")}
+        hostile_result_payload = {"result": HostileText("1-0")}
+        hostile_language_payload = {"language": HostileText("en")}
+        HostileText.armed = True
+
+        cases = (
+            (hostile_command, {}),
+            ("library.search", HostileDict({"player": "Alpha"})),
+            ("library.search", hostile_key_payload),
+            ("library.search", hostile_value_payload),
+            ("library.search", hostile_numeric_payload),
+            ("library.search", hostile_result_payload),
+            ("library.language", hostile_language_payload),
+        )
+        for command, payload in cases:
+            with self.subTest(command=type(command).__name__, payload_type=type(payload).__name__):
+                event = bridge.dispatch(command, payload)
+                self.assertEqual("error", event.kind)
+
+        self.assertFalse(HostileText.touched)
+        self.assertFalse(HostileDict.touched)
+
     def test_language_switch_changes_labels_but_preserves_row_and_focus_identity(self) -> None:
         _service, _presenter, projection, _bridge, _calls = self.build(language=UILanguage.UA)
         ua = projection.search(GameSearchQuery(limit=2)).payload["snapshot"]
@@ -202,33 +281,59 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         )
         self.assertEqual(ua["focus_target"], en["focus_target"])
 
-    def test_snapshot_does_not_mix_live_selection_changed_after_immutable_view_capture(self) -> None:
+    def test_presenter_subclass_is_rejected_before_presentation_hooks(self) -> None:
         service = FakeSearchService()
 
-        class MutatingAfterReadPresenter(LibraryPresenter):
-            def __init__(self, backend):
-                super().__init__(backend, language=UILanguage.EN)
-                self.view_calls = 0
-                self.live_selection_after_read = None
+        class HostilePresenter(LibraryPresenter):
+            armed = False
+            touched = False
 
-            def view(self):
-                self.view_calls += 1
-                view = super().view()
-                if self.view_calls == 1 and len(view.rows) > 1:
-                    self._selected_game_id = view.rows[1].game_id
-                    self.live_selection_after_read = self._selected_game_id
-                return view
+            def set_language(self, language):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile Library presenter hook must not execute")
+                return super().set_language(language)
 
-        presenter = MutatingAfterReadPresenter(service)
-        projection = LibraryWebViewProjection(presenter, lambda _action, _payload: None, language=UILanguage.EN)
-        # Seed pages through the base implementation so the adversarial read only
-        # applies to the final browser snapshot under test.
-        LibraryPresenter.search(presenter, GameSearchQuery(limit=2))
-        presenter.view_calls = 0
+        hostile = HostilePresenter(service, language=UILanguage.EN)
+        HostilePresenter.armed = True
+
+        with self.assertRaisesRegex(TypeError, "presenter must be LibraryPresenter"):
+            LibraryWebViewProjection(
+                hostile,
+                lambda _action, _payload: None,
+                language=UILanguage.EN,
+            )
+
+        self.assertFalse(HostilePresenter.touched)
+
+    def test_snapshot_does_not_mix_live_selection_changed_after_immutable_view_capture(self) -> None:
+        service = FakeSearchService()
+        presenter = LibraryPresenter(service, language=UILanguage.EN)
+        projection = LibraryWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            language=UILanguage.EN,
+        )
+        # Seed pages before injecting re-entrant view behavior so the product
+        # ingress contract stays exact while the atomicity proof stays adversarial.
+        presenter.search(GameSearchQuery(limit=2))
         presenter._selected_game_id = 1
-        snapshot = projection.snapshot()
-        self.assertEqual(1, presenter.view_calls)
-        self.assertEqual(2, presenter.live_selection_after_read)
+        original_view = presenter.view
+        state = {"view_calls": 0, "live_selection_after_read": None}
+
+        def mutating_view():
+            state["view_calls"] += 1
+            view = original_view()
+            if state["view_calls"] == 1 and len(view.rows) > 1:
+                presenter._selected_game_id = view.rows[1].game_id
+                state["live_selection_after_read"] = presenter._selected_game_id
+            return view
+
+        with patch.object(presenter, "view", side_effect=mutating_view):
+            snapshot = projection.snapshot()
+
+        self.assertEqual(1, state["view_calls"])
+        self.assertEqual(2, state["live_selection_after_read"])
         self.assertEqual(1, snapshot["selected_game_id"])
         self.assertEqual(1, [row for row in snapshot["rows"] if row["selected"]][0]["game_id"])
 

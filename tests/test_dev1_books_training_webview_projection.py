@@ -7,7 +7,7 @@ from unittest.mock import patch
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
 from acs.book_webview_projection import BookWebViewProjection
-from acs.full_product_presenters import BookReaderPresenter, TrainingPresenter
+from acs.full_product_presenters import BookBlockView, BookReaderPresenter, TrainingPresenter
 from acs.full_product_ui_shell import UILanguage
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
 from acs.training_webview_projection import TrainingWebViewProjection
@@ -102,6 +102,54 @@ class BookProjectionTests(unittest.TestCase):
                 replace(block, kind="Position", role="group", position_fen=None)
             )
 
+    def test_snapshot_rejects_book_block_subclass_before_attribute_hooks(self) -> None:
+        class HostileBookBlock(BookBlockView):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {
+                    "index",
+                    "kind",
+                    "role",
+                    "title",
+                    "text",
+                    "heading_level",
+                    "position_fen",
+                    "heading_path",
+                    "source_anchor",
+                    "warning",
+                    "list_items",
+                    "list_ordered",
+                    "list_start",
+                }:
+                    type(self).touched = True
+                    raise AssertionError("BookBlockView attribute hook must not execute")
+                return super().__getattribute__(name)
+
+        block = self.presenter.current()
+        hostile = HostileBookBlock(
+            block.index,
+            block.kind,
+            block.role,
+            block.title,
+            block.text,
+            block.heading_level,
+            block.position_fen,
+            block.heading_path,
+            block.source_anchor,
+            block.warning,
+            block.list_items,
+            block.list_ordered,
+            block.list_start,
+        )
+        HostileBookBlock.armed = True
+
+        with self.assertRaisesRegex(TypeError, "exact BookBlockView"):
+            self.projection._snapshot_from_block(hostile)
+
+        self.assertFalse(HostileBookBlock.touched)
+
     def test_snapshot_rejects_noncanonical_scalar_types_without_coercion(self) -> None:
         block = self.presenter.current()
 
@@ -155,6 +203,72 @@ class BookProjectionTests(unittest.TestCase):
                             position_fen=malformed,
                         )
                     )
+
+    def test_snapshot_rejects_navigation_dict_subclass_before_container_hooks(self) -> None:
+        class HostileNavigation(dict):
+            armed = False
+            touched = False
+
+            @classmethod
+            def _touch(cls, hook: str):
+                cls.touched = True
+                raise AssertionError(f"navigation {hook} hook must not execute")
+
+            def __len__(self):
+                if type(self).armed:
+                    type(self)._touch("__len__")
+                return super().__len__()
+
+            def __iter__(self):
+                if type(self).armed:
+                    type(self)._touch("__iter__")
+                return super().__iter__()
+
+            def items(self):
+                if type(self).armed:
+                    type(self)._touch("items")
+                return super().items()
+
+        hostile = HostileNavigation(self.presenter.navigation_availability())
+        HostileNavigation.armed = True
+
+        with patch.object(self.presenter, "navigation_availability", return_value=hostile):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.snapshot()
+
+        self.assertFalse(HostileNavigation.touched)
+
+    def test_snapshot_rejects_navigation_key_subclass_before_hash_or_equality_hooks(self) -> None:
+        class HostileKey(str):
+            armed = False
+            touched = False
+
+            @classmethod
+            def _touch(cls, hook: str):
+                cls.touched = True
+                raise AssertionError(f"navigation key {hook} hook must not execute")
+
+            def __hash__(self):
+                if type(self).armed:
+                    type(self)._touch("__hash__")
+                return super().__hash__()
+
+            def __eq__(self, other):
+                if type(self).armed:
+                    type(self)._touch("__eq__")
+                return super().__eq__(other)
+
+        canonical = self.presenter.navigation_availability()
+        hostile_key = HostileKey("previous")
+        hostile = {hostile_key: canonical["previous"]}
+        hostile.update({key: value for key, value in canonical.items() if key != "previous"})
+        HostileKey.armed = True
+
+        with patch.object(self.presenter, "navigation_availability", return_value=hostile):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
+                self.projection.snapshot()
+
+        self.assertFalse(HostileKey.touched)
 
     def test_snapshot_rejects_heading_and_navigation_contract_drift(self) -> None:
         paragraph = self.presenter.next_block()
@@ -479,6 +593,28 @@ class BookProjectionTests(unittest.TestCase):
             side_effect=ValueError("simulated announcement contract failure"),
         ):
             with self.assertRaises(ValueError):
+                self.projection.open_game()
+        self.assertEqual([], self.calls)
+
+    def test_board_handoff_rejects_semantic_snapshot_drift_before_dispatch(self) -> None:
+        self.projection.next_position()
+        position_block = self.presenter.current()
+        with patch.object(
+            self.presenter,
+            "current",
+            return_value=replace(position_block, role="paragraph"),
+        ):
+            with self.assertRaisesRegex(ValueError, "kind/role"):
+                self.projection.open_position()
+        self.assertEqual([], self.calls)
+
+        self.projection.next_game()
+        with patch.object(
+            self.presenter,
+            "navigation_availability",
+            return_value={"previous": True},
+        ):
+            with self.assertRaisesRegex(ValueError, "navigation availability schema"):
                 self.projection.open_game()
         self.assertEqual([], self.calls)
 

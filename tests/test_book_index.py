@@ -112,21 +112,13 @@ class BookIndexTests(unittest.TestCase):
         with self.assertRaises(BookDocumentError):
             BookIndex(document)
 
-    def test_index_construction_uses_one_validated_detached_snapshot(self):
+    def test_index_construction_rejects_document_subclass_before_export_hook(self):
         class MutatingAfterExportBookDocument(BookDocument):
-            def as_dict(self):
-                payload = super().as_dict()
-                heading = self.blocks[0]
-                self.assert_heading(heading)
-                heading.level = 6
-                heading.text = "Mutated after export"
-                self.blocks.reverse()
-                return payload
+            export_touched = False
 
-            @staticmethod
-            def assert_heading(block):
-                if not isinstance(block, Heading):
-                    raise AssertionError("fixture must begin with a Heading")
+            def as_dict(self):
+                type(self).export_touched = True
+                raise AssertionError("BookDocument subclass export must not execute")
 
         source = self.make_document()
         document = MutatingAfterExportBookDocument(
@@ -140,14 +132,10 @@ class BookIndexTests(unittest.TestCase):
             blocks=list(source.blocks),
         )
 
-        index = BookIndex(document)
+        with self.assertRaisesRegex(TypeError, "BookDocument"):
+            BookIndex(document)
 
-        self.assertEqual(index.entries[0].label, "Chapter One")
-        self.assertEqual(index.entries[0].heading_level, 1)
-        self.assertEqual(index.entries[0].target.key, "block:h1")
-        self.assertEqual(index.entries[-1].label, "Return to the critical position")
-        self.assertEqual([entry.label for entry in index.contents()], ["Chapter One", "Calculation"])
-        self.assertEqual(document.blocks[0].source_anchor, "note-a")
+        self.assertFalse(MutatingAfterExportBookDocument.export_touched)
 
     def test_index_bounds_generated_semantic_target_keys_before_materialization(self):
         block_limit = "b" * (4096 - len("block:"))
@@ -190,6 +178,28 @@ class BookIndexTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 with self.assertRaisesRegex(TypeError, "Book target"):
                     index.resolve(invalid)  # type: ignore[arg-type]
+
+    def test_resolve_rejects_book_target_subclass_before_attribute_hooks(self):
+        index = BookIndex(self.make_document())
+
+        class HostileTarget(BookTarget):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"key", "index", "block_id", "source_anchor"}:
+                    type(self).touched = True
+                    raise AssertionError("BookTarget subclass fields must not be read")
+                return super().__getattribute__(name)
+
+        hostile = HostileTarget("block:h1", 0, "h1", None)
+        HostileTarget.armed = True
+
+        with self.assertRaisesRegex(TypeError, "Book target"):
+            index.resolve(hostile)
+
+        self.assertFalse(HostileTarget.touched)
+        self.assertEqual(index.resolve(BookTarget("block:h1", 0, None, None)).target.index, 0)
 
     def test_resolve_bounds_raw_target_before_dictionary_hashing(self):
         index = BookIndex(self.make_document())

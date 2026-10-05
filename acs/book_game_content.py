@@ -15,15 +15,25 @@ ambiguous by design; AUTO mode fails closed instead of silently preferring one
 source that may have diverged from the other.
 """
 
-from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
 from .bookdocument import BookDocumentError, Game, VariationTree
 from .chesscore import Board
-from .gametree import GameTreeSerializationError, PgnGame, serialize_game
+from .gametree import (
+    MAX_TREE_NODES,
+    MAX_VARIATION_DEPTH,
+    Comment,
+    CommentStyle,
+    GameTreeSerializationError,
+    MoveNode,
+    PgnGame,
+    VariationLine,
+    serialize_game,
+)
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
+from .game_identity import GameIdentityContractError, identity_for_game
 
 
 class BookGameContentErrorCode(str, Enum):
@@ -34,6 +44,7 @@ class BookGameContentErrorCode(str, Enum):
     LOOKUP_REQUIRED = "lookup_required"
     INVALID_LOOKUP = "invalid_lookup"
     GAME_NOT_FOUND = "game_not_found"
+    REFERENCE_CHANGED = "reference_changed"
     INVALID_CANONICAL_GAME = "invalid_canonical_game"
     MULTI_GAME_BLOCK = "multi_game_block"
     ROOT_FEN_CONFLICT = "root_fen_conflict"
@@ -83,9 +94,20 @@ class ResolvedBookVariation:
 
 
 def _source(value: object) -> BookGameSource:
+    # Source selection is part of the same presentation-neutral scalar boundary
+    # as BookDocument text.  Reject string subclasses before Enum lookup because
+    # dict-backed Enum resolution can invoke attacker-controlled __hash__/__eq__
+    # hooks on a str subclass.
+    if type(value) is BookGameSource:
+        return value
+    if type(value) is not str:
+        raise BookGameContentError(
+            "book game source selection is invalid",
+            code=BookGameContentErrorCode.INVALID_BLOCK,
+        )
     try:
         return BookGameSource(value)
-    except (TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise BookGameContentError(
             "book game source selection is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
@@ -128,14 +150,155 @@ def _one_embedded_game(pgn: str) -> PgnGame:
     return game
 
 
+def _assert_passive_provider_graph(game: PgnGame) -> None:
+    """Reject provider-defined executable graph types before GameTree traversal.
+
+    The Library lookup is outside the Books trust boundary. serialize_game remains
+    the semantic PGN/GameTree authority, but it deliberately accepts subclasses
+    via isinstance. Books therefore performs only a passive runtime-type/shape
+    preflight before serialization so nested provider objects cannot run hooks.
+
+    Semantic SAN/NAG/comment/result validation is intentionally left to
+    serialize_game; this function only proves serializer traversal will touch
+    built-in containers, exact DTOs and passive scalar values.
+    """
+
+    if type(game.tags) is not dict:
+        raise TypeError("game tags must use the built-in dictionary")
+    for key, value in game.tags.items():
+        if type(key) is not str or type(value) is not str:
+            raise TypeError("game tags must contain exact text")
+    if type(game.source_index) is not int or game.source_index < 0:
+        raise TypeError("game source_index must be a non-negative exact integer")
+    if type(game.warnings) is not list or any(
+        type(warning) is not str for warning in game.warnings
+    ):
+        raise TypeError("game warnings must be a built-in list of exact text")
+
+    seen: set[int] = set()
+    active_lines: set[int] = set()
+    count = 0
+
+    def claim(value: object) -> None:
+        nonlocal count
+        identity = id(value)
+        if identity in seen:
+            raise ValueError("canonical GameTree reuses a graph object")
+        seen.add(identity)
+        count += 1
+        if count > MAX_TREE_NODES:
+            raise ValueError("canonical GameTree exceeds the node safety limit")
+
+    def check_comment(comment: object) -> None:
+        if type(comment) is not Comment:
+            raise TypeError("canonical comments must use exact Comment values")
+        # Comment identity is not part of GameTree graph topology. The canonical
+        # serializer permits one passive Comment value to be referenced from
+        # multiple lists, and detachment will materialize independent copies.
+        if type(comment.text) is not str:
+            raise TypeError("canonical comment text must be exact text")
+        if type(comment.style) not in {CommentStyle, str}:
+            raise TypeError("canonical comment style must be passive scalar data")
+
+    def check_comments(value: object) -> None:
+        if type(value) is not list:
+            raise TypeError("canonical comment containers must be built-in lists")
+        for comment in value:
+            check_comment(comment)
+
+    def check_line(line: object, *, depth: int) -> None:
+        if type(line) is not VariationLine:
+            raise TypeError(
+                "canonical variation lines must use exact VariationLine values"
+            )
+        if depth > MAX_VARIATION_DEPTH:
+            raise ValueError(
+                "canonical GameTree exceeds the variation depth safety limit"
+            )
+        line_id = id(line)
+        if line_id in active_lines:
+            raise ValueError("canonical GameTree contains a variation cycle")
+        claim(line)
+        active_lines.add(line_id)
+        try:
+            if type(line.moves) is not list:
+                raise TypeError("canonical move containers must be built-in lists")
+            check_comments(line.leading_comments)
+            check_comments(line.trailing_comments)
+            if line.result is not None and type(line.result) is not str:
+                raise TypeError("canonical variation result must be exact text")
+
+            for move in line.moves:
+                if type(move) is not MoveNode:
+                    raise TypeError("canonical moves must use exact MoveNode values")
+                claim(move)
+                if type(move.san) is not str:
+                    raise TypeError("canonical SAN must be exact text")
+                if move.move_number is not None and type(move.move_number) is not str:
+                    raise TypeError("canonical move number must be exact text")
+                if type(move.nags) is not list or any(
+                    type(nag) is not str for nag in move.nags
+                ):
+                    raise TypeError(
+                        "canonical NAGs must be a built-in list of exact text"
+                    )
+                check_comments(move.comments_before)
+                check_comments(move.comments_after)
+                if type(move.variations) is not list:
+                    raise TypeError(
+                        "canonical variation containers must be built-in lists"
+                    )
+                for variation in move.variations:
+                    check_line(variation, depth=depth + 1)
+        finally:
+            active_lines.remove(line_id)
+
+    check_line(game.line, depth=0)
+
+def _detached_comment(comment: Comment) -> Comment:
+    return Comment(text=comment.text, style=comment.style)
+
+
+def _detached_move(move: MoveNode) -> MoveNode:
+    return MoveNode(
+        san=move.san,
+        move_number=move.move_number,
+        nags=list(move.nags),
+        comments_before=[_detached_comment(item) for item in move.comments_before],
+        comments_after=[_detached_comment(item) for item in move.comments_after],
+        variations=[_detached_line(line) for line in move.variations],
+    )
+
+
+def _detached_line(line: VariationLine) -> VariationLine:
+    return VariationLine(
+        moves=[_detached_move(move) for move in line.moves],
+        leading_comments=[_detached_comment(item) for item in line.leading_comments],
+        trailing_comments=[_detached_comment(item) for item in line.trailing_comments],
+        result=line.result,
+    )
+
+
 def _canonical_copy(game: object) -> PgnGame:
-    if not isinstance(game, PgnGame):
+    # The lookup port promises the canonical concrete GameTree DTO. Reject a
+    # PgnGame subclass before any provider-controlled copy hook can run.
+    if type(game) is not PgnGame:
         raise BookGameContentError(
             "book game lookup did not return a canonical GameTree game",
             code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
     try:
-        detached = deepcopy(game)
+        # Prove the provider graph is passive before the canonical serializer
+        # touches any nested field. Then validate PGN/GameTree semantics once
+        # through the existing authority and rebuild exact detached DTO classes.
+        _assert_passive_provider_graph(game)
+        serialize_game(game)
+        detached = PgnGame(
+            tags=dict(game.tags),
+            line=_detached_line(game.line),
+            source_index=game.source_index,
+            warnings=list(game.warnings),
+        )
         serialize_game(detached)
     except (GameTreeSerializationError, TypeError, ValueError, RecursionError) as exc:
         raise BookGameContentError(
@@ -151,7 +314,15 @@ def _reference_game(game_id: int, lookup: BookGameLookup | None) -> PgnGame:
             "a referenced book game requires a Library game lookup",
             code=BookGameContentErrorCode.LOOKUP_REQUIRED,
         )
-    loader = getattr(lookup, "load_book_game", None)
+    try:
+        loader = getattr(lookup, "load_book_game", None)
+    except Exception:
+        # Provider attribute access is part of the injected port boundary too.
+        # A descriptor/__getattribute__ failure must not leak backend details.
+        raise BookGameContentError(
+            "book game lookup does not expose the required application port",
+            code=BookGameContentErrorCode.INVALID_LOOKUP,
+        ) from None
     if not callable(loader):
         raise BookGameContentError(
             "book game lookup does not expose the required application port",
@@ -207,23 +378,16 @@ def resolve_book_game(
         ) from exc
     pgn = snapshot.get("pgn", "")
     game_id = snapshot.get("game_id")
-    if not isinstance(pgn, str) or (
+    if type(pgn) is not str or (
         game_id is not None
-        and (
-            not isinstance(game_id, int)
-            or isinstance(game_id, bool)
-            or game_id < 0
-        )
+        and (type(game_id) is not int or game_id < 0)
     ):
         raise BookGameContentError(
             "book game snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
-    # BookDocument deliberately accepts str subclasses at its semantic boundary.
-    # The canonical PGN ingress deliberately accepts exact built-in text only.
-    # Normalize only after BookDocument has validated the snapshot so this
-    # adapter preserves both contracts instead of weakening either authority.
-    pgn = str(pgn)
+    # BookDocument and canonical PGN ingress now share the same exact built-in
+    # text boundary, so no coercion is permitted between those authorities.
     selected = _source(source)
     has_embedded = bool(pgn.strip())
     has_reference = game_id is not None
@@ -259,6 +423,20 @@ def resolve_book_game(
             )
         assert isinstance(game_id, int) and not isinstance(game_id, bool)
         game = _reference_game(game_id, lookup)
+        expected_digest = snapshot.get("game_record_digest")
+        if expected_digest is not None:
+            try:
+                actual_digest = identity_for_game(game).record_digest
+            except GameIdentityContractError:
+                raise BookGameContentError(
+                    "referenced book game identity could not be verified",
+                    code=BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+                ) from None
+            if actual_digest != expected_digest:
+                raise BookGameContentError(
+                    "referenced book game no longer matches the book identity",
+                    code=BookGameContentErrorCode.REFERENCE_CHANGED,
+                )
     else:  # Enum exhaustiveness / defensive future schema boundary.
         raise BookGameContentError(
             "book game source selection is unsupported",
@@ -278,14 +456,15 @@ def resolve_book_game(
 
 def _canonical_root_fen(value: object) -> tuple[str, str, bool]:
     """Return preserved/canonical FEN plus whether counters were authored."""
-    if not isinstance(value, str) or not value.strip():
+    if type(value) is not str or not value.strip():
         raise BookGameContentError(
             "book variation root position is invalid",
             code=BookGameContentErrorCode.INVALID_ROOT_FEN,
         )
-    # Match the BookDocument text contract, then cross the stricter canonical
-    # Board/PGN boundary with exact built-in text.
-    preserved = str(value).strip()
+    # BookDocument's current semantic contract accepts exact built-in text only.
+    # Keep that boundary after post-construction mutation too: reject subclasses
+    # before calling any overridable text method.
+    preserved = value.strip()
     fields = preserved.split()
     if len(fields) not in {4, 6}:
         raise BookGameContentError(
@@ -339,13 +518,11 @@ def resolve_book_variation(block: VariationTree) -> ResolvedBookVariation:
         ) from exc
     snapshot_root = snapshot.get("root_fen")
     pgn = snapshot.get("pgn")
-    if not isinstance(snapshot_root, str) or not isinstance(pgn, str):
+    if type(snapshot_root) is not str or type(pgn) is not str:
         raise BookGameContentError(
             "book variation snapshot is invalid",
             code=BookGameContentErrorCode.INVALID_BLOCK,
         )
-    snapshot_root = str(snapshot_root)
-    pgn = str(pgn)
     if snapshot_root != preserved_root_fen:
         raise BookGameContentError(
             "book variation changed while its canonical snapshot was captured",

@@ -69,7 +69,9 @@ class BookIndex:
     """Immutable semantic index built from one validated BookDocument snapshot."""
 
     def __init__(self, document: BookDocument):
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
+            # BookDocument is a mutable authoring DTO. Reject subclasses before
+            # any provider-defined as_dict()/attribute hook can execute.
             raise TypeError("document must be a BookDocument")
         # BookDocument blocks are authoring-mutable. Materialize one detached
         # canonical snapshot through BookDocument's own wire authority, then
@@ -211,7 +213,7 @@ class BookIndex:
         source-preserving conversion. Index-only targets intentionally describe a
         snapshot and therefore resolve by their exact generated key.
         """
-        if isinstance(target, BookTarget):
+        if type(target) is BookTarget:
             key = target.key
             if type(key) is not str:
                 raise TypeError("Book target key must be a string")

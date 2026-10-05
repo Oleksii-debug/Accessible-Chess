@@ -13,7 +13,9 @@ class TrainingWebViewBridge:
         *,
         continue_callback: Callable[[], TrainingWebViewEvent] | None = None,
     ) -> None:
-        if not isinstance(projection, TrainingWebViewProjection):
+        # Browser commands must terminate in the canonical Training projection,
+        # not a provider-defined subclass that can override dispatch/render state.
+        if type(projection) is not TrainingWebViewProjection:
             raise TypeError("projection must be TrainingWebViewProjection")
         if continue_callback is not None and not callable(continue_callback):
             raise TypeError("continue_callback must be callable or None")

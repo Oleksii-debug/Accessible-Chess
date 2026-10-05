@@ -31,6 +31,7 @@ from .book_game_content import (
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
+from .input_limits import MAX_FEN_CHARS
 from .engine_assisted_workflows import (
     AudienceAnalysisResult,
     EngineAssistedWorkflowService,
@@ -135,9 +136,9 @@ class BookBoardWorkflow:
         *,
         game_lookup: BookGameLookup | None = None,
     ) -> None:
-        if not isinstance(reader, BookReader):
+        if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
-        if not isinstance(engine_assistance, EngineAssistedWorkflowService):
+        if type(engine_assistance) is not EngineAssistedWorkflowService:
             raise TypeError("engine_assistance must be EngineAssistedWorkflowService")
         self._reader = reader
         self._engine = engine_assistance
@@ -168,7 +169,12 @@ class BookBoardWorkflow:
         # A Book payload is not allowed to use that convenience convention:
         # missing/corrupted semantic FEN must fail closed instead of silently
         # becoming a different chess position.
-        if type(value) is not str or not value.strip():
+        if type(value) is not str or len(value) > MAX_FEN_CHARS:
+            raise BookBoardWorkflow._error(
+                "book position cannot be opened on the canonical board",
+                BookBoardWorkflowCode.INVALID_POSITION,
+            )
+        if not value.strip():
             raise BookBoardWorkflow._error(
                 "book position cannot be opened on the canonical board",
                 BookBoardWorkflowCode.INVALID_POSITION,
@@ -699,23 +705,32 @@ class BookBoardWorkflow:
     ) -> dict[str, object]:
         if payload is None:
             return {}
-        if not isinstance(payload, Mapping):
+        # Dispatch payloads originate from the closed-world action adapter.
+        # Require the canonical built-in container before len/iteration/copy can
+        # execute provider-defined Mapping hooks. Bound width from O(1) dict
+        # metadata before inspecting keys, then prove exact text keys before
+        # membership hashing.
+        if type(payload) is not dict:
             raise cls._error(
                 "Book Board command payload must be a mapping",
                 BookBoardWorkflowCode.INVALID_COMMAND,
             )
-        data = dict(payload)
-        if any(type(key) is not str for key in data):
-            raise cls._error(
-                "Book Board command payload keys must be text",
-                BookBoardWorkflowCode.INVALID_COMMAND,
-            )
-        if set(data) - allowed:
+        if len(payload) > len(allowed):
             raise cls._error(
                 "Book Board command payload contains unsupported fields",
                 BookBoardWorkflowCode.INVALID_COMMAND,
             )
-        return data
+        if any(type(key) is not str for key in payload):
+            raise cls._error(
+                "Book Board command payload keys must be text",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        if any(key not in allowed for key in payload):
+            raise cls._error(
+                "Book Board command payload contains unsupported fields",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        return dict(payload)
 
     def dispatch(
         self,

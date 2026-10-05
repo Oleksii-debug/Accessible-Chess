@@ -103,7 +103,7 @@ function chordFor(event) {
         indexFunction('normalizeChord'),
         indexFunction('actionByChord'),
         indexFunction('keymapActionForEvent'),
-    ].join('\\n'), resolverContext, {filename: 'index-keymap-resolver.js'});
+    ].join('\n'), resolverContext, {filename: 'index-keymap-resolver.js'});
     assert.strictEqual(
         resolverContext.keymapActionForEvent(eventFor('F2', null), 'move_entry'),
         'move.submit'
@@ -134,6 +134,316 @@ function chordFor(event) {
         resolverContext.keymapActionForEvent(minusEvent, 'history'),
         'history.previous'
     );
+
+    // Settings search must use the label that is actually visible in the
+    // current UI language. Execute the real renderKeymap() function rather than
+    // source-matching it so the shipping WebView filter and visible heading stay
+    // one semantic contract.
+    class SettingsNode {
+        constructor() {
+            this._textContent = '';
+            this.children = [];
+            this.value = '';
+            this.readOnly = false;
+            this.id = '';
+            this.classList = {add() {}, remove() {}};
+            this.attributes = new Map();
+        }
+        get textContent() { return this._textContent; }
+        set textContent(value) {
+            this._textContent = String(value);
+            if (value === '') this.children = [];
+        }
+        appendChild(child) { this.children.push(child); return child; }
+        setAttribute(name, value) { this.attributes.set(name, String(value)); }
+        addEventListener() {}
+        contains(node) { return this === node || this.children.some(child => child.contains && child.contains(node)); }
+        focus() { settingsSearchContext.document.activeElement = this; }
+    }
+    const settingsSearch = new SettingsNode();
+    const settingsContextFilter = new SettingsNode();
+    const settingsList = new SettingsNode();
+    const settingsElements = new Map([
+        ['key-search', settingsSearch],
+        ['key-context', settingsContextFilter],
+        ['key-list', settingsList],
+    ]);
+    for (const id of [
+        'h-settings', 'language-label', 'open-keymap', 'h-keyboard',
+        'key-search-label', 'key-context-label', 'key-reset-context',
+        'key-reset-all', 'key-export', 'key-import-label', 'close-keymap',
+    ]) settingsElements.set(id, new SettingsNode());
+    const settingsSearchContext = {
+        keymap: [{
+            id: 'board.material',
+            labelUk: 'Матеріал',
+            labelEn: 'Material',
+            registryContext: 'board',
+            context: 'board',
+            binding: null,
+            alias: null,
+            defaultBinding: null,
+            defaultAlias: null,
+        }],
+        populateContextFilter() {},
+        el(id) {
+            function find(node) {
+                if (node.id === id) return node;
+                for (const child of node.children) {
+                    const match = find(child);
+                    if (match) return match;
+                }
+                return null;
+            }
+            return settingsElements.get(id) || find(settingsList);
+        },
+        setText(id, text) { const node = settingsElements.get(id); if (node) node.textContent = String(text || ''); },
+        document: {
+            documentElement: {lang: 'en'},
+            activeElement: null,
+            createElement() { return new SettingsNode(); },
+        },
+        previewKeymap: async () => ({status: 'ok'}),
+        api: () => null,
+        centralKeymap: false,
+        capture: null,
+        captureStops: 0,
+        stopCapture() { settingsSearchContext.captureStops += 1; settingsSearchContext.capture = null; },
+        announce() {},
+    };
+    settingsSearchContext.window = settingsSearchContext;
+    vm.createContext(settingsSearchContext);
+    vm.runInContext([
+        indexFunction('keymapContextLabel'),
+        indexFunction('renderKeymap'),
+        indexFunction('applyKeymapLanguage'),
+    ].join('\n'), settingsSearchContext, {
+        filename: 'index-keymap-settings-search.js',
+    });
+
+    settingsSearchContext.applyKeymapLanguage();
+    assert.strictEqual(settingsElements.get('h-settings').textContent, 'Settings');
+    assert.strictEqual(settingsElements.get('open-keymap').textContent, 'Keyboard and commands');
+    assert.strictEqual(settingsElements.get('key-search-label').textContent, 'Search');
+    assert.strictEqual(settingsElements.get('key-reset-all').textContent, 'Restore all');
+    assert.strictEqual(settingsElements.get('key-import-label').textContent, 'Import');
+    assert.strictEqual(settingsElements.get('close-keymap').textContent, 'Close');
+
+    settingsSearch.value = 'material';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsList.children.length, 1, 'English visible label must be searchable');
+    assert.strictEqual(settingsList.children[0].children[0].textContent, 'Material');
+
+    settingsSearchContext.document.documentElement.lang = 'uk';
+    settingsSearchContext.applyKeymapLanguage();
+    assert.strictEqual(settingsElements.get('h-settings').textContent, 'Налаштування');
+    assert.strictEqual(settingsElements.get('open-keymap').textContent, 'Клавіатура і команди');
+    assert.strictEqual(settingsElements.get('key-search-label').textContent, 'Пошук');
+    assert.strictEqual(settingsElements.get('key-reset-all').textContent, 'Відновити всі');
+    assert.strictEqual(settingsElements.get('key-import-label').textContent, 'Імпорт');
+    assert.strictEqual(settingsElements.get('close-keymap').textContent, 'Закрити');
+    settingsSearch.value = 'material';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(
+        settingsList.children.length,
+        0,
+        'hidden English label must not pollute Ukrainian localized search'
+    );
+
+    settingsSearch.value = 'матеріал';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsList.children.length, 1, 'Ukrainian visible label must be searchable');
+    assert.strictEqual(settingsList.children[0].children[0].textContent, 'Матеріал');
+
+    // Settings rebuild must restore the same semantic Save control instead of
+    // dropping NVDA/keyboard focus into the document body. If filtering removes
+    // that action, focus returns to the stable search field.
+    const firstRow = settingsList.children[0];
+    const firstSave = firstRow.children.find(child => child.id === 'binding-save-board-material');
+    const firstCapture = firstRow.children.find(child => child.id === 'binding-capture-board-material');
+    assert.ok(firstSave, 'stable per-action Save id rendered');
+    assert.ok(firstCapture, 'stable per-action capture id rendered');
+    settingsSearchContext.capture = {button: firstCapture};
+    firstSave.focus();
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsSearchContext.capture, null, 'Settings rebuild disarms removed capture node');
+    assert.strictEqual(settingsSearchContext.captureStops, 1, 'Settings rebuild stops capture exactly once');
+    assert.notStrictEqual(settingsSearchContext.document.activeElement, firstSave, 'rebuild replaces row nodes');
+    assert.strictEqual(
+        settingsSearchContext.document.activeElement.id,
+        'binding-save-board-material',
+        'Settings rebuild must restore the same semantic Save control'
+    );
+    settingsSearch.value = 'no such action';
+    settingsSearchContext.renderKeymap();
+    assert.strictEqual(settingsList.children.length, 0);
+    assert.strictEqual(
+        settingsSearchContext.document.activeElement,
+        settingsSearch,
+        'removed focused row must fall back to Settings search'
+    );
+    settingsSearch.value = 'матеріал';
+    settingsSearchContext.document.activeElement = null;
+    settingsSearchContext.renderKeymap();
+
+    // Execute the real shortcut-capture transaction. Tab must end capture while
+    // remaining native focus navigation, and a backend result arriving after
+    // Escape must not resurrect the cancelled shortcut or steal focus.
+    let captureKeydown = null;
+    let resolveCapture = null;
+    const captureAnnouncements = [];
+    const captureButton = {
+        textContent: '',
+        attributes: new Map(),
+        classList: {add() {}, remove() {}},
+        focusCalls: 0,
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        focus() { this.focusCalls += 1; },
+    };
+    const captureInput = {
+        value: '',
+        focusCalls: 0,
+        focus() { this.focusCalls += 1; },
+    };
+    const captureStatus = {textContent: ''};
+    const captureContext = {
+        capture: null,
+        centralKeymap: true,
+        api: () => ({
+            keymap_capture_shortcut() {
+                return new Promise(resolve => { resolveCapture = resolve; });
+            },
+        }),
+        eventChord: chordFor,
+        announce(message) { captureAnnouncements.push(message); },
+        document: {
+            documentElement: {lang: 'en'},
+            addEventListener(type, listener) {
+                if (type === 'keydown') captureKeydown = listener;
+            },
+        },
+    };
+    captureContext.window = captureContext;
+    vm.createContext(captureContext);
+    vm.runInContext([
+        indexFunction('stopCapture'),
+        indexFunction('beginCapture'),
+        indexLineContaining("document.addEventListener('keydown',async e=>{if(!capture)return;"),
+    ].join('\n'), captureContext, {filename: 'index-keymap-capture-transaction.js'});
+    assert.ok(captureKeydown, 'shortcut capture keydown handler installed');
+
+    captureContext.beginCapture({id: 'board.material'}, captureInput, captureStatus, captureButton);
+    const tabDuringCapture = eventFor('Tab', captureButton);
+    await captureKeydown(tabDuringCapture);
+    assert.strictEqual(tabDuringCapture.prevented, false, 'Tab remains native navigation');
+    assert.strictEqual(captureContext.capture, null, 'Tab disarms shortcut capture');
+    assert.strictEqual(captureButton.textContent, 'New shortcut');
+
+    captureContext.beginCapture({id: 'board.material'}, captureInput, captureStatus, captureButton);
+    const capturedK = eventFor('k', captureButton);
+    capturedK.ctrlKey = true;
+    const pendingCapture = captureKeydown(capturedK);
+    assert.strictEqual(capturedK.prevented, true, 'captured shortcut is browser-owned');
+    assert.ok(resolveCapture, 'backend shortcut validation is pending');
+    const escapeDuringPending = eventFor('Escape', captureButton);
+    await captureKeydown(escapeDuringPending);
+    assert.strictEqual(escapeDuringPending.prevented, true);
+    assert.strictEqual(captureContext.capture, null, 'Escape cancels pending capture');
+    resolveCapture({reason: 'captured', binding: 'Ctrl+K', status: 'ok', message: ''});
+    await pendingCapture;
+    assert.strictEqual(captureInput.value, '', 'late backend result cannot resurrect cancelled binding');
+    assert.strictEqual(captureInput.focusCalls, 0, 'late backend result cannot steal focus');
+    assert.ok(captureAnnouncements.includes('Cancelled.'), 'English cancellation is announced');
+
+    // A successful backend mutation must not report success when canonical
+    // keymap reload fails. A malformed optimistic snapshot may fall back once
+    // to the canonical bridge snapshot, but success is reported only after that
+    // authoritative snapshot actually installs.
+    const recoveryAnnouncements = [];
+    let recoveryMode = 'fail';
+    let recoverySnapshotCalls = 0;
+    const canonicalRecoverySnapshot = {
+        actions: [{
+            id: 'screen.help',
+            labelUk: 'Довідка',
+            labelEn: 'Help',
+            registryContext: 'global',
+            context: 'global',
+            binding: 'F1',
+            defaultBinding: 'F1',
+            alias: null,
+            defaultAlias: null,
+        }],
+    };
+    const keymapRecoveryContext = {
+        keymapBase: null,
+        keymap: [],
+        keymapReady: true,
+        centralKeymap: true,
+        document: {documentElement: {lang: 'en'}},
+        el: () => null,
+        populateContextFilter() {},
+        renderKeymap() {},
+        renderHelp() {},
+        announce(message) { recoveryAnnouncements.push(message); },
+        api() {
+            return {
+                async keymap_snapshot() {
+                    recoverySnapshotCalls += 1;
+                    if (recoveryMode === 'fail') throw new Error('bridge unavailable');
+                    return canonicalRecoverySnapshot;
+                },
+            };
+        },
+        async fetch() { throw new Error('unexpected static fallback'); },
+    };
+    keymapRecoveryContext.window = keymapRecoveryContext;
+    vm.createContext(keymapRecoveryContext);
+    vm.runInContext([
+        indexFunction('keymapRecoveryText'),
+        indexFunction('renderKeymapRecovery'),
+        indexFunction('installKeymapSnapshot'),
+        indexFunction('loadKeymap'),
+        indexFunction('applyKeymapMutation'),
+    ].join('\n'), keymapRecoveryContext, {filename: 'index-keymap-refresh-recovery.js'});
+
+    recoveryAnnouncements.length = 0;
+    recoveryMode = 'fail';
+    recoverySnapshotCalls = 0;
+    let mutationApplied = await keymapRecoveryContext.applyKeymapMutation({
+        ok: true,
+        message: 'Saved',
+    });
+    assert.strictEqual(mutationApplied, false, 'reload failure must fail the UI mutation');
+    assert.strictEqual(recoverySnapshotCalls, 1, 'canonical reload attempted once');
+    assert.ok(recoveryAnnouncements.includes('Keyboard settings unavailable.'));
+    assert.strictEqual(
+        recoveryAnnouncements.includes('Saved'),
+        false,
+        'failed refresh must not announce backend success'
+    );
+
+    recoveryAnnouncements.length = 0;
+    recoveryMode = 'good';
+    recoverySnapshotCalls = 0;
+    mutationApplied = await keymapRecoveryContext.applyKeymapMutation({
+        ok: true,
+        snapshot: {actions: null},
+        message: 'Saved',
+    });
+    assert.strictEqual(mutationApplied, true, 'canonical reload may recover malformed optimistic snapshot');
+    assert.strictEqual(recoverySnapshotCalls, 1, 'malformed optimistic snapshot re-fetches authority once');
+    assert.strictEqual(keymapRecoveryContext.keymap.length, 1);
+    assert.strictEqual(keymapRecoveryContext.keymap[0].id, 'screen.help');
+    assert.ok(recoveryAnnouncements.includes('Saved'));
+
+    recoveryAnnouncements.length = 0;
+    recoveryMode = 'fail';
+    recoverySnapshotCalls = 0;
+    keymapRecoveryContext.keymapReady = false;
+    const initialLoad = await keymapRecoveryContext.loadKeymap();
+    assert.strictEqual(initialLoad, false);
+    assert.strictEqual(keymapRecoveryContext.keymapReady, false, 'initial load failure remains unready');
 
     // Execute the real document-level keydown handler. Editable controls retain
     // remapped Help and the pre-existing exact Alt+analysis path while refusing

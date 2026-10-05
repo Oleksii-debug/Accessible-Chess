@@ -218,7 +218,10 @@ class BookWebViewProjection:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(presenter, BookReaderPresenter):
+        # The projection owns the browser/NVDA publication boundary. Accept only
+        # the canonical presenter so provider-defined subclasses cannot override
+        # current(), navigation, language, or board-handoff behavior.
+        if type(presenter) is not BookReaderPresenter:
             raise TypeError("presenter must be BookReaderPresenter")
         if not callable(dispatch):
             raise TypeError("book dispatcher must be callable")
@@ -274,8 +277,8 @@ class BookWebViewProjection:
         return BookWebViewEvent("render", {"snapshot": snapshot, "focus_target": ""})
 
     def _snapshot_from_block(self, block: BookBlockView) -> dict[str, object]:
-        if not isinstance(block, BookBlockView):
-            raise TypeError("BookReaderPresenter must return BookBlockView")
+        if type(block) is not BookBlockView:
+            raise TypeError("BookReaderPresenter must return exact BookBlockView")
         if (
             type(block.index) is not int
             or block.index < 0
@@ -372,10 +375,16 @@ class BookWebViewProjection:
             raise ValueError("book heading path contains an empty visible part")
         labels = _LABELS[self._language]
         navigation = self._presenter.navigation_availability()
-        if not isinstance(navigation, Mapping) or set(navigation) != _NAVIGATION_KEYS:
+        # Presenter navigation is a trust boundary just like BookBlockView.
+        # Require the canonical built-in container before iteration, hashing,
+        # equality or lookup can invoke provider-defined hooks.
+        if type(navigation) is not dict or len(navigation) != len(_NAVIGATION_KEYS):
             raise ValueError("book navigation availability schema is invalid")
-        if any(type(navigation[key]) is not bool for key in _NAVIGATION_KEYS):
-            raise ValueError("book navigation availability flags are invalid")
+        for key, value in navigation.items():
+            if type(key) is not str or key not in _NAVIGATION_KEYS:
+                raise ValueError("book navigation availability schema is invalid")
+            if type(value) is not bool:
+                raise ValueError("book navigation availability flags are invalid")
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "heading": labels["heading"],
@@ -516,10 +525,11 @@ class BookWebViewProjection:
             raise
 
     def open_position(self) -> BookWebViewEvent:
-        # Complete presentation validation before the irreversible board handoff.
-        # A local announcement/schema failure must never activate Book Board while
-        # the browser receives an error and remains on the reading surface.
+        # Complete the exact WebView presentation contract before the irreversible
+        # board handoff. A local semantic/schema failure must never activate Book
+        # Board while the browser remains on a reading surface it could not render.
         announcement = self._result_announcement("opened")
+        self.snapshot()
         # Presenter supplies FEN directly to the canonical dispatcher. Discard the
         # backend return value and expose no FEN/path/provider payload to WebView.
         self._presenter.open_current_position(self._dispatch)
@@ -530,6 +540,7 @@ class BookWebViewProjection:
 
     def open_game(self) -> BookWebViewEvent:
         announcement = self._result_announcement("game_opened")
+        self.snapshot()
         self._presenter.open_current_game(self._dispatch)
         return BookWebViewEvent(
             "delegated",

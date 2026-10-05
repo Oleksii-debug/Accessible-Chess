@@ -16,6 +16,8 @@ presentation-safe Book error.
 """
 
 from .acsdb import AcsDatabase
+from .bookdocument import Game
+from .game_identity import identity_for_game
 from .gametree import GameTreeSerializationError, PgnGame, serialize_game
 from .pgn_roundtrip import (
     MAX_PGN_LEXICAL_TOKENS,
@@ -135,3 +137,14 @@ class AcsdbBookGameLookup:
         except GameTreeSerializationError:
             raise BookLibraryGameLookupError("stored book game is not canonical") from None
         return game
+
+    def make_book_reference(self, game_id: int, *, title: str | None = None,
+                            block_id: str | None = None, source_anchor: str | None = None) -> Game:
+        """Bind authoring material to the canonical record, not only a local row ID.
+
+        Legacy ID-only blocks remain database-local for compatibility. New
+        references created here fail closed if that ID is reused or edited.
+        """
+        game = self.load_book_game(game_id)
+        return Game(game_id=game_id, game_record_digest=identity_for_game(game).record_digest,
+                    title=title, block_id=block_id, source_anchor=source_anchor)

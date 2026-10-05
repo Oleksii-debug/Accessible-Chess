@@ -24,10 +24,20 @@ def test_rows_are_searchable_localized_and_expose_context_and_defaults():
     found = model.rows(query="перейти")
     assert [x.action_id for x in found] == ["history.go_to_move"]
 
+    # The accessible search contract includes the visible localized context,
+    # not the internal English registry token. This lets a Ukrainian user find
+    # intentionally unbound actions such as Material by searching for "Дошка".
+    board_found = model.rows(query="дошка")
+    assert "board.material" in {x.action_id for x in board_found}
+    assert board_found
+    assert all(x.context == "board" for x in board_found)
+    assert model.rows(query="board") == ()
+
     model.set_language("en")
     row_en = _row(model, "history.go_to_move")
     assert row_en.label == "Go to move"
     assert row_en.status_text == "No conflicts."
+    assert "board.material" in {x.action_id for x in model.rows(query="board")}
 
 
 def test_board_context_can_be_filtered_without_visual_table_semantics():
@@ -36,6 +46,48 @@ def test_board_context_can_be_filtered_without_visual_table_semantics():
     assert rows
     assert all(row.context == "board" for row in rows)
     assert {row.action_id for row in rows} >= {"board.attackers", "board.defenders", "board.input"}
+
+
+def test_classroom_context_is_localized_without_exposing_transport_tokens():
+    from acs.full_product_actions import build_full_product_action_registry
+
+    uk_model = KeymapEditorModel(build_full_product_action_registry(), lang="uk")
+    uk_rows = uk_model.rows(context=BindingContext.CLASSROOM_LIST)
+    assert uk_rows
+    assert all(row.context_label == "Список класу" for row in uk_rows)
+
+    en_model = KeymapEditorModel(build_full_product_action_registry(), lang="en")
+    en_rows = en_model.rows(context=BindingContext.CLASSROOM_LIST)
+    assert en_rows
+    assert all(row.context_label == "Classroom list" for row in en_rows)
+
+
+def test_toolbar_context_is_localized():
+    from acs.full_product_actions import build_full_product_action_registry
+
+    uk_model = KeymapEditorModel(build_full_product_action_registry(), lang="uk")
+    uk_rows = uk_model.rows(context=BindingContext.TOOLBAR)
+    assert uk_rows
+    assert all(row.context_label == "Панель інструментів" for row in uk_rows)
+
+    en_model = KeymapEditorModel(build_full_product_action_registry(), lang="en")
+    en_rows = en_model.rows(context=BindingContext.TOOLBAR)
+    assert en_rows
+    assert all(row.context_label == "Toolbar" for row in en_rows)
+
+
+def test_local_profile_context_is_localized():
+    from acs.full_product_actions import build_full_product_action_registry
+
+    uk_model = KeymapEditorModel(build_full_product_action_registry(), lang="uk")
+    uk_rows = uk_model.rows(context=BindingContext.PROFILE_DIALOG)
+    assert uk_rows
+    assert all(row.context_label == "Локальний профіль" for row in uk_rows)
+
+    en_model = KeymapEditorModel(build_full_product_action_registry(), lang="en")
+    en_rows = en_model.rows(context=BindingContext.PROFILE_DIALOG)
+    assert en_rows
+    assert all(row.context_label == "Local profile" for row in en_rows)
 
 
 def test_preview_is_non_mutating_and_reports_exact_conflict_before_save():

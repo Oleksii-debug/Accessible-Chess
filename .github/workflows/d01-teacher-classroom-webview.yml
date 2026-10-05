@@ -8,6 +8,7 @@ on:
       - 'acs/teacher_webview_bridge.py'
       - 'acs/teacher_webview_projection.py'
       - 'acs/version2_final_release.py'
+      - 'tests/js/classroom_surface_dom_test.js'
       - 'tests/js/teacher_surface_dom_test.js'
       - 'tests/test_d09_teacher_canonical_webview_composition.py'
       - 'tests/test_dev1_classroom_web_asset.py'
@@ -69,6 +70,8 @@ jobs:
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
           d01_owner="ce5379cbdd4380fbe38d676efea5a24cec2e5825"
+          classroom_surface_successor="8776ff7770e27e8d9038ef2c26ab7267daef805a"
+          classroom_dom_successor="dc3a29c842762fcbbafdb7fdfdc062e010faf078"
           git cat-file -e "${d01_owner}^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git merge-base --is-ancestor "$d01_owner" HEAD
@@ -80,13 +83,11 @@ jobs:
             acs/teacher_webview_projection.py \
             tests/js/teacher_surface_dom_test.js \
             tests/test_d09_teacher_canonical_webview_composition.py \
-            tests/test_dev1_classroom_web_asset.py \
             tests/test_dev1_classroom_webview_bridge.py \
             tests/test_dev1_classroom_webview_privacy.py \
             tests/test_dev1_classroom_webview_projection.py \
             tests/test_dev1_teacher_webview_projection.py \
             tests/test_teacher_webview_bridge.py \
-            web/full_product_classroom.js \
             web/full_product_teacher.js
           do
             test "$(git rev-parse "HEAD:${path}")" = "$(git rev-parse "${d01_owner}:${path}")" || {
@@ -94,7 +95,19 @@ jobs:
               exit 1
             }
           done
-          printf 'D01 retained authority PASS: owner=%s base=%s\n' "$d01_owner" "$base"
+          classroom_surface="$(git rev-parse HEAD:web/full_product_classroom.js)"
+          classroom_dom="$(git rev-parse HEAD:tests/js/classroom_surface_dom_test.js)"
+          classroom_asset_test="$(git rev-parse HEAD:tests/test_dev1_classroom_web_asset.py)"
+          if [ "$classroom_surface" = '08d560db9a7c490b6beec2ed4f4e58aa957c063f' ]; then
+            test "$classroom_dom" = '64aa04194860b85d5e38f08d4f82d50d2892a7fa'
+            test "$classroom_asset_test" = '3dad9d3bd56e06001ce369231fed6d944de75a42'
+          else
+            test "$classroom_surface" = "$classroom_surface_successor"
+            test "$classroom_dom" = "$classroom_dom_successor"
+            test "$classroom_asset_test" = "$(git rev-parse "$d01_owner:tests/test_dev1_classroom_web_asset.py")"
+          fi
+          printf 'D01 retained authority PASS: owner=%s base=%s classroom_surface=%s classroom_dom=%s\n' \
+            "$d01_owner" "$base" "$classroom_surface_successor" "$classroom_dom_successor"
 
       - name: Compile Teacher and Classroom package
         run: >-
@@ -107,10 +120,12 @@ jobs:
           tests/test_dev1_teacher_webview_projection.py
           tests/test_teacher_webview_bridge.py
 
-      - name: Parse browser assets and run executable Teacher DOM contract
+      - name: Parse browser assets and run executable Teacher/Classroom DOM contracts
         run: |
           node --check web/full_product_classroom.js
           node --check web/full_product_teacher.js
+          node --check tests/js/classroom_surface_dom_test.js
+          node tests/js/classroom_surface_dom_test.js
           node tests/js/teacher_surface_dom_test.js
 
       - name: Teacher canonical-state focused tests

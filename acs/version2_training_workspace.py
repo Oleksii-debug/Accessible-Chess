@@ -43,7 +43,9 @@ class Version2BookTrainingWorkspace:
         progress_root: str | Path,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(reader, BookReader):
+        # Training provenance is bound to the canonical semantic BookReader.
+        # Reject subclasses before any location/document navigation hook can run.
+        if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
         if not isinstance(progress_root, (str, Path)):
             raise TypeError("progress_root must be a filesystem path")
@@ -202,30 +204,30 @@ class Version2BookTrainingWorkspace:
         # must surface as canonical revision drift, never as an internal parser/
         # attribute exception on the Training/NVDA path.
         self.reader.block_snapshot(self.reader.index)
+        indexed_document = self.reader.document_snapshot()
         try:
-            current = resolve_book_training_origin(self.reader.document, material.origin)
+            current = resolve_book_training_origin(indexed_document, material.origin)
         except Exception:
-            # Provenance resolution reads the mutable authoring document. If it
-            # failed because that document changed mid-call, normalize the failure
-            # to BookReader's canonical revision-drift boundary.
+            # Detached indexed provenance is stable; if the live authoring source
+            # changed while this work ran, normalize through BookReader's canonical
+            # revision boundary before exposing any implementation error.
             self.reader.block_snapshot(self.reader.index)
             raise
-        # resolve_book_training_origin() operates on BookDocument for provenance
-        # compatibility. Cross-check again because the live document may change
-        # while semantic provenance is being resolved.
         self.reader.block_snapshot(current.index)
-        upper_bound = len(self.reader.document.blocks)
-        for index in range(current.index + 1, upper_bound):
-            block = self.reader.block_snapshot(index)
+        for index in range(current.index + 1, len(indexed_document.blocks)):
+            # The detached document is already bound to the indexed revision.
+            # Revalidating the entire live book for every intervening prose block
+            # makes Continue availability quadratic in book length. Traverse this
+            # snapshot, then revalidate before returning any successor or result.
+            block = indexed_document.blocks[index]
             if not isinstance(block, Exercise):
                 continue
             try:
-                candidate = build_book_training_material(self.reader.document, index)
+                candidate = build_book_training_material(indexed_document, index)
             except BookTrainingError:
-                # Distinguish stable malformed authored chess content from a live
-                # revision that changed during derivation. The former stays a
-                # readable Book block; the latter must fail closed.
-                self.reader.block_snapshot(index)
+                # Stable malformed material stays readable. Live authoring drift
+                # is still rejected by the final whole-revision validation; no
+                # intermediate candidate is published or changes the reader.
                 continue
             except Exception:
                 # Never leak implementation exceptions caused by concurrent

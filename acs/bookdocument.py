@@ -9,13 +9,35 @@ Chess position validation is delegated to the canonical chess core.
 """
 
 from dataclasses import dataclass, field
+from itertools import islice
 from enum import Enum
 from typing import Any, Iterable, Iterator
 
 from .chesscore import Board
+from .input_limits import MAX_FEN_CHARS
 
 
 BOOK_DOCUMENT_SCHEMA_VERSION = 1
+MAX_BOOK_DOCUMENT_BLOCKS = 50_000
+MAX_BOOK_DOCUMENT_WARNINGS = 4_096
+MAX_BOOK_DOCUMENT_FIELDS = 9
+# Scalar/list ceilings preserve the widest currently supported canonical content
+# while ensuring malformed exact built-ins fail before expensive strip/split scans.
+MAX_BOOK_TEXT_FIELD_CHARS = 12 * 1024 * 1024
+MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
+MAX_BOOK_LIST_ITEMS = 65_536
+MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
+MAX_BOOK_WARNING_TOTAL_CHARS = 12 * 1024 * 1024
+# Durable BookIndex target keys are capped at 4096 characters. These limits
+# preserve the widest identifier that still fits its canonical target prefix.
+MAX_BOOK_BLOCK_ID_CHARS = 4_090
+MAX_BOOK_SOURCE_ANCHOR_CHARS = 4_089
+# Whole-document semantic text is bounded independently of per-field limits.
+# 256 MiB is twice the widest supported EPUB uncompressed-source envelope,
+# leaving deterministic headroom for generated semantic identifiers/provenance
+# while preventing direct/persisted BookDocument payloads from multiplying the
+# 12/64 MiB per-field ceilings across tens of thousands of blocks.
+MAX_BOOK_DOCUMENT_TOTAL_TEXT_CHARS = 256 * 1024 * 1024
 
 
 class BookDocumentErrorCode(str, Enum):
@@ -35,9 +57,19 @@ class BookDocumentError(ValueError):
 
 def _required_text(value: object, field_name: str) -> str:
     # Canonical Book payloads originate from JSON/text importers and therefore
-    # use built-in strings. Reject subclasses before calling strip() so hostile
-    # Python-side ingress cannot execute custom text hooks inside validation.
-    if type(value) is not str or not value.strip():
+    # use built-in strings. Reject subclasses and oversized exact strings before
+    # strip() so malformed input cannot execute hooks or force an unbounded scan.
+    if type(value) is not str:
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical text field limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if not value.strip():
         raise BookDocumentError(
             f"{field_name} must be non-empty text",
             code=BookDocumentErrorCode.INVALID_FIELD,
@@ -51,10 +83,151 @@ def _optional_text(value: object, field_name: str) -> str | None:
     return _required_text(value, field_name)
 
 
-def _optional_identifier(value: object, field_name: str) -> str | None:
-    text = _optional_text(value, field_name)
-    return None if text is None else text.strip()
+def _optional_identifier(
+    value: object,
+    field_name: str,
+    *,
+    max_chars: int,
+) -> str | None:
+    if value is None:
+        return None
+    # Reject provider-defined text subclasses and impossible target identities
+    # before len/strip/hash work owned by the semantic navigation boundary.
+    if type(value) is not str or len(value) > max_chars:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical identifier limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    return _required_text(value, field_name).strip()
 
+
+def _required_pgn_text(value: object, field_name: str) -> str:
+    if type(value) is not str:
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_PGN_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical PGN text limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if not value.strip():
+        raise BookDocumentError(
+            f"{field_name} must be non-empty text",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    return value
+
+
+def _optional_pgn_text(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _required_pgn_text(value, field_name)
+
+
+def _validate_warning_list(
+    value: object,
+    *,
+    container_message: str,
+) -> list[str]:
+    if type(value) is not list:
+        raise BookDocumentError(
+            container_message,
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    if len(value) > MAX_BOOK_DOCUMENT_WARNINGS:
+        raise BookDocumentError(
+            f"BookDocument supports at most {MAX_BOOK_DOCUMENT_WARNINGS} warnings",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    total_chars = 0
+    for warning in value:
+        if type(warning) is not str:
+            raise BookDocumentError(
+                container_message,
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        total_chars += len(warning)
+        if total_chars > MAX_BOOK_WARNING_TOTAL_CHARS:
+            raise BookDocumentError(
+                "BookDocument warning text exceeds the canonical aggregate limit",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if not warning.strip():
+            raise BookDocumentError(
+                container_message,
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+    return value
+
+
+def _add_document_text_chars(total: int, value: object) -> int:
+    """Add canonical semantic text to the whole-document resource budget.
+
+    Callers pass only already-canonical BookDocument wire values. The helper
+    nevertheless keeps an exact built-in boundary so future schema additions
+    cannot silently introduce active containers or unbounded nested traversal.
+    Structural kind values are excluded by the block helper below; durable
+    identifiers, metadata, warnings and reader-visible/chess text all count.
+    """
+
+    if value is None or type(value) in {bool, int}:
+        return total
+    if type(value) is str:
+        total += len(value)
+        if total > MAX_BOOK_DOCUMENT_TOTAL_TEXT_CHARS:
+            raise BookDocumentError(
+                "BookDocument text exceeds the canonical aggregate limit",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        return total
+    if type(value) is list:
+        for item in value:
+            if type(item) is not str:
+                raise BookDocumentError(
+                    "BookDocument aggregate text contains an unsupported value",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+            total += len(item)
+            if total > MAX_BOOK_DOCUMENT_TOTAL_TEXT_CHARS:
+                raise BookDocumentError(
+                    "BookDocument text exceeds the canonical aggregate limit",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+        return total
+    raise BookDocumentError(
+        "BookDocument aggregate text contains an unsupported value",
+        code=BookDocumentErrorCode.INVALID_FIELD,
+    )
+
+
+def _document_metadata_text_chars(
+    *,
+    title: str,
+    language: str | None,
+    author: str | None,
+    source_name: str | None,
+    source_uri: str | None,
+    source_rights: str | None,
+) -> int:
+    total = 0
+    for value in (title, language, author, source_name, source_uri, source_rights):
+        total = _add_document_text_chars(total, value)
+    return total
+
+
+def _add_block_payload_text_chars(total: int, payload: dict[str, Any]) -> int:
+    if type(payload) is not dict:
+        raise BookDocumentError(
+            "Book block export must be a built-in mapping",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    for key, value in payload.items():
+        if key == "kind":
+            continue
+        total = _add_document_text_chars(total, value)
+    return total
 
 def _fen_text(value: object, field_name: str) -> str:
     """Validate a Book FEN through the one canonical Board contract.
@@ -64,6 +237,11 @@ def _fen_text(value: object, field_name: str) -> str:
     legality rules. A rejected value never becomes a published semantic block.
     """
 
+    if type(value) is str and len(value) > MAX_FEN_CHARS:
+        raise BookDocumentError(
+            f"{field_name} exceeds the canonical FEN input limit",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
     text = _required_text(value, field_name).strip()
     fields = text.split()
     if len(fields) not in {4, 6}:
@@ -87,8 +265,16 @@ class BookBlock:
     source_anchor: str | None = None
 
     def __post_init__(self) -> None:
-        self.block_id = _optional_identifier(self.block_id, "block_id")
-        self.source_anchor = _optional_identifier(self.source_anchor, "source_anchor")
+        self.block_id = _optional_identifier(
+            self.block_id,
+            "block_id",
+            max_chars=MAX_BOOK_BLOCK_ID_CHARS,
+        )
+        self.source_anchor = _optional_identifier(
+            self.source_anchor,
+            "source_anchor",
+            max_chars=MAX_BOOK_SOURCE_ANCHOR_CHARS,
+        )
 
     @property
     def kind(self) -> str:
@@ -155,8 +341,25 @@ class ListBlock(BookBlock):
                 "List items must be a non-empty list of text items",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(self.items) > MAX_BOOK_LIST_ITEMS:
+            raise BookDocumentError(
+                f"List supports at most {MAX_BOOK_LIST_ITEMS} items",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         validated_items: list[str] = []
+        total_chars = 0
         for item in self.items:
+            if type(item) is not str:
+                raise BookDocumentError(
+                    "List item must be non-empty text",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
+            total_chars += len(item)
+            if total_chars > MAX_BOOK_LIST_TOTAL_CHARS:
+                raise BookDocumentError(
+                    "List text exceeds the canonical aggregate limit",
+                    code=BookDocumentErrorCode.INVALID_FIELD,
+                )
             validated_items.append(_required_text(item, "List item"))
         if type(self.ordered) is not bool:
             raise BookDocumentError(
@@ -207,6 +410,7 @@ class Game(BookBlock):
     pgn: str = ""
     title: str | None = None
     game_id: int | None = None
+    game_record_digest: str | None = None
 
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
@@ -215,7 +419,22 @@ class Game(BookBlock):
                 "Game PGN must be text",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if len(self.pgn) > MAX_BOOK_PGN_CHARS:
+            raise BookDocumentError(
+                "Game PGN exceeds the canonical PGN text limit",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         self.title = _optional_text(self.title, "Game title")
+        if self.game_record_digest is not None and (
+            type(self.game_record_digest) is not str
+            or len(self.game_record_digest) != 64
+            or any(character not in "0123456789abcdef" for character in self.game_record_digest)
+            or self.game_id is None
+        ):
+            raise BookDocumentError(
+                "Game record digest requires a referenced game and canonical SHA-256 identity",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         if self.game_id is not None and (
             type(self.game_id) is not int or self.game_id < 0
         ):
@@ -239,7 +458,7 @@ class VariationTree(BookBlock):
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
         self.root_fen = _fen_text(self.root_fen, "VariationTree root_fen")
-        self.pgn = _required_text(self.pgn, "VariationTree PGN")
+        self.pgn = _required_pgn_text(self.pgn, "VariationTree PGN")
         self.title = _optional_text(self.title, "VariationTree title")
 
 
@@ -255,7 +474,7 @@ class Exercise(BookBlock):
         BookBlock.__post_init__(self)
         self.fen = _fen_text(self.fen, "Exercise FEN")
         self.prompt = _required_text(self.prompt, "Exercise prompt")
-        self.solution_pgn = _optional_text(
+        self.solution_pgn = _optional_pgn_text(
             self.solution_pgn,
             "Exercise solution_pgn",
         )
@@ -298,6 +517,9 @@ _BLOCK_TYPES = {
     "Note": Note,
 }
 _SEMANTIC_BLOCK_TYPES = tuple(_BLOCK_TYPES.values())
+_MAX_BOOK_BLOCK_FIELDS = 1 + max(
+    len(cls.__dataclass_fields__) for cls in _SEMANTIC_BLOCK_TYPES
+)
 
 
 def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
@@ -306,6 +528,13 @@ def block_from_dict(data: dict[str, Any]) -> SemanticBlock:
         raise BookDocumentError(
             "Book block must be a built-in mapping",
             code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+    # Reject impossible payload width from O(1) built-in dict metadata before
+    # materializing keys.  One extra slot is reserved for the wire-only "kind".
+    if len(data) > _MAX_BOOK_BLOCK_FIELDS:
+        raise BookDocumentError(
+            "Book block contains too many fields",
+            code=BookDocumentErrorCode.UNKNOWN_FIELD,
         )
     # Inspect exact built-in key objects before dictionary/set operations can
     # invoke attacker-controlled __hash__/__eq__ hooks from exotic key types.
@@ -356,9 +585,17 @@ class BookDocument:
         self.source_name = _optional_text(self.source_name, "Book source_name")
         self.source_uri = _optional_text(self.source_uri, "Book source_uri")
         self.source_rights = _optional_text(self.source_rights, "Book source_rights")
-        if type(self.blocks) is not list or not all(
-            type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks
-        ):
+        if type(self.blocks) is not list:
+            raise BookDocumentError(
+                "Book blocks must be a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(self.blocks) > MAX_BOOK_DOCUMENT_BLOCKS:
+            raise BookDocumentError(
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks):
             raise BookDocumentError(
                 "Book blocks must be a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
@@ -367,42 +604,58 @@ class BookDocument:
         # enforce the same live-state validator already used by append()/extend()
         # so a block corrupted after its own __post_init__ cannot become part of
         # a canonical BookDocument and fail only later at export or resolution.
+        total_text = _document_metadata_text_chars(
+            title=self.title,
+            language=self.language,
+            author=self.author,
+            source_name=self.source_name,
+            source_uri=self.source_uri,
+            source_rights=self.source_rights,
+        )
         for block in self.blocks:
-            block.as_dict()
-        if type(self.warnings) is not list or not all(
-            type(warning) is str and warning.strip()
-            for warning in self.warnings
-        ):
-            raise BookDocumentError(
-                "Book warnings must be a list of non-empty strings",
-                code=BookDocumentErrorCode.INVALID_FIELD,
-            )
+            total_text = _add_block_payload_text_chars(total_text, block.as_dict())
+        _validate_warning_list(
+            self.warnings,
+            container_message="Book warnings must be a list of non-empty strings",
+        )
+        _add_document_text_chars(total_text, self.warnings)
         self.blocks = list(self.blocks)
         self.warnings = list(self.warnings)
 
     def append(self, block: SemanticBlock) -> SemanticBlock:
         # Mutation is allowed only from a valid live document. Do not let a new
         # block publication hide pre-existing metadata/container corruption.
-        self._validate_export_state()
+        total_text = self._validate_export_state()
         if type(block) not in _SEMANTIC_BLOCK_TYPES:
             raise BookDocumentError(
                 "Book block type is unsupported",
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
             )
-        block.as_dict()
+        if len(self.blocks) >= MAX_BOOK_DOCUMENT_BLOCKS:
+            raise BookDocumentError(
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        _add_block_payload_text_chars(total_text, block.as_dict())
         self.blocks.append(block)
         return block
 
     def extend(self, blocks: Iterable[SemanticBlock]) -> None:
-        self._validate_export_state()
-        additions = list(blocks)
+        total_text = self._validate_export_state()
+        remaining = MAX_BOOK_DOCUMENT_BLOCKS - len(self.blocks)
+        additions = list(islice(iter(blocks), remaining + 1))
+        if len(additions) > remaining:
+            raise BookDocumentError(
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in additions):
             raise BookDocumentError(
                 "Book block type is unsupported",
                 code=BookDocumentErrorCode.UNSUPPORTED_BLOCK_KIND,
             )
         for block in additions:
-            block.as_dict()
+            total_text = _add_block_payload_text_chars(total_text, block.as_dict())
         self.blocks.extend(additions)
 
     def iter_kind(self, kind: type[SemanticBlock]) -> Iterator[SemanticBlock]:
@@ -450,30 +703,44 @@ class BookDocument:
                 warnings.append(f"diagram at block {index} has no alt_text")
         return warnings
 
-    def _validate_export_state(self) -> None:
-        _required_text(self.title, "Book title")
-        _optional_text(self.language, "Book language")
-        _optional_text(self.author, "Book author")
-        _optional_text(self.source_name, "Book source_name")
-        _optional_text(self.source_uri, "Book source_uri")
-        _optional_text(self.source_rights, "Book source_rights")
-        if type(self.blocks) is not list or not all(
-            type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks
-        ):
+    def _validate_export_state(self) -> int:
+        title = _required_text(self.title, "Book title")
+        language = _optional_text(self.language, "Book language")
+        author = _optional_text(self.author, "Book author")
+        source_name = _optional_text(self.source_name, "Book source_name")
+        source_uri = _optional_text(self.source_uri, "Book source_uri")
+        source_rights = _optional_text(self.source_rights, "Book source_rights")
+        if type(self.blocks) is not list:
             raise BookDocumentError(
                 "Book blocks must remain a list of supported semantic blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        if type(self.warnings) is not list or not all(
-            type(warning) is str and warning.strip()
-            for warning in self.warnings
-        ):
+        if len(self.blocks) > MAX_BOOK_DOCUMENT_BLOCKS:
             raise BookDocumentError(
-                "Book warnings must remain a list of non-empty strings",
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        if not all(type(block) in _SEMANTIC_BLOCK_TYPES for block in self.blocks):
+            raise BookDocumentError(
+                "Book blocks must remain a list of supported semantic blocks",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        _validate_warning_list(
+            self.warnings,
+            container_message="Book warnings must remain a list of non-empty strings",
+        )
+        total_text = _document_metadata_text_chars(
+            title=title,
+            language=language,
+            author=author,
+            source_name=source_name,
+            source_uri=source_uri,
+            source_rights=source_rights,
+        )
+        total_text = _add_document_text_chars(total_text, self.warnings)
         for block in self.blocks:
-            block.as_dict()
+            total_text = _add_block_payload_text_chars(total_text, block.as_dict())
+        return total_text
 
     def as_dict(self) -> dict[str, Any]:
         self._validate_export_state()
@@ -502,6 +769,11 @@ class BookDocument:
             raise BookDocumentError(
                 "BookDocument must be a built-in mapping",
                 code=BookDocumentErrorCode.INVALID_FIELD,
+            )
+        if len(data) > MAX_BOOK_DOCUMENT_FIELDS:
+            raise BookDocumentError(
+                "BookDocument contains too many fields",
+                code=BookDocumentErrorCode.UNKNOWN_FIELD,
             )
         keys = tuple(data)
         if any(type(key) is not str for key in keys):
@@ -541,21 +813,49 @@ class BookDocument:
                 "BookDocument blocks must be a list",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
-        warnings = data.get("warnings", [])
-        if type(warnings) is not list or not all(
-            type(item) is str and item.strip() for item in warnings
-        ):
+        if len(raw_blocks) > MAX_BOOK_DOCUMENT_BLOCKS:
             raise BookDocumentError(
-                "BookDocument warnings must be a list of non-empty strings",
+                f"BookDocument supports at most {MAX_BOOK_DOCUMENT_BLOCKS} blocks",
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
+        warnings = data.get("warnings", [])
+        _validate_warning_list(
+            warnings,
+            container_message="BookDocument warnings must be a list of non-empty strings",
+        )
+
+        # Validate metadata before walking the block list. Direct/persisted
+        # callers therefore cannot hide an invalid or oversized document root
+        # behind expensive semantic block materialization.
+        title = _required_text(data.get("title", ""), "Book title")
+        language = _optional_text(data.get("language"), "Book language")
+        author = _optional_text(data.get("author"), "Book author")
+        source_name = _optional_text(data.get("source_name"), "Book source_name")
+        source_uri = _optional_text(data.get("source_uri"), "Book source_uri")
+        source_rights = _optional_text(data.get("source_rights"), "Book source_rights")
+        total_text = _document_metadata_text_chars(
+            title=title,
+            language=language,
+            author=author,
+            source_name=source_name,
+            source_uri=source_uri,
+            source_rights=source_rights,
+        )
+        total_text = _add_document_text_chars(total_text, warnings)
+
+        blocks: list[SemanticBlock] = []
+        for item in raw_blocks:
+            block = block_from_dict(item)
+            total_text = _add_block_payload_text_chars(total_text, block.as_dict())
+            blocks.append(block)
+
         return cls(
-            title=data.get("title", ""),
-            language=data.get("language"),
-            author=data.get("author"),
-            source_name=data.get("source_name"),
-            source_uri=data.get("source_uri"),
-            source_rights=data.get("source_rights"),
+            title=title,
+            language=language,
+            author=author,
+            source_name=source_name,
+            source_uri=source_uri,
+            source_rights=source_rights,
             warnings=list(warnings),
-            blocks=[block_from_dict(item) for item in raw_blocks],
+            blocks=blocks,
         )

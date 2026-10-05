@@ -20,7 +20,7 @@ from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import Version2Application
-from acs.version2_windows_file_workflows import Version2WindowsFileActionDelegate
+from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
@@ -228,7 +228,7 @@ class Version2ApplicationTests(unittest.TestCase):
 
         snapshot = self.app.snapshot()
         book = snapshot["books"]
-        tree = book["block"].get("semantic_tree")
+        tree = book.get("semantic_tree")
 
         self.assertIsInstance(tree, dict)
         self.assertEqual(tree["players"], "Петренко — Smith")
@@ -471,6 +471,58 @@ class Version2ApplicationTests(unittest.TestCase):
         )
         self.assertEqual(self.app.shell.restore_focus_target(), "book-block-0")
         self.assertEqual(self.app._focus, "book-block-0")
+
+    def test_book_recovery_render_preflight_preserves_published_owners_on_failure(self):
+        book = self.root / "recovery-render-preflight.md"
+        book.write_text(
+            "# Chapter\n\nFirst paragraph.\n\nSecond paragraph.\n",
+            encoding="utf-8",
+        )
+        self.app.open_book(book)
+        self.app.record_focus("book-bookmark-name")
+
+        before_reader = self.app.reader
+        before_workflow = self.app.book_workflow
+        before_delegate = self.app.book_delegate
+        before_books = self.app.books
+        before_training_workspace = self.app.training_workspace
+        before_training = self.app.training
+        before_route = self.app.shell.current_route.route_id
+        before_focus = self.app.shell.restore_focus_target()
+        snapshot = before_reader.snapshot()
+        language = before_books.projection.language
+        bookmark_name = before_books.projection.bookmark_name
+
+        class FailingProjection:
+            def restore_bookmark_name(self, _name):
+                return None
+
+            def snapshot(self):
+                raise ValueError("simulated recovery render preflight failure")
+
+        failing_bridge = SimpleNamespace(projection=FailingProjection())
+
+        with patch(
+            "acs.version2_application.build_version2_book_webview",
+            return_value=failing_bridge,
+        ):
+            with self.assertRaisesRegex(ValueError, "render preflight"):
+                self.app._restore_book_progress(
+                    snapshot,
+                    language=language,
+                    bookmark_name=bookmark_name,
+                )
+
+        self.assertIs(self.app.reader, before_reader)
+        self.assertIs(self.app.book_workflow, before_workflow)
+        self.assertIs(self.app.book_delegate, before_delegate)
+        self.assertIs(self.app.books, before_books)
+        self.assertIs(self.app.training_workspace, before_training_workspace)
+        self.assertIs(self.app.training, before_training)
+        self.assertEqual(self.app.shell.current_route.route_id, before_route)
+        self.assertEqual(self.app.shell.restore_focus_target(), before_focus)
+        self.assertEqual(self.app._focus, before_focus)
+        self.assertEqual(self.app.reader.snapshot(), snapshot)
 
     def test_book_durability_rebind_repairs_stale_book_block_focus(self):
         book = self.root / "durability-rebind-focus.md"

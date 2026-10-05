@@ -12,6 +12,72 @@ const baseOnBoardKey = window.onBoardKey;
 if (typeof baseExecuteAction !== 'function' || typeof apiAction !== 'function') return;
 if (typeof document === 'undefined' || !document.body) return;
 
+// The frozen page already opens Help with `showModal(); el('help').focus()`.
+// Keep that readable text out of the normal Tab sequence while making the
+// intended programmatic focus target real for keyboard and screen-reader users.
+const helpContent = document.getElementById('help');
+if (
+    helpContent
+    && typeof helpContent.hasAttribute === 'function'
+    && typeof helpContent.setAttribute === 'function'
+    && !helpContent.hasAttribute('tabindex')
+) {
+    helpContent.setAttribute('tabindex', '-1');
+}
+
+// Reuse the one canonical live-region publisher while correcting the one
+// historical Ukrainian-only generic action failure for English UI.  This is a
+// presentation adapter, not a second speech/announcement subsystem: every
+// message still flows through the original announce() implementation with the
+// original event identity/deduplication semantics.
+const baseAnnounce = window.announce;
+if (
+    typeof baseAnnounce === 'function'
+    && !window.__accessibleChessLocalizedActionFailureAnnouncement
+) {
+    window.announce = function(message, eventId = null) {
+        const localized = document.documentElement.lang === 'en'
+            && message === 'Не вдалося виконати дію.'
+            ? 'Action could not be completed.'
+            : message;
+        return baseAnnounce(localized, eventId);
+    };
+    window.__accessibleChessLocalizedActionFailureAnnouncement = true;
+}
+
+function currentKeymapImportLimit() {
+    const snapshot = typeof keymapBase !== 'undefined' ? keymapBase : null;
+    const value = snapshot && snapshot.maxImportBytes;
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function installKeymapImportBoundary() {
+    const input = document.getElementById('key-import');
+    if (!input || typeof input.addEventListener !== 'function') return;
+    input.addEventListener('change', event => {
+        const files = event.target && event.target.files;
+        const file = files && files[0];
+        if (!file) return;
+
+        const limit = currentKeymapImportLimit();
+        const size = file.size;
+        if (limit !== null && Number.isSafeInteger(size) && size >= 0 && size <= limit) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.target) event.target.value = '';
+        const en = document.documentElement.lang === 'en';
+        const message = limit === null
+            ? (en ? 'Keyboard profile import is unavailable.' : 'Імпорт профілю клавіш недоступний.')
+            : (en ? 'Keyboard profile is too large.' : 'Профіль клавіш завеликий.');
+        const summary = document.getElementById('key-conflict-summary');
+        if (summary) summary.textContent = message;
+        if (typeof announce === 'function') announce(message);
+    }, {capture: true});
+}
+
+installKeymapImportBoundary();
+
 const boardPythonActions = new Set([
     'board.current', 'board.last_captured', 'board.last_move', 'board.my_clock',
     'board.opponent_clock', 'board.legal_moves', 'board.captures',

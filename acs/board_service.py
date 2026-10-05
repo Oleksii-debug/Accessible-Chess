@@ -13,7 +13,7 @@ PIECE_SYMBOLS = frozenset("PNBRQKpnbrqk")
 
 def _validate_piece(piece: str | None, *, field_name: str) -> None:
     if piece is not None and (
-        not isinstance(piece, str) or piece not in PIECE_SYMBOLS
+        type(piece) is not str or piece not in PIECE_SYMBOLS
     ):
         raise TypeError(f"{field_name} must be a canonical piece symbol or None")
 
@@ -22,7 +22,7 @@ def _validate_optional_text(value: str | None, *, field_name: str) -> None:
     if value is None:
         return
     if (
-        not isinstance(value, str)
+        type(value) is not str
         or not value.strip()
         or "\n" in value
         or "\r" in value
@@ -51,7 +51,7 @@ class MoveView:
         if self.frm == self.to:
             raise ValueError("move endpoints must be distinct")
         _validate_optional_text(self.san, field_name="san")
-        if not isinstance(self.is_capture, bool):
+        if type(self.is_capture) is not bool:
             raise TypeError("is_capture must be boolean")
 
 
@@ -65,32 +65,32 @@ class BoardSnapshot:
     last_captured_piece: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.pieces, tuple) or len(self.pieces) != 64:
+        if type(self.pieces) is not tuple or len(self.pieces) != 64:
             raise ValueError("pieces must contain exactly 64 squares")
         for piece in self.pieces:
             _validate_piece(piece, field_name="pieces entry")
-        if not isinstance(self.turn, str) or self.turn not in {"w", "b"}:
+        if type(self.turn) is not str or self.turn not in {"w", "b"}:
             raise ValueError("turn must be 'w' or 'b'")
         if (
-            not isinstance(self.legal_moves, tuple)
-            or any(not isinstance(move, MoveView) for move in self.legal_moves)
+            type(self.legal_moves) is not tuple
+            or any(type(move) is not MoveView for move in self.legal_moves)
         ):
             raise TypeError("legal_moves must be a tuple of MoveView")
-        if not isinstance(self.attacks, Mapping):
-            raise TypeError("attacks must be a mapping")
+        if type(self.attacks) is not dict:
+            raise TypeError("attacks must be a built-in dict")
         detached_attacks: dict[int, tuple[int, ...]] = {}
         for target, origins in self.attacks.items():
             if type(target) is not int or not 0 <= target < 64:
                 raise ValueError("attack targets must be integers in 0..63")
             if (
-                not isinstance(origins, tuple)
+                type(origins) is not tuple
                 or any(type(origin) is not int or not 0 <= origin < 64 for origin in origins)
             ):
                 raise TypeError("attack origins must be tuples of integers in 0..63")
             if target in origins or len(set(origins)) != len(origins):
                 raise ValueError("attack origins must be distinct and exclude the target")
             detached_attacks[target] = tuple(origins)
-        if self.last_move is not None and not isinstance(self.last_move, MoveView):
+        if self.last_move is not None and type(self.last_move) is not MoveView:
             raise TypeError("last_move must be MoveView or None")
         _validate_piece(self.last_captured_piece, field_name="last_captured_piece")
         object.__setattr__(self, "attacks", MappingProxyType(detached_attacks))
@@ -122,7 +122,7 @@ class SquareView:
     piece: str | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.square, str) or square_name(parse_square(self.square)) != self.square:
+        if type(self.square) is not str or square_name(parse_square(self.square)) != self.square:
             raise ValueError("square must be canonical lowercase algebraic text")
         _validate_piece(self.piece, field_name="piece")
 
@@ -137,15 +137,26 @@ class MaterialView:
     def __post_init__(self) -> None:
         detached: list[dict[str, int]] = []
         for field_name, values in (("white", self.white), ("black", self.black)):
-            if not isinstance(values, Mapping) or set(values) != set(PIECE_VALUES):
-                raise ValueError(f"{field_name} material must contain every canonical piece")
+            if type(values) is not dict:
+                raise TypeError(f"{field_name} material must be a built-in dict")
             copied: dict[str, int] = {}
-            for piece, count in values.items():
-                if piece not in PIECE_VALUES or type(count) is not int or count < 0:
+            for piece in values:
+                if type(piece) is not str or piece not in PIECE_VALUES:
+                    raise TypeError(
+                        f"{field_name} material keys must be canonical piece symbols"
+                    )
+                if piece in copied:
+                    raise ValueError(
+                        f"{field_name} material must contain every canonical piece"
+                    )
+                count = values[piece]
+                if type(count) is not int or count < 0:
                     raise TypeError(
                         f"{field_name} material counts must be non-negative integers"
                     )
                 copied[piece] = count
+            if len(copied) != len(PIECE_VALUES):
+                raise ValueError(f"{field_name} material must contain every canonical piece")
             detached.append(copied)
         for field_name, points in (
             ("white_points", self.white_points),
@@ -180,11 +191,11 @@ class BoardCommandService:
         engine: EngineSnapshot | None = None,
         clocks: ClockSnapshot | None = None,
     ) -> None:
-        if not isinstance(board, BoardSnapshot):
+        if type(board) is not BoardSnapshot:
             raise TypeError("board must be BoardSnapshot")
-        if engine is not None and not isinstance(engine, EngineSnapshot):
+        if engine is not None and type(engine) is not EngineSnapshot:
             raise TypeError("engine must be EngineSnapshot or None")
-        if clocks is not None and not isinstance(clocks, ClockSnapshot):
+        if clocks is not None and type(clocks) is not ClockSnapshot:
             raise TypeError("clocks must be ClockSnapshot or None")
         self.board = board
         self.engine = EngineSnapshot() if engine is None else engine
@@ -280,14 +291,14 @@ class BoardCommandService:
         direction: int = 1,
         color: str | None = None,
     ) -> SquareView | None:
-        if not isinstance(piece_type, str):
+        if type(piece_type) is not str:
             raise TypeError("piece_type must be text")
         kind = piece_type.strip().upper()
         if kind not in PIECE_VALUES:
             raise ValueError(f"unknown piece type: {piece_type!r}")
         if type(direction) is not int or direction not in {-1, 1}:
             raise ValueError("direction must be -1 or 1")
-        if color is not None and not isinstance(color, str):
+        if color is not None and type(color) is not str:
             raise TypeError("color must be text or None")
         target_color = self.board.turn if color is None else color
         if target_color not in {"w", "b"}:
@@ -317,7 +328,7 @@ class BoardCommandService:
         return tuple(SquareView(square_name(base + file_no), self.board.pieces[base + file_no]) for file_no in range(8))
 
     def file(self, file_name: str) -> tuple[SquareView, ...]:
-        if not isinstance(file_name, str):
+        if type(file_name) is not str:
             raise TypeError("file must be text")
         text = file_name.strip().lower()
         if text not in FILES:

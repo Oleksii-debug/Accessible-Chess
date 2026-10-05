@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from .chesscore import Board
 from .full_product_native_menu import install_full_product_windows_native_menu
+from .input_limits import MAX_FEN_CHARS
 from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
@@ -233,8 +234,11 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
     @staticmethod
     def _keymap_context_name(value: object) -> str:
-        raw = getattr(value, "value", value)
-        return str(raw or "").strip().lower()
+        # Public keymap contexts are JSON text. Do not coerce arbitrary objects
+        # before the canonical KeymapService has a chance to reject them.
+        if type(value) is not str:
+            return ""
+        return value.strip().lower()
 
     def _v2_keyboard_fallback_contexts(self, requested_context: object) -> tuple[str, ...]:
         """Map the inherited key owner onto the active V2 registry contexts.
@@ -337,9 +341,15 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
 
         if (
             self._version2_application is not None
-            and isinstance(action_id, str)
+            and type(action_id) is str
             and action_id in VERSION2_FULL_PRODUCT_ACTION_IDS
         ):
+            if square is not None and type(square) is not str:
+                return self._error(
+                    "Дія Version 2 не приймає поле дошки."
+                    if self.lang == "uk"
+                    else "Version 2 action does not accept a board square."
+                )
             if square not in (None, ""):
                 return self._error(
                     "Дія Version 2 не приймає поле дошки."
@@ -399,10 +409,13 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         rejected before the cached projection changes.
         """
 
-        if type(fen) is not str or not fen.strip():
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
+            return {"ok": False}
+        text = fen.strip()
+        if not text:
             return {"ok": False}
         try:
-            canonical = Board(fen).fen()
+            canonical = Board(text).fen()
         except Exception:
             return {"ok": False}
         self._external_review_fen = canonical
@@ -572,18 +585,30 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         richer V2 domain payloads remain owned by their format/library adapters.
         """
 
-        if not isinstance(action_id, str) or not action_id.strip():
+        if type(action_id) is not str:
             raise ValueError("board action id is required")
+        action = action_id.strip()
+        if not action:
+            raise ValueError("board action id is required")
+
         values = {} if payload is None else payload
-        if not isinstance(values, Mapping):
-            raise TypeError("board action payload must be a mapping")
+        if type(values) is not dict:
+            raise TypeError("board action payload must be a canonical dict")
+        if len(values) > 1:
+            raise ValueError("board action payload is not supported")
+
         square: str | None = None
         if values:
-            if set(values) != {"square"} or not isinstance(values.get("square"), str):
+            key = next(iter(values))
+            if type(key) is not str or key != "square":
                 raise ValueError("board action payload is not supported")
-            square = str(values["square"])
-        result = super().dispatch_action(action_id.strip(), square)
-        if not isinstance(result, dict):
+            value = values[key]
+            if type(value) is not str:
+                raise ValueError("board action payload is not supported")
+            square = value
+
+        result = super().dispatch_action(action, square)
+        if type(result) is not dict:
             raise RuntimeError("canonical board action returned an invalid result")
         if result.get("ok") is False:
             raise ValueError("canonical board action was rejected")

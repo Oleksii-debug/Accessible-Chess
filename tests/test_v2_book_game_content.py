@@ -111,6 +111,33 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         source.line.moves[0].san = "corrupted-after-return"
         self.assertEqual(resolved.game.line.moves[0].san, original_san)
 
+    def test_reference_lookup_rejects_pgn_subclass_before_deepcopy_hook(self) -> None:
+        class HostilePgnGame(PgnGame):
+            touched = False
+
+            def __deepcopy__(self, memo):
+                type(self).touched = True
+                raise AssertionError("hostile deepcopy hook must not execute")
+
+        source = parse_games(EMBEDDED_PGN)[0]
+        hostile = HostilePgnGame(
+            tags=dict(source.tags),
+            line=source.line,
+            source_index=source.source_index,
+            warnings=list(source.warnings),
+        )
+        lookup = _Lookup(hostile)
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(Game(game_id=17), lookup=lookup)
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+        self.assertEqual(lookup.calls, [17])
+        self.assertFalse(HostilePgnGame.touched)
+
     def test_reference_backend_failures_do_not_leak_paths_or_provider_details(self) -> None:
         with self.assertRaises(BookGameContentError) as caught:
             resolve_book_game(Game(game_id=9), lookup=_ExplodingLookup())
@@ -128,6 +155,30 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertIsNone(caught.exception.__cause__)
         rendered = "".join(traceback.format_exception(caught.exception))
         self.assertNotIn("404", rendered)
+
+    def test_lookup_port_attribute_failure_is_sanitized(self) -> None:
+        class ExplodingPort:
+            @property
+            def load_book_game(self):
+                raise RuntimeError(
+                    r"C:\Users\Oleksii\private\library.db provider=sqlite"
+                )
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(
+                Game(game_id=3),
+                lookup=ExplodingPort(),  # type: ignore[arg-type]
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_LOOKUP,
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        rendered = "".join(traceback.format_exception(caught.exception))
+        self.assertNotIn("Users", rendered)
+        self.assertNotIn("library.db", rendered)
+        self.assertNotIn("sqlite", rendered)
 
     def test_invalid_lookup_shape_or_return_type_fails_closed(self) -> None:
         class NoPort:
@@ -296,29 +347,93 @@ class BookCanonicalGameContentTests(unittest.TestCase):
         self.assertEqual(resolved.block_id, "snapshot-block")
         self.assertEqual(resolved.source_anchor, "snapshot-anchor")
 
-    def test_snapshot_resolution_preserves_bookdocument_text_subclasses(self) -> None:
-        class Text(str):
-            pass
+    def test_source_selection_rejects_text_subclass_before_enum_hooks(self) -> None:
+        class HostileSource(str):
+            touched = False
 
-        block = Game(
-            pgn=Text(EMBEDDED_PGN),
-            title=Text("Subclass title"),
-            block_id=Text("subclass-block"),
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("hostile hash hook must not execute")
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("hostile equality hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("hostile string hook must not execute")
+
+        with self.assertRaises(BookGameContentError) as caught:
+            resolve_book_game(
+                Game(pgn=EMBEDDED_PGN),
+                source=HostileSource("auto"),
+            )
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
         )
-        resolved = resolve_book_game(block)
-        self.assertEqual(resolved.game.line.moves[0].san, "e4")
-        self.assertEqual(resolved.title, "Subclass title")
-        self.assertEqual(resolved.block_id, "subclass-block")
+        self.assertFalse(HostileSource.touched)
+
+        plain = resolve_book_game(
+            Game(pgn=EMBEDDED_PGN),
+            source="embedded",
+        )
+        self.assertEqual(plain.source, BookGameSource.EMBEDDED)
+
+        with self.assertRaises(BookGameContentError) as non_text:
+            resolve_book_game(
+                Game(pgn=EMBEDDED_PGN),
+                source=0,  # type: ignore[arg-type]
+            )
+        self.assertEqual(
+            non_text.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+
+    def test_mutated_text_subclasses_fail_before_custom_hooks(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("hostile strip hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("hostile string hook must not execute")
 
         variation = VariationTree(
-            root_fen=Text(AFTER_E4_FEN),
-            pgn=Text("1... c5 *"),
-            title=Text("Subclass variation"),
+            root_fen=AFTER_E4_FEN,
+            pgn="1... c5 *",
         )
-        resolved_variation = resolve_book_variation(variation)
-        self.assertEqual(resolved_variation.root_fen, AFTER_E4_FEN)
-        self.assertEqual(resolved_variation.game.line.moves[0].san, "c5")
-        self.assertEqual(resolved_variation.title, "Subclass variation")
+        variation.root_fen = HostileText(AFTER_E4_FEN)
+        with self.assertRaises(BookGameContentError) as root_error:
+            resolve_book_variation(variation)
+        self.assertEqual(
+            root_error.exception.code,
+            BookGameContentErrorCode.INVALID_ROOT_FEN,
+        )
+        self.assertFalse(HostileText.touched)
+
+        game = Game(pgn=EMBEDDED_PGN)
+        game.pgn = HostileText(EMBEDDED_PGN)
+        with self.assertRaises(BookGameContentError) as game_error:
+            resolve_book_game(game)
+        self.assertEqual(
+            game_error.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+        self.assertFalse(HostileText.touched)
+
+        variation = VariationTree(root_fen=AFTER_E4_FEN, pgn="1... c5 *")
+        variation.pgn = HostileText("1... c5 *")
+        with self.assertRaises(BookGameContentError) as variation_error:
+            resolve_book_variation(variation)
+        self.assertEqual(
+            variation_error.exception.code,
+            BookGameContentErrorCode.INVALID_BLOCK,
+        )
+        self.assertFalse(HostileText.touched)
 
     def test_variation_root_change_during_snapshot_fails_closed(self) -> None:
         class ChangesRootDuringSnapshot(VariationTree):

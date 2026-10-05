@@ -23,6 +23,7 @@ from .bookdocument import (
     Heading,
     Position,
     VariationTree,
+    _SEMANTIC_BLOCK_TYPES,
     block_from_dict,
 )
 
@@ -65,7 +66,9 @@ class BookReader:
     """
 
     def __init__(self, document: BookDocument):
-        if not isinstance(document, BookDocument):
+        if type(document) is not BookDocument:
+            # BookDocument is a mutable authoring DTO. Reject subclasses before
+            # any provider-defined as_dict()/attribute hook can execute.
             raise TypeError("document must be a BookDocument")
         self.document = document
         self._indexed_document = BookDocument.from_dict(document.as_dict())
@@ -83,6 +86,27 @@ class BookReader:
         """Return the warning count bound to this reader's indexed document snapshot."""
         self._require_indexed_revision()
         return len(self._indexed_document.warnings)
+
+    def document_language_snapshot(self) -> str | None:
+        """Source language from the same detached revision as readable blocks."""
+        self._require_indexed_revision()
+        return self._indexed_document.language
+
+    def document_title_author_snapshot(self) -> tuple[str, str | None]:
+        """Reading metadata from the immutable indexed document revision."""
+        self._require_indexed_revision()
+        return self._indexed_document.title, self._indexed_document.author
+
+    def block_reading_snapshot(self, index: int):
+        """One validated block plus its detached document reading metadata.
+
+        Sharing block_snapshot's revision check avoids rescanning a large book
+        separately for title, author and language. No live authoring metadata or
+        mutable indexed block is returned.
+        """
+        block = self.block_snapshot(index)
+        return (block, self._indexed_document.title, self._indexed_document.author,
+                self._indexed_document.language)
 
     def document_warnings_snapshot(
         self,
@@ -112,6 +136,18 @@ class BookReader:
         if not 0 <= index < len(self._indexed_document.blocks):
             raise IndexError("Book reading index is outside the document")
         return block_from_dict(self._indexed_document.blocks[index].as_dict())
+    def document_snapshot(self) -> BookDocument:
+        """Return a detached canonical BookDocument from this indexed revision.
+
+        Book-facing application flows must not traverse the mutable public
+        document after revision validation. This snapshot keeps semantic
+        provenance on the same immutable BookIndex revision while live authoring
+        state remains only a fail-closed equality/revision authority.
+        """
+        self._require_indexed_revision()
+        snapshot = BookDocument.from_dict(self._indexed_document.as_dict())
+        self._require_indexed_revision()
+        return snapshot
 
     @staticmethod
     def _return_point_name(name: str) -> str:
@@ -151,17 +187,42 @@ class BookReader:
 
     @staticmethod
     def _revision_digest(blocks) -> str:
-        payload = json.dumps(
-            [block.as_dict() for block in blocks],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
+        # Live authoring state is mutable after BookReader construction. Prove
+        # the canonical passive container and exact semantic block roots before
+        # iteration or method dispatch can execute provider-defined hooks.
+        if type(blocks) is not list:
+            raise TypeError("BookDocument blocks must remain a built-in list")
+        if any(type(block) not in _SEMANTIC_BLOCK_TYPES for block in blocks):
+            raise TypeError("BookDocument blocks must remain canonical semantic blocks")
+        # Preserve the exact historical canonical JSON-array byte stream while
+        # hashing it incrementally. Large books therefore do not require an
+        # additional whole-document list-of-dicts, JSON string and UTF-8 bytes
+        # allocation on every keyboard/persistence revision barrier.
+        digest = hashlib.sha256()
+        digest.update(b"[")
+        for index, block in enumerate(blocks):
+            if index:
+                digest.update(b",")
+            payload = json.dumps(
+                block.as_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            digest.update(payload)
+        digest.update(b"]")
+        return digest.hexdigest()
 
     def _document_revision_digest(self) -> str:
         """Fingerprint the current live authoring blocks."""
-        return self._revision_digest(self.document.blocks)
+        # The public source reference is mutable too. Prove its exact passive
+        # canonical root before reading blocks so a rejected provider-defined
+        # BookDocument subclass cannot execute __getattribute__ merely because
+        # navigation performs its fail-closed revision check.
+        document = self.document
+        if type(document) is not BookDocument:
+            raise TypeError("BookReader document must remain a canonical BookDocument")
+        return self._revision_digest(document.blocks)
 
     def _require_indexed_revision(self) -> None:
         """Reject durable target work after the indexed document changed in place."""
@@ -180,11 +241,18 @@ class BookReader:
                 "BookDocument changed after BookReader creation; create a fresh reader for this revision"
             )
 
-    def _target_key(self, index: int | None = None) -> str:
-        self._require_indexed_revision()
-        self._require_content()
+    def _target_key_after_verified(self, index: int | None = None) -> str:
         target_index = self._index if index is None else index
         return self._book_index.entries[target_index].target.key
+
+    def _target_key(self, index: int | None = None) -> str:
+        self._require_content()
+        return self._target_key_after_verified(index)
+
+    def _durable_target_key_after_verified(self, index: int | None = None) -> str:
+        key = self._durable_target(self._target_key_after_verified(index))
+        self._book_index.resolve(key)
+        return key
 
     def _durable_target_key(self, index: int | None = None) -> str:
         """Return a target only when it is uniquely resolvable in this snapshot.
@@ -195,25 +263,29 @@ class BookReader:
         return-point state or publishing a snapshot so every emitted target is
         immediately restorable against the same document snapshot.
         """
-        key = self._durable_target(self._target_key(index))
-        self._book_index.resolve(key)
-        return key
+        self._require_content()
+        return self._durable_target_key_after_verified(index)
 
-    def _fallback_digest(self, key: str) -> str:
-        self._require_indexed_revision()
+    def _fallback_digest_after_verified(self, key: str) -> str:
         if not key.startswith("index:"):
             raise ValueError("fallback digest is only defined for index targets")
         entry = self._book_index.resolve(key)
         return self._fallback_digest_for_block(self._indexed_document.blocks[entry.target.index])
 
-    def _go_to_target(self, key: str) -> ReadingLocation:
+    def _fallback_digest(self, key: str) -> str:
         self._require_indexed_revision()
+        return self._fallback_digest_after_verified(key)
+
+    def _go_to_target(self, key: str) -> ReadingLocation:
+        # Callers own the preflight revision barrier. Keep this seam as the
+        # target-navigation publication boundary so restore/return-point tests
+        # can inject a concurrent edit after navigation and rely on the caller's
+        # final barrier to reject it.
         validated_key = self._durable_target(key)
         entry = self._book_index.resolve(validated_key)
-        return self.go_to(entry.target.index)
+        return self._go_to_after_verified(entry.target.index)
 
-    def location(self) -> ReadingLocation:
-        self._require_content()
+    def _location_after_verified(self) -> ReadingLocation:
         entry = self._book_index.entries[self._index]
         block = self._indexed_document.blocks[self._index]
         return ReadingLocation(
@@ -226,8 +298,11 @@ class BookReader:
             side_to_move=entry.side_to_move,
         )
 
-    def go_to(self, index: int) -> ReadingLocation:
+    def location(self) -> ReadingLocation:
         self._require_content()
+        return self._location_after_verified()
+
+    def _go_to_after_verified(self, index: int) -> ReadingLocation:
         if type(index) is not int:
             raise TypeError("Book reading index must be an integer")
         if not 0 <= index < len(self._book_index.entries):
@@ -235,32 +310,37 @@ class BookReader:
         previous_index = self._index
         self._index = index
         try:
-            return self.location()
+            location = self._location_after_verified()
+            # Keep the original two-sided live-authoring contract, but do not
+            # recursively re-hash the whole document through location()/go_to().
+            self._require_indexed_revision()
+            return location
         except Exception:
-            # location() performs the second live-revision check. If authoring
-            # mutates the BookDocument after the initial validation, navigation
-            # must fail without publishing a cursor that was never accepted.
             self._index = previous_index
             raise
+
+    def go_to(self, index: int) -> ReadingLocation:
+        self._require_content()
+        return self._go_to_after_verified(index)
 
     def next_block(self) -> ReadingLocation:
         self._require_content()
         if self._index >= len(self._book_index.entries) - 1:
             raise LookupError("End of book")
-        return self.go_to(self._index + 1)
+        return self._go_to_after_verified(self._index + 1)
 
     def previous_block(self) -> ReadingLocation:
         self._require_content()
         if self._index <= 0:
             raise LookupError("Beginning of book")
-        return self.go_to(self._index - 1)
+        return self._go_to_after_verified(self._index - 1)
 
     def _next_matching(self, predicate, *, direction: int) -> ReadingLocation:
         self._require_content()
         cursor = self._index + direction
         while 0 <= cursor < len(self._indexed_document.blocks):
             if predicate(self._indexed_document.blocks[cursor]):
-                return self.go_to(cursor)
+                return self._go_to_after_verified(cursor)
             cursor += direction
         self._require_indexed_revision()
         raise LookupError("No matching semantic block in that direction")
@@ -334,16 +414,17 @@ class BookReader:
         validated_name = self._return_point_name(name)
         if validated_name not in self._return_points and len(self._return_points) >= _MAX_RETURN_POINTS:
             raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
-        key = self._durable_target_key()
+        key = self._durable_target_key_after_verified()
         had_previous = validated_name in self._return_points
         previous_key = self._return_points.get(validated_name)
         self._return_points[validated_name] = key
         try:
-            return self.location()
+            location = self._location_after_verified()
+            self._require_indexed_revision()
+            return location
         except Exception:
-            # The final location() call is also a live-revision barrier. A
-            # concurrent BookDocument edit after target validation must not leave
-            # behind a bookmark that the failed save never successfully published.
+            # Preserve the original final live-revision barrier without paying
+            # for additional whole-document hashes through nested helper calls.
             if had_previous:
                 assert previous_key is not None
                 self._return_points[validated_name] = previous_key
@@ -382,6 +463,7 @@ class BookReader:
         validated_name = self._return_point_name(name)
         if validated_name not in self._return_points:
             raise LookupError(f"Unknown return point: {validated_name}")
+        self._require_content()
         return self._go_to_target(self._return_points[validated_name])
 
     def snapshot(self) -> dict[str, object]:
@@ -389,7 +471,9 @@ class BookReader:
         self._require_indexed_revision()
         if len(self._return_points) > _MAX_RETURN_POINTS:
             raise ValueError(f"Book reader supports at most {_MAX_RETURN_POINTS} return points")
-        current_target = None if self._index < 0 else self._durable_target_key()
+        current_target = (
+            None if self._index < 0 else self._durable_target_key_after_verified()
+        )
         validated_return_points: dict[str, str] = {}
         for name, key in self._return_points.items():
             validated_name = self._return_point_name(name)
@@ -404,7 +488,7 @@ class BookReader:
         if current_target is not None:
             referenced_targets.add(current_target)
         fallback_digests = {
-            key: self._fallback_digest(key)
+            key: self._fallback_digest_after_verified(key)
             for key in sorted(referenced_targets)
             if key.startswith("index:")
         }
@@ -428,7 +512,10 @@ class BookReader:
         and document-bound restore. It deliberately does not resolve semantic
         targets against a BookDocument; restore_snapshot owns that later step.
         """
-        if not isinstance(snapshot, Mapping):
+        # Persisted progress is JSON-derived and canonical in-memory snapshots are
+        # emitted as built-in dicts. Reject mapping subclasses before len/iter/getitem
+        # can execute provider-defined hooks during recovery validation.
+        if type(snapshot) is not dict:
             raise TypeError("Book reader snapshot must be a mapping")
         expected_count = len(_BOOK_READER_SNAPSHOT_FIELDS)
         try:
@@ -485,7 +572,7 @@ class BookReader:
             )
 
         raw_return_points = snapshot_data["return_points"]
-        if not isinstance(raw_return_points, Mapping):
+        if type(raw_return_points) is not dict:
             raise TypeError("Book reader snapshot return_points must be a mapping")
         try:
             return_point_count = len(raw_return_points)
@@ -538,7 +625,7 @@ class BookReader:
             return_points[validated_name] = validated_key
 
         raw_fallback_digests = snapshot_data["fallback_digests"]
-        if not isinstance(raw_fallback_digests, Mapping):
+        if type(raw_fallback_digests) is not dict:
             raise TypeError("Book reader snapshot fallback_digests must be a mapping")
         max_fallback_digests = _MAX_RETURN_POINTS + 1
         try:
@@ -624,6 +711,8 @@ class BookReader:
         selecting a different block. Index-only targets additionally require an
         exact semantic digest for the block currently occupying that fallback.
         """
+        if type(document) is not BookDocument:
+            raise TypeError("document must be a BookDocument")
         validated = cls.validate_snapshot_contract(snapshot)
         current_target = validated["current_target"]
         return_points = validated["return_points"]
@@ -645,10 +734,15 @@ class BookReader:
         if current_target is None:
             raise ValueError("Book reader snapshot current_target is required for non-empty content")
 
+        # One preflight and one final live-revision barrier are sufficient for
+        # restore. Every intermediate lookup/digest uses the immutable indexed
+        # snapshot; repeating the full live-document hash once per return point
+        # would make recovery O(snapshot targets * book size).
+        reader._require_indexed_revision()
         for key in referenced_targets:
             reader._book_index.resolve(key)
         for key, expected_digest in fallback_digests.items():
-            if reader._fallback_digest(key) != expected_digest:
+            if reader._fallback_digest_after_verified(key) != expected_digest:
                 raise LookupError(f"Book reader index fallback no longer identifies the same block: {key}")
 
         reader._go_to_target(current_target)

@@ -1,0 +1,97 @@
+name: Current PGN Presenter Passive Root
+
+on:
+  pull_request:
+    branches:
+      - fix/current-book-training-passive-roots-20261004-c2mbezb
+      - main
+    paths:
+      - 'acs/pgn_webview_projection.py'
+      - 'tests/test_dev1_pgn_webview_atomicity.py'
+      - 'tests/test_dev1_pgn_webview_projection.py'
+      - '.github/workflows/current-pgn-presenter-passive-root.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-pgn-presenter-passive-root-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and bounded scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-fix/current-book-training-passive-roots-20261004-c2mbezb}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          if [ -n "${EVENT_BASE_REF:-}" ] && [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then
+            echo 'NARROW_SCOPE_MODE=DEFAULT_BRANCH_INTEGRATION'
+          else
+            changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+            expected_paths="$(printf '%s\n' \
+              '.github/workflows/current-pgn-presenter-passive-root.yml' \
+              'acs/pgn_webview_projection.py' \
+              'tests/test_dev1_pgn_webview_atomicity.py' \
+              'tests/test_dev1_pgn_webview_projection.py' | sort)"
+            test "$changed" = "$expected_paths" || {
+              printf 'Unexpected PGN presenter-passivity scope:\n%s\n' "$changed" >&2
+              exit 1
+            }
+            echo 'NARROW_SCOPE_MODE=STACKED_EXACT'
+          fi
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile PGN presentation boundary
+        run: >-
+          python -m compileall -q
+          acs/pgn_webview_projection.py
+          tests/test_dev1_pgn_webview_atomicity.py
+          tests/test_dev1_pgn_webview_projection.py
+
+      - name: Execute PGN WebView and retained whole-product regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_browser_presentation_lease_required
+          tests.test_pgn_post_commit_presentation_recovery_current
+          tests.test_version2_pgn_commands
+          tests.test_version2_pgn_real_board_projection
+          tests.test_full_product_pgn_keybindings
+
+      - name: Core selftest
+        run: python -m acs.selftest

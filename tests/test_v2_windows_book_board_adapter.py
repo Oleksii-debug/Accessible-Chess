@@ -320,5 +320,105 @@ class Version2WindowsBookBoardActionDelegateTests(unittest.TestCase):
         self.assertEqual(adapter.board_snapshot().fen(), Board.START)
 
 
+    def test_adapter_rejects_workflow_subclass_before_authority_publication(self) -> None:
+        class HostileWorkflow(BookBoardWorkflow):
+            pass
+
+        hostile = HostileWorkflow.__new__(HostileWorkflow)
+
+        with self.assertRaisesRegex(TypeError, "^workflow must be BookBoardWorkflow$"):
+            Version2WindowsBookBoardActionDelegate(
+                hostile,
+                event_sink=lambda event: None,
+                next_delegate=lambda action_id, payload: None,
+            )
+
+    def test_owned_payload_mapping_subclass_is_rejected_before_hooks(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[Position(fen=Board.START, block_id="pos")],
+        )
+        _reader, workflow, _engine, adapter, _events, _forwarded = self._make(document)
+
+        class HostilePayload(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("payload length hook must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("payload items hook must not execute")
+
+        event = adapter("book.open_position", HostilePayload())
+
+        self.assertEqual(event.kind, BookBoardUiEventKind.FAILED)
+        self.assertEqual(event.error_code, "invalid_action_payload")
+        self.assertFalse(workflow.active)
+        self.assertFalse(HostilePayload.touched)
+
+    def test_action_id_subclass_is_rejected_before_hash_hook(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[Position(fen=Board.START, block_id="pos")],
+        )
+        _reader, _workflow, _engine, adapter, _events, _forwarded = self._make(document)
+
+        class HostileActionId(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("action id hash hook must not execute")
+
+        with self.assertRaisesRegex(TypeError, "^book board action_id must be text$"):
+            adapter(HostileActionId("book.open_position"), {})
+
+        self.assertFalse(HostileActionId.touched)
+
+    def test_unowned_custom_mapping_is_forwarded_without_adapter_hooks(self) -> None:
+        document = BookDocument(
+            title="Book",
+            blocks=[Position(fen=Board.START, block_id="pos")],
+        )
+        _reader, workflow, _engine, _adapter, _events, _forwarded = self._make(document)
+
+        class HostileForeignPayload(dict):
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("foreign payload truthiness hook must not execute")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("foreign payload length hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("foreign payload iteration hook must not execute")
+
+            def items(self):
+                type(self).touched = True
+                raise AssertionError("foreign payload items hook must not execute")
+
+        hostile = HostileForeignPayload()
+        forwarded = []
+
+        adapter = Version2WindowsBookBoardActionDelegate(
+            workflow,
+            event_sink=lambda event: None,
+            next_delegate=lambda action_id, payload: forwarded.append((action_id, payload)) or "forwarded",
+        )
+
+        result = adapter("library.search", hostile)
+
+        self.assertEqual(result, "forwarded")
+        self.assertEqual(forwarded[0][0], "library.search")
+        self.assertIs(forwarded[0][1], hostile)
+        self.assertFalse(HostileForeignPayload.touched)
+
+
 if __name__ == "__main__":
     unittest.main()

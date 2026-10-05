@@ -340,6 +340,11 @@ def test_successful_mutations_return_post_mutation_snapshot_atomically(tmp_path)
     payload = json.loads(service.export_profile())
     payload["bindings"]["history.go_to_move"] = "Alt+J"
     imported = service.import_profile(json.dumps(payload))
+    assert imported["ok"] is False
+    assert imported["requiresConfirmation"] is True
+    assert "snapshot" not in imported
+    assert service.editor.registry.get_binding("history.go_to_move") == "Ctrl+G"
+    imported = service.import_profile(json.dumps(payload), allow_warnings=True)
     assert imported["ok"] is True
     imported_by_id = {item["id"]: item for item in imported["snapshot"]["actions"]}
     assert imported_by_id["history.go_to_move"]["binding"] == "Alt+J"

@@ -152,7 +152,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("settings", self.app.shell.current_route.route_id)
         self.assertEqual((), self.app.drain_events())
 
-    def test_book_return_from_board_is_read_only_and_storage_independent(self):
+    def test_book_return_keeps_exact_origin_when_durability_acknowledgement_fails(self):
         self._open_exercise_book()
         self.app._board_position_projector = lambda _fen: {"ok": True}
 
@@ -174,11 +174,11 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
             returned = self.app.browser_command(
                 "books",
                 "book.return_from_board",
-                {},
+                {"presentation_token": self.app.snapshot()["books"]["presentation_token"]},
             )
 
-        self.assertEqual("render", returned["kind"])
-        save.assert_not_called()
+        self.assertEqual("error", returned["kind"])
+        save.assert_called_once()
         self.assertFalse(self.app.book_workflow.active)
         self.assertEqual("books", self.app.shell.current_route.route_id)
         self.assertEqual(origin, self.app.reader.snapshot())

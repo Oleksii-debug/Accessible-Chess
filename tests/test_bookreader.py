@@ -1,5 +1,4 @@
 import unittest
-from collections.abc import Mapping
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
@@ -65,102 +64,78 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds 256"):
             BookReader.restore_snapshot(self.make_book(), malformed)
 
-    def test_restore_snapshot_bounds_mapping_iteration_before_field_materialization(self):
+    def test_restore_rejects_snapshot_mapping_subclass_before_hooks(self):
         book = self.make_book()
         payload = BookReader(book).snapshot()
-        keys = tuple(payload)
 
-        class OverProducingSnapshot(dict):
-            def __len__(self):
-                return len(keys)
-
-            def __iter__(self):
-                yield from keys
-                yield "unexpected"
-                raise AssertionError("restore must not consume beyond the bounded key probe")
-
-            def __getitem__(self, key):
-                return payload[key]
-
-        with self.assertRaisesRegex(ValueError, "changed while being read"):
-            BookReader.restore_snapshot(book, OverProducingSnapshot())
-
-    def test_restore_snapshot_bounds_nested_mapping_iteration(self):
-        class OverProducingMapping(Mapping):
-            def __init__(self, payload, extra_key):
-                self.payload = payload
-                self.extra_key = extra_key
+        class HostileSnapshot(dict):
+            touched = False
 
             def __len__(self):
-                return len(self.payload)
+                type(self).touched = True
+                raise AssertionError("snapshot len hook must not execute")
 
             def __iter__(self):
-                yield from self.payload
-                yield self.extra_key
-                raise AssertionError("nested restore must stop at advertised count + 1")
+                type(self).touched = True
+                raise AssertionError("snapshot iter hook must not execute")
 
             def __getitem__(self, key):
-                return self.payload[key]
+                type(self).touched = True
+                raise AssertionError("snapshot getitem hook must not execute")
 
+        hostile = HostileSnapshot()
+        dict.update(hostile, payload)
+        HostileSnapshot.touched = False
+
+        with self.assertRaisesRegex(TypeError, "snapshot must be a mapping"):
+            BookReader.restore_snapshot(book, hostile)
+        self.assertFalse(HostileSnapshot.touched)
+    def test_restore_rejects_nested_mapping_subclasses_before_hooks(self):
         book = self.make_book()
-
-        with_return_point = BookReader(book)
-        with_return_point.go_to(3)
-        with_return_point.save_return_point("analysis")
-        return_snapshot = with_return_point.snapshot()
-        return_snapshot["return_points"] = OverProducingMapping(
-            return_snapshot["return_points"],
-            "unexpected",
-        )
-        with self.assertRaisesRegex(ValueError, "return_points changed while being read"):
-            BookReader.restore_snapshot(book, return_snapshot)
-
-        with_fallback = BookReader(book)
-        with_fallback.go_to(1)
-        fallback_snapshot = with_fallback.snapshot()
-        fallback_snapshot["fallback_digests"] = OverProducingMapping(
-            fallback_snapshot["fallback_digests"],
-            "index:unexpected",
-        )
-        with self.assertRaisesRegex(ValueError, "fallback_digests changed while being read"):
-            BookReader.restore_snapshot(book, fallback_snapshot)
-
-    def test_restore_snapshot_bounds_scalar_keys_before_value_materialization(self):
-        book = self.make_book()
-
-        class ValueForbiddenMapping(Mapping):
-            def __init__(self, keys):
-                self.keys = tuple(keys)
-
-            def __len__(self):
-                return len(self.keys)
-
-            def __iter__(self):
-                yield from self.keys
-
-            def __getitem__(self, key):
-                raise AssertionError(
-                    "oversized snapshot keys must fail before value materialization"
-                )
-
         valid = BookReader(book).snapshot()
+
+        class HostileNested(dict):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("nested len hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("nested iter hook must not execute")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("nested getitem hook must not execute")
+
+        for field in ("return_points", "fallback_digests"):
+            snapshot = dict(valid)
+            hostile = HostileNested()
+            dict.update(hostile, snapshot[field])
+            snapshot[field] = hostile
+            HostileNested.touched = False
+
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(TypeError, f"{field} must be a mapping"):
+                    BookReader.restore_snapshot(book, snapshot)
+                self.assertFalse(HostileNested.touched)
+    def test_restore_snapshot_bounds_scalar_keys_with_canonical_dicts(self):
+        book = self.make_book()
+        valid = BookReader(book).snapshot()
+
         oversized_field = "x" * 64
-        top_level = ValueForbiddenMapping(
-            (
-                "schema_version",
-                "current_target",
-                "return_points",
-                oversized_field,
-            )
-        )
+        top_level = dict(valid)
+        top_level.pop("fallback_digests")
+        top_level[oversized_field] = {}
         with self.assertRaisesRegex(ValueError, "field name exceeds supported bound"):
             BookReader.restore_snapshot(book, top_level)
 
-        return_snapshot = dict(valid)
         oversized_return_name = " " * 256 + "x"
-        return_snapshot["return_points"] = ValueForbiddenMapping(
-            (oversized_return_name,)
-        )
+        return_snapshot = dict(valid)
+        return_snapshot["return_points"] = {
+            oversized_return_name: valid["current_target"]
+        }
         with self.assertRaisesRegex(ValueError, "exceeds 256"):
             BookReader.restore_snapshot(book, return_snapshot)
 
@@ -169,9 +144,9 @@ class BookReaderTests(unittest.TestCase):
         fallback_snapshot = fallback_reader.snapshot()
         oversized_fallback_key = "index:" + ("9" * 4091)
         self.assertGreater(len(oversized_fallback_key), 4096)
-        fallback_snapshot["fallback_digests"] = ValueForbiddenMapping(
-            (oversized_fallback_key,)
-        )
+        fallback_snapshot["fallback_digests"] = {
+            oversized_fallback_key: "0" * 64
+        }
         with self.assertRaisesRegex(ValueError, "exceeds 4096"):
             BookReader.restore_snapshot(book, fallback_snapshot)
 
@@ -202,6 +177,91 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             reader.go_to(0)
         self.assertEqual(reader.index, 3)
+
+    def test_live_revision_rejects_rebound_document_subclass_before_attribute_hook(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        class HostileDocument(BookDocument):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name == "blocks":
+                    type(self).touched = True
+                    raise AssertionError("rejected live document root must remain passive")
+                return super().__getattribute__(name)
+
+        replacement = HostileDocument("Replacement")
+        reader.document = replacement
+        HostileDocument.armed = True
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertFalse(HostileDocument.touched)
+
+    def test_live_revision_keeps_blocks_only_identity_for_exact_document_rebind(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        replacement = BookDocument.from_dict(book.as_dict())
+        replacement.title = "Equivalent exact document root"
+        replacement.warnings.append("Metadata remains outside reader revision identity")
+        reader.document = replacement
+
+        self.assertEqual(reader.location().block_id, "part-1")
+    def test_live_revision_rejects_blocks_list_subclass_before_iteration_hook(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        class HostileBlocks(list):
+            armed = False
+            touched = False
+
+            def __iter__(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("live blocks iteration hook must not execute")
+                return super().__iter__()
+
+        hostile = HostileBlocks(book.blocks)
+        book.blocks = hostile
+        HostileBlocks.armed = True
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertFalse(HostileBlocks.touched)
+
+    def test_live_revision_rejects_block_subclass_before_method_hook(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        class HostileHeading(Heading):
+            armed = False
+            touched = False
+
+            def as_dict(self):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("live block method hook must not execute")
+                return super().as_dict()
+
+        hostile = HostileHeading(text="Replacement", level=1, block_id="part-1")
+        book.blocks[0] = hostile
+        HostileHeading.armed = True
+
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.location()
+        self.assertFalse(HostileHeading.touched)
+
+    def test_live_revision_digest_remains_blocks_only(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        book.title = "Retitled without changing reading semantics"
+        book.warnings.append("New import note")
+
+        self.assertEqual(reader.location().block_id, "part-1")
 
     def test_navigation_availability_rechecks_revision_after_semantic_scan(self):
         book = self.make_book()
@@ -320,7 +380,10 @@ class BookReaderTests(unittest.TestCase):
             nonlocal checks
             checks += 1
             original_check()
-            if checks == 3:
+            if checks == 1:
+                # Mutate immediately after the operation's preflight. The
+                # final barrier, not a redundant intermediate whole-book hash,
+                # must reject publication and preserve rollback semantics.
                 book.blocks[2].text = "Concurrent chapter"
 
         reader._require_indexed_revision = mutate_after_target_validation
@@ -347,7 +410,10 @@ class BookReaderTests(unittest.TestCase):
             nonlocal checks
             checks += 1
             original_check()
-            if checks == 3:
+            if checks == 1:
+                # Mutate immediately after the operation's preflight. The
+                # final barrier, not a redundant intermediate whole-book hash,
+                # must reject publication and preserve rollback semantics.
                 book.blocks[2].text = "Concurrent chapter"
 
         reader._require_indexed_revision = mutate_after_target_validation
@@ -383,6 +449,19 @@ class BookReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
             reader.location()
 
+    def test_document_snapshot_is_detached_and_revision_bound(self):
+        book = self.make_book()
+        reader = BookReader(book)
+
+        snapshot = reader.document_snapshot()
+        self.assertIsNot(snapshot, book)
+        self.assertIsNot(snapshot.blocks, book.blocks)
+        snapshot.blocks[1].text = "Caller mutation"
+        self.assertEqual(reader.block_snapshot(1).text, "Intro")
+
+        book.blocks[1].text = "Live mutation"
+        with self.assertRaisesRegex(RuntimeError, "changed after BookReader creation"):
+            reader.document_snapshot()
     def test_block_snapshot_is_detached_and_fails_closed_after_live_revision_changes(self):
         book = self.make_book()
         reader = BookReader(book)

@@ -170,6 +170,30 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertNotIn("SECRET", serialized)
         self.assertNotIn("fen", serialized.lower())
 
+    def test_presenter_subclass_is_rejected_before_presentation_hooks(self) -> None:
+        class HostilePresenter(PgnTreePresenter):
+            armed = False
+            touched = False
+
+            def set_language(self, language):
+                if type(self).armed:
+                    type(self).touched = True
+                    raise AssertionError("hostile presenter hook must not execute")
+                return super().set_language(language)
+
+        hostile = HostilePresenter(self.games, language=UILanguage.EN)
+        HostilePresenter.armed = True
+
+        with self.assertRaisesRegex(TypeError, "presenter must be PgnTreePresenter"):
+            PgnWebViewProjection(
+                hostile,
+                self.dispatch,
+                lambda: len(self.games),
+                language=UILanguage.EN,
+            )
+
+        self.assertFalse(HostilePresenter.touched)
+
     def test_game_count_provider_rejects_false_green_or_coercive_values(self) -> None:
         for value in (True, -1, len(self.games) + 1):
             with self.subTest(value=value):

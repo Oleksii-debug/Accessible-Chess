@@ -41,6 +41,8 @@ from .training import ExerciseDefinition, ExerciseSession
 
 TRAINING_PROGRESS_STORE_SCHEMA_VERSION = 1
 MAX_TRAINING_PROGRESS_BYTES = 1 * 1024 * 1024
+MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS = 64
+MAX_TRAINING_PROGRESS_JSON_KEY_CHARS = 128
 _ENVELOPE_FIELDS = frozenset({"schema_version", "snapshot"})
 
 
@@ -106,8 +108,21 @@ def _is_reparse_point(metadata: os.stat_result) -> bool:
 
 
 def _reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # json's object_pairs_hook receives the parser's unhashed pair list. Bound
+    # both dimensions before the first dict lookup/insertion so a malformed
+    # persisted file cannot amplify its bounded bytes into unbounded hash work.
+    # Current Training envelopes/snapshots use far fewer members, and canonical
+    # Training snapshot field names are already bounded to 128 characters.
+    if len(pairs) > MAX_TRAINING_PROGRESS_JSON_OBJECT_MEMBERS:
+        raise TrainingProgressResourceError(
+            "training progress JSON object contains too many members"
+        )
     result: dict[str, Any] = {}
     for key, value in pairs:
+        if len(key) > MAX_TRAINING_PROGRESS_JSON_KEY_CHARS:
+            raise TrainingProgressResourceError(
+                "training progress JSON object key exceeds the resource limit"
+            )
         if key in result:
             raise ValueError("training progress contains duplicate JSON object keys")
         result[key] = value
@@ -654,6 +669,11 @@ class TrainingProgressStore:
                 pass
 
     def load(self, definition: ExerciseDefinition) -> LoadedTrainingProgress | None:
+        # Durable Training progress is bound to one canonical authored
+        # ExerciseDefinition. Reject subclasses before storage I/O or any
+        # overridable definition attribute can participate in restore.
+        if type(definition) is not ExerciseDefinition:
+            raise TypeError("definition must be an ExerciseDefinition")
         data = self._read_progress_bytes(missing_ok=True)
         if data is None:
             return None
@@ -662,6 +682,10 @@ class TrainingProgressStore:
                 data.decode("utf-8"),
                 object_pairs_hook=_reject_duplicate_object_pairs,
             )
+        except RecursionError as exc:
+            raise TrainingProgressResourceError(
+                "training progress JSON nesting depth exceeds the resource limit"
+            ) from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("invalid training progress file") from exc
         if type(payload) is not dict:
@@ -676,7 +700,9 @@ class TrainingProgressStore:
                 f"unsupported training progress schema_version: {schema_version}"
             )
         snapshot = payload["snapshot"]
-        if not isinstance(snapshot, Mapping):
+        # json.loads() produces a built-in dict here. Do not widen this disk
+        # boundary back to active Mapping providers before canonical restore.
+        if type(snapshot) is not dict:
             raise TypeError("training progress snapshot must be a mapping")
         session = ExerciseSession.restore(definition, snapshot)
         return LoadedTrainingProgress(session=session, revision=_revision(data))
@@ -950,7 +976,9 @@ class TrainingProgressStore:
         *,
         expected_revision: str | None,
     ) -> str:
-        if not isinstance(session, ExerciseSession):
+        # Saving durable progress must snapshot the canonical Training session,
+        # not a provider-defined subclass with overridable snapshot/state hooks.
+        if type(session) is not ExerciseSession:
             raise TypeError("session must be an ExerciseSession")
         expected = _validate_revision(expected_revision)
 
