@@ -159,7 +159,10 @@ class AdaptiveSamplingPolicy:
         hints = tuple(transition_hints_ms)
         if len(hints) > MAX_HINTS:
             raise PreprocessContractError("too many hints", code=PreprocessErrorCode.LIMIT)
-        if duration // self.baseline_interval_ms + 2 > self.max_samples:
+        baseline_count = duration // self.baseline_interval_ms + 1
+        if duration % self.baseline_interval_ms:
+            baseline_count += 1  # explicit terminal sample
+        if baseline_count > self.max_samples:
             raise PreprocessContractError("sampling limit", code=PreprocessErrorCode.LIMIT)
         points: dict[int, bool] = {t: False for t in range(0, duration + 1, self.baseline_interval_ms)}
         points[duration] = points.get(duration, False)
@@ -235,6 +238,21 @@ class RecordedMediaPreprocessPlan:
     cache_key: PreprocessCacheKey
     requests: tuple[FrameSampleRequest, ...]
 
+    def __post_init__(self):
+        if not isinstance(self.source, RecordedMediaSourceRevision) or not isinstance(self.cache_key, PreprocessCacheKey):
+            raise PreprocessContractError("invalid plan authority", code=PreprocessErrorCode.INVALID)
+        if (self.cache_key.source_id, self.cache_key.source_revision) != (self.source.source_id, self.source.source_revision):
+            raise PreprocessContractError("plan/cache source mismatch", code=PreprocessErrorCode.SOURCE_MISMATCH)
+        if type(self.requests) is not tuple or not self.requests or len(self.requests) > MAX_SAMPLES:
+            raise PreprocessContractError("invalid request set", code=PreprocessErrorCode.LIMIT)
+        previous = -1
+        for request in self.requests:
+            if not isinstance(request, FrameSampleRequest):
+                raise PreprocessContractError("invalid frame request", code=PreprocessErrorCode.INVALID)
+            if request.timestamp_ms <= previous or request.timestamp_ms > self.source.duration_ms:
+                raise PreprocessContractError("invalid request order/range", code=PreprocessErrorCode.INVALID)
+            previous = request.timestamp_ms
+
     @classmethod
     def build(cls, source: RecordedMediaSourceRevision, *, board_revision: str,
               speech_revision: str | None = None, policy: AdaptiveSamplingPolicy | None = None,
@@ -268,12 +286,14 @@ class PreprocessCheckpoint:
         for n in ("source_id", "source_revision", "cache_fingerprint", "plan_digest"):
             object.__setattr__(self, n, _text(getattr(self, n), n))
         vals = [_nat(getattr(self, n), n) for n in ("next_index", "total", "board_count", "speech_count")]
-        if vals[0] > vals[1] or vals[2] > vals[0] or vals[3] > MAX_SPEECH or vals[1] > MAX_SAMPLES:
+        if vals[0] > vals[1] or vals[2] != vals[0] or vals[3] > MAX_SPEECH or vals[1] > MAX_SAMPLES:
             raise PreprocessContractError("inconsistent checkpoint", code=PreprocessErrorCode.INVALID_STATE)
         try: object.__setattr__(self, "status", PreprocessStatus(self.status))
         except (TypeError, ValueError) as exc: raise PreprocessContractError("invalid status", code=PreprocessErrorCode.INVALID) from exc
         if self.status is PreprocessStatus.COMPLETE and self.next_index != self.total:
             raise PreprocessContractError("incomplete complete checkpoint", code=PreprocessErrorCode.INVALID_STATE)
+        if self.status is PreprocessStatus.RUNNING and self.next_index >= self.total:
+            raise PreprocessContractError("finished checkpoint cannot be running", code=PreprocessErrorCode.INVALID_STATE)
 
 
 class RecordedMediaPreprocessRun:
@@ -285,6 +305,8 @@ class RecordedMediaPreprocessRun:
         if checkpoint is not None: self._restore(checkpoint)
 
     def _restore(self, c: PreprocessCheckpoint):
+        if not isinstance(c, PreprocessCheckpoint):
+            raise PreprocessContractError("invalid checkpoint", code=PreprocessErrorCode.INVALID)
         expected = (self.plan.source.source_id, self.plan.source.source_revision,
                     self.plan.cache_key.fingerprint(), self.plan.digest(), len(self.plan.requests))
         actual = (c.source_id, c.source_revision, c.cache_fingerprint, c.plan_digest, c.total)
