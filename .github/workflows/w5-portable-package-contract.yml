@@ -9,6 +9,18 @@ on:
       - work/post-freeze-v2-windows-package-qualification-20260911
     paths:
       - run_accessible_chess.py
+      - acs/acsdb.py
+      - acs/book_progress_store.py
+      - acs/bookdocument.py
+      - acs/bookreader.py
+      - acs/chesscore.py
+      - acs/settings.py
+      - acs/sound_events.py
+      - acs/sound_windows.py
+      - acs/stockfish_runtime.py
+      - acs/training.py
+      - acs/training_progress_store.py
+      - acs/version2_upgrade.py
       - acs/stage1_release_ui.py
       - acs/version2_application.py
       - acs/version2_package_assembler.py
@@ -90,6 +102,18 @@ jobs:
         run: >-
           python -m py_compile
           run_accessible_chess.py
+          acs/acsdb.py
+          acs/book_progress_store.py
+          acs/bookdocument.py
+          acs/bookreader.py
+          acs/chesscore.py
+          acs/settings.py
+          acs/sound_events.py
+          acs/sound_windows.py
+          acs/stockfish_runtime.py
+          acs/training.py
+          acs/training_progress_store.py
+          acs/version2_upgrade.py
           acs/stage1_release_ui.py
           acs/version2_application.py
           acs/version2_package_assembler.py
