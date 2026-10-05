@@ -227,6 +227,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         if game_id not in self._current_visible_ids():
             raise LookupError("Library export game is not on the current page")
         labels = _EXPORT_LABELS[self.language]
+        previous = set(self._export_game_ids)
         if game_id in self._export_game_ids:
             self._export_game_ids.remove(game_id)
             announcement = labels["selected_off"]
@@ -235,18 +236,27 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
                 raise ValueError("Library export selection exceeds browser contract")
             self._export_game_ids.add(game_id)
             announcement = labels["selected_on"]
-        event = self._render_event(self._presenter.view(), announce=False)
-        payload = dict(event.payload)
-        payload["announcement"] = announcement
-        payload["focus_target"] = self._export_focus_target(event, game_id)
-        return LibraryWebViewEvent(event.kind, payload)
+        try:
+            event = self._render_event(self._presenter.view(), announce=False)
+            payload = dict(event.payload)
+            payload["announcement"] = announcement
+            payload["focus_target"] = self._export_focus_target(event, game_id)
+            return LibraryWebViewEvent(event.kind, payload)
+        except Exception:
+            self._export_game_ids = previous
+            raise
 
     def clear_export_selection(self) -> LibraryWebViewEvent:
+        previous = set(self._export_game_ids)
         self._export_game_ids.clear()
-        event = self._render_event(self._presenter.view(), announce=False)
-        payload = dict(event.payload)
-        payload["announcement"] = _EXPORT_LABELS[self.language]["cleared"]
-        return LibraryWebViewEvent(event.kind, payload)
+        try:
+            event = self._render_event(self._presenter.view(), announce=False)
+            payload = dict(event.payload)
+            payload["announcement"] = _EXPORT_LABELS[self.language]["cleared"]
+            return LibraryWebViewEvent(event.kind, payload)
+        except Exception:
+            self._export_game_ids = previous
+            raise
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
         # A changed result identity clears old export checks atomically. If the
