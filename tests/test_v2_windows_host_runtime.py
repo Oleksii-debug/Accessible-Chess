@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 
+from acs.pgn_document import PgnDocumentSession
 from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
@@ -138,6 +139,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         export_events: list[object] | None = None,
         fallback_calls: list[tuple[str, dict[str, object]]] | None = None,
         closed_services: list[bool] | None = None,
+        pgn_session: PgnDocumentSession | None = None,
     ) -> Version2WindowsFileWorkflowRuntime:
         imported_events = imported_events if imported_events is not None else []
         export_calls = export_calls if export_calls is not None else []
@@ -165,7 +167,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
 
         return Version2WindowsFileWorkflowRuntime(
             owner_control=owner,
-            get_pgn_session=lambda: None,
+            get_pgn_session=lambda: pgn_session,
             set_pgn_session=lambda session: None,
             import_services_factory=import_services_factory,
             export_selected=export_selected,
@@ -221,6 +223,39 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(export_events, [result])
         self.assertEqual(fallback_calls, [])
         self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_uses_worker_and_owner_callback_through_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Runtime worker save")
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            self.assertIn("Runtime worker save", source.read_text(encoding="utf-8"))
+            self.assertTrue(session.dirty)
+            self.assertEqual(len(owner.posted), 1)
+
+            callback = owner.posted.pop(0)
+            callback()
+
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
 
     def test_real_pgn_import_posts_one_ui_wakeup_and_owner_drains_on_ui_thread(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
