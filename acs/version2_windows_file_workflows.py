@@ -163,6 +163,26 @@ class FileWorkflowEvent:
             raise ValueError("source_bytes_read must not exceed source_total_bytes")
 
 
+def _snapshot_file_workflow_event(value: FileWorkflowEvent) -> FileWorkflowEvent:
+    if type(value) is not FileWorkflowEvent:
+        raise TypeError("file workflow event must be an exact passive DTO")
+    return FileWorkflowEvent(
+        kind=value.kind,
+        action_id=value.action_id,
+        focus_target=value.focus_target,
+        processed_games=value.processed_games,
+        total_games=value.total_games,
+        game_count=value.game_count,
+        warning_count=value.warning_count,
+        error_code=value.error_code,
+        source_bytes_read=value.source_bytes_read,
+        source_total_bytes=value.source_total_bytes,
+        source_parsing=value.source_parsing,
+        source_format=value.source_format,
+        retained_book_blocks=value.retained_book_blocks,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Version2ImportWorkerServices:
     """Per-worker canonical import services and their connection cleanup."""
@@ -383,8 +403,9 @@ class Version2WindowsFileActionDelegate:
         return value if type(value) is str else ""
 
     def _emit(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        observer_event = _snapshot_file_workflow_event(event)
         try:
-            self._event_sink(event)
+            self._event_sink(observer_event)
         except BaseException:
             _safe_warning("Version 2 file workflow event sink failed")
         return event
@@ -392,8 +413,9 @@ class Version2WindowsFileActionDelegate:
     def _emit_owner_async(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
         """Publish one async terminal already executing on the owner UI thread."""
 
+        observer_event = _snapshot_file_workflow_event(event)
         try:
-            self._owner_async_event_sink(event)
+            self._owner_async_event_sink(observer_event)
         except BaseException:
             _safe_warning(
                 "Version 2 owner asynchronous file event sink failed"
