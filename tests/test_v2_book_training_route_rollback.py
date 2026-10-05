@@ -11,6 +11,7 @@ from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import BookDocument, Exercise
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.full_product_ui_shell import UILanguage
 from acs.version2_application import Version2Application
 
 
@@ -341,6 +342,19 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("error", native_style.kind)
         self.assertEqual("library", self.app.shell.current_route.route_id)
         self.assertTrue(self.app.shell._publication_hold_active)
+
+        language_before = self.app.shell.language
+        with self.assertRaisesRegex(RuntimeError, "publication"):
+            self.app.shell.set_language(UILanguage.EN)
+        with self.assertRaisesRegex(RuntimeError, "publication"):
+            self.app.shell.open_dialog(
+                "settings-dialog",
+                opener_focus_id="library-search-player",
+                initial_focus_id="settings-list",
+            )
+        self.assertIs(language_before, self.app.shell.language)
+        self.assertIsNone(self.app.shell.active_dialog_id)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
 
         committed = self.app.browser_command(
             "shell",
