@@ -491,7 +491,51 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         self.assertEqual(delivered, ["done"])
         self.assertFalse(pump.owner_callback_pending)
 
-    def test_abort_class_ui_ready_failure_is_contained_for_recovery(self) -> None:
+    def test_abort_class_ui_ready_failure_auto_retries_transactional_batch(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
+        calls = []
+        delivered = []
+
+        class ReadyAbort(BaseException):
+            pass
+
+        def fail_once_then_deliver() -> None:
+            calls.append("ready")
+            if len(calls) == 1:
+                raise ReadyAbort()
+            delivered.extend(mailbox.drain())
+
+        pump = Version2ImportUiWakeupPump(mailbox, poster, fail_once_then_deliver)
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_EMPTY,
+            "library.import",
+            focus_target="library-import-file",
+        )
+
+        with patch(
+            "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+            0.01,
+        ):
+            self.assertEqual(_run_thread(lambda: pump(event)), [])
+            callback = poster.callbacks.pop(0)
+            callback()
+
+            deadline = time.monotonic() + 1.0
+            while not poster.callbacks and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        self.assertEqual(pump.ready_failure_count, 1)
+        self.assertEqual(len(poster.callbacks), 1)
+        self.assertEqual(mailbox.pending_count, 1)
+        poster.callbacks.pop(0)()
+
+        self.assertEqual(calls, ["ready", "ready"])
+        self.assertEqual(delivered, [event])
+        self.assertEqual(mailbox.pending_count, 0)
+        self.assertFalse(pump.wakeup_pending)
+
+    def test_presentation_auto_retry_is_bounded_after_second_failure(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
         poster = _QueuedPoster()
         calls = []
@@ -499,35 +543,87 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         class ReadyAbort(BaseException):
             pass
 
-        def abort_ready() -> None:
+        def always_abort() -> None:
             calls.append("abort")
             raise ReadyAbort()
 
-        pump = Version2ImportUiWakeupPump(mailbox, poster, abort_ready)
+        pump = Version2ImportUiWakeupPump(mailbox, poster, always_abort)
         event = FileWorkflowEvent(
-            FileWorkflowEventKind.IMPORT_EMPTY,
+            FileWorkflowEventKind.IMPORT_CANCELLED,
             "library.import",
             focus_target="library-import-file",
         )
 
-        self.assertEqual(_run_thread(lambda: pump(event)), [])
-        callback = poster.callbacks.pop(0)
-        callback()
+        with patch(
+            "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+            0.01,
+        ):
+            self.assertEqual(_run_thread(lambda: pump(event)), [])
+            poster.callbacks.pop(0)()
 
-        self.assertEqual(calls, ["abort"])
-        self.assertEqual(pump.ready_failure_count, 1)
-        self.assertFalse(pump.wakeup_pending)
+            deadline = time.monotonic() + 1.0
+            while not poster.callbacks and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(len(poster.callbacks), 1)
+
+            poster.callbacks.pop(0)()
+            time.sleep(0.05)
+
+        self.assertEqual(calls, ["abort", "abort"])
+        self.assertEqual(pump.ready_failure_count, 2)
+        self.assertEqual(poster.calls, 2)
+        self.assertEqual(poster.callbacks, [])
         self.assertEqual(mailbox.pending_count, 1)
+        self.assertFalse(pump.wakeup_pending)
 
+    def test_successful_retry_resets_presentation_retry_budget(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
         delivered = []
-        pump.close()
-        recovery = Version2ImportUiWakeupPump(
-            mailbox,
-            _QueuedPoster(),
-            lambda: delivered.extend(mailbox.drain()),
+        fail_next = [True]
+
+        class ReadyAbort(BaseException):
+            pass
+
+        def fail_once_per_batch() -> None:
+            if fail_next[0]:
+                fail_next[0] = False
+                raise ReadyAbort()
+            delivered.extend(mailbox.drain())
+
+        pump = Version2ImportUiWakeupPump(mailbox, poster, fail_once_per_batch)
+
+        def run_batch(event: FileWorkflowEvent) -> None:
+            fail_next[0] = True
+            self.assertEqual(_run_thread(lambda: pump(event)), [])
+            poster.callbacks.pop(0)()
+            deadline = time.monotonic() + 1.0
+            while not poster.callbacks and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(len(poster.callbacks), 1)
+            fail_next[0] = False
+            poster.callbacks.pop(0)()
+
+        first = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_EMPTY,
+            "library.import",
+            focus_target="library-import-file",
         )
-        self.assertTrue(recovery.request_pending_wakeup())
-        self.assertEqual(delivered, [event])
+        second = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_CANCELLED,
+            "library.import",
+            focus_target="library-import-file",
+        )
+
+        with patch(
+            "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+            0.01,
+        ):
+            run_batch(first)
+            run_batch(second)
+
+        self.assertEqual(delivered, [first, second])
+        self.assertEqual(pump.ready_failure_count, 2)
         self.assertEqual(mailbox.pending_count, 0)
 
     def test_ui_ready_abort_and_logging_abort_cannot_escape(self) -> None:
@@ -551,17 +647,22 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
             focus_target="library-import-file",
         )
 
-        self.assertEqual(_run_thread(lambda: pump(event)), [])
-        callback = poster.callbacks.pop(0)
         with patch(
-            "acs.version2_windows_import_ui_pump._LOG.warning",
-            side_effect=LoggingAbort(),
+            "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+            60.0,
         ):
-            callback()
+            self.assertEqual(_run_thread(lambda: pump(event)), [])
+            callback = poster.callbacks.pop(0)
+            with patch(
+                "acs.version2_windows_import_ui_pump._LOG.warning",
+                side_effect=LoggingAbort(),
+            ):
+                callback()
 
-        self.assertEqual(pump.ready_failure_count, 1)
-        self.assertEqual(mailbox.pending_count, 1)
-        self.assertFalse(pump.wakeup_pending)
+            self.assertEqual(pump.ready_failure_count, 1)
+            self.assertEqual(mailbox.pending_count, 1)
+            self.assertFalse(pump.wakeup_pending)
+            pump.close()
 
     def test_close_stops_future_worker_wakeups(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
