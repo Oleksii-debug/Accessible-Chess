@@ -599,8 +599,8 @@ def _publish_expected_hash(
             snapshot_sha256 = _current_sha256(snapshot)
         except (OSError, ValueError, PgnFileError) as exc:
             preserve_snapshot = True
-            raise PgnFileError(
-                "PGN publication could not be verified safely; recovery snapshot was preserved"
+            raise PgnPublicationUnverifiedError(
+                "PGN publication crossed the commit boundary but recovery verification failed"
             ) from exc
 
         if snapshot_sha256 != expected_sha256:
@@ -608,8 +608,8 @@ def _publish_expected_hash(
                 os.replace(snapshot, destination)
             except OSError as exc:
                 preserve_snapshot = True
-                raise PgnFileError(
-                    "PGN concurrent-write rollback failed; recovery snapshot was preserved"
+                raise PgnPublicationUnverifiedError(
+                    "PGN publication crossed the commit boundary and rollback could not be verified"
                 ) from exc
             snapshot = None
             raise PgnConcurrentWriteError(f"PGN changed during publication: {destination}")
