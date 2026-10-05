@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from acs.import_contract import SourceFingerprint
 from acs.pgn_document import (
     PgnConcurrentWriteError,
     PgnDocumentError,
@@ -73,6 +74,55 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         commit_pgn_save_publication(session, second_publication)
         self.assertIn("Newer In Memory", source.read_text(encoding="utf-8"))
         self.assertFalse(session.dirty)
+
+    def test_capture_detaches_source_provenance_from_snapshot_mutation(self) -> None:
+        source = self.write_document()
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+
+        self.assertIsNotNone(snapshot.source_before)
+        self.assertEqual(snapshot.source_before, source_before)
+        assert snapshot.source_before is not None
+        object.__setattr__(snapshot.source_before, "sha256", "f" * 64)
+        object.__setattr__(snapshot.source_before, "path", "attacker-snapshot.pgn")
+
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(Path(session.source.path), source)
+
+    def test_committed_publication_does_not_alias_worker_fingerprint(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "detached-publication.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        published_identity = SourceFingerprint(
+            path=publication.saved.path,
+            size=publication.saved.size,
+            sha256=publication.saved.sha256,
+            suffix=publication.saved.suffix,
+        )
+
+        commit_pgn_save_publication(session, publication)
+        self.assertEqual(session.source, published_identity)
+
+        object.__setattr__(publication.saved, "sha256", "e" * 64)
+        object.__setattr__(publication.saved, "path", "attacker-publication.pgn")
+        self.assertEqual(session.source, published_identity)
+        self.assertEqual(Path(session.source.path), target)
+
+    def test_malformed_publication_provenance_fails_before_session_rebind(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "malformed-publication.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        object.__setattr__(publication.saved, "sha256", object())
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
 
     def test_save_source_cas_failure_does_not_mutate_live_session(self) -> None:
         source = self.write_document()
