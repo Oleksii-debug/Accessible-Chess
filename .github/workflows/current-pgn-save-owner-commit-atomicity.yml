@@ -10,6 +10,7 @@ on:
     paths:
       - acs/pgn_save_snapshot.py
       - tests/test_pgn_save_snapshot.py
+      - tests/test_v2_windows_pgn_save_worker.py
       - .github/workflows/current-pgn-save-owner-commit-atomicity.yml
 
 permissions:
@@ -24,6 +25,7 @@ env:
   PARENT_BRANCH: work/windows-pgn-save-bg-20261005-k7m4q2
   EXPECTED_SOURCE_BLOB: fbd368589bd1579a6fcde25369244dc6cc7b2ab0
   EXPECTED_TEST_BLOB: 2380e5162d8578fbd365286ca4e7d274365b90e8
+  EXPECTED_HOST_TEST_BLOB: d30c7b10c35fd166ef85bb51818e43d00b26d8f4
 
 jobs:
   owner-commit-atomicity:
@@ -67,6 +69,7 @@ jobs:
             ".github/workflows/current-pgn-save-owner-commit-atomicity.yml"
             "acs/pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for index in "${!expected[@]}"; do
@@ -75,6 +78,7 @@ jobs:
 
           test "$(git rev-parse HEAD:acs/pgn_save_snapshot.py)" = "$EXPECTED_SOURCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_save_snapshot.py)" = "$EXPECTED_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$EXPECTED_HOST_TEST_BLOB"
 
           echo "PGN_SAVE_OWNER_PARENT=$EXPECTED_PARENT"
           echo "PGN_SAVE_OWNER_HEAD=$expected_head"
