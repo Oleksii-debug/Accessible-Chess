@@ -414,6 +414,11 @@ def publish_pgn_save_snapshot(
     caller retaining the public snapshot cannot race-mutate the graph consumed
     by the canonical writer after that validation point.
 
+    Save As treats ``overwrite=True`` as an explicit compare-and-swap replacement
+    request and therefore always requires ``expected_sha256`` before writer I/O.
+    A new destination must use ``overwrite=False`` so the canonical writer owns
+    the no-clobber create race instead of relying on a prior existence check.
+
     Cancellation is polled before filesystem work, between serialized games,
     and through ``save_pgn_atomic(pre_publish_check=...)`` after flush/fsync but
     before the atomic publication primitive.  There is deliberately no cancel
@@ -460,9 +465,9 @@ def publish_pgn_save_snapshot(
         if path is None:
             raise TypeError("Save As snapshot requires a destination path")
         destination = Path(path)
-        if destination.exists() and overwrite and expected_sha256 is None:
+        if overwrite and expected_sha256 is None:
             raise PgnDocumentError(
-                "existing destination requires its expected fingerprint before overwrite",
+                "Save As overwrite requires its expected destination fingerprint",
                 code=PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
             )
         saved = save_pgn_atomic(
