@@ -228,6 +228,24 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             PgnDocumentSession(workspace, source=source)
 
+    def test_session_rejects_noncanonical_source_fingerprint_values(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        invalid_sources = (
+            SourceFingerprint(path="", size=1, sha256="0" * 64, suffix=""),
+            SourceFingerprint(path="source.pgn", size=-1, sha256="0" * 64, suffix=".pgn"),
+            SourceFingerprint(path="source.pgn", size=1, sha256="not-a-digest", suffix=".pgn"),
+            SourceFingerprint(path="source.pgn", size=1, sha256="A" * 64, suffix=".pgn"),
+            SourceFingerprint(path="source.pgn", size=1, sha256="0" * 64, suffix=".txt"),
+        )
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    PgnDocumentSession(
+                        workspace,
+                        source=source,
+                        saved_digest=workspace.content_digest,
+                    )
+
     def test_session_detaches_valid_source_fingerprint_from_caller_mutation(self) -> None:
         workspace = PgnWorkspace.from_text(PGN)
         source = SourceFingerprint(
