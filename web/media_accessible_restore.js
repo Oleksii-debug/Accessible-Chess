@@ -84,8 +84,8 @@
 
   function transportFailureText(label) {
     return label === "Відновити позицію медіа"
-      ? "Не вдалося виконати команду відновлення позиції медіа. Нічого не змінено."
-      : "The Restore Media Position command failed. Nothing was changed.";
+      ? "Не вдалося підтвердити результат команди відновлення позиції медіа. Перевірте поточну шахову дошку перед продовженням."
+      : "The Restore Media Position result could not be confirmed. Check the current chess board before continuing.";
   }
 
   function render(root, value, invokeRestore, focusAfterRender) {
