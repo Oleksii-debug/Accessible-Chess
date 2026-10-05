@@ -38,18 +38,20 @@ def _contract_error(message: str, code: GameTreeErrorCode) -> GameTreeContractEr
     return GameTreeContractError(message, code=code)
 
 
-def _require_exact_text(value: object, *, field: str) -> None:
-    if type(value) is not str:
-        raise _contract_error(
-            f"{field} must be built-in text",
-            GameTreeErrorCode.INVALID_CONTAINER,
-        )
-
-
-def _require_comment_list(value: object, *, field: str) -> None:
+def _require_comment_list(
+    value: object,
+    *,
+    field: str,
+    budget: _PresentationTextBudget,
+) -> None:
     if type(value) is not list:
         raise _contract_error(
             f"{field} must be a built-in list",
+            GameTreeErrorCode.INVALID_CONTAINER,
+        )
+    if len(value) > MAX_PGN_PRESENTATION_COMMENTS_PER_SLOT:
+        raise _contract_error(
+            f"{field} contains too many comments",
             GameTreeErrorCode.INVALID_CONTAINER,
         )
     for comment in value:
@@ -58,10 +60,18 @@ def _require_comment_list(value: object, *, field: str) -> None:
                 f"{field} items must be Comment",
                 GameTreeErrorCode.INVALID_CONTAINER,
             )
-        _require_exact_text(comment.text, field=f"{field} text")
+        budget.charge(
+            comment.text,
+            field=f"{field} text",
+            limit=MAX_PGN_PRESENTATION_RAW_TEXT_CHARS,
+        )
 
 
-def _validate_game_shell(game: object) -> PgnGame:
+def _validate_game_shell(
+    game: object,
+    *,
+    budget: _PresentationTextBudget,
+) -> PgnGame:
     if type(game) is not PgnGame:
         raise _contract_error(
             "PGN presenter game must be PgnGame",
@@ -72,9 +82,22 @@ def _validate_game_shell(game: object) -> PgnGame:
             "PGN presenter tags must be a built-in dict",
             GameTreeErrorCode.INVALID_CONTAINER,
         )
+    if len(game.tags) > MAX_PGN_PRESENTATION_TAGS:
+        raise _contract_error(
+            "PGN presenter has too many tags",
+            GameTreeErrorCode.INVALID_CONTAINER,
+        )
     for key, value in game.tags.items():
-        _require_exact_text(key, field="PGN tag name")
-        _require_exact_text(value, field="PGN tag value")
+        budget.charge(
+            key,
+            field="PGN tag name",
+            limit=MAX_PGN_PRESENTATION_SHORT_TEXT_CHARS,
+        )
+        budget.charge(
+            value,
+            field="PGN tag value",
+            limit=MAX_PGN_PRESENTATION_RAW_TEXT_CHARS,
+        )
     if type(game.source_index) is not int:
         raise _contract_error(
             "PGN source index must be an exact integer",
@@ -85,8 +108,17 @@ def _validate_game_shell(game: object) -> PgnGame:
             "PGN warnings must be a built-in list",
             GameTreeErrorCode.INVALID_CONTAINER,
         )
+    if len(game.warnings) > MAX_PGN_PRESENTATION_WARNINGS:
+        raise _contract_error(
+            "PGN presenter has too many warnings",
+            GameTreeErrorCode.INVALID_CONTAINER,
+        )
     for warning in game.warnings:
-        _require_exact_text(warning, field="PGN warning")
+        budget.charge(
+            warning,
+            field="PGN warning",
+            limit=MAX_PGN_PRESENTATION_RAW_TEXT_CHARS,
+        )
     if type(game.line) is not VariationLine:
         raise _contract_error(
             "PGN root must be VariationLine",
@@ -103,7 +135,8 @@ def validate_pgn_presentation_graph(game: object) -> None:
     the current game: active-line reuse is a cycle; completed-node reuse is an
     aliasing graph that the tree presenter cannot represent canonically.
     """
-    canonical_game = _validate_game_shell(game)
+    budget = _PresentationTextBudget()
+    canonical_game = _validate_game_shell(game, budget=budget)
     claimed: set[int] = set()
     active_lines: set[int] = set()
     node_count = 0
@@ -150,10 +183,22 @@ def validate_pgn_presentation_graph(game: object) -> None:
                 "PGN variation moves must be a built-in list",
                 GameTreeErrorCode.INVALID_CONTAINER,
             )
-        _require_comment_list(line.leading_comments, field="PGN leading comments")
-        _require_comment_list(line.trailing_comments, field="PGN trailing comments")
+        _require_comment_list(
+            line.leading_comments,
+            field="PGN leading comments",
+            budget=budget,
+        )
+        _require_comment_list(
+            line.trailing_comments,
+            field="PGN trailing comments",
+            budget=budget,
+        )
         if line.result is not None:
-            _require_exact_text(line.result, field="PGN variation result")
+            budget.charge(
+                line.result,
+                field="PGN variation result",
+                limit=MAX_PGN_PRESENTATION_SHORT_TEXT_CHARS,
+            )
 
         child_lines: list[VariationLine] = []
         for move in line.moves:
@@ -176,18 +221,43 @@ def validate_pgn_presentation_graph(game: object) -> None:
                     GameTreeErrorCode.GRAPH_NODE_LIMIT,
                 )
 
-            _require_exact_text(move.san, field="PGN SAN text")
+            budget.charge(
+                move.san,
+                field="PGN SAN text",
+                limit=MAX_PGN_PRESENTATION_SAN_CHARS,
+            )
             if move.move_number is not None:
-                _require_exact_text(move.move_number, field="PGN move number")
+                budget.charge(
+                    move.move_number,
+                    field="PGN move number",
+                    limit=MAX_PGN_PRESENTATION_SHORT_TEXT_CHARS,
+                )
             if type(move.nags) is not list:
                 raise _contract_error(
                     "PGN NAGs must be a built-in list",
                     GameTreeErrorCode.INVALID_CONTAINER,
                 )
+            if len(move.nags) > MAX_PGN_PRESENTATION_NAGS_PER_MOVE:
+                raise _contract_error(
+                    "PGN move has too many NAGs",
+                    GameTreeErrorCode.INVALID_CONTAINER,
+                )
             for nag in move.nags:
-                _require_exact_text(nag, field="PGN NAG")
-            _require_comment_list(move.comments_before, field="PGN comments before move")
-            _require_comment_list(move.comments_after, field="PGN comments after move")
+                budget.charge(
+                    nag,
+                    field="PGN NAG",
+                    limit=MAX_PGN_PRESENTATION_SHORT_TEXT_CHARS,
+                )
+            _require_comment_list(
+                move.comments_before,
+                field="PGN comments before move",
+                budget=budget,
+            )
+            _require_comment_list(
+                move.comments_after,
+                field="PGN comments after move",
+                budget=budget,
+            )
             if type(move.variations) is not list:
                 raise _contract_error(
                     "PGN move variations must be a built-in list",
