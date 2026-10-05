@@ -807,7 +807,12 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         return snapshot
 
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
-        result = self._dispatch(action, {})
+        try:
+            result = self._dispatch(action, {})
+        except BaseException:
+            # The provider is a host/application boundary. Never let a host abort
+            # bypass the Book bridge's sanitized accessible failure result.
+            return False
         # A canonical router returns exact ActionDispatchResult while a composed
         # callback may already return the exact UI event. Keep this boundary
         # passive: never probe arbitrary wrappers for a value attribute, and
