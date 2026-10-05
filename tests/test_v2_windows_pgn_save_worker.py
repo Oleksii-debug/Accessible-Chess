@@ -711,6 +711,39 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(terminal.error_code, "pgn_save_stale")
 
+    def test_shutdown_commits_and_reopens_durable_save_as_before_owner_drain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "shutdown-save-as.pgn"
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session.edit_tag("Event", "Durable Save As shutdown")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+
+            started = controller("pgn.save_as", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertTrue(target.exists())
+            self.assertIsNone(session.source)
+            self.assertTrue(poster.callbacks)
+
+            self.assertTrue(controller.shutdown(5.0))
+
+            self.assertIsNotNone(session.source)
+            assert session.source is not None
+            self.assertEqual(Path(session.source.path), target)
+            self.assertFalse(session.dirty)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED_AS)
+
+            reopened = PgnDocumentSession.open(target)
+            self.assertIn("Durable Save As shutdown", reopened.copy_pgn())
+            self.assertFalse(reopened.dirty)
+            self.assertEqual(reopened.source, session.source)
+
+            event_count = len(async_events)
+            poster.drain()
+            self.assertEqual(len(async_events), event_count)
+
     def test_shutdown_commits_already_published_save_before_owner_callback_is_drained(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
