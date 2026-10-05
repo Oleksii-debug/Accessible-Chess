@@ -25,7 +25,12 @@ from weakref import ReferenceType, ref
 
 from .gametree import PgnGame
 from .import_contract import SourceFingerprint, SourceReadCancelledError, fingerprint
-from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
+from .pgn_document import (
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+    PgnDocumentView,
+)
 from .pgn_service import (
     _same_direct_path,
     _validated_expected_sha256,
@@ -789,16 +794,56 @@ def commit_pgn_save_publication(
     elif binding.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
 
-    # Prepare all values and complete the workspace checkpoint before mutating
-    # session provenance. If semantic mark_saved() fails, the host can report a
-    # post-publication commit failure while source/saved/revision still describe
-    # the pre-commit in-memory document.
+    # Materialize the complete presentation projection before changing either
+    # workspace checkpoint state or session provenance. A malformed live
+    # presentation must fail the owner commit without leaving the document in a
+    # state that says persistence advanced even though the caller observed a
+    # commit failure.
+    try:
+        precommit_view = current.view()
+    except BaseException as exc:
+        raise PgnDocumentError(
+            "PGN file was written but the document projection could not be finalized",
+            code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        ) from exc
+    if type(precommit_view) is not PgnDocumentView:
+        raise PgnDocumentError(
+            "PGN file was written but the document projection is not canonical",
+            code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+
     next_source = SourceFingerprint(
         path=saved.path,
         size=saved.size,
         sha256=saved.sha256,
         suffix=saved.suffix,
     )
+    next_revision = live_document_revision + 1
+    next_source_overwrite_safe = (
+        True
+        if binding.mode is PgnSaveMode.SAVE_AS
+        else live_source_overwrite_safe
+    )
+    next_global_warnings = (
+        ()
+        if binding.mode is PgnSaveMode.SAVE_AS
+        else live_global_warnings
+    )
+    next_view = PgnDocumentView(
+        source_path=next_source.path,
+        source_sha256=next_source.sha256,
+        game_count=precommit_view.game_count,
+        selected_game_index=precommit_view.selected_game_index,
+        cursor=precommit_view.cursor,
+        dirty=live_content_digest != binding.content_digest,
+        document_revision=next_revision,
+        source_overwrite_safe=next_source_overwrite_safe,
+        global_warnings=next_global_warnings,
+    )
+
+    # Complete the workspace checkpoint before mutating session provenance. If
+    # semantic mark_saved() fails, the host can report a post-publication commit
+    # failure while source/saved/revision still describe the pre-commit document.
     try:
         if live_content_digest == binding.content_digest:
             live_workspace.mark_saved()
@@ -824,8 +869,8 @@ def commit_pgn_save_publication(
         current._source_overwrite_safe = True
         current._global_warnings = ()
     current._saved_digest = binding.content_digest
-    current._document_revision = live_document_revision + 1
-    return current.view()
+    current._document_revision = next_revision
+    return next_view
 
 
 __all__ = [
