@@ -105,8 +105,19 @@ class Version2BookOpenWorker:
                 daemon=False,
             )
             self._thread = thread
-        self._emit(BookOpenWorkerEventKind.STARTED, focus_target)
-        thread.start()
+        try:
+            self._emit(BookOpenWorkerEventKind.STARTED, focus_target)
+            thread.start()
+        except BaseException:
+            with self._lock:
+                if generation == self._generation and self._thread is thread:
+                    self._cancel = None
+                    self._thread = None
+            try:
+                self._emit(BookOpenWorkerEventKind.FAILED, focus_target)
+            except BaseException:
+                pass
+            raise
         return True
 
     def cancel(self, *, focus_target: str = "") -> bool:
