@@ -32,6 +32,38 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
             self.assertIsNone(api.keymap_resolve_binding("history", "Shift+D"))
             self.assertEqual(api.keymap_resolve_binding("history", "Ctrl+Shift+J")["actionId"], "history.next")
 
+    def test_board_focus_resolution_includes_analysis_before_global_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+
+            board = api.keymap_resolve_binding("board", "Left")
+            self.assertIsNotNone(board)
+            self.assertEqual(board["actionId"], "board.cursor_left")
+            self.assertEqual(board["context"], "board")
+
+            analysis = api.keymap_resolve_binding("board", "Alt+1")
+            self.assertIsNotNone(analysis)
+            self.assertEqual(analysis["actionId"], "analysis.pv1")
+            self.assertEqual(analysis["context"], "analysis")
+
+            global_action = api.keymap_resolve_binding("board", "Ctrl+Z")
+            self.assertIsNotNone(global_action)
+            self.assertEqual(global_action["actionId"], "edit.undo")
+            self.assertEqual(global_action["context"], "global")
+
+            self.assertIsNone(api.keymap_resolve_binding("history", "Alt+1"))
+
+    def test_board_focus_analysis_resolution_tracks_persisted_remap(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            changed = api.keymap_save("analysis.pv1", "Ctrl+Shift+J")
+            self.assertTrue(changed["ok"], changed)
+            self.assertIsNone(api.keymap_resolve_binding("board", "Alt+1"))
+            resolved = api.keymap_resolve_binding("board", "Ctrl+Shift+J")
+            self.assertIsNotNone(resolved)
+            self.assertEqual(resolved["actionId"], "analysis.pv1")
+            self.assertEqual(resolved["context"], "analysis")
+
     def test_import_warning_requires_explicit_bridge_confirmation(self):
         with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
