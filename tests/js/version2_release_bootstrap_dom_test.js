@@ -542,6 +542,10 @@ async function clickRoute(routeId) {
     originalMain.hidden === false && workspace.hidden === true,
     "recovery after retryable host rejection did not preserve canonical Board visibility"
   );
+  // Keep the legacy absolute counters below scoped to their original scenario;
+  // the retryability case above has already asserted its own recovery effects.
+  shellPublicationRollbacks = 1;
+  shellPublicationCommits = 0;
 
   await clickRoute("books");
   const committedBookBlock = documentRef.getElementById("book-block-1");
