@@ -319,12 +319,18 @@ def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
     try:
         same_identity = os.path.samestat(left, right)
     except (AttributeError, OSError):
-        same_identity = (
+        left_identity = (
             getattr(left, "st_dev", None),
             getattr(left, "st_ino", None),
-        ) == (
+        )
+        right_identity = (
             getattr(right, "st_dev", None),
             getattr(right, "st_ino", None),
+        )
+        values = left_identity + right_identity
+        same_identity = bool(
+            all(value not in (None, 0) for value in values)
+            and left_identity == right_identity
         )
     return bool(
         same_identity
