@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from acs.pgn_document import PgnDocumentSession
+from acs.pgn_document import PgnDocumentSession, PgnDocumentView
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
     FileWorkflowEventKind,
@@ -158,6 +158,106 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             for event in events:
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-worker-source", repr(event))
+
+    def test_active_prepared_game_count_is_rejected_before_owner_hook_or_publication(self) -> None:
+        class ActiveInt(int):
+            def __lt__(self, other):
+                raise AssertionError("active prepared game count ordering executed")
+
+            def __int__(self):
+                raise AssertionError("active prepared game count conversion executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-prepared-count.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            controller, _, poster, events, session_box, publications = self._controller(source)
+            real_view = PgnDocumentSession.view
+
+            def active_view(session):
+                view = real_view(session)
+                object.__setattr__(view, "game_count", ActiveInt(view.game_count))
+                return view
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=active_view,
+            ):
+                started = controller("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(controller.wait_for_pgn_open(2.0))
+                poster.drain()
+
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(publications, [])
+            self.assertFalse(controller.pgn_open_running)
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_open_failed")
+
+    def test_active_prepared_warnings_are_rejected_before_owner_len_or_publication(self) -> None:
+        class ActiveWarnings(tuple):
+            def __len__(self):
+                raise AssertionError("active prepared warnings length executed")
+
+            def __iter__(self):
+                raise AssertionError("active prepared warnings iteration executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-prepared-warnings.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            controller, _, poster, events, session_box, publications = self._controller(source)
+            real_view = PgnDocumentSession.view
+
+            def active_view(session):
+                view = real_view(session)
+                object.__setattr__(view, "global_warnings", ActiveWarnings())
+                return view
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=active_view,
+            ):
+                started = controller("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(controller.wait_for_pgn_open(2.0))
+                poster.drain()
+
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(publications, [])
+            self.assertFalse(controller.pgn_open_running)
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_open_failed")
+
+    def test_prepared_session_subclass_is_rejected_before_owner_publication(self) -> None:
+        class DerivedSession(PgnDocumentSession):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "derived-prepared-session.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            controller, _, poster, events, session_box, publications = self._controller(source)
+            derived = DerivedSession.from_text(PGN_TEXT)
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.PgnDocumentSession.open",
+                return_value=derived,
+            ):
+                started = controller("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(controller.wait_for_pgn_open(2.0))
+                poster.drain()
+
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(publications, [])
+            self.assertFalse(controller.pgn_open_running)
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_open_failed")
 
     def test_owner_live_session_base_exception_becomes_terminal_and_releases_worker(self) -> None:
         class OwnerAbort(BaseException):
