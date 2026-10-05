@@ -141,6 +141,32 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(forwarded[0][0], "screen.home")
             self.assertIs(forwarded[0][1], payload)
 
+    def test_import_started_sink_base_exception_does_not_strand_reserved_worker(self) -> None:
+        class SinkAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "import-sink-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
+                    raise SinkAbort("presentation sink aborted")
+
+            delegate = self._delegate(source, event_sink=sink)
+            started = delegate("library.import", {})
+
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertFalse(delegate.import_running)
+            self.assertIn(FileWorkflowEventKind.FAILED, [event.kind for event in events])
+
+            reopened = delegate("pgn.open", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertFalse(delegate.pgn_open_running)
+
     def test_import_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "import-shutdown.pgn"
