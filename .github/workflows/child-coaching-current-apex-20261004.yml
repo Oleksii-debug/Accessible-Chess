@@ -97,7 +97,7 @@ jobs:
               "tests/test_child_coaching_application.py": "a59dfaa0055f156b64ddd9e22704bf3d1814b9c5",
               "tests/test_child_coaching_projection.py": "d3de779725cf54c100675098a22fd41330d5d790",
               "tests/test_child_coaching_rotation.py": "814c391014db668160d6432a8a8384becca4676f",
-              "tests/test_child_coaching_rotation_completed_recovery.py": "a938dbdbc0e88953519508eb443a673b4015387b",
+              "tests/test_child_coaching_rotation_completed_recovery.py": "ced919531502afd7d59fe95b567190e0f857df26",
               "tests/test_child_coaching_prepared_positions.py": "6999fca59274c9e1afd7159bab23e544ca6614a7",
           }
           for path, expected_sha in canonical.items():
