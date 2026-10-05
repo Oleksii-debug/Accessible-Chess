@@ -492,6 +492,29 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "library")
         self.assertEqual(self.app._focus, self.app.shell.restore_focus_target())
 
+    def test_native_library_search_error_render_rolls_back_presenter_state(self) -> None:
+        self.database.import_pgn_text(
+            PGN_TEMPLATE.format(event="Stable Search"),
+            source_name="search-error-rollback.pgn",
+        )
+        projection = self.app.library.projection
+        projection.search(GameSearchQuery(event="Stable Search"))
+        before = projection.snapshot()
+
+        self.app._focus = self.app.shell.open_route("board")
+        prior_focus = self.app._focus
+        with patch.object(
+            projection._presenter._service,
+            "search",
+            side_effect=RuntimeError("simulated backend search failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.app._delegate("library.search", {})
+
+        self.assertEqual(projection.snapshot(), before)
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, prior_focus)
+
     def test_native_library_route_failure_rolls_back_real_keyset_page(self) -> None:
         self.database.import_pgn_text(
             PGN_TEMPLATE.format(event="Page One") + "\n" + PGN_TEMPLATE.format(event="Page Two"),
