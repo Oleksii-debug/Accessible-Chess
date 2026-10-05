@@ -546,7 +546,7 @@ def create_version2_release_application(
         )
         book_open_worker = Version2BookOpenWorker(
             prepare=application.prepare_book_open,
-            commit=application.commit_prepared_book_open,
+            commit=application.commit_background_prepared_book_open,
             post_to_ui=Version2WinFormsUiPoster(owner_control),
             event_sink=application._book_open_event,
         )
