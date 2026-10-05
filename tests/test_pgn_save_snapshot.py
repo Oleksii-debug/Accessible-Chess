@@ -413,15 +413,22 @@ class PgnSaveSnapshotTests(unittest.TestCase):
             "Durably published before checkpoint failure",
             source.read_text(encoding="utf-8"),
         )
+        class CheckpointAbort(BaseException):
+            pass
+
         with patch.object(
             PgnWorkspace,
             "mark_saved",
             autospec=True,
-            side_effect=RuntimeError("workspace checkpoint unavailable"),
+            side_effect=CheckpointAbort("workspace checkpoint unavailable"),
         ):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(PgnDocumentError) as caught:
                 commit_pgn_save_publication(session, publication)
 
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
         self.assertEqual(session.source, source_before)
         self.assertEqual(session._saved_digest, saved_digest_before)
         self.assertEqual(session.document_revision, revision_before)
