@@ -306,6 +306,38 @@ def _recover_malformed_result_placeholder(game: PgnGame) -> str | None:
     return f"recovered malformed result token {header_result} as *"
 
 
+def _passive_source_snapshot(source: object) -> SourceFingerprint | None:
+    """Detach one live source fingerprint without executing active scalar hooks."""
+
+    if source is None:
+        return None
+    if type(source) is not SourceFingerprint:
+        raise TypeError("PGN source fingerprint is invalid")
+    path = source.path
+    size = source.size
+    sha256 = source.sha256
+    suffix = source.suffix
+    if (
+        type(path) is not str
+        or not path
+        or type(size) is not int
+        or size < 0
+        or type(sha256) is not str
+        or len(sha256) != 64
+        or any(character not in "0123456789abcdef" for character in sha256)
+        or type(suffix) is not str
+        or suffix != suffix.lower()
+        or suffix != Path(path).suffix.lower()
+    ):
+        raise TypeError("PGN source fingerprint fields are invalid")
+    return SourceFingerprint(
+        path=path,
+        size=size,
+        sha256=sha256,
+        suffix=suffix,
+    )
+
+
 class PgnDocumentSession:
     """One user-facing PGN document session over the canonical workspace."""
 
@@ -458,39 +490,60 @@ class PgnDocumentSession:
 
     @property
     def source(self) -> SourceFingerprint | None:
-        source = self._source
-        if source is None:
-            return None
         # Never expose the internal provenance object itself. Frozen dataclass
         # protection prevents ordinary assignment but not low-level mutation
-        # through a caller-retained reference.
-        return SourceFingerprint(
-            path=source.path,
-            size=source.size,
-            sha256=source.sha256,
-            suffix=source.suffix,
-        )
+        # through a caller-retained reference. Revalidate exact passive scalar
+        # shape on every outward read so a corrupted source cannot execute hooks
+        # or leak malformed provenance into the UI.
+        return _passive_source_snapshot(self._source)
 
     @property
     def dirty(self) -> bool:
-        return self._saved_digest is None or self._workspace.content_digest != self._saved_digest
+        saved_digest = self._saved_digest
+        content_digest = self._workspace.content_digest
+        if saved_digest is not None and (
+            type(saved_digest) is not str
+            or len(saved_digest) != 64
+            or any(character not in "0123456789abcdef" for character in saved_digest)
+        ):
+            raise TypeError("PGN saved digest is invalid")
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(character not in "0123456789abcdef" for character in content_digest)
+        ):
+            raise TypeError("PGN workspace digest is invalid")
+        return saved_digest is None or content_digest != saved_digest
 
     @property
     def document_revision(self) -> int:
-        return self._document_revision
+        revision = self._document_revision
+        if type(revision) is not int or revision < 0:
+            raise TypeError("PGN document revision is invalid")
+        return revision
 
     def view(self) -> PgnDocumentView:
+        source = _passive_source_snapshot(self._source)
+        source_overwrite_safe = self._source_overwrite_safe
+        global_warnings = self._global_warnings
+        revision = self.document_revision
+        if type(source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety flag is invalid")
+        if type(global_warnings) is not tuple or any(
+            type(item) is not str for item in global_warnings
+        ):
+            raise TypeError("PGN global warnings are invalid")
         workspace_view = self._workspace.view()
         return PgnDocumentView(
-            source_path=None if self._source is None else self._source.path,
-            source_sha256=None if self._source is None else self._source.sha256,
+            source_path=None if source is None else source.path,
+            source_sha256=None if source is None else source.sha256,
             game_count=workspace_view.game_count,
             selected_game_index=workspace_view.selected_game_index,
             cursor=_passive_context_cursor(workspace_view.cursor),
             dirty=self.dirty,
-            document_revision=self._document_revision,
-            source_overwrite_safe=self._source_overwrite_safe,
-            global_warnings=self._global_warnings,
+            document_revision=revision,
+            source_overwrite_safe=source_overwrite_safe,
+            global_warnings=global_warnings,
         )
 
     def bookmark(self) -> PgnDocumentContext:
