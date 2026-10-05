@@ -17,6 +17,7 @@ from typing import Final
 
 from .acsdb import AcsDatabase
 from .gametree import PgnGame
+from .import_contract import fingerprint
 from .pgn_roundtrip import parse_pgn_text
 from .pgn_service import SourceFingerprint, save_pgn_atomic
 from .search_service import GameSearchQuery, GameSearchService
@@ -160,6 +161,15 @@ class LibraryExportService:
         self._database = database
         self._search = search_service or GameSearchService(database)
 
+    @staticmethod
+    def expected_destination_sha256(destination: str | Path) -> str | None:
+        """Bind an existing export target before a potentially long streamed export."""
+
+        path = Path(destination)
+        if not path.exists():
+            return None
+        return fingerprint(path).sha256
+
     def _iter_selected_ids(self, request: LibraryExportRequest) -> Iterator[int]:
         if request.scope is LibraryExportScope.SELECTED:
             yield from request.game_ids
@@ -242,8 +252,16 @@ class LibraryExportService:
         self,
         destination: str | Path,
         request: LibraryExportRequest,
+        *,
+        expected_sha256: str | None = None,
     ) -> LibraryExportResult:
-        """Stream one stable Library snapshot into the canonical D06 writer."""
+        """Stream one stable Library snapshot into the canonical D06 writer.
+
+        A new destination is published no-clobber. Replacing an existing
+        destination requires the SHA-256 generation captured after the trusted
+        host's Save-dialog confirmation, so a later external edit cannot be
+        silently lost while a large Library export is still streaming.
+        """
 
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
@@ -264,14 +282,15 @@ class LibraryExportService:
         # iterable, so paging and row loads all observe one exact read snapshot.
         # D06 still owns temp-file writing, cleanup and atomic publication.
         with self._read_snapshot():
-            fingerprint = save_pgn_atomic(
+            published = save_pgn_atomic(
                 destination,
                 counted_games(),
-                overwrite=True,
+                overwrite=expected_sha256 is not None,
+                expected_sha256=expected_sha256,
             )
         return LibraryExportResult(
             game_count=game_count,
-            destination_fingerprint=fingerprint,
+            destination_fingerprint=published,
         )
 
 
