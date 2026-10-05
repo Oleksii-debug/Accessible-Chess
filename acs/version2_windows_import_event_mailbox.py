@@ -15,6 +15,7 @@ here.
 """
 
 from collections import deque
+from contextlib import contextmanager
 import threading
 
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind
@@ -214,11 +215,22 @@ class Version2ImportUiEventMailbox:
             self._events.append(canonical)
         return event
 
-    def drain(self, *, max_events: int | None = None) -> tuple[FileWorkflowEvent, ...]:
-        """Remove queued worker events; callable only from the captured UI thread."""
+    @contextmanager
+    def delivery_batch(
+        self,
+        *,
+        max_events: int | None = None,
+    ):
+        """Lease one exact UI-thread batch and remove it only after success.
+
+        The mailbox lock remains held while the owner processes the leased
+        immutable DTOs. Worker producers may continue their canonical work but
+        cannot reorder/coalesce the leased queue prefix until the owner either
+        commits by returning normally or rolls back by raising.
+        """
 
         if threading.get_ident() != self._ui_thread_id:
-            raise RuntimeError("Library import UI events must be drained on the UI thread")
+            raise RuntimeError("Library import UI events must be delivered on the UI thread")
         if max_events is not None:
             if type(max_events) is not int:
                 raise TypeError("max_events must be an integer or None")
@@ -226,11 +238,30 @@ class Version2ImportUiEventMailbox:
                 raise ValueError("max_events must be positive")
 
         with self._lock:
-            count = len(self._events) if max_events is None else min(max_events, len(self._events))
-            drained = tuple(self._events.popleft() for _ in range(count))
-            if not self._events:
-                self._overflowed = False
-            return drained
+            count = (
+                len(self._events)
+                if max_events is None
+                else min(max_events, len(self._events))
+            )
+            leased = tuple(self._events[index] for index in range(count))
+            try:
+                yield leased
+            except BaseException:
+                # Rollback is implicit: the queue was never mutated.
+                raise
+            else:
+                for expected in leased:
+                    if not self._events or self._events[0] is not expected:
+                        raise RuntimeError("UI event delivery queue prefix changed")
+                    self._events.popleft()
+                if not self._events:
+                    self._overflowed = False
+
+    def drain(self, *, max_events: int | None = None) -> tuple[FileWorkflowEvent, ...]:
+        """Remove queued worker events; callable only from the captured UI thread."""
+
+        with self.delivery_batch(max_events=max_events) as events:
+            return events
 
 
 __all__ = ["Version2ImportUiEventMailbox"]
