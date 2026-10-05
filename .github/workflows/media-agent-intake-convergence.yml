@@ -79,14 +79,18 @@ jobs:
             '.github/workflows/agent-protocol-json-safety.yml' \
             '.github/workflows/agent-provider-response-authority.yml' \
             '.github/workflows/media-agent-intake-convergence.yml' \
+            'acs/agent_accessibility.py' \
             'acs/agent_budget.py' \
             'acs/agent_checkpoint.py' \
             'acs/agent_model_contracts.py' \
             'acs/agent_model_gateway.py' \
+            'acs/agent_resource_budget.py' \
             'acs/agent_retry.py' \
             'acs/agent_task_state.py' \
             'acs/agent_tools.py' \
+            'acs/agent_verification.py' \
             'acs/assistive_announcement.py' \
+            'acs/assistive_announcements.py' \
             'acs/chess_agent_tools.py' \
             'acs/media_audio.py' \
             'acs/media_errors.py' \
@@ -98,7 +102,9 @@ jobs:
             'acs/media_timeline_store.py' \
             'acs/media_transcribers.py' \
             'acs/media_transcription.py' \
+            'acs/keyed_async_lock.py' \
             'acs/pinned_directory.py' \
+            'acs/public_errors.py' \
             'acs/universal_chess_agent.py' \
             'docs/CROSS_REPO_CODE_INTAKE_2026-10-05.md' \
             'tests/test_agent_checkpoint_crossrepo.py' \
@@ -111,6 +117,7 @@ jobs:
             'tests/test_crossrepo_runtime_integration.py' \
             'tests/test_media_agent_intake_convergence_20261005.py' \
             'tests/test_media_audio_crossrepo.py' \
+            'tests/test_media_agent_safety_primitives_20261005.py' \
             'tests/test_media_foundation_crossrepo.py' \
             'tests/test_media_timeline_store.py' \
             'tests/test_universal_chess_agent_crossrepo.py' | LC_ALL=C sort)"
@@ -125,6 +132,13 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_agent_protocol_json_safety.py)" = '816f35f3baca039115d8d9db33adb3d9bb1d31bf'
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = '11c1f5aad3a2fdbae62417d477f2d0b3a390b8cb'
           test "$(git rev-parse HEAD:tests/test_chess_agent_tools_crossrepo.py)" = '0ab21c0b8529e8ece4b722392a2f907a65672763'
+          test "$(git rev-parse HEAD:acs/agent_accessibility.py)" = '647d431c7e079f0e9b716d9fe80fca2289bc243b'
+          test "$(git rev-parse HEAD:acs/agent_resource_budget.py)" = 'ec501c7facf9723d8696b6cf88b9680e26c7f44d'
+          test "$(git rev-parse HEAD:acs/agent_verification.py)" = '1300eb8284692ef89bcda508d0aff579a45598cf'
+          test "$(git rev-parse HEAD:acs/assistive_announcements.py)" = 'b195a5d2866da4286b1ecbdaa681e960875c1612'
+          test "$(git rev-parse HEAD:acs/keyed_async_lock.py)" = '2d8aae760d3d7cda4d4f3a34139f069fdd1e4e78'
+          test "$(git rev-parse HEAD:acs/public_errors.py)" = 'a065506d150df96de97bba9b2b506a5b4ab9243b'
+          test "$(git rev-parse HEAD:tests/test_media_agent_safety_primitives_20261005.py)" = '5d466ecdb39b49549f2183c4c04263ca427ee1c3'
           echo 'MEDIA_AGENT_INTAKE_GEOMETRY=PASS'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -134,14 +148,18 @@ jobs:
       - name: Compile Agent and Media runtime
         run: >-
           python -m compileall -q
+          acs/agent_accessibility.py
           acs/agent_budget.py
           acs/agent_checkpoint.py
           acs/agent_model_contracts.py
           acs/agent_model_gateway.py
+          acs/agent_resource_budget.py
           acs/agent_retry.py
           acs/agent_task_state.py
           acs/agent_tools.py
+          acs/agent_verification.py
           acs/assistive_announcement.py
+          acs/assistive_announcements.py
           acs/chess_agent_tools.py
           acs/media_audio.py
           acs/media_errors.py
@@ -153,9 +171,12 @@ jobs:
           acs/media_timeline_store.py
           acs/media_transcribers.py
           acs/media_transcription.py
+          acs/keyed_async_lock.py
           acs/pinned_directory.py
+          acs/public_errors.py
           acs/universal_chess_agent.py
           tests/test_media_agent_intake_convergence_20261005.py
+          tests/test_media_agent_safety_primitives_20261005.py
 
       - name: Execute provider protocol tool and durability regressions
         run: >-
@@ -177,3 +198,4 @@ jobs:
           tests.test_media_foundation_crossrepo
           tests.test_media_timeline_store
           tests.test_media_agent_intake_convergence_20261005
+          tests.test_media_agent_safety_primitives_20261005
