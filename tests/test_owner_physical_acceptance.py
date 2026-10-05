@@ -13,6 +13,7 @@ from acs.version2_release_receipt import (
     write_version2_release_receipt,
 )
 from scripts.record_owner_physical_acceptance import (
+    ACCEPTANCE_SCHEMA_VERSION,
     OwnerPhysicalAcceptanceError,
     REQUIRED_SCENARIOS,
     main,
@@ -416,6 +417,36 @@ class OwnerPhysicalAcceptanceTests(unittest.TestCase):
             ):
                 _record(machine, final_zip, output, _scenarios())
             self.assertEqual(output.read_bytes(), b"existing evidence")
+
+    def test_release_bound_record_uses_distinct_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            machine = root / "machine.json"
+            _write_machine_receipt(machine, _machine_receipt(final_zip))
+            output = root / "physical.json"
+            value = _record(machine, final_zip, output, _scenarios())
+
+            self.assertEqual(ACCEPTANCE_SCHEMA_VERSION, 2)
+            self.assertEqual(value["schema_version"], ACCEPTANCE_SCHEMA_VERSION)
+
+            value["schema_version"] = 1
+            output.write_text(
+                json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                OwnerPhysicalAcceptanceError,
+                "schema or observation mode",
+            ):
+                _verify(output, machine, final_zip)
 
     def test_verifier_detects_semantic_acceptance_tamper(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
