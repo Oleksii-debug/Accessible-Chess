@@ -614,6 +614,27 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "board")
         self.assertEqual(self.app._focus, origin_focus)
 
+    def test_native_library_secondary_projection_rollback_failure_still_restores_shell(self) -> None:
+        origin_focus = self.app.shell.open_route("board")
+        self.app._focus = origin_focus
+        projection = self.app.library.projection
+        with patch.object(
+            projection,
+            "next_page",
+            side_effect=RuntimeError("primary pagination failure"),
+        ), patch.object(
+            projection,
+            "_restore_native_navigation_state",
+            side_effect=RuntimeError("secondary projection rollback failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Library navigation rollback failed") as raised:
+                self.app._delegate("library.next_page", {})
+
+        self.assertIsInstance(raised.exception.__cause__, RuntimeError)
+        self.assertIn("primary pagination failure", str(raised.exception.__cause__))
+        self.assertEqual(self.app.shell.current_route.route_id, "board")
+        self.assertEqual(self.app._focus, origin_focus)
+
     def test_native_library_valid_pagination_commits_route_and_focus_after_render(self) -> None:
         self.app._focus = self.app.shell.open_route("board")
         ready = LibraryWebViewEvent(
