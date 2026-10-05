@@ -88,8 +88,8 @@ class Version2ImportUiWakeupPump:
         post_to_ui: Callable[[Callable[[], None]], Any],
         ui_ready: Callable[[], Any],
     ) -> None:
-        if not isinstance(mailbox, Version2ImportUiEventMailbox):
-            raise TypeError("mailbox must be Version2ImportUiEventMailbox")
+        if type(mailbox) is not Version2ImportUiEventMailbox:
+            raise TypeError("mailbox must be an exact Version2ImportUiEventMailbox")
         if mailbox.ui_thread_id != threading.get_ident():
             raise RuntimeError("UI wakeup pump must be created on the mailbox UI thread")
         if not callable(post_to_ui) or not callable(ui_ready):
@@ -143,8 +143,8 @@ class Version2ImportUiWakeupPump:
         return self.event_sink(event)
 
     def event_sink(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
-        if not isinstance(event, FileWorkflowEvent):
-            raise TypeError("UI wakeup pump accepts FileWorkflowEvent only")
+        if type(event) is not FileWorkflowEvent:
+            raise TypeError("UI wakeup pump accepts exact FileWorkflowEvent only")
 
         with self._lock:
             if self._closed:
@@ -162,8 +162,8 @@ class Version2ImportUiWakeupPump:
 
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("owner asynchronous file events require the UI thread")
-        if not isinstance(event, FileWorkflowEvent):
-            raise TypeError("UI wakeup pump accepts FileWorkflowEvent only")
+        if type(event) is not FileWorkflowEvent:
+            raise TypeError("UI wakeup pump accepts exact FileWorkflowEvent only")
         with self._lock:
             if self._closed:
                 return event
@@ -195,7 +195,7 @@ class Version2ImportUiWakeupPump:
             self._owner_wakeup_pending = True
         try:
             self._post_to_ui(self._run_owner_callback)
-        except Exception:
+        except BaseException:
             with self._lock:
                 self._owner_wakeup_pending = False
                 self._owner_post_failures += 1
@@ -253,7 +253,7 @@ class Version2ImportUiWakeupPump:
 
         try:
             self._post_to_ui(self._run_ui_ready)
-        except Exception as exc:
+        except BaseException as exc:
             with self._lock:
                 self._wakeup_pending = False
                 self._post_failures += 1
@@ -304,7 +304,7 @@ class Version2ImportUiWakeupPump:
 
         try:
             self._ui_ready()
-        except Exception:
+        except BaseException:
             with self._lock:
                 self._ready_failures += 1
             # Presentation delivery is an observer boundary. Pending mailbox
