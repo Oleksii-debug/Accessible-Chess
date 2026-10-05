@@ -44,6 +44,7 @@ class PgnSaveSnapshot:
     games: tuple[PgnGame, ...]
     source_before: SourceFingerprint | None
     source_overwrite_safe_before: bool
+    _saved_digest_before: str | None = field(repr=False)
     _session_ref: ReferenceType[PgnDocumentSession] = field(repr=False, compare=False)
 
 
@@ -68,11 +69,22 @@ def _require_session(session: object) -> PgnDocumentSession:
     return session
 
 
-def _snapshot_digest(games: tuple[PgnGame, ...]) -> str:
+def _canonical_detached_games(
+    games: tuple[PgnGame, ...],
+    *,
+    expected_digest: str | None = None,
+) -> tuple[tuple[PgnGame, ...], str]:
+    """Revalidate and re-detach a mutable DTO graph at a thread boundary."""
+
     try:
-        return PgnWorkspace(games).content_digest
+        workspace = PgnWorkspace(games)
+        digest = workspace.content_digest
+        detached = workspace.games()
     except (PgnWorkspaceError, TypeError, ValueError) as exc:
         raise _stale("PGN save snapshot is no longer canonical") from exc
+    if expected_digest is not None and digest != expected_digest:
+        raise _stale("PGN save snapshot content changed before publication")
+    return detached, digest
 
 
 def capture_pgn_save_snapshot(
@@ -107,7 +119,7 @@ def capture_pgn_save_snapshot(
 
     before_digest = current.workspace.content_digest
     games = current.workspace.games()
-    detached_digest = _snapshot_digest(games)
+    canonical_games, detached_digest = _canonical_detached_games(games)
     after_digest = current.workspace.content_digest
     if before_digest != after_digest or detached_digest != before_digest:
         raise _stale("PGN content changed while the save snapshot was being captured")
@@ -116,9 +128,10 @@ def capture_pgn_save_snapshot(
         mode=mode,
         document_revision=current.document_revision,
         content_digest=detached_digest,
-        games=games,
+        games=canonical_games,
         source_before=source,
         source_overwrite_safe_before=view.source_overwrite_safe,
+        _saved_digest_before=current._saved_digest,
         _session_ref=ref(current),
     )
 
@@ -147,13 +160,18 @@ def publish_pgn_save_snapshot(
     """Publish a detached snapshot through the existing canonical PGN writer.
 
     This function never reads or mutates the live session.  It is therefore the
-    worker-thread half of the transaction.
+    worker-thread half of the transaction.  Snapshot DTOs are mutable, so the
+    worker first makes one private canonical copy after digest validation; a
+    caller retaining the public snapshot cannot race-mutate the graph consumed
+    by the canonical writer after that validation point.
     """
 
     if type(snapshot) is not PgnSaveSnapshot:
         raise TypeError("PGN save publication requires an exact snapshot")
-    if _snapshot_digest(snapshot.games) != snapshot.content_digest:
-        raise _stale("PGN save snapshot content changed before publication")
+    publication_games, _digest = _canonical_detached_games(
+        snapshot.games,
+        expected_digest=snapshot.content_digest,
+    )
 
     if snapshot.mode is PgnSaveMode.SAVE:
         if path is not None or overwrite or expected_sha256 is not None:
@@ -168,7 +186,7 @@ def publish_pgn_save_snapshot(
             )
         saved = save_pgn_atomic(
             source.path,
-            snapshot.games,
+            publication_games,
             overwrite=True,
             expected_sha256=source.sha256,
         )
@@ -183,7 +201,7 @@ def publish_pgn_save_snapshot(
             )
         saved = save_pgn_atomic(
             destination,
-            snapshot.games,
+            publication_games,
             overwrite=overwrite,
             expected_sha256=expected_sha256,
         )
@@ -220,7 +238,14 @@ def commit_pgn_save_publication(
     if current.source == saved and current._saved_digest == snapshot.content_digest:
         return current.view()
 
-    if current.source != snapshot.source_before:
+    # Ordinary edits do not mutate either source provenance or the saved
+    # baseline.  A competing successful Save/Save As does.  Bind both values so
+    # an older worker cannot later overwrite newer publication authority even if
+    # a path happens to cycle back to the same source.
+    if (
+        current.source != snapshot.source_before
+        or current._saved_digest != snapshot._saved_digest_before
+    ):
         raise _stale("PGN source changed before the save publication could commit")
 
     if snapshot.mode is PgnSaveMode.SAVE:
