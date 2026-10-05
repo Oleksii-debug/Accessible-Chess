@@ -1,0 +1,80 @@
+name: Cross-repo Agent Media Foundation
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/agent_runtime.py'
+      - 'acs/agent_tools.py'
+      - 'acs/agent_model_gateway.py'
+      - 'acs/agent_budget.py'
+      - 'acs/agent_resource_budget.py'
+      - 'acs/agent_verification.py'
+      - 'acs/agent_accessibility.py'
+      - 'acs/media_audio.py'
+      - 'acs/media_core.py'
+      - 'acs/durable_checkpoint.py'
+      - 'acs/public_errors.py'
+      - 'acs/keyed_async_lock.py'
+      - 'tests/test_crossrepo_agent_media_foundation.py'
+      - 'tests/test_crossrepo_safety_reuse.py'
+      - 'docs/CROSS_REPO_CODE_INTEGRATION_2026-10-05.md'
+      - '.github/workflows/crossrepo-agent-media-foundation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crossrepo-agent-media-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile cross-repo foundations
+        run: >-
+          python -m py_compile
+          acs/agent_runtime.py
+          acs/agent_tools.py
+          acs/agent_model_gateway.py
+          acs/agent_budget.py
+          acs/agent_resource_budget.py
+          acs/agent_verification.py
+          acs/agent_accessibility.py
+          acs/media_audio.py
+          acs/media_core.py
+          acs/durable_checkpoint.py
+          acs/public_errors.py
+          acs/keyed_async_lock.py
+          tests/test_crossrepo_agent_media_foundation.py
+          tests/test_crossrepo_safety_reuse.py
+
+      - name: Run cross-repo foundation tests
+        run: >-
+          python -m unittest -v
+          tests.test_crossrepo_agent_media_foundation
+          tests.test_crossrepo_safety_reuse
+
+      - name: Run adjacent media and database regressions
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_realtime_media
+          tests.test_acsdb
