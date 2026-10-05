@@ -137,8 +137,8 @@ class Version2ImportUiEventMailbox:
         return self.put(event)
 
     def put(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
-        if not isinstance(event, FileWorkflowEvent):
-            raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
+        if type(event) is not FileWorkflowEvent:
+            raise TypeError("UI event mailbox accepts exact FileWorkflowEvent only")
 
         # User-invoked actions already return this event synchronously to the UI
         # caller. Re-queueing them would duplicate announcements/focus work.
