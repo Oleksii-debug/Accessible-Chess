@@ -379,19 +379,27 @@ class Version2WindowsFileActionDelegate:
             )
         )
 
-    def _prepare_open_path(self) -> tuple[Path | None, FileWorkflowEvent | None, str]:
+    def _prepare_open_path(
+        self,
+    ) -> tuple[
+        Path | None,
+        FileWorkflowEvent | None,
+        str,
+        PgnDocumentSession | None,
+        int | None,
+    ]:
         previous_focus = self._focus()
         try:
             current = self._get_pgn_session()
         except Exception:
             return None, self._failed(
                 "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
-            ), previous_focus
+            ), previous_focus, None, None
         if current is not None:
             if not isinstance(current, PgnDocumentSession):
                 return None, self._failed(
                     "pgn.open", "pgn_session_invalid", focus_target=previous_focus
-                ), previous_focus
+                ), previous_focus, None, None
             if current.dirty:
                 confirmation = getattr(self._dialogs, "confirm_discard_unsaved_pgn", None)
                 if not callable(confirmation):
@@ -399,7 +407,7 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open",
                         "unsaved_confirmation_unavailable",
                         focus_target=previous_focus,
-                    ), previous_focus
+                    ), previous_focus, current, current.document_revision
                 try:
                     discard = confirmation()
                 except Exception:
@@ -407,28 +415,62 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open",
                         "unsaved_confirmation_failed",
                         focus_target=previous_focus,
-                    ), previous_focus
+                    ), previous_focus, current, current.document_revision
                 if not discard:
                     return None, self._dialog_cancelled(
                         "pgn.open", previous_focus
-                    ), previous_focus
+                    ), previous_focus, current, current.document_revision
         try:
             path = self._dialogs.open_pgn()
         except Exception:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
-            ), previous_focus
+            ), previous_focus, current, (
+                None if current is None else current.document_revision
+            )
         if path is None:
             return None, self._dialog_cancelled(
                 "pgn.open", previous_focus
-            ), previous_focus
-        return Path(path), None, previous_focus
+            ), previous_focus, current, (
+                None if current is None else current.document_revision
+            )
+        return Path(path), None, previous_focus, current, (
+            None if current is None else current.document_revision
+        )
 
     def _open_pgn(self) -> FileWorkflowEvent:
-        source_path, early, previous_focus = self._prepare_open_path()
+        (
+            source_path,
+            early,
+            previous_focus,
+            expected_session,
+            expected_revision,
+        ) = self._prepare_open_path()
         if early is not None:
             return early
         assert source_path is not None
+
+        # Native file dialogs are modal but still pump Windows messages. A
+        # re-entrant host callback can therefore replace/edit the document while
+        # the dialog is open. Never apply the earlier discard decision to a
+        # different or newer document generation.
+        try:
+            live_session = self._get_pgn_session()
+        except Exception:
+            return self._failed(
+                "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
+            )
+        if (
+            live_session is not expected_session
+            or (
+                expected_session is not None
+                and expected_revision is not None
+                and expected_session.document_revision != expected_revision
+            )
+        ):
+            return self._failed(
+                "pgn.open", "pgn_open_stale", focus_target=previous_focus
+            )
 
         # Legacy direct-controller tests and non-Windows embeddings do not own a
         # UI poster. Keep their historical synchronous seam while the real
@@ -471,7 +513,14 @@ class Version2WindowsFileActionDelegate:
             cancel_event = threading.Event()
             worker = threading.Thread(
                 target=self._run_pgn_open,
-                args=(generation, source_path, previous_focus, cancel_event),
+                args=(
+                    generation,
+                    source_path,
+                    previous_focus,
+                    cancel_event,
+                    expected_session,
+                    expected_revision,
+                ),
                 name=f"AccessibleChess-V2-PgnOpen-{generation}",
                 daemon=False,
             )
@@ -510,6 +559,8 @@ class Version2WindowsFileActionDelegate:
         source_path: Path,
         previous_focus: str,
         cancel_event: threading.Event,
+        expected_session: PgnDocumentSession | None,
+        expected_revision: int | None,
     ) -> None:
         session: PgnDocumentSession | None = None
         view = None
@@ -539,6 +590,8 @@ class Version2WindowsFileActionDelegate:
                 error_code,
                 previous_focus,
                 cancel_event,
+                expected_session,
+                expected_revision,
             )
 
         try:
@@ -571,6 +624,8 @@ class Version2WindowsFileActionDelegate:
         error_code: str,
         previous_focus: str,
         cancel_event: threading.Event,
+        expected_session: PgnDocumentSession | None,
+        expected_revision: int | None,
     ) -> None:
         with self._lock:
             current = (
@@ -598,25 +653,57 @@ class Version2WindowsFileActionDelegate:
             )
         else:
             try:
-                # This is the only publication point and it executes through the
-                # owner-thread poster supplied by the production Windows runtime.
-                self._set_pgn_session(session)
+                live_session = self._get_pgn_session()
             except Exception:
-                _LOG.warning("Version 2 PGN Open session publication failed", exc_info=True)
                 terminal = FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     "pgn.open",
                     focus_target=previous_focus,
-                    error_code="pgn_open_publish_failed",
+                    error_code="pgn_session_unavailable",
                 )
             else:
-                terminal = FileWorkflowEvent(
-                    FileWorkflowEventKind.PGN_OPENED,
-                    "pgn.open",
-                    focus_target="pgn-game-list",
-                    game_count=int(getattr(view, "game_count", 0)),
-                    warning_count=len(getattr(view, "global_warnings", ())),
-                )
+                stale = live_session is not expected_session
+                if (
+                    not stale
+                    and expected_session is not None
+                    and expected_revision is not None
+                    and expected_session.document_revision != expected_revision
+                ):
+                    stale = True
+                if stale:
+                    # The user changed or replaced the document while bounded
+                    # parsing/materialization was in flight. Preserve that newer
+                    # authority and discard the prepared replacement.
+                    terminal = FileWorkflowEvent(
+                        FileWorkflowEventKind.FAILED,
+                        "pgn.open",
+                        focus_target=previous_focus,
+                        error_code="pgn_open_stale",
+                    )
+                else:
+                    try:
+                        # This is the only publication point and it executes through the
+                        # owner-thread poster supplied by the production Windows runtime.
+                        self._set_pgn_session(session)
+                    except Exception:
+                        _LOG.warning(
+                            "Version 2 PGN Open session publication failed",
+                            exc_info=True,
+                        )
+                        terminal = FileWorkflowEvent(
+                            FileWorkflowEventKind.FAILED,
+                            "pgn.open",
+                            focus_target=previous_focus,
+                            error_code="pgn_open_publish_failed",
+                        )
+                    else:
+                        terminal = FileWorkflowEvent(
+                            FileWorkflowEventKind.PGN_OPENED,
+                            "pgn.open",
+                            focus_target="pgn-game-list",
+                            game_count=int(getattr(view, "game_count", 0)),
+                            warning_count=len(getattr(view, "global_warnings", ())),
+                        )
 
         with self._lock:
             if (
