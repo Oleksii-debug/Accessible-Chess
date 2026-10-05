@@ -82,6 +82,20 @@ Accessible Chess destinations:
 
 Adaptation policy: preserve the distinction between observation and verification plus the invariant that plan/child resource authority can only narrow the owner ceiling. Browser/remote-agent/provider-specific code is not imported.
 
+### Autosport
+
+Donor:
+- `src/autosport/accessibility_announcements.py` blob `21621bca6fbe29d0999b3a1286bf2f164f414808`.
+
+Accessible Chess destination:
+- `acs/assistive_announcements.py`
+
+Adaptation policy: retain bounded history, product-owned event priority, stable activity identities, critical-episode deduplication and the invariant that announcement policy never moves focus. Replace market/sports event taxonomy with Media/Agent events.
+
+### ChatGPT-Deep-Research-Shortcut
+
+The owner repository currently exposes no implementation files on `main`; no reusable source was available to transplant in this pass.
+
 ## Accessible Chess-owned implementation added on top
 
 `acs/media_core.py` implements the product-specific provider-neutral media contracts required by the 2026-10-05 owner amendment:
