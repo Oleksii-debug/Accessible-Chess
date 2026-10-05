@@ -775,6 +775,39 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             poster.drain()
             self.assertEqual(len(async_events), event_count)
 
+    def test_next_owner_action_recovers_finished_save_before_queued_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "queued-terminal-recovery.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Recover pending terminal")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn("Recover pending terminal", source.read_text(encoding="utf-8"))
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            self.assertTrue(controller.pgn_save_running)
+            self.assertTrue(poster.callbacks)
+
+            # A new owner-thread command must first commit the already-classified
+            # durable save instead of returning a stale file_worker_busy result.
+            result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.DIALOG_CANCELLED)
+            self.assertEqual(dialogs.save_calls, 1)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertNotEqual(session.source, old_source)
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
+
+            event_count = len(async_events)
+            poster.drain()
+            self.assertEqual(len(async_events), event_count)
+
     def test_late_cancel_after_durable_publication_cannot_contradict_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
