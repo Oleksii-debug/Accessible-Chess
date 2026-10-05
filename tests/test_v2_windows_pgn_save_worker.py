@@ -341,6 +341,85 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertFalse(session.dirty)
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED_AS)
 
+    def test_absent_save_as_target_created_after_fingerprint_is_not_clobbered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "created-by-other-writer.pgn"
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session.edit_tag("Event", "Local generation")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+
+            from acs import version2_windows_file_workflows as workflows
+
+            real_hash = workflows.expected_pgn_destination_sha256
+
+            def race_after_absence(*args, **kwargs):
+                expected = real_hash(*args, **kwargs)
+                self.assertIsNone(expected)
+                target.write_text(
+                    PGN_TEXT.replace("Background save", "External creator"),
+                    encoding="utf-8",
+                )
+                return expected
+
+            with mock.patch.object(
+                workflows,
+                "expected_pgn_destination_sha256",
+                side_effect=race_after_absence,
+            ):
+                controller("pgn.save_as", {})
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertIn("External creator", target.read_text(encoding="utf-8"))
+            self.assertNotIn("Local generation", target.read_text(encoding="utf-8"))
+            self.assertIsNone(session.source)
+            self.assertTrue(session.dirty)
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(async_events[-1].error_code, "pgn_save_failed")
+
+    def test_existing_save_as_target_replaced_after_fingerprint_is_not_clobbered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "replaced-by-other-writer.pgn"
+            target.write_text(
+                PGN_TEXT.replace("Background save", "Original destination"),
+                encoding="utf-8",
+            )
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session.edit_tag("Event", "Local replacement")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+
+            from acs import version2_windows_file_workflows as workflows
+
+            real_hash = workflows.expected_pgn_destination_sha256
+
+            def race_after_fingerprint(*args, **kwargs):
+                expected = real_hash(*args, **kwargs)
+                self.assertIsNotNone(expected)
+                target.write_text(
+                    PGN_TEXT.replace("Background save", "External replacement"),
+                    encoding="utf-8",
+                )
+                return expected
+
+            with mock.patch.object(
+                workflows,
+                "expected_pgn_destination_sha256",
+                side_effect=race_after_fingerprint,
+            ):
+                controller("pgn.save_as", {})
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            target_text = target.read_text(encoding="utf-8")
+            self.assertIn("External replacement", target_text)
+            self.assertNotIn("Local replacement", target_text)
+            self.assertIsNone(session.source)
+            self.assertTrue(session.dirty)
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(async_events[-1].error_code, "pgn_save_failed")
+
     def test_slow_save_as_worker_does_not_hold_owner_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "slow-save-as.pgn"
