@@ -11,6 +11,7 @@ from acs import version2_package_preflight as preflight
 from acs.version2_package_preflight import Version2PackagePreflightError
 from tests.test_version2_package_preflight import (
     _make_tree,
+    _minimal_windows_pe,
     _validate_tree,
     _write_checksums,
 )
@@ -114,6 +115,19 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
                 "packaged AccessibleChess executable is not a valid Windows PE executable",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_32_bit_product_executable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            (root / "AccessibleChess/AccessibleChess.exe").write_bytes(
+                _minimal_windows_pe(machine=0x014C)
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "unexpected Windows PE machine 0x014c; expected 0x8664",
             ):
                 _validate_tree(root)
 
