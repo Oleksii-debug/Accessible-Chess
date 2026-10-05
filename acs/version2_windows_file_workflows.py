@@ -865,6 +865,12 @@ class Version2WindowsFileActionDelegate:
             try:
                 game_count = current.view().game_count
                 current.save()
+            except PgnPublicationUnverifiedError:
+                return self._failed(
+                    "pgn.save",
+                    "pgn_save_publication_unverified",
+                    focus_target=previous_focus,
+                )
             except PgnDocumentError as exc:
                 if exc.code in {
                     PgnDocumentErrorCode.NO_SOURCE,
@@ -1031,6 +1037,12 @@ class Version2WindowsFileActionDelegate:
                     destination,
                     overwrite=expected is not None,
                     expected_sha256=expected,
+                )
+            except PgnPublicationUnverifiedError:
+                return self._failed(
+                    "pgn.save_as",
+                    "pgn_save_publication_unverified",
+                    focus_target=previous_focus,
                 )
             except PgnDocumentError as exc:
                 error_code = (
