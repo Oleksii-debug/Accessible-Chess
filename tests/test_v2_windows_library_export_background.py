@@ -20,7 +20,7 @@ from acs.library_export_service import (
 )
 from acs.library_export_workspace import build_library_export_webview
 from acs.pgn_service import open_pgn
-from acs.search_service import GameSearchQuery
+from acs.search_service import GameSearchPage, GameSearchQuery, GameSearchService
 from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_application import Version2Application
 from acs.version2_windows_library_export import (
@@ -170,6 +170,60 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                     )
                 self.assertEqual(destination.read_bytes(), original)
                 self.assertGreaterEqual(polls, 3)
+        finally:
+            database.close()
+
+    def test_filtered_export_rejects_nonadvancing_or_inconsistent_search_pages(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="malformed-search-page.pgn")
+            canonical_search = GameSearchService(database)
+            canonical_page = canonical_search.search(GameSearchQuery(limit=200))
+            self.assertTrue(canonical_page.items)
+            first = canonical_page.items[0]
+
+            class MalformedSearch(GameSearchService):
+                def __init__(self, db, mode):
+                    super().__init__(db)
+                    self.mode = mode
+
+                def search(self, query=None, **_kwargs):
+                    if self.mode == "backward-id":
+                        return GameSearchPage(
+                            items=(first,),
+                            next_after_game_id=first.game_id,
+                            has_more=True,
+                        )
+                    if self.mode == "empty-more":
+                        return GameSearchPage(
+                            items=(),
+                            next_after_game_id=first.game_id,
+                            has_more=True,
+                        )
+                    if self.mode == "terminal-cursor":
+                        return GameSearchPage(
+                            items=(first,),
+                            next_after_game_id=first.game_id,
+                            has_more=False,
+                        )
+                    raise AssertionError("unexpected malformed-search mode")
+
+            request = LibraryExportRequest.filtered(GameSearchQuery())
+            for mode, message in (
+                ("backward-id", "paging did not advance"),
+                ("empty-more", "paging did not advance"),
+                ("terminal-cursor", "terminal search page has a cursor"),
+            ):
+                with self.subTest(mode=mode):
+                    service = LibraryExportService(
+                        database,
+                        search_service=MalformedSearch(database, mode),
+                    )
+                    with tempfile.TemporaryDirectory() as directory:
+                        destination = Path(directory) / f"{mode}.pgn"
+                        with self.assertRaisesRegex(LibraryExportError, message):
+                            service.export_to(destination, request)
+                        self.assertFalse(destination.exists())
         finally:
             database.close()
 
