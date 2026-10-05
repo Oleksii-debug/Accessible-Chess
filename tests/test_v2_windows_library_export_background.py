@@ -864,6 +864,59 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_known_idle_export_failures_recover_stale_busy_projection_and_focus(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="idle-recovery.pgn")
+            for error_code in (
+                "file_dialog_failed",
+                "library_export_unavailable",
+                "no_library_export_running",
+            ):
+                with self.subTest(error_code=error_code):
+                    bridge = build_library_export_webview(
+                        database,
+                        lambda action, payload: None,
+                        language=UILanguage.EN,
+                    )
+                    fake = SimpleNamespace(
+                        shell=SimpleNamespace(language=UILanguage.EN),
+                        library=bridge,
+                        _events=[],
+                        _native_file_error_message=lambda event: "The action could not be completed.",
+                    )
+                    Version2Application._file_event(
+                        fake,
+                        LibraryExportHostEvent(
+                            LibraryExportHostEventKind.STARTED,
+                            focus_target="library-export-filtered",
+                        ),
+                    )
+                    self.assertTrue(bridge.projection.export_running)
+
+                    fake._events.clear()
+                    Version2Application._file_event(
+                        fake,
+                        LibraryExportHostEvent(
+                            LibraryExportHostEventKind.FAILED,
+                            focus_target="library-export-filtered",
+                            error_code=error_code,
+                        ),
+                    )
+
+                    self.assertFalse(bridge.projection.export_running)
+                    self.assertEqual(fake._events[0]["kind"], "render-import")
+                    self.assertFalse(
+                        fake._events[0]["payload"]["import"]["actions"][1]["enabled"]
+                    )
+                    self.assertEqual(fake._events[1]["kind"], "error")
+                    self.assertEqual(
+                        fake._events[1]["payload"]["focus_target"],
+                        "library-export-filtered",
+                    )
+        finally:
+            database.close()
+
     def test_application_projects_worker_lifecycle_and_terminal_focus(self) -> None:
         fake = SimpleNamespace(
             _events=[],
