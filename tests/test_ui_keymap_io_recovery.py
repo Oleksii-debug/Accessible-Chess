@@ -77,16 +77,53 @@ class KeymapPersistedReadIORecoveryTests(unittest.TestCase):
             self.assertFalse(blocked["ok"])
             self.assertEqual(path.read_bytes(), original)
 
-    def test_structurally_invalid_profile_keeps_existing_recovery_classification(self) -> None:
+    def test_structurally_invalid_profile_is_preserved_until_explicit_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "keymap.json"
-            path.write_text('{"schema_version": 1, "bindings": [}', encoding="utf-8")
+            original = b'{"schema_version": 1, "bindings": [}'
+            path.write_bytes(original)
 
             service = KeymapService(path, lang="en")
 
             snapshot = service.snapshot()
             self.assertEqual(snapshot["recoveryMessage"], "invalid keymap profile")
-            self.assertFalse(snapshot["writeBlocked"])
+            self.assertTrue(snapshot["writeBlocked"])
+            blocked = service.save("history.go_to_move", "Alt+J")
+            self.assertFalse(blocked["ok"])
+            self.assertIn("invalid", blocked["message"].lower())
+            self.assertEqual(path.read_bytes(), original)
+
+            replaced = service.reset_all()
+            self.assertTrue(replaced["ok"])
+            self.assertFalse(service.snapshot()["writeBlocked"])
+            self.assertIsNone(service.snapshot()["recoveryMessage"])
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["bindings"]["history.go_to_move"], "Ctrl+G")
+
+    def test_profile_becoming_invalid_during_product_adoption_is_protected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            profile = ActionRegistry().to_profile()
+            profile["bindings"]["history.go_to_move"] = "Alt+J"
+            path.write_text(json.dumps(profile), encoding="utf-8")
+            original = path.read_bytes()
+            service = KeymapService(path, lang="en")
+
+            with patch.object(
+                keymap_module,
+                "_read_user_keymap_profile",
+                side_effect=ValueError("profile changed into malformed content"),
+            ):
+                shared = service.adopt_registry(build_final_product_action_registry())
+
+            snapshot = service.snapshot()
+            self.assertTrue(snapshot["writeBlocked"])
+            self.assertEqual(snapshot["recoveryMessage"], "invalid keymap profile")
+            self.assertEqual(shared.get_binding("history.go_to_move"), "Alt+J")
+            blocked = service.save("library.open_game", "F8")
+            self.assertFalse(blocked["ok"])
+            self.assertIn("invalid", blocked["message"].lower())
+            self.assertEqual(path.read_bytes(), original)
 
     def test_incremental_write_failure_rolls_back_live_registry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
