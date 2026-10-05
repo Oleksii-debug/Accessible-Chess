@@ -503,6 +503,27 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(second.document_revision, revision)
         self.assertFalse(second.dirty)
 
+    def test_duplicate_completion_after_new_edit_does_not_mark_edit_clean(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        publication = publish_pgn_save_snapshot(
+            snapshot,
+            path=self.root / "duplicate-after-edit.pgn",
+        )
+        first = commit_pgn_save_publication(session, publication)
+
+        session.edit_tag("Event", "Edited After Save")
+        edit_revision = session.document_revision
+        self.assertTrue(session.dirty)
+
+        replay = commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(replay.document_revision, edit_revision)
+        self.assertEqual(first.source_sha256, replay.source_sha256)
+        self.assertTrue(replay.dirty)
+        self.assertTrue(session.dirty)
+        self.assertIn("Edited After Save", session.copy_pgn())
+
 
 if __name__ == "__main__":
     unittest.main()
