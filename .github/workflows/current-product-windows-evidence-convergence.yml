@@ -38,6 +38,7 @@ jobs:
           ONECLICK_HEAD: 53123231abc76265e52b7d62832c9fb94adc0012
           LAUNCH_REPORT_REF: fix/portable-launch-report-ci-head-20261005-sol56h4q8
           LAUNCH_REPORT_HEAD: b108580b91a2917543b80379a88aa1d9accb7c38
+          CONVERGENCE_MERGE: 5a02ace57c693c893007f4509a93ad15001f0c77
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -64,7 +65,8 @@ jobs:
           fetch_exact "$ONECLICK_REF" "$ONECLICK_HEAD" WINDOWS_EVIDENCE_ONECLICK
           fetch_exact "$LAUNCH_REPORT_REF" "$LAUNCH_REPORT_HEAD" WINDOWS_EVIDENCE_LAUNCH_REPORT
 
-          test "$(git show -s --format=%P HEAD)" = "$PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+          test "$(git show -s --format=%P "$CONVERGENCE_MERGE")" = "$PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+          git merge-base --is-ancestor "$CONVERGENCE_MERGE" HEAD
           for source in "$PRODUCT_HEAD" "$ONECLICK_HEAD" "$LAUNCH_REPORT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
