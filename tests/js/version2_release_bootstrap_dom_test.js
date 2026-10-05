@@ -735,6 +735,19 @@ async function clickRoute(routeId) {
 
   check(typeof libraryInvoke === "function", "Library render did not expose its command boundary");
 
+  const effectsBeforeInvalidLibraryPayload = libraryOpenEffects;
+  let invalidLibraryPayloadRejected = false;
+  try {
+    await libraryInvoke("library.open_game", { unexpected: true });
+  } catch (_) {
+    invalidLibraryPayloadRejected = true;
+  }
+  check(invalidLibraryPayloadRejected, "Library open accepted a non-empty browser payload");
+  check(
+    libraryOpenEffects === effectsBeforeInvalidLibraryPayload,
+    "invalid Library open payload reached canonical host effect"
+  );
+
   // Library -> PGN is a domain-owner transition, not just a post-hoc refresh.
   // A malformed candidate snapshot must roll the host and PGN owner back before
   // the old Library surface can be treated as authoritative again.
@@ -779,6 +792,12 @@ async function clickRoute(routeId) {
   check(
     committedLibraryOpen && committedLibraryOpen.kind === "delegated",
     "Library open did not return its delegated success after publication"
+  );
+  check(
+    committedLibraryOpen.payload &&
+      Object.keys(committedLibraryOpen.payload).length === 1 &&
+      committedLibraryOpen.payload.action === "library.open_game",
+    "Library open leaked publication transport authority into delegated event schema"
   );
   check(currentRoute === "pgn", "Library open did not commit the PGN route");
   check(
