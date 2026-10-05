@@ -23,6 +23,7 @@ from acs.version2_package_preflight import (
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
     _REQUIRED_DESKTOP_RUNTIME_FILES,
+    _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
     validate_version2_package_tree,
     validate_version2_package_zip,
 )
@@ -63,7 +64,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _minimal_windows_pe() -> bytes:
+def _minimal_windows_pe(*, managed: bool = False) -> bytes:
     data = bytearray(512)
     data[0:2] = b"MZ"
     pe_offset = 0x80
@@ -76,6 +77,11 @@ def _minimal_windows_pe() -> bytes:
     data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
     optional = coff + 20
     data[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    if managed:
+        data[optional + 108:optional + 112] = (16).to_bytes(4, "little")
+        clr_directory = optional + 112 + (14 * 8)
+        data[clr_directory:clr_directory + 4] = (0x2000).to_bytes(4, "little")
+        data[clr_directory + 4:clr_directory + 8] = (0x48).to_bytes(4, "little")
     return bytes(data)
 
 
@@ -94,7 +100,11 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         for relative in _REQUIRED_DESKTOP_RUNTIME_FILES:
             runtime = product.joinpath(*relative.split("/")[1:])
             runtime.parent.mkdir(parents=True, exist_ok=True)
-            runtime.write_bytes(_minimal_windows_pe())
+            runtime.write_bytes(
+                _minimal_windows_pe(
+                    managed=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
+                )
+            )
         for name in _REQUIRED_WEB:
             path = web / name
             path.parent.mkdir(parents=True, exist_ok=True)
