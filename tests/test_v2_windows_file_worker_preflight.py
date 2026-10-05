@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 import unittest
 
+from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
@@ -30,7 +31,12 @@ class _Dialogs:
         self.source = source
         self.open_calls = 0
         self.import_calls = 0
+        self.confirm_calls = 0
         self.import_hook = None
+
+    def confirm_discard_unsaved_pgn(self):
+        self.confirm_calls += 1
+        return True
 
     def open_pgn(self):
         self.open_calls += 1
@@ -88,6 +94,42 @@ class Version2WindowsFileWorkerPreflightTests(unittest.TestCase):
             self.assertEqual(busy.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(busy.error_code, "file_worker_busy")
             self.assertEqual(busy.focus_target, "library-import-cancel")
+            self.assertEqual(dialogs.open_calls, 0)
+
+            release.set()
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+    def test_pgn_open_busy_preflight_skips_dirty_confirmation_and_picker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "dirty-preflight.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            entered = threading.Event()
+            release = threading.Event()
+            dialogs = _Dialogs(source)
+            current = PgnDocumentSession.from_text(PGN_TEXT)
+            self.assertTrue(current.dirty)
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=lambda: current,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _BlockingLibrary(entered, release), None, lambda: None
+                ),
+                event_sink=lambda event: event,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: None,
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(entered.wait(1.0))
+
+            busy = delegate("pgn.open", {})
+            self.assertEqual(busy.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(busy.error_code, "file_worker_busy")
+            self.assertEqual(busy.focus_target, "library-import-cancel")
+            self.assertEqual(dialogs.confirm_calls, 0)
             self.assertEqual(dialogs.open_calls, 0)
 
             release.set()
