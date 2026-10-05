@@ -127,7 +127,13 @@ def _canonical_object_from_bytes(
         )
     except OwnerPhysicalAcceptanceError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        TypeError,
+        ValueError,
+        RecursionError,
+    ) as exc:
         raise OwnerPhysicalAcceptanceError(f"{label} is invalid canonical JSON") from exc
     if not isinstance(value, dict):
         _fail(f"{label} must be an object")
@@ -135,9 +141,12 @@ def _canonical_object_from_bytes(
         missing = sorted(expected_keys - set(value))
         unexpected = sorted(set(value) - expected_keys)
         _fail(f"{label} key set mismatch; missing={missing} unexpected={unexpected}")
-    canonical = (
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode("utf-8")
+    try:
+        canonical = (
+            json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+        raise OwnerPhysicalAcceptanceError(f"{label} is invalid canonical JSON") from exc
     if payload != canonical:
         _fail(f"{label} is not exact canonical JSON")
     return value
