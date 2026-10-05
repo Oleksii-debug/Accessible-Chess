@@ -64,8 +64,9 @@ jobs:
           fi
 
           test "$(git merge-base "$SOURCE_BASE_SHA" HEAD)" = "$SOURCE_BASE_SHA"
-          git diff --check "$SOURCE_BASE_SHA"...HEAD
-          changed="$(git diff --name-only "$SOURCE_BASE_SHA"...HEAD | sort)"
+          git merge-base --is-ancestor "$live_product" HEAD
+          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-conversion-prepublish-cancel.yml' \
             'acs/pgn_conversion.py' \
@@ -74,10 +75,6 @@ jobs:
             'tests/test_pgn_conversion.py' \
             'tests/test_pgn_conversion_windows.py' \
             'tests/test_pgn_service.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected PGN conversion cancellation scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
 
           live_delta="$(git diff --name-only "$SOURCE_BASE_SHA"..."$live_product" | sort)"
           while IFS= read -r path; do
@@ -86,6 +83,13 @@ jobs:
               exit 1
             fi
           done <<< "$expected"
+
+          git diff --check "$live_product"...HEAD
+          changed="$(git diff --name-only "$live_product"...HEAD | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected PGN conversion cancellation scope above live Product:\n%s\n' "$changed" >&2
+            exit 1
+          }
           echo "PGN_CONVERSION_CANCEL_LIVE_PRODUCT=$live_product"
           echo 'PGN_CONVERSION_CANCEL_SCOPE=PASS'
 
