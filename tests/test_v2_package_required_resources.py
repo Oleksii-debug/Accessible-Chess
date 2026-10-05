@@ -210,6 +210,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
         relative = "AccessibleChess/pythonnet/runtime/Python.Runtime.dll"
         cases = (
             ("clr-header-size", 0x200, (0x47).to_bytes(4, "little")),
+            ("metadata-span", 0x20C, (0x1000).to_bytes(4, "little")),
             ("metadata-signature", 0x280, b"NOPE"),
         )
         for label, offset, replacement in cases:
@@ -226,6 +227,22 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                     "managed CLR assembly",
                 ):
                     _validate_tree(root)
+
+    def test_preflight_rejects_wrong_pe_class_for_anycpu_runtime(self):
+        relative = "AccessibleChess/pythonnet/runtime/Python.Runtime.dll"
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            binary = bytearray(_minimal_windows_pe(machine=0x014C, managed=True))
+            pe_offset = int.from_bytes(binary[0x3C:0x40], "little")
+            optional = pe_offset + 24
+            binary[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+            root.joinpath(*relative.split("/")).write_bytes(binary)
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "unexpected Windows PE optional magic 0x020b; expected 0x010b",
+            ):
+                _validate_tree(root)
 
     def test_preflight_rejects_wrong_machine_for_managed_runtime(self):
         for relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES:
