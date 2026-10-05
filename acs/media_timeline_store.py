@@ -170,7 +170,11 @@ class MediaTimelineStore:
             raise MediaTimelineStoreError("timeline root must be an object")
         if set(raw) != {"schema", "version", "session_id", "entries"}:
             raise MediaTimelineStoreError("timeline has unexpected fields")
-        if raw["schema"] != self.SCHEMA or raw["version"] != self.VERSION:
+        if (
+            raw["schema"] != self.SCHEMA
+            or type(raw["version"]) is not int
+            or raw["version"] != self.VERSION
+        ):
             raise MediaTimelineStoreError("unsupported timeline schema")
         if raw["session_id"] != expected_session_id:
             raise MediaTimelineStoreError("timeline session identity mismatch")
@@ -223,7 +227,11 @@ class MediaTimelineStore:
     def _quarantine(self, target: Path) -> None:
         if not target.exists():
             return
-        digest = hashlib.sha256(target.read_bytes()).hexdigest()[:16]
+        try:
+            payload = target.read_bytes()
+        except OSError:
+            return
+        digest = hashlib.sha256(payload).hexdigest()[:16]
         quarantine = self.root / f"{target.stem}.corrupt.{digest}.json"
         try:
             os.replace(target, quarantine)
