@@ -14,6 +14,7 @@ on:
       - 'converge/books-training-owner-current-20261004-zftrkmo'
       - 'fix/portable-launcher-core-inode-guard-20261004-sol56r9k4'
       - 'converge/current-product-settings-launcher-20261004-c2mbezb'
+      - 'converge/current-product-windows-evidence-20261005-zftrkmo'
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
@@ -31,6 +32,7 @@ env:
   CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
   CURRENT_PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+  CURRENT_CONVERGENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
   CURRENT_PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20
   CURRENT_LAUNCHER_BLOB: 8089546cbc73cb35e3e8e50a4f28e7c9f175d15c
   CURRENT_CONTRACT_TEST_BLOB: a2ddfc7980cd8be2797f978bbbef9cb660b635ce
@@ -78,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.base.ref }}" = "$CURRENT_PRODUCT_REF" ]; then
+          if { [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.base.ref }}" = "$CURRENT_PRODUCT_REF" ]; } || { [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "$CURRENT_CONVERGENCE_REF" ]; }; then
             git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
             live_product="$(git rev-parse FETCH_HEAD)"
             test "$live_product" = "$CURRENT_PRODUCT_HEAD" || {
@@ -149,7 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.base.ref }}" = "$CURRENT_PRODUCT_REF" ]; then
+          if { [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.base.ref }}" = "$CURRENT_PRODUCT_REF" ]; } || { [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "$CURRENT_CONVERGENCE_REF" ]; }; then
             git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
             live_product="$(git rev-parse FETCH_HEAD)"
             test "$live_product" = "$CURRENT_PRODUCT_HEAD" || {
