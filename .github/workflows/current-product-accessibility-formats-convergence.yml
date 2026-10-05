@@ -45,7 +45,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-product-accessibility-formats-${{ github.event.pull_request.number || github.ref }}
+  group: current-product-accessibility-formats-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -63,6 +63,20 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_EXACT_HEAD=PASS'
 
       - name: Prove serial source ancestry and exact scope
         shell: bash
