@@ -1,0 +1,86 @@
+name: BookReader Detached Metadata Passive Ingress
+
+on:
+  push:
+    branches:
+      - fix/bookreader-detached-metadata-passive-20261006-sol56z8q6
+  pull_request:
+    branches:
+      - fix/book-workflow-state-passive-ingress-20261005-sol56z8q4
+    paths:
+      - 'acs/bookreader.py'
+      - 'tests/test_bookreader.py'
+      - '.github/workflows/bookreader-detached-metadata-passive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bookreader-detached-metadata-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_HEAD: 08305b74143c880e307864b99e8b0ee120cc383b
+  PARENT_BRANCH: fix/book-workflow-state-passive-ingress-20261005-sol56z8q4
+  EXPECTED_BOOKREADER_BLOB: bb4228a97e1620d0d475df1acbb46bbec3ab39fc
+  EXPECTED_BOOKREADER_TEST_BLOB: 3cf28fcb9ac9187f6b6b6d84f0da6fb2b601d692
+  EXPECTED_WORKSPACE_BLOB: 199dae350bd7f7b54925d80fc2a5647de8078cf6
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact parent and bounded metadata scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          git fetch --no-tags origin "+refs/heads/$PARENT_BRANCH:refs/remotes/origin/bookreader-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/bookreader-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT_HEAD"
+          test "$(git merge-base "$live_parent" HEAD)" = "$live_parent"
+          git diff --check "$live_parent"...HEAD
+          changed="$(git diff --name-only "$live_parent"...HEAD | sort)"
+          expected_paths="$(printf '%s\n'             '.github/workflows/bookreader-detached-metadata-passive.yml'             'acs/bookreader.py'             'tests/test_bookreader.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/bookreader.py)" = "$EXPECTED_BOOKREADER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_bookreader.py)" = "$EXPECTED_BOOKREADER_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "$EXPECTED_WORKSPACE_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile BookReader metadata boundary
+        run: >-
+          python -m py_compile
+          acs/bookreader.py
+          acs/version2_book_workspace.py
+          tests/test_bookreader.py
+          tests/test_book_engine_authority_passive_ingress.py
+          tests/test_version2_book_workspace.py
+
+      - name: Execute BookReader and semantic workspace regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader
+          tests.test_book_engine_authority_passive_ingress
+          tests.test_version2_book_workspace
+          tests.test_book_bidirectional_semantic_navigation
+
+      - name: Core selftest
+        run: python -m acs.selftest
