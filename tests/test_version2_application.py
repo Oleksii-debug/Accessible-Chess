@@ -287,6 +287,28 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[-1]["kind"], "status")
         self.assertIn("збережено", events[-1]["payload"]["announcement"])
 
+    def test_recovered_document_warnings_are_available_in_pgn_accessibility_surface(self):
+        recovered = self.root / "legacy-recovery-surface.pgn"
+        recovered.write_bytes(
+            (
+                '[Event "Русская шахматная книга"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 *\n'
+            ).encode("cp1251")
+        )
+        session = PgnDocumentSession.open(recovered)
+        self.assertTrue(session.view().global_warnings)
+
+        self.app.set_document(session)
+        snapshot = self.app.snapshot()
+        warnings = snapshot["pgn"]["game"]["warnings"]
+
+        self.assertTrue(warnings)
+        self.assertTrue(any("Windows-1251" in warning for warning in warnings))
+        self.assertTrue(all(type(warning) is str for warning in warnings))
+        self.assertTrue(all(len(warning) <= 720 for warning in warnings))
+        self.assertNotIn(str(recovered), repr(warnings))
+
     def test_async_recovered_pgn_open_announces_overwrite_protection(self):
         self.app.set_document(PgnDocumentSession.open(self.source))
         self.app.drain_events()
