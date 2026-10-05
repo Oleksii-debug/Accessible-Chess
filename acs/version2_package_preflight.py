@@ -664,17 +664,24 @@ def _inspect_windows_pe_identity(
                     characteristics = int.from_bytes(pe_header[22:24], "little")
                     if (
                         machine != 0
-                        and section_count > 0
-                        and optional_header_size >= 2
+                        and 0 < section_count <= 96
+                        and optional_header_size >= 96
                         and characteristics & 0x0002
-                        and pe_offset + 24 + optional_header_size <= file_size
+                        and pe_offset + 24 + optional_header_size + (section_count * 40)
+                        <= file_size
                     ):
                         optional_header = source.read(optional_header_size)
                         if len(optional_header) == optional_header_size:
                             optional_magic = int.from_bytes(optional_header[:2], "little")
-                            if optional_magic in {0x10B, 0x20B}:
+                            if (
+                                optional_magic == 0x10B
+                                or (
+                                    optional_magic == 0x20B
+                                    and optional_header_size >= 112
+                                )
+                            ):
                                 has_clr = False
-                                if inspect_clr and section_count <= 96:
+                                if inspect_clr:
                                     if optional_magic == 0x10B:
                                         directory_count_offset = 92
                                         directory_table_offset = 96
