@@ -59,6 +59,7 @@ jobs:
             ".github/workflows/pgn-save-snapshot-transaction.yml"
             ".github/workflows/v2-windows-pgn-open-worker.yml"
             ".github/workflows/v2-windows-pgn-save-worker.yml"
+            ".github/workflows/version2-windows-composition.yml"
             "acs/full_product_actions.py"
             "acs/full_product_native_menu.py"
             "acs/import_contract.py"
