@@ -77,6 +77,25 @@ class Version2ApplicationTests(unittest.TestCase):
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
+    def test_set_document_rejects_active_session_subclass_before_hooks(self):
+        touched = []
+
+        class ActiveSession(PgnDocumentSession):
+            def view(self):
+                touched.append("view")
+                raise AssertionError("derived PGN session view hook must not execute")
+
+        hostile = object.__new__(ActiveSession)
+        before_session = self.app.session
+        before_route = self.app.shell.current_route.route_id
+
+        with self.assertRaises(TypeError):
+            self.app.set_document(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertIs(self.app.session, before_session)
+        self.assertEqual(self.app.shell.current_route.route_id, before_route)
+
     def test_native_file_open_browser_edit_save_and_reopen(self):
         self.app.browser_command("shell", "pgn.open")
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
