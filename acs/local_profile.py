@@ -147,7 +147,7 @@ def parse_local_profile_bytes(data: bytes) -> LocalProfile:
         payload = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
     except LocalProfileError:
         raise
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
         raise LocalProfileError("profile payload is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise LocalProfileError("profile payload root must be an object")
@@ -277,11 +277,52 @@ class LocalProfileStore:
     def _read_bounded(path: Path) -> bytes:
         if path.is_symlink():
             raise UnsafeLocalProfilePath("profile path must not be a symbolic link")
+
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        no_follow = getattr(os, "O_NOFOLLOW", 0)
+        if no_follow:
+            flags |= no_follow
+        fd = -1
+        chunks: list[bytes] = []
         try:
-            with path.open("rb") as handle:
-                data = handle.read(MAX_PROFILE_BYTES + 1)
+            fd = os.open(path, flags)
+            opened = os.fstat(fd)
+            current = path.stat(follow_symlinks=False)
+            if not os.path.samestat(opened, current):
+                raise UnsafeLocalProfilePath("profile path changed while being opened")
+
+            remaining = MAX_PROFILE_BYTES + 1
+            while remaining:
+                block = os.read(fd, remaining)
+                if not block:
+                    break
+                chunks.append(block)
+                remaining -= len(block)
+
+            # The descriptor is the data authority, but the pathname must still
+            # identify that same file after the read. Atomic replacement by a
+            # concurrent/non-cooperating writer therefore fails closed instead of
+            # returning bytes from a path that no longer owns them.
+            opened_after = os.fstat(fd)
+            current_after = path.stat(follow_symlinks=False)
+            if not os.path.samestat(opened_after, current_after):
+                raise UnsafeLocalProfilePath("profile path changed while being read")
+        except UnsafeLocalProfilePath:
+            raise
         except OSError:
+            if path.is_symlink():
+                raise UnsafeLocalProfilePath("profile path must not be a symbolic link") from None
             raise LocalProfileError("profile state cannot be read") from None
+        finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    # Descriptor close is cleanup only. The bounded read and path
+                    # identity decision above already determine the caller result.
+                    pass
+
+        data = b"".join(chunks)
         if len(data) > MAX_PROFILE_BYTES:
             raise LocalProfileError("profile payload is too large")
         return data
