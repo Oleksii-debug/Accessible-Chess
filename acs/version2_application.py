@@ -2082,6 +2082,16 @@ class Version2Application:
                     for event in events
                 )
             )
+            retire_observers = any(
+                event.action_id in {"library.import", "library.cancel_import"}
+                and event.kind
+                in {
+                    FileWorkflowEventKind.IMPORT_EMPTY,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                    FileWorkflowEventKind.FAILED,
+                }
+                for event in events
+            )
 
             try:
                 for event in events:
@@ -2182,9 +2192,15 @@ class Version2Application:
                 # batch was rendering. Clear only the exact DTOs actually
                 # consumed by this successful transaction.
                 with self._observation_lock:
-                    if progress_ready and self._progress is progress:
+                    if (
+                        (progress_ready or retire_observers)
+                        and self._progress is progress
+                    ):
                         self._progress = None
-                    if result_ready and self._result is result:
+                    if (
+                        (result_ready or retire_observers)
+                        and self._result is result
+                    ):
                         self._result = None
 
     def _native_file_error_message(self, event):
