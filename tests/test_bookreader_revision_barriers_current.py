@@ -161,5 +161,34 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         self.assertEqual(reader.index, before)
 
 
+    def test_save_return_point_abort_at_final_revision_barrier_rolls_back_binding(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        reader = BookReader(self.make_book())
+        reader.go_to(1)
+        original_digest = reader._document_revision_digest
+        calls = 0
+
+        def abort_second_revision_read() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise AbortSignal("simulated final revision abort")
+            return original_digest()
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            side_effect=abort_second_revision_read,
+        ):
+            with self.assertRaises(AbortSignal):
+                reader.save_return_point("analysis")
+
+        with self.assertRaises(LookupError):
+            reader.restore_return_point("analysis")
+        self.assertEqual(1, reader.index)
+
+
 if __name__ == "__main__":
     unittest.main()
