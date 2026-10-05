@@ -6,7 +6,7 @@ import unittest
 import acs.media_preprocess as module
 from acs.media_preprocess import (
     AdaptiveSamplingPolicy, BoardFrameEvidence, BoardOrientation, BoardVisionPort,
-    FrameDisposition, MAX_SAMPLES, PreprocessCacheKey, PreprocessCheckpoint,
+    FrameDisposition, MAX_HINTS, MAX_SAMPLES, PreprocessCacheKey, PreprocessCheckpoint,
     PreprocessContractError, PreprocessErrorCode, PreprocessStatus,
     FrameSampleRequest, RecordedMediaPreprocessPlan, RecordedMediaPreprocessRun,
     RecordedMediaSourceRevision, SpeechContextPort, SpeechEvidence,
@@ -43,6 +43,16 @@ class RecordedMediaPreprocessTests(unittest.TestCase):
         with self.assertRaises(PreprocessContractError) as c: AdaptiveSamplingPolicy(max_samples=MAX_SAMPLES + 1)
         self.assertEqual(c.exception.code, PreprocessErrorCode.LIMIT)
         with self.assertRaises(PreprocessContractError) as c: AdaptiveSamplingPolicy(1, 1, 0, max_samples=100).requests(500)
+        self.assertEqual(c.exception.code, PreprocessErrorCode.LIMIT)
+
+    def test_transition_hint_limit_does_not_exhaust_untrusted_iterable(self):
+        def guarded_hints():
+            for _ in range(MAX_HINTS + 1):
+                yield 0
+            raise AssertionError("hint iterable was consumed past the fail-closed limit")
+
+        with self.assertRaises(PreprocessContractError) as c:
+            AdaptiveSamplingPolicy().requests(1000, guarded_hints())
         self.assertEqual(c.exception.code, PreprocessErrorCode.LIMIT)
 
     def test_sampling_exact_limit_accepts_actual_baseline_count(self):
