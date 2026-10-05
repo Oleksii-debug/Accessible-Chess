@@ -75,6 +75,10 @@ jobs:
           REPORT_HEAD: 5f03162d3bfb7efef076e66d85446ad4844a9be3
           PRE_REPORT_PRODUCT: 997615e760cbd57a56191474ff88e417d02d1830
           REPORT_MERGE: 57bcd5cd199fee7794c493ec6bcecb990300c391
+          CONVERSION_INTEGRITY_REF: fix/pgn-conversion-prepublish-cancel-20261005-ooxple7
+          CONVERSION_INTEGRITY_HEAD: ab2cb5b9e9872a5c53598cf82c9699fe02155f16
+          PRE_CONVERSION_INTEGRITY_PRODUCT: 08e7641854a45b1435ea87eb461d10472058dc20
+          CONVERSION_INTEGRITY_MERGE: ae91303abf5fc9f882823202f7c7201d8edd355d
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -100,6 +104,7 @@ jobs:
           fetch_exact "$KEYMAP_REF" "$KEYMAP_HEAD" CURRENT_PRODUCT_KEYMAP
           fetch_exact "$FORMAT_REF" "$FORMAT_HEAD" CURRENT_PRODUCT_FORMAT_CONVERSION
           fetch_exact "$REPORT_REF" "$REPORT_HEAD" CURRENT_PRODUCT_REPORT_PRIVACY
+          fetch_exact "$CONVERSION_INTEGRITY_REF" "$CONVERSION_INTEGRITY_HEAD" CURRENT_PRODUCT_CONVERSION_INTEGRITY
 
           test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
@@ -114,8 +119,10 @@ jobs:
           git merge-base --is-ancestor "$FORMAT_ACCESSIBILITY_MERGE" HEAD
           test "$(git show -s --format=%P "$REPORT_MERGE")" = "$PRE_REPORT_PRODUCT $REPORT_HEAD"
           git merge-base --is-ancestor "$REPORT_MERGE" HEAD
+          test "$(git show -s --format=%P "$CONVERSION_INTEGRITY_MERGE")" = "$PRE_CONVERSION_INTEGRITY_PRODUCT $CONVERSION_INTEGRITY_HEAD"
+          git merge-base --is-ancestor "$CONVERSION_INTEGRITY_MERGE" HEAD
 
-          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD"; do
+          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
 
@@ -126,6 +133,7 @@ jobs:
             '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
             '.github/workflows/current-product-books-provider-convergence.yml' \
             '.github/workflows/local-profile-current-apex.yml' \
+            '.github/workflows/pgn-conversion-prepublish-cancel.yml' \
             '.github/workflows/pgn-reviewed-encoding-conversion.yml' \
             'acs/book_epub_import.py' \
             'acs/book_game_content.py' \
@@ -136,6 +144,7 @@ jobs:
             'acs/local_profile.py' \
             'acs/pgn_conversion.py' \
             'acs/pgn_conversion_windows.py' \
+            'acs/pgn_service.py' \
             'acs/report_paths.py' \
             'docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md' \
             'docs/PGN_CONVERSION_ACCEPTANCE_20261005_UA.md' \
@@ -150,6 +159,7 @@ jobs:
             'tests/test_pgn_conversion.py' \
             'tests/test_pgn_conversion_native_windows.py' \
             'tests/test_pgn_conversion_windows.py' \
+            'tests/test_pgn_service.py' \
             'tests/test_report_paths.py' \
             'tests/test_v2_book_epub_import.py' \
             'tests/test_v2_book_html_import.py' \
@@ -167,9 +177,13 @@ jobs:
           test "$(git rev-parse HEAD:acs/local_profile.py)" = '96d9b523a93a18eb4cc473ef0c87abee49d84512'
           test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = '7a91103062b76b541d370ec3a3247974d5cd0b80'
           test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = '94c56b2edbe4b865126b665a899830f8a6298be4'
-          test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '6d680b0faea0eaab1bf5d784dd202eeafb9fb9ca'
-          test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = '554ebeb16278999a84295dcf71f082c9b6f9ea7b'
-          test "$(git rev-parse HEAD:tests/test_pgn_conversion_windows.py)" = 'e15bf4c37f81b1897e2a6575982195f725bf87bc'
+          test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '731f55c8c91ecdcdb2ec716e9840eee43a4b4889'
+          test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = '12a0167c93ed7b60898262314319ad181acb7094'
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = '20e116a2c6b18ae9c45c4c58b67b99cb8d406f87'
+          test "$(git rev-parse HEAD:tests/test_pgn_conversion.py)" = '071ceca060b27ad8cbf7facb313e9cfd3af935e2'
+          test "$(git rev-parse HEAD:tests/test_pgn_conversion_windows.py)" = '2258ad3b4146161fd1bf7e667be7f3ac40273981'
+          test "$(git rev-parse HEAD:tests/test_pgn_service.py)" = '22d0404e00ce0219457167cc06e1f7af147cdbc0'
+          test "$(git rev-parse HEAD:.github/workflows/pgn-conversion-prepublish-cancel.yml)" = '55e0c0a6699871d3917e0d83d278f50c12015c24'
           test "$(git rev-parse HEAD:acs/report_paths.py)" = 'fafc8696a846a1b9c96a8ce89a76ce82593fd582'
           test "$(git rev-parse HEAD:tests/test_report_paths.py)" = 'dc3bd5c1be6259b83cb6316648663a213aeeae0e'
           test "$(git rev-parse HEAD:.github/workflows/pgn-reviewed-encoding-conversion.yml)" = '90494595a4158d302999575601a76440a7e1b9f4'
@@ -196,6 +210,7 @@ jobs:
           acs/full_product_native_menu.py
           acs/pgn_conversion.py
           acs/pgn_conversion_windows.py
+          acs/pgn_service.py
           acs/report_paths.py
           scripts/qualify_pgn_conversion_corpus.py
 
@@ -220,6 +235,7 @@ jobs:
           tests.test_pgn_conversion
           tests.test_pgn_conversion_windows
           tests.test_pgn_conversion_native_windows
+          tests.test_pgn_service
           tests.test_report_paths
 
       - name: Execute P0-G event identity regression
