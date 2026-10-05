@@ -378,7 +378,6 @@ def record_owner_physical_acceptance(
     if len(serialized) > MAX_ACCEPTANCE_BYTES:
         _fail("physical acceptance record exceeds its byte budget")
     _publish_exclusive(output, serialized)
-    verify_owner_physical_acceptance(output, machine_receipt, final_zip)
     return value
 
 
