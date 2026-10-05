@@ -305,3 +305,20 @@ Agent MVP is not complete without:
 This public document intentionally specifies contracts, not proprietary media-source/game-discovery heuristics.
 
 Do not add private matching/ranking/source-order heuristics to this public repository without an explicit owner decision changing the repository/privacy policy.
+
+## 18. Implementation research anchors
+
+Workers should verify current upstream revisions/policies before adoption, but should start from these already-researched primary sources instead of repeating broad discovery:
+
+- Microsoft Application Loopback sample: https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/
+- `ActivateAudioInterfaceAsync` process-loopback documentation: https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nf-mmdeviceapi-activateaudiointerfaceasync
+- `AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS`: https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_process_loopback_params
+- YouTube IFrame Player API: https://developers.google.com/youtube/iframe_api_reference
+- YouTube Data API `videos.list`: https://developers.google.com/youtube/v3/docs/videos/list
+- YouTube API Services Developer Policies: https://developers.google.com/youtube/terms/developer-policies
+- Lichess Broadcast help / real-time PGN + streaming API: https://lichess.org/broadcast/help
+- Lichess API Broadcasts: https://lichess.org/api#tag/Broadcasts
+- fenshot board-recognition candidate: https://github.com/scoriiu/fenshot/
+- faster-whisper speech-recognition candidate: https://github.com/SYSTRAN/faster-whisper
+
+These are implementation anchors, not automatic dependency approvals. Exact version/SHA, model provenance, licenses, Windows behavior, redistribution obligations, accessibility behavior and our own deterministic acceptance corpus remain required before adoption.
