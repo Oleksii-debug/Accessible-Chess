@@ -54,14 +54,6 @@ class PgnSaveSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class PgnSavePublication:
-    """Canonical file publication result bound to the snapshot that produced it."""
-
-    snapshot: PgnSaveSnapshot
-    saved: SourceFingerprint
-
-
-@dataclass(frozen=True, slots=True)
 class _PassiveSnapshotMetadata:
     mode: PgnSaveMode
     document_revision: int
@@ -71,6 +63,30 @@ class _PassiveSnapshotMetadata:
     source_overwrite_safe_before: bool
     saved_digest_before: str | None
     session_ref: ReferenceType[PgnDocumentSession]
+
+
+@dataclass(frozen=True, slots=True)
+class _PgnSavePublicationBinding:
+    """Private worker proof tying durable bytes to one captured session generation."""
+
+    snapshot: PgnSaveSnapshot
+    mode: PgnSaveMode
+    document_revision: int
+    content_digest: str
+    source_before: SourceFingerprint | None
+    source_overwrite_safe_before: bool
+    saved_digest_before: str | None
+    session_ref: ReferenceType[PgnDocumentSession]
+    saved: SourceFingerprint
+
+
+@dataclass(frozen=True, slots=True)
+class PgnSavePublication:
+    """Canonical file publication result bound to the snapshot that produced it."""
+
+    snapshot: PgnSaveSnapshot
+    saved: SourceFingerprint
+    _binding: _PgnSavePublicationBinding = field(repr=False, compare=False)
 
 
 def _stale(message: str) -> PgnDocumentError:
@@ -339,14 +355,14 @@ def publish_pgn_save_snapshot(
     _raise_if_cancelled(check)
     publication_games, _digest = _canonical_detached_games(
         metadata.games,
-        expected_digest=metadata.content_digest,
+        expected_digest=binding.content_digest,
     )
     _raise_if_cancelled(check)
 
     writer_games = _cancellable_games(publication_games, check)
     pre_publish_check = None if check is None else lambda: _raise_if_cancelled(check)
 
-    if metadata.mode is PgnSaveMode.SAVE:
+    if binding.mode is PgnSaveMode.SAVE:
         if path is not None or overwrite or expected_sha256 is not None:
             raise ValueError("Save snapshot destination is bound to its source")
         source = _detached_source_fingerprint(
@@ -367,7 +383,7 @@ def publish_pgn_save_snapshot(
             expected_sha256=source.sha256,
             pre_publish_check=pre_publish_check,
         )
-    elif metadata.mode is PgnSaveMode.SAVE_AS:
+    elif binding.mode is PgnSaveMode.SAVE_AS:
         if path is None:
             raise TypeError("Save As snapshot requires a destination path")
         destination = Path(path)
@@ -386,7 +402,23 @@ def publish_pgn_save_snapshot(
     else:  # pragma: no cover - exact enum construction makes this defensive only.
         raise TypeError("PGN save mode is invalid")
 
-    return PgnSavePublication(snapshot=snapshot, saved=saved)
+    bound_saved = _detached_source_fingerprint(saved)
+    assert bound_saved is not None
+    binding = _PgnSavePublicationBinding(
+        snapshot=snapshot,
+        mode=binding.mode,
+        document_revision=metadata.document_revision,
+        content_digest=binding.content_digest,
+        source_before=_detached_source_fingerprint(
+            metadata.source_before,
+            allow_none=True,
+        ),
+        source_overwrite_safe_before=metadata.source_overwrite_safe_before,
+        saved_digest_before=binding.saved_digest_before,
+        session_ref=metadata.session_ref,
+        saved=bound_saved,
+    )
+    return PgnSavePublication(snapshot=snapshot, saved=saved, _binding=binding)
 
 
 def commit_pgn_save_publication(
@@ -403,19 +435,68 @@ def commit_pgn_save_publication(
     current = _require_session(session)
     if type(publication) is not PgnSavePublication:
         raise TypeError("PGN save commit requires an exact publication")
+    binding = publication._binding
+    if type(binding) is not _PgnSavePublicationBinding:
+        raise TypeError("PGN save publication binding is malformed")
+    if publication.snapshot is not binding.snapshot:
+        raise _stale("PGN save publication snapshot binding changed after publication")
+
     snapshot = publication.snapshot
     metadata = _passive_snapshot_metadata(snapshot)
+    bound_source = _detached_source_fingerprint(
+        binding.source_before,
+        allow_none=True,
+    )
+    bound_saved = _detached_source_fingerprint(binding.saved)
+    assert bound_saved is not None
+    if (
+        type(binding.mode) is not PgnSaveMode
+        or type(binding.document_revision) is not int
+        or binding.document_revision < 0
+        or type(binding.content_digest) is not str
+        or len(binding.content_digest) != 64
+        or any(character not in "0123456789abcdef" for character in binding.content_digest)
+        or type(binding.source_overwrite_safe_before) is not bool
+        or (
+            binding.saved_digest_before is not None
+            and (
+                type(binding.saved_digest_before) is not str
+                or len(binding.saved_digest_before) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in binding.saved_digest_before
+                )
+            )
+        )
+        or type(binding.session_ref) is not ReferenceType
+    ):
+        raise TypeError("PGN save publication binding metadata is malformed")
+    if (
+        metadata.mode is not binding.mode
+        or metadata.document_revision != binding.document_revision
+        or metadata.content_digest != binding.content_digest
+        or metadata.source_before != bound_source
+        or metadata.source_overwrite_safe_before
+        is not binding.source_overwrite_safe_before
+        or metadata.saved_digest_before != binding.saved_digest_before
+        or metadata.session_ref is not binding.session_ref
+    ):
+        raise _stale("PGN save snapshot metadata changed after publication")
+
     raw_saved = publication.saved
     saved = _detached_source_fingerprint(raw_saved)
     assert saved is not None
-    source_before = metadata.source_before
-    if metadata.session_ref() is not current:
+    if saved != bound_saved:
+        raise _stale("PGN save publication provenance changed after publication")
+
+    source_before = bound_source
+    if binding.session_ref() is not current:
         raise _stale("PGN save publication belongs to a different document session")
 
     # Exact replay after a successful owner-thread commit is harmless.  This is
     # checked before source-staleness because an unchanged Save can legitimately
     # produce the same fingerprint as its source generation.
-    if current.source == saved and current._saved_digest == metadata.content_digest:
+    if current.source == saved and current._saved_digest == binding.content_digest:
         return current.view()
 
     # Ordinary edits do not mutate either source provenance or the saved
@@ -424,15 +505,15 @@ def commit_pgn_save_publication(
     # a path happens to cycle back to the same source.
     if (
         current.source != source_before
-        or current._saved_digest != metadata.saved_digest_before
+        or current._saved_digest != binding.saved_digest_before
     ):
         raise _stale("PGN source changed before the save publication could commit")
 
-    if metadata.mode is PgnSaveMode.SAVE:
+    if binding.mode is PgnSaveMode.SAVE:
         source = source_before
         if source is None or Path(saved.path).absolute() != Path(source.path).absolute():
             raise _stale("Save publication does not match the captured source")
-    elif metadata.mode is not PgnSaveMode.SAVE_AS:
+    elif binding.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
 
     # ``PgnDocumentSession`` owns these fields.  This companion module is the
@@ -445,15 +526,15 @@ def commit_pgn_save_publication(
         sha256=saved.sha256,
         suffix=saved.suffix,
     )
-    if metadata.mode is PgnSaveMode.SAVE_AS:
+    if binding.mode is PgnSaveMode.SAVE_AS:
         current._source_overwrite_safe = True
         current._global_warnings = ()
-    current._saved_digest = metadata.content_digest
+    current._saved_digest = binding.content_digest
 
     # Mark the live workspace clean only when it is still exactly the generation
     # that was written.  If the user edited during the worker run, retain the
     # newer workspace baseline and let ``dirty`` compare it to the saved digest.
-    if current.workspace.content_digest == metadata.content_digest:
+    if current.workspace.content_digest == binding.content_digest:
         current.workspace.mark_saved()
 
     current._document_revision += 1
