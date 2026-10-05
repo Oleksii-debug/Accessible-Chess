@@ -443,7 +443,7 @@ class Version2Application:
 
     def set_document(self, session):
         self._assert_thread()
-        if not isinstance(session, PgnDocumentSession): raise TypeError("invalid PGN document")
+        if type(session) is not PgnDocumentSession: raise TypeError("invalid PGN document")
         # Library/native domain actions can reach this seam without a shell route
         # action. Reject before publishing a new PGN session while modal focus is
         # owned elsewhere, matching AccessibleShellState.open_route().
