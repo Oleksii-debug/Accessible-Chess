@@ -1,0 +1,157 @@
+name: W5 Portable Package + Physical Evidence Convergence
+
+on:
+  push:
+    branches:
+      - converge/w5-physical-evidence-20261006-zftrkmo
+  pull_request:
+    branches:
+      - fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
+    paths:
+      - acs/version2_package_preflight.py
+      - tests/test_v2_package_required_resources.py
+      - tests/test_version2_package_assembler.py
+      - tests/test_version2_package_pe_identity.py
+      - tests/test_version2_package_preflight.py
+      - tests/test_version2_release_payload.py
+      - .github/workflows/w5-portable-package-contract.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w5-portable-hardened-package-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PHYSICAL_EVIDENCE_BASE: 5b39c342ca3761a00854bac2e3871ab31c0b7514
+  PHYSICAL_EVIDENCE_BRANCH: fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
+  EXPECTED_W5_SOURCE_HEAD: 756e2c93d90e74865e4441b74075f250fbb207ec
+  W5_SOURCE_BRANCH: converge/w5-hardened-package-preflight-20261005-zftrkmo
+  EXPECTED_W5_SOURCE_WORKFLOW_BLOB: 44c1b36230582396e6f2d1f21303f2ac7c193766
+  EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  EXPECTED_REQUIRED_RESOURCES_TEST_BLOB: 9ea7b3b07a9df59092fad8679b6ec9e38eed144a
+  EXPECTED_ASSEMBLER_TEST_BLOB: a946d2da1742177d3caa0b07cbc7508eeb98afbe
+  EXPECTED_PE_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  EXPECTED_PREFLIGHT_TEST_BLOB: 01b7c32311bd231684cf9ece9481609a20267610
+  EXPECTED_RELEASE_PAYLOAD_TEST_BLOB: d5585a6f31e66c34142dccd73cc11984a964224e
+
+jobs:
+  portable-package-contract:
+    name: Portable package + hardened preflight on Windows
+    runs-on: windows-2025
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out exact qualification successor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove physical-evidence apex and exact W5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin             "+refs/heads/$PHYSICAL_EVIDENCE_BRANCH:refs/remotes/origin/physical-evidence-base"             "+refs/heads/$W5_SOURCE_BRANCH:refs/remotes/origin/w5-source"
+
+          live_physical="$(git rev-parse refs/remotes/origin/physical-evidence-base)"
+          test "$live_physical" = "$EXPECTED_PHYSICAL_EVIDENCE_BASE" || {
+            echo "PHYSICAL_EVIDENCE_BASE_MOVED expected=$EXPECTED_PHYSICAL_EVIDENCE_BASE live=$live_physical" >&2
+            exit 1
+          }
+
+          live_w5="$(git rev-parse refs/remotes/origin/w5-source)"
+          test "$live_w5" = "$EXPECTED_W5_SOURCE_HEAD" || {
+            echo "W5_SOURCE_MOVED expected=$EXPECTED_W5_SOURCE_HEAD live=$live_w5" >&2
+            exit 1
+          }
+
+          git merge-base --is-ancestor "$EXPECTED_PHYSICAL_EVIDENCE_BASE" HEAD
+          git diff --check "$EXPECTED_PHYSICAL_EVIDENCE_BASE"...HEAD
+
+          mapfile -t paths < <(git diff --name-only "$EXPECTED_PHYSICAL_EVIDENCE_BASE"...HEAD | sort)
+          printf '%s\n' "${paths[@]}"
+          test "${#paths[@]}" -eq 1
+          test "${paths[0]}" = ".github/workflows/w5-portable-package-contract.yml"
+
+          test "$(git rev-parse refs/remotes/origin/w5-source:.github/workflows/w5-portable-package-contract.yml)" = "$EXPECTED_W5_SOURCE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" = "$EXPECTED_REQUIRED_RESOURCES_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "$EXPECTED_ASSEMBLER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$EXPECTED_PE_IDENTITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_payload.py)" = "$EXPECTED_RELEASE_PAYLOAD_TEST_BLOB"
+
+          # The physical-evidence apex already carries the six hardened package
+          # source/test blobs byte-for-byte. The only missing #2114 authority is
+          # the W5 qualification workflow itself; this child adapts that gate to
+          # the physical-evidence apex instead of replaying package code.
+          for path in             acs/version2_package_preflight.py             tests/test_v2_package_required_resources.py             tests/test_version2_package_assembler.py             tests/test_version2_package_pe_identity.py             tests/test_version2_package_preflight.py             tests/test_version2_release_payload.py
+          do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse refs/remotes/origin/w5-source:$path)"
+          done
+
+          echo "PHYSICAL_EVIDENCE_BASE=$EXPECTED_PHYSICAL_EVIDENCE_BASE"
+          echo "W5_SOURCE_HEAD=$EXPECTED_W5_SOURCE_HEAD"
+          echo "W5_PHYSICAL_CONVERGENCE_HEAD=$expected_head"
+
+      - name: Set up canonical package-test Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile portable and hardened package authorities
+        run: >-
+          python -m py_compile
+          run_accessible_chess.py
+          acs/acsdb.py
+          acs/book_progress_store.py
+          acs/bookdocument.py
+          acs/bookreader.py
+          acs/chesscore.py
+          acs/settings.py
+          acs/sound_events.py
+          acs/sound_windows.py
+          acs/stockfish_runtime.py
+          acs/training.py
+          acs/training_progress_store.py
+          acs/version2_upgrade.py
+          acs/stage1_release_ui.py
+          acs/version2_application.py
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_preflight.py
+          tests/test_v2_package_required_resources.py
+          tests/test_version2_package_pe_identity.py
+          tests/test_version2_release_payload.py
+          tests/test_version2_portable_package.py
+          tests/test_portable_launcher_contract.py
+          tests/test_portable_launcher_window_readiness.py
+          tests/test_portable_localappdata_persistence_binding.py
+
+      - name: Run hardened canonical package contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+
+      - name: Run canonical portable outer-package contract
+        run: python -m unittest -v tests.test_version2_portable_package
+
+      - name: Run native launcher and package-local persistence contracts
+        run: >-
+          python -m unittest -v
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
