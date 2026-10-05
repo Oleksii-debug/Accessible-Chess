@@ -144,6 +144,20 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_preflight_rejects_32_bit_native_desktop_runtime(self):
+        relative = "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            root.joinpath(*relative.split("/")).write_bytes(
+                _minimal_windows_pe(machine=0x014C)
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "unexpected Windows PE machine 0x014c; expected 0x8664",
+            ):
+                _validate_tree(root)
+
     def test_preflight_rejects_non_pe_desktop_startup_runtime(self):
         relative = "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
         with tempfile.TemporaryDirectory() as td:
@@ -166,6 +180,19 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
                 "Windows PE executable",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_32_bit_stockfish_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            (root / "AccessibleChess/engines/stockfish/stockfish.exe").write_bytes(
+                _minimal_windows_pe(machine=0x014C)
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "unexpected Windows PE machine 0x014c; expected 0x8664",
             ):
                 _validate_tree(root)
 
