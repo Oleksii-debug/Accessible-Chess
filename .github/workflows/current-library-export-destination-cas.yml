@@ -5,6 +5,8 @@ on:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
     paths:
+      - '.github/workflows/current-library-export-destination-cas.yml'
+      - '.github/workflows/current-library-open-publication-ack.yml'
       - 'acs/full_product_actions.py'
       - 'acs/library_export_service.py'
       - 'acs/library_export_webview_projection.py'
@@ -13,13 +15,13 @@ on:
       - 'acs/version2_application.py'
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
-      - 'tests/test_v2_windows_library_export_background.py'
-      - 'tests/test_v2_windows_host_runtime.py'
       - 'tests/js/library_export_surface_dom_test.js'
       - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_library_open_game_publication.py'
+      - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_library_export_background.py'
       - 'web/full_product_library.js'
       - 'web/version2_release_bootstrap.js'
-      - '.github/workflows/current-library-export-destination-cas.yml'
   workflow_dispatch:
 
 permissions:
