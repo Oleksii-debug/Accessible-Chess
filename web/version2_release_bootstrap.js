@@ -13,6 +13,7 @@
   let pendingShellPublicationToken = 0;
   let eventDrainInFlight = false;
   let eventDrainPending = false;
+  let deferredNativeEventBatch = null;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
   const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
@@ -275,7 +276,12 @@
   }
 
   function clearPendingShellPublication(token) {
-    if (pendingShellPublicationToken === token) pendingShellPublicationToken = 0;
+    if (pendingShellPublicationToken !== token) return;
+    pendingShellPublicationToken = 0;
+    if (eventDrainPending || deferredNativeEventBatch !== null) {
+      eventDrainPending = false;
+      global.setTimeout(drainEvents, 0);
+    }
   }
 
   function recoverShellPublication(bridge, token, failedMessage) {
@@ -645,6 +651,10 @@
   }
 
   function drainEvents() {
+    if (pendingShellPublicationToken) {
+      eventDrainPending = true;
+      return;
+    }
     if (eventDrainInFlight) {
       eventDrainPending = true;
       return;
@@ -655,13 +665,23 @@
     eventDrainPending = false;
     let drained;
     try {
-      drained = bridge.v2_drain_events();
+      if (deferredNativeEventBatch !== null) {
+        drained = deferredNativeEventBatch;
+        deferredNativeEventBatch = null;
+      } else {
+        drained = bridge.v2_drain_events();
+      }
     } catch (_) {
       finishEventDrain();
       return;
     }
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
+      if (pendingShellPublicationToken) {
+        deferredNativeEventBatch = events;
+        eventDrainPending = true;
+        return;
+      }
       let needsRefresh = false;
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
