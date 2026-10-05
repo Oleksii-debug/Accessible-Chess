@@ -210,7 +210,9 @@ async function main() {
   const rejectedButton = rejectedRoot.querySelector("#media-restore-position");
   await rejectedButton.listeners.click();
   const rejectedAnnouncement = rejectedRoot.querySelector("#media-restore-announcement");
-  check(rejectedAnnouncement.textContent.includes("Не вдалося виконати команду"), "transport failure is not localized");
+  check(rejectedAnnouncement.textContent.includes("Не вдалося підтвердити результат команди"), "transport failure did not report an indeterminate outcome");
+  check(rejectedAnnouncement.textContent.includes("Перевірте поточну шахову дошку"), "transport failure omitted board verification guidance");
+  check(!rejectedAnnouncement.textContent.includes("Нічого не змінено"), "transport failure falsely claimed rollback");
   check(!rejectedAnnouncement.textContent.includes("secret"), "private host exception text reached the DOM");
   check(document.activeElement === rejectedAnnouncement, "transport failure is not focused for immediate recovery");
 
