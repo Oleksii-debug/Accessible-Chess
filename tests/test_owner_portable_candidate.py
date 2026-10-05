@@ -150,7 +150,9 @@ class OwnerPortableCandidateValidationTests(unittest.TestCase):
                 expected_integration_sha=_SHA,
                 require_user_seed=True,
             )
-            self.assertEqual(\n                report["sound_wav_count"], owner_candidate.EXPECTED_SOURCE_WAV_COUNT\n            )
+            self.assertEqual(
+                report["sound_wav_count"], owner_candidate.EXPECTED_SOURCE_WAV_COUNT
+            )
             self.assertEqual(report["sound_inventory_sha256"], fingerprint)
             self.assertEqual(report["package_checksum_sha256"], _PACKAGE_CHECKSUM_SHA)
             self.assertEqual(report["seed_source_count"], 6)
@@ -441,7 +443,9 @@ class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
             )
             self.assertEqual(report.archive_sha256, _digest(b"zip"))
             self.assertEqual(report.package_checksum_sha256, _PACKAGE_CHECKSUM_SHA)
-            self.assertEqual(\n                report.sound_wav_count, owner_candidate.EXPECTED_SOURCE_WAV_COUNT\n            )
+            self.assertEqual(
+                report.sound_wav_count, owner_candidate.EXPECTED_SOURCE_WAV_COUNT
+            )
             self.assertEqual(report.seed_game_count, 3738)
 
     def test_builder_rejects_wrong_authorized_document_hash_before_zip_publication(self) -> None:
