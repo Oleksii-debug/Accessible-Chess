@@ -132,6 +132,8 @@ _UK_LABELS = {
     "pgn.parent_variation": "Повернутися до батьківського варіанта",
     "library.previous_result": "Попередній результат бібліотеки",
     "library.next_result": "Наступний результат бібліотеки",
+    "library.first_result": "Перший результат бібліотеки",
+    "library.last_result": "Останній результат бібліотеки",
     "library.open_game": "Відкрити вибрану партію з бібліотеки",
     "library.search": "Шукати в бібліотеці",
     "library.reset_filters": "Скинути фільтри бібліотеки",
