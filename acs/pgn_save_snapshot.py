@@ -244,7 +244,7 @@ def capture_pgn_save_snapshot(
     """
 
     current = _require_session(session)
-    if not isinstance(mode, PgnSaveMode):
+    if type(mode) is not PgnSaveMode:
         raise TypeError("PGN save mode is invalid")
 
     source = _detached_source_fingerprint(current.source, allow_none=True)
@@ -333,6 +333,8 @@ def publish_pgn_save_snapshot(
     """
 
     metadata = _passive_snapshot_metadata(snapshot)
+    if type(overwrite) is not bool:
+        raise TypeError("overwrite must be a boolean")
     check = _validated_cancel_check(cancel_check)
     _raise_if_cancelled(check)
     publication_games, _digest = _canonical_detached_games(
