@@ -679,9 +679,17 @@ def verify_owner_physical_acceptance(
         _fail("physical acceptance record final ZIP digest mismatch")
     if value.get("product_sha") != product_sha:
         _fail("physical acceptance record product SHA mismatch")
-    if value.get("machine_finalizer_run_id") != finalizer_run_id:
+    record_finalizer_run_id = _positive_int(
+        value.get("machine_finalizer_run_id"),
+        label="physical acceptance record finalizer run id",
+    )
+    record_finalizer_run_attempt = _positive_int(
+        value.get("machine_finalizer_run_attempt"),
+        label="physical acceptance record finalizer run attempt",
+    )
+    if record_finalizer_run_id != finalizer_run_id:
         _fail("physical acceptance record finalizer run id mismatch")
-    if value.get("machine_finalizer_run_attempt") != finalizer_run_attempt:
+    if record_finalizer_run_attempt != finalizer_run_attempt:
         _fail("physical acceptance record finalizer run attempt mismatch")
 
     scenarios = _validate_scenarios(value.get("scenario_results"))

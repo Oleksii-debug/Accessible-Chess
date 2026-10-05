@@ -220,6 +220,72 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
                 value,
             )
 
+    def test_verifier_rejects_boolean_finalizer_attempt_equal_to_one(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            machine = root / "machine.json"
+            receipt = _machine_receipt(final_zip, finalizer_run_attempt=1)
+            _write_machine_receipt(machine, receipt)
+            output = root / "physical.json"
+
+            _record(machine, final_zip, output, _scenarios())
+            value = acceptance_module._canonical_object_from_bytes(
+                output.read_bytes(),
+                label="owner physical acceptance record",
+                expected_keys=acceptance_module.ACCEPTANCE_RECORD_KEYS,
+            )
+            value["machine_finalizer_run_attempt"] = True
+            output.write_text(
+                __import__("json").dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                OwnerPhysicalAcceptanceError,
+                "finalizer run attempt must be a positive integer",
+            ):
+                _verify(output, machine, final_zip)
+
+    def test_verifier_rejects_boolean_finalizer_run_id_equal_to_one(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            machine = root / "machine.json"
+            receipt = _machine_receipt(final_zip, finalizer_run_id=1)
+            _write_machine_receipt(machine, receipt)
+            output = root / "physical.json"
+
+            _record(machine, final_zip, output, _scenarios())
+            value = acceptance_module._canonical_object_from_bytes(
+                output.read_bytes(),
+                label="owner physical acceptance record",
+                expected_keys=acceptance_module.ACCEPTANCE_RECORD_KEYS,
+            )
+            value["machine_finalizer_run_id"] = True
+            output.write_text(
+                __import__("json").dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                OwnerPhysicalAcceptanceError,
+                "finalizer run id must be a positive integer",
+            ):
+                _verify(output, machine, final_zip)
+
     def test_record_path_rejects_non_finite_unconsumed_machine_field(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
