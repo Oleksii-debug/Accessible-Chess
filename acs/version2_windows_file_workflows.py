@@ -30,6 +30,7 @@ from typing import Any
 from .library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
+    LibraryImportResult,
 )
 from .book_library_import import (
     BOOK_LIBRARY_SUFFIXES,
@@ -1578,7 +1579,7 @@ class Version2WindowsFileActionDelegate:
 
         def progress(progress_value: LibraryImportProgress) -> None:
             nonlocal progress_started
-            if not isinstance(progress_value, LibraryImportProgress):
+            if type(progress_value) is not LibraryImportProgress:
                 raise TypeError("canonical import progress object is invalid")
             if not progress_started:
                 progress_started = True
@@ -1604,11 +1605,12 @@ class Version2WindowsFileActionDelegate:
             )
 
         try:
-            services = self._import_services_factory()
-            if not isinstance(services, Version2ImportWorkerServices):
+            candidate_services = self._import_services_factory()
+            if type(candidate_services) is not Version2ImportWorkerServices:
                 raise TypeError(
                     "import_services_factory returned an invalid service bundle"
                 )
+            services = candidate_services
             if cancelled():
                 raise LibraryImportCancelledError("Library import cancelled")
 
@@ -1655,8 +1657,10 @@ class Version2WindowsFileActionDelegate:
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
-                game_count = int(imported.game_count)
-                warning_count = int(imported.warning_count)
+                if type(imported) is not LibraryImportResult:
+                    raise TypeError("canonical Library import result is invalid")
+                game_count = imported.game_count
+                warning_count = imported.warning_count
             else:
                 if services.chessbase is None:
                     self._emit_if_current(
