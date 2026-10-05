@@ -32,6 +32,7 @@ class _Dialogs:
         self.open_calls = 0
         self.import_calls = 0
         self.confirm_calls = 0
+        self.open_hook = None
         self.import_hook = None
 
     def confirm_discard_unsaved_pgn(self):
@@ -40,6 +41,8 @@ class _Dialogs:
 
     def open_pgn(self):
         self.open_calls += 1
+        if self.open_hook is not None:
+            self.open_hook()
         return self.source
 
     def save_pgn_as(self, suggested_filename: str = "game.pgn"):
@@ -131,6 +134,51 @@ class Version2WindowsFileWorkerPreflightTests(unittest.TestCase):
             self.assertEqual(busy.focus_target, "library-import-cancel")
             self.assertEqual(dialogs.confirm_calls, 0)
             self.assertEqual(dialogs.open_calls, 0)
+
+            release.set()
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+    def test_pgn_picker_reentrant_import_blocks_synchronous_open_after_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "reentrant-worker-preflight.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            entered = threading.Event()
+            release = threading.Event()
+            dialogs = _Dialogs(source)
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: self.fail(
+                    "busy reentrant PGN Open must not publish a session"
+                ),
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _BlockingLibrary(entered, release), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=None,
+            )
+
+            started_import = []
+            def start_import_during_picker() -> None:
+                started_import.append(delegate("library.import", {}))
+                self.assertTrue(entered.wait(1.0))
+
+            dialogs.open_hook = start_import_during_picker
+            result = delegate("pgn.open", {})
+
+            self.assertEqual(len(started_import), 1)
+            self.assertEqual(
+                started_import[0].kind,
+                FileWorkflowEventKind.IMPORT_STARTED,
+            )
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "file_worker_busy")
+            self.assertEqual(result.focus_target, "library-import-cancel")
+            self.assertEqual(dialogs.open_calls, 1)
+            self.assertTrue(delegate.import_running)
 
             release.set()
             self.assertTrue(delegate.wait_for_import(2.0))
