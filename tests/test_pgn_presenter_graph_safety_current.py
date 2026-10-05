@@ -116,6 +116,63 @@ class PgnPresenterGraphSafetyTests(unittest.TestCase):
             lambda: presenter.set_language(UILanguage.EN),
         )
 
+    def test_failed_language_rebuild_keeps_previous_locale_and_tree(self) -> None:
+        game, line, move = self._game_with_move("not-a-chess-move")
+        presenter = PgnTreePresenter([game], language=UILanguage.UA)
+        before_items = presenter.items()
+        before_selected = presenter.selected_node_id
+
+        move.variations.append(line)
+        self.assert_code(
+            GameTreeErrorCode.GRAPH_CYCLE,
+            lambda: presenter.set_language(UILanguage.EN),
+        )
+
+        self.assertEqual(before_items, presenter.items())
+        self.assertEqual(before_selected, presenter.selected_node_id)
+
+        # Repair the mutable recovery graph, then force another rebuild without
+        # changing language. A failed EN switch must not have leaked its locale.
+        move.variations.clear()
+        presenter.select_game(0)
+        self.assertEqual(
+            "Необроблений запис ходу: not-a-chess-move",
+            presenter.items()[0].label,
+        )
+
+    def test_failed_game_switch_keeps_previous_game_tree_and_selection(self) -> None:
+        first, _, _ = self._game_with_move("e4")
+        second, second_line, second_move = self._game_with_move("d4")
+        presenter = PgnTreePresenter([first, second], language=UILanguage.EN)
+        before_items = presenter.items()
+        before_selected = presenter.selected_node_id
+
+        second_move.variations.append(second_line)
+        self.assert_code(
+            GameTreeErrorCode.GRAPH_CYCLE,
+            lambda: presenter.select_game(1),
+        )
+
+        self.assertEqual(0, presenter.game_index)
+        self.assertEqual(before_items, presenter.items())
+        self.assertEqual(before_selected, presenter.selected_node_id)
+
+        second_move.variations.clear()
+        switched = presenter.next_game()
+        self.assertEqual(1, presenter.game_index)
+        self.assertEqual("d4", switched.items[0].san)
+
+    def test_presenter_rejects_noncanonical_language_and_game_index_types(self) -> None:
+        game, _, _ = self._game_with_move()
+        with self.assertRaisesRegex(TypeError, "language must be UILanguage"):
+            PgnTreePresenter([game], language="en")  # type: ignore[arg-type]
+
+        presenter = PgnTreePresenter([game], language=UILanguage.EN)
+        with self.assertRaisesRegex(TypeError, "language must be UILanguage"):
+            presenter.set_language("uk")  # type: ignore[arg-type]
+        with self.assertRaisesRegex(TypeError, "exact integer"):
+            presenter.select_game(True)  # type: ignore[arg-type]
+
     def test_valid_san_uses_shared_accessible_move_label(self) -> None:
         game, _, _ = self._game_with_move("Nbd2")
         presenter = PgnTreePresenter([game], language=UILanguage.EN)
