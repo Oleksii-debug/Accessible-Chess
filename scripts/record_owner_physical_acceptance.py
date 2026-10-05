@@ -40,6 +40,7 @@ from scripts.finalize_owner_final_receipt import (
 
 
 MAX_ACCEPTANCE_BYTES = 64 * 1024
+ACCEPTANCE_SCHEMA_VERSION = 2
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -528,7 +529,7 @@ def record_owner_physical_acceptance(
     observed = _validate_timestamp(observed_at_utc)
 
     value: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": ACCEPTANCE_SCHEMA_VERSION,
         "observation_mode": "manual_owner_physical_windows_nvda",
         "observed_at_utc": observed,
         "machine_receipt_sha256": hashlib.sha256(machine_bytes).hexdigest(),
@@ -589,7 +590,7 @@ def verify_owner_physical_acceptance(
     )
 
     if (
-        value.get("schema_version") != 1
+        value.get("schema_version") != ACCEPTANCE_SCHEMA_VERSION
         or type(value.get("schema_version")) is not int
         or value.get("observation_mode") != "manual_owner_physical_windows_nvda"
     ):
@@ -690,6 +691,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "ACCEPTANCE_RECORD_KEYS",
+    "ACCEPTANCE_SCHEMA_VERSION",
     "FINAL_MACHINE_RECEIPT_KEYS",
     "MAX_ACCEPTANCE_BYTES",
     "OwnerPhysicalAcceptanceError",
