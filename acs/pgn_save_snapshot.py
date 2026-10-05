@@ -101,6 +101,18 @@ def _detached_source_fingerprint(
         or type(suffix) is not str
     ):
         raise TypeError("PGN save provenance fields must be passive built-in scalars")
+    if not path:
+        raise ValueError("PGN save provenance path must not be empty")
+    if size < 0:
+        raise ValueError("PGN save provenance size must not be negative")
+    if (
+        len(sha256) != 64
+        or any(character not in "0123456789abcdef" for character in sha256)
+    ):
+        raise ValueError("PGN save provenance digest must be lowercase SHA-256 hex")
+    canonical_suffix = Path(path).suffix.lower()
+    if suffix != suffix.lower() or suffix != canonical_suffix:
+        raise ValueError("PGN save provenance suffix does not match its source path")
     return SourceFingerprint(
         path=path,
         size=size,
