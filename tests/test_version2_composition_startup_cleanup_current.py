@@ -123,6 +123,79 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             analysis.close.assert_called_once_with()
             runtime.close.assert_called_once_with()
 
+    def test_abort_class_startup_failure_preserves_primary_and_contains_abort_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runtime = mock.Mock()
+            runtime.provider = mock.Mock()
+            analysis = mock.Mock()
+            continuous = mock.Mock()
+
+            class StartupAbort(BaseException):
+                pass
+
+            class CleanupAbort(BaseException):
+                pass
+
+            primary = StartupAbort("primary startup abort")
+            continuous.close.side_effect = CleanupAbort("cleanup abort")
+            with (
+                mock.patch.object(
+                    release_app,
+                    "_prepare_version2_user_data",
+                    return_value=self._layout(root),
+                ),
+                mock.patch.object(release_app, "AnalysisService", return_value=analysis),
+                mock.patch.object(
+                    release_app,
+                    "ContinuousAnalysisService",
+                    return_value=continuous,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "EnginePlayService",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(release_app, "Settings", side_effect=primary),
+            ):
+                with self.assertRaises(StartupAbort) as caught:
+                    release_app.create_version2_release_application(
+                        runtime_factory=lambda _config: runtime,
+                        sound_playback=object(),
+                    )
+
+            self.assertIs(caught.exception, primary)
+            continuous.close.assert_called_once_with()
+            analysis.close.assert_called_once_with()
+            runtime.close.assert_called_once_with()
+
+    def test_abort_class_close_guard_install_failure_retires_unbound_runtime(self) -> None:
+        class GuardAbort(BaseException):
+            pass
+
+        runtime = mock.Mock()
+        runtime.shutdown.return_value = True
+        application = mock.Mock()
+        owner = mock.Mock()
+        dialogs = mock.Mock()
+        primary = GuardAbort("guard abort")
+
+        with mock.patch.object(
+            release_app,
+            "_install_unsaved_pgn_close_guard",
+            side_effect=primary,
+        ):
+            with self.assertRaises(GuardAbort) as caught:
+                release_app._install_close_guard_or_shutdown(
+                    runtime,
+                    application,
+                    owner,
+                    dialogs,
+                )
+
+        self.assertIs(caught.exception, primary)
+        runtime.shutdown.assert_called_once_with()
+
     def test_database_construction_failure_closes_engine_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

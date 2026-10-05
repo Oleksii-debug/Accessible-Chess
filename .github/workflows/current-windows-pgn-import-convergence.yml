@@ -90,6 +90,7 @@ jobs:
           acs/chessbase_library_import.py
           acs/library_webview_projection.py
           acs/version2_application.py
+          acs/version2_release_app.py
           acs/version2_windows_file_workflows.py
           acs/version2_windows_pgn_streaming_host.py
           acs/version2_windows_host_runtime.py
@@ -118,6 +119,7 @@ jobs:
           tests.test_dev1_library_webview_projection
           tests.test_v2_windows_nvda_file_workflows
           tests.test_version2_application
+          tests.test_version2_composition_startup_cleanup_current
           tests.test_chessbase_library_import_report_passive
 
       - name: Core selftest

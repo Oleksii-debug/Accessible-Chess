@@ -129,7 +129,7 @@ def _install_unsaved_pgn_close_guard(
     def cancel_close(event: object) -> None:
         try:
             setattr(event, "Cancel", True)
-        except Exception as error:
+        except BaseException as error:
             raise RuntimeError("Version 2 native close cannot be cancelled") from error
 
     def on_form_closing(_sender: object, event: object) -> None:
@@ -144,13 +144,13 @@ def _install_unsaved_pgn_close_guard(
             try:
                 session = getattr(application, "session", None)
                 dirty = session is not None and bool(getattr(session, "dirty"))
-            except Exception:
+            except BaseException:
                 dirty = True
 
             if dirty:
                 try:
                     discard = confirmation() is True
-                except Exception:
+                except BaseException:
                     cancel_close(event)
                     return
                 if not discard:
@@ -160,14 +160,14 @@ def _install_unsaved_pgn_close_guard(
             if before_shutdown is not None:
                 try:
                     before_shutdown(application)
-                except Exception as error:
+                except BaseException as error:
                     setattr(application, "_native_close_resume_error", error)
                     cancel_close(event)
                     return
 
             try:
                 shutdown_complete = shutdown() is True
-            except Exception as error:
+            except BaseException as error:
                 setattr(application, "_native_close_shutdown_error", error)
                 cancel_close(event)
                 return
@@ -208,7 +208,7 @@ def _install_close_guard_or_shutdown(
             dialogs,
             before_shutdown=before_shutdown,
         )
-    except Exception:
+    except BaseException:
         cleanup_error = None
         try:
             shutdown_runtime = getattr(file_runtime, "shutdown", None)
@@ -216,7 +216,7 @@ def _install_close_guard_or_shutdown(
                 cleanup_error = RuntimeError(
                     "Version 2 unbound native runtime did not shut down"
                 )
-        except Exception as exc:
+        except BaseException as exc:
             cleanup_error = exc
         if cleanup_error is not None:
             raise RuntimeError(
@@ -373,7 +373,7 @@ def _close_partial_version2_composition(*resources: Any | None) -> None:
             continue
         try:
             close()
-        except Exception:
+        except BaseException:
             pass
 
 
@@ -448,7 +448,7 @@ def create_version2_release_application(
             engine_play_service=engine_play,
             lang=language.value,
         )
-    except Exception:
+    except BaseException:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
 
@@ -508,7 +508,7 @@ def create_version2_release_application(
             api.bind_version2_application(candidate)
             application = candidate
             return candidate
-        except Exception:
+        except BaseException:
             application_build_failed = True
             _close_partial_version2_composition(
                 database,
