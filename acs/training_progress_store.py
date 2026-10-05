@@ -682,6 +682,10 @@ class TrainingProgressStore:
                 data.decode("utf-8"),
                 object_pairs_hook=_reject_duplicate_object_pairs,
             )
+        except RecursionError as exc:
+            raise TrainingProgressResourceError(
+                "training progress JSON nesting depth exceeds the resource limit"
+            ) from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("invalid training progress file") from exc
         if type(payload) is not dict:
