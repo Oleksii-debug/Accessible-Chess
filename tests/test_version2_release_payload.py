@@ -56,10 +56,30 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.standalone = self.root / "standalone"
         (self.standalone / "web").mkdir(parents=True)
-        (self.standalone / "AccessibleChess.exe").write_bytes(b"MZ\0v2-standalone")
+        (self.standalone / "AccessibleChess.exe").write_bytes(
+            self._windows_pe(b"v2-standalone")
+        )
         (self.standalone / "AccessibleChess.exe.config").write_text(
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
+        for relative in package_preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
+            runtime = self.standalone.joinpath(*relative.split("/")[1:])
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            runtime.write_bytes(
+                self._windows_pe(
+                    b"runtime",
+                    machine=(
+                        0x014C
+                        if relative
+                        in package_preflight._REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                        else 0x8664
+                    ),
+                    managed=(
+                        relative
+                        in package_preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
+                    ),
+                )
+            )
         for name in _REQUIRED_WEB_FILES:
             path = self.standalone / "web" / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +103,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self._write_sound_provenance()
 
         self.stockfish = self.root / "stockfish.zip"
-        self.stockfish_executable = self._windows_x64_pe(b"stockfish18")
+        self.stockfish_executable = self._windows_pe(b"stockfish18")
         self._write_stockfish_archive(self.stockfish)
 
     @staticmethod
@@ -127,18 +147,47 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _windows_x64_pe(payload_bytes: bytes = b"") -> bytes:
-        data = bytearray(0x200)
+    def _windows_pe(
+        payload_bytes: bytes = b"",
+        *,
+        machine: int = 0x8664,
+        managed: bool = False,
+    ) -> bytes:
+        data = bytearray(0x400)
         data[:2] = b"MZ"
         pe_offset = 0x80
         struct.pack_into("<I", data, 0x3C, pe_offset)
         data[pe_offset : pe_offset + 4] = b"PE\0\0"
         coff = pe_offset + 4
-        struct.pack_into("<H", data, coff, 0x8664)
-        struct.pack_into("<H", data, coff + 2, 3)
-        struct.pack_into("<H", data, coff + 16, 0xF0)
+        struct.pack_into("<H", data, coff, machine)
+        struct.pack_into("<H", data, coff + 2, 1)
+        optional_size = 0xF0 if machine == 0x8664 else 0xE0
+        struct.pack_into("<H", data, coff + 16, optional_size)
         struct.pack_into("<H", data, coff + 18, 0x0022)
-        struct.pack_into("<H", data, coff + 20, 0x20B)
+        optional = coff + 20
+        pe32_plus = machine == 0x8664
+        struct.pack_into("<H", data, optional, 0x20B if pe32_plus else 0x10B)
+
+        section = optional + optional_size
+        data[section : section + 8] = b".text\0\0\0"
+        struct.pack_into("<I", data, section + 8, 0x1000)
+        struct.pack_into("<I", data, section + 12, 0x2000)
+        struct.pack_into("<I", data, section + 16, 0x200)
+        struct.pack_into("<I", data, section + 20, 0x200)
+
+        if managed:
+            directory_count_offset = 108 if pe32_plus else 92
+            directory_table_offset = 112 if pe32_plus else 96
+            struct.pack_into("<I", data, optional + directory_count_offset, 16)
+            clr_directory = optional + directory_table_offset + (14 * 8)
+            struct.pack_into("<I", data, clr_directory, 0x2000)
+            struct.pack_into("<I", data, clr_directory + 4, 0x48)
+            struct.pack_into("<I", data, 0x200, 0x48)
+            struct.pack_into("<H", data, 0x204, 2)
+            struct.pack_into("<H", data, 0x206, 5)
+            struct.pack_into("<I", data, 0x208, 0x2080)
+            struct.pack_into("<I", data, 0x20C, 0x40)
+            data[0x280:0x284] = b"BSJB"
         data.extend(payload_bytes)
         return bytes(data)
 
@@ -599,10 +648,10 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                 )
         self._assert_no_publication(output)
 
-    def test_stockfish_requires_exactly_one_valid_windows_x64_pe(self) -> None:
+    def test_stockfish_requires_exactly_one_valid_windows_pe(self) -> None:
         self._write_stockfish_archive(
             self.stockfish,
-            extra_members=(("stockfish/helper.exe", self._windows_x64_pe(b"helper")),),
+            extra_members=(("stockfish/helper.exe", self._windows_pe(b"helper")),),
         )
         output = self.root / "payload-extra-exe"
         with patch.object(
