@@ -257,5 +257,125 @@ class Version2WindowsFileLoggingPassiveTests(unittest.TestCase):
             self.assertEqual(events[-1].game_count, 1)
 
 
+    def test_event_sink_mutation_cannot_change_canonical_event(self) -> None:
+        observed = []
+
+        def mutate(event):
+            observed.append(event)
+            object.__setattr__(event, "kind", FileWorkflowEventKind.FAILED)
+            object.__setattr__(event, "action_id", "corrupted.action")
+            object.__setattr__(event, "game_count", 999)
+
+        delegate = self._delegate(event_sink=mutate)
+        canonical = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_OPENED,
+            "pgn.open",
+            focus_target="pgn-game-list",
+            game_count=2,
+        )
+
+        returned = delegate._emit(canonical)
+
+        self.assertIs(returned, canonical)
+        self.assertEqual(len(observed), 1)
+        self.assertIsNot(observed[0], canonical)
+        self.assertEqual(observed[0].kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(observed[0].game_count, 999)
+        self.assertEqual(canonical.kind, FileWorkflowEventKind.PGN_OPENED)
+        self.assertEqual(canonical.action_id, "pgn.open")
+        self.assertEqual(canonical.game_count, 2)
+
+    def test_owner_async_sink_mutation_cannot_change_canonical_event(self) -> None:
+        observed = []
+
+        def mutate(event):
+            observed.append(event)
+            object.__setattr__(event, "kind", FileWorkflowEventKind.FAILED)
+            object.__setattr__(event, "error_code", "corrupted")
+
+        delegate = self._delegate(
+            event_sink=lambda event: None,
+            owner_async_event_sink=mutate,
+        )
+        canonical = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_SAVED,
+            "pgn.save",
+            focus_target="pgn-board",
+            game_count=1,
+        )
+
+        returned = delegate._emit_owner_async(canonical)
+
+        self.assertIs(returned, canonical)
+        self.assertEqual(len(observed), 1)
+        self.assertIsNot(observed[0], canonical)
+        self.assertEqual(observed[0].kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(canonical.kind, FileWorkflowEventKind.PGN_SAVED)
+        self.assertEqual(canonical.error_code, "")
+
+    def test_active_event_scalar_is_rejected_before_sink(self) -> None:
+        touched = []
+        observed = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active event scalar hook executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active event scalar hook executed")
+
+        hostile = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_OPENED,
+            "pgn.open",
+            game_count=1,
+        )
+        object.__setattr__(hostile, "game_count", ActiveInt(1))
+        delegate = self._delegate(event_sink=observed.append)
+
+        with self.assertRaisesRegex(TypeError, "game_count must be an integer"):
+            delegate._emit(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(observed, [])
+
+    def test_derived_event_root_is_rejected_before_field_hooks(self) -> None:
+        touched = []
+        observed = []
+
+        class ActiveEvent(FileWorkflowEvent):
+            def __getattribute__(self, name):
+                if name in {"kind", "action_id", "game_count"}:
+                    touched.append(name)
+                    raise AssertionError("derived event field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveEvent.__new__(ActiveEvent)
+        for name, value in (
+            ("kind", FileWorkflowEventKind.PGN_OPENED),
+            ("action_id", "pgn.open"),
+            ("focus_target", ""),
+            ("processed_games", 0),
+            ("total_games", 0),
+            ("game_count", 1),
+            ("warning_count", 0),
+            ("error_code", ""),
+            ("source_bytes_read", 0),
+            ("source_total_bytes", 0),
+            ("source_parsing", False),
+            ("source_format", ""),
+            ("retained_book_blocks", 0),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        delegate = self._delegate(event_sink=observed.append)
+        with self.assertRaisesRegex(TypeError, "exact passive DTO"):
+            delegate._emit(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(observed, [])
+
+
 if __name__ == "__main__":
     unittest.main()
