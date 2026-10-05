@@ -394,8 +394,17 @@ class PgnDocumentSession:
             raise TypeError("global_warnings must be a built-in tuple of plain text")
         if type(source_overwrite_safe) is not bool:
             raise TypeError("source_overwrite_safe must be a boolean")
-        if saved_digest is not None and type(saved_digest) is not str:
-            raise TypeError("saved_digest must be plain text or None")
+        if saved_digest is not None:
+            if type(saved_digest) is not str:
+                raise TypeError("saved_digest must be plain text or None")
+            if (
+                len(saved_digest) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in saved_digest
+                )
+            ):
+                raise ValueError("saved_digest must be lowercase SHA-256 hex")
         self._workspace = workspace
         self._source = source
         self._global_warnings = global_warnings
