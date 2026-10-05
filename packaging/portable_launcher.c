@@ -158,10 +158,36 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     return L"Невідома рання помилка основної програми.";
 }
 
+static void ac_report_write_fail(HANDLE report, DWORD code) {
+    DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+    if (report != NULL && report != INVALID_HANDLE_VALUE) CloseHandle(report);
+
+    ac_copy(
+        g_message,
+        AC_PATH_CAP + 2048,
+        L"Accessible Chess cannot fully write launch-report.txt.\r\n"
+        L"The launcher is stopping because an incomplete report must not be treated as valid evidence.\r\n\r\n"
+        L"Не вдалося повністю записати launch-report.txt.\r\n"
+        L"Запуск засобу перевірки зупинено, бо неповний звіт не можна вважати достовірним.\r\n\r\n"
+        L"Windows error / Код Windows: "
+    );
+    ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
+    MessageBoxW(
+        NULL,
+        g_message,
+        L"Accessible Chess — launch report write error",
+        MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+    );
+    ExitProcess(stable_code);
+}
+
 static void ac_write_utf8(HANDLE handle, const WCHAR *text) {
     int bytes;
     DWORD written = 0;
-    if (handle == NULL || handle == INVALID_HANDLE_VALUE || text == NULL) return;
+    DWORD error;
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE || text == NULL) {
+        ac_report_write_fail(handle, ERROR_INVALID_PARAMETER);
+    }
     bytes = WideCharToMultiByte(
         CP_UTF8,
         WC_ERR_INVALID_CHARS,
@@ -172,13 +198,34 @@ static void ac_write_utf8(HANDLE handle, const WCHAR *text) {
         NULL,
         NULL
     );
-    if (bytes <= 1) return;
-    WriteFile(handle, g_utf8, (DWORD)(bytes - 1), &written, NULL);
+    if (bytes == 0) {
+        error = GetLastError();
+        ac_report_write_fail(handle, error == ERROR_SUCCESS ? ERROR_NO_UNICODE_TRANSLATION : error);
+    }
+    if (bytes == 1) return;
+    if (!WriteFile(handle, g_utf8, (DWORD)(bytes - 1), &written, NULL)) {
+        error = GetLastError();
+        ac_report_write_fail(handle, error == ERROR_SUCCESS ? ERROR_WRITE_FAULT : error);
+    }
+    if (written != (DWORD)(bytes - 1)) {
+        ac_report_write_fail(handle, ERROR_WRITE_FAULT);
+    }
 }
 
 static void ac_write_line(HANDLE handle, const WCHAR *text) {
     ac_write_utf8(handle, text);
     ac_write_utf8(handle, L"\r\n");
+}
+
+static void ac_flush_report(HANDLE report) {
+    DWORD error;
+    if (report == NULL || report == INVALID_HANDLE_VALUE) {
+        ac_report_write_fail(report, ERROR_INVALID_PARAMETER);
+    }
+    if (!FlushFileBuffers(report)) {
+        error = GetLastError();
+        ac_report_write_fail(report, error == ERROR_SUCCESS ? ERROR_WRITE_FAULT : error);
+    }
 }
 
 static void ac_error_detail(DWORD code) {
@@ -211,7 +258,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         ac_write_line(report, g_error_text);
         ac_write_utf8(report, L"REPORT: ");
         ac_write_line(report, g_report_path);
-        FlushFileBuffers(report);
+        ac_flush_report(report);
     }
 
     ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess не запустився.\r\n\r\nЕтап: ");
@@ -235,6 +282,41 @@ static BOOL ac_direct_directory(const WCHAR *path) {
     if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) return FALSE;
     if ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return FALSE;
     return TRUE;
+}
+
+static HANDLE ac_open_direct_directory_guard(const WCHAR *path) {
+    HANDLE handle;
+    FILE_ATTRIBUTE_TAG_INFO tag_info;
+    DWORD error;
+
+    handle = CreateFileW(
+        path,
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        NULL
+    );
+    if (handle == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+
+    if (!GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            &tag_info,
+            sizeof(tag_info))) {
+        error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if ((tag_info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+        (tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        CloseHandle(handle);
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return INVALID_HANDLE_VALUE;
+    }
+    return handle;
 }
 
 static HANDLE ac_open_direct_private_file(const WCHAR *path) {
@@ -461,7 +543,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
     ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
     ac_write_line(report, L"DETAIL: Accessible Chess did not expose a stable responsive visible application window before the startup deadline.");
     ac_write_line(report, L"NEXT: close any stuck Accessible Chess process, keep launch-report.txt, and retry once from the extracted package root");
-    FlushFileBuffers(report);
+    ac_flush_report(report);
 
     ac_copy(
         g_message,
@@ -480,7 +562,9 @@ static void ac_fail_startup_timeout(HANDLE report) {
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
     HANDLE core_guard = INVALID_HANDLE_VALUE;
+    HANDLE data_guard = INVALID_HANDLE_VALUE;
     HANDLE child_instance_lock = NULL;
+    HANDLE child_data_guard = NULL;
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
@@ -536,6 +620,12 @@ void WINAPI wWinMainCRTStartup(void) {
         if (error != ERROR_ALREADY_EXISTS) ac_fail(report, L"package-local data directory creation", error);
     }
     if (!ac_direct_directory(g_data)) ac_fail(report, L"package-local data directory validation", ERROR_DIRECTORY);
+    data_guard = ac_open_direct_directory_guard(g_data);
+    if (data_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(report, L"package-local data directory guard", error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error);
+    }
+    ac_write_line(report, L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
 
     if (!SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)) {
         ac_fail(report, L"package-local LOCALAPPDATA binding", GetLastError());
@@ -584,6 +674,21 @@ void WINAPI wWinMainCRTStartup(void) {
         ac_fail(report, L"package-local data ownership transfer", error);
     }
 
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
+            data_guard,
+            g_process.hProcess,
+            &child_data_guard,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
+        CloseHandle(g_process.hThread);
+        CloseHandle(g_process.hProcess);
+        ac_fail(report, L"package-local data directory guard transfer", error);
+    }
+
     resume_result = ResumeThread(g_process.hThread);
     if (resume_result == (DWORD)-1) {
         error = GetLastError();
@@ -595,6 +700,9 @@ void WINAPI wWinMainCRTStartup(void) {
     CloseHandle(g_process.hThread);
     CloseHandle(g_instance_lock);
     g_instance_lock = INVALID_HANDLE_VALUE;
+    CloseHandle(data_guard);
+    data_guard = INVALID_HANDLE_VALUE;
+    ac_write_line(report, L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD");
 
     ac_write_line(report, L"PROCESS_CREATED: YES");
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
@@ -605,7 +713,7 @@ void WINAPI wWinMainCRTStartup(void) {
     }
     ac_write_line(report, g_message);
     ac_write_line(report, L"STARTUP_READINESS: waiting for stable responsive visible Accessible Chess window");
-    FlushFileBuffers(report);
+    ac_flush_report(report);
     startup_started = GetTickCount64();
 
     for (;;) {
@@ -624,7 +732,7 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
             ac_write_line(report, ac_child_exit_reason(exit_code));
             ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
-            FlushFileBuffers(report);
+            ac_flush_report(report);
 
             ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");
             ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
@@ -672,7 +780,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"USER_WINDOW_PROVEN: YES");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
     ac_write_line(report, L"NEXT: user verifies keyboard and NVDA behavior on these exact packaged bytes");
-    FlushFileBuffers(report);
+    ac_flush_report(report);
     CloseHandle(g_process.hProcess);
     CloseHandle(report);
     ExitProcess(0);
