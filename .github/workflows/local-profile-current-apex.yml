@@ -115,7 +115,7 @@ jobs:
               "acs/version2_local_profile_api.py": "571d2ea478b703bd0e7275ff64d221fea7380074",
               "tests/test_local_profile.py": "403e8bf53cda42dc42b67141bf6d47faae663a58",
               "tests/test_local_profile_recursion_boundary.py": "a387d76a343b30dd1adf7e1831ba292d0371c19f",
-              "tests/test_local_profile_path_identity.py": "ff387425f219fb38302d794770a7f984fdd92221",
+              "tests/test_local_profile_path_identity.py": "4373cb4e997200a1eca4b0dcb03e71acfc56f862",
               "tests/test_version2_local_profile_api.py": "f8cbf7ccefbe1580fa1c475c27922eef80298da5",
           }
           for path, expected_sha in canonical.items():
