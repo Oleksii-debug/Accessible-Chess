@@ -244,7 +244,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertEqual(events[-1].kind, LibraryExportHostEventKind.DIALOG_CANCELLED)
             self.assertFalse(destination.exists())
 
-    def test_late_cancel_cannot_overwrite_already_chosen_durable_success(self) -> None:
+    def test_late_cancel_consumes_already_chosen_durable_success_exactly_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
             destination = Path(directory) / "durable-winner.pgn"
@@ -266,14 +266,99 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
 
             terminal = delegate.cancel_export()
             self.assertEqual(terminal.kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events[-1], terminal)
+            self.assertFalse(delegate.export_running)
             self.assertNotIn(
                 LibraryExportHostEventKind.CANCELLING,
                 [event.kind for event in events],
             )
+            event_count = len(events)
 
             posted.pop()()
+            self.assertEqual(len(events), event_count)
             self.assertEqual(events[-1].kind, LibraryExportHostEventKind.EXPORTED)
+
+    def test_terminal_ui_post_failure_retries_without_losing_accessible_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "retry-terminal.pgn"
+            events: list = []
+            posted: list = []
+            retry_posted = threading.Event()
+            post_attempts = 0
+
+            def flaky_post(callback) -> None:
+                nonlocal post_attempts
+                post_attempts += 1
+                if post_attempts == 1:
+                    raise RuntimeError("simulated BeginInvoke rejection")
+                posted.append(callback)
+                retry_posted.set()
+
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(destination),
+                worker_services_factory=self._worker_factory(database_path),
+                post_to_ui=flaky_post,
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-results",
+            )
+            delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertTrue(retry_posted.wait(timeout=2.0))
+            self.assertEqual(post_attempts, 2)
+            self.assertTrue(delegate.export_running)
+            self.assertEqual(
+                [event.kind for event in events],
+                [LibraryExportHostEventKind.STARTED],
+            )
+
+            posted.pop()()
             self.assertFalse(delegate.export_running)
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events[-1].focus_target, "library-results")
+            self.assertEqual(len(open_pgn(destination).games), 1)
+
+    def test_terminal_stays_recoverable_after_retry_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "manual-terminal-recovery.pgn"
+            events: list = []
+            retry_attempted = threading.Event()
+            post_attempts = 0
+
+            def broken_post(_callback) -> None:
+                nonlocal post_attempts
+                post_attempts += 1
+                if post_attempts >= 2:
+                    retry_attempted.set()
+                raise RuntimeError("simulated persistent BeginInvoke rejection")
+
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(destination),
+                worker_services_factory=self._worker_factory(database_path),
+                post_to_ui=broken_post,
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-results",
+            )
+            delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertTrue(retry_attempted.wait(timeout=2.0))
+            self.assertTrue(delegate.export_running)
+
+            terminal = delegate.cancel_export()
+            self.assertEqual(terminal.kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events[-1], terminal)
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(post_attempts, 2)
+            self.assertEqual(len(open_pgn(destination).games), 1)
 
     def test_shutdown_is_retryable_and_stale_queued_terminal_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
