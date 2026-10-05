@@ -450,6 +450,106 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             poster.drain()
             self.assertEqual(len(async_events), event_count)
 
+    def test_durable_save_owner_session_base_exception_reports_commit_failure_truth(self) -> None:
+        class OwnerAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "owner-session-base-abort.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Durable bytes before owner BaseException")
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            get_calls = 0
+
+            def get_session():
+                nonlocal get_calls
+                get_calls += 1
+                if get_calls == 1:
+                    return session
+                raise OwnerAbort("owner session BaseException")
+
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=get_session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn(
+                '[Event "Durable bytes before owner BaseException"]',
+                source.read_text(encoding="utf-8"),
+            )
+            poster.drain()
+
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(len(async_events), 1)
+            terminal = async_events[0]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            self.assertNotIn("owner session BaseException", repr(terminal))
+
+    def test_durable_save_commit_base_exception_reports_commit_failure_and_releases_worker(self) -> None:
+        class CommitAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "owner-commit-base-abort.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Durable bytes before commit BaseException")
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn(
+                '[Event "Durable bytes before commit BaseException"]',
+                source.read_text(encoding="utf-8"),
+            )
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.commit_pgn_save_publication",
+                side_effect=CommitAbort("owner commit BaseException"),
+            ):
+                poster.drain()
+
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(len(async_events), 1)
+            terminal = async_events[0]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            self.assertNotIn("owner commit BaseException", repr(terminal))
+
     def test_durable_save_owner_session_access_failure_reports_commit_failure_truth(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "owner-session-unavailable.pgn"
