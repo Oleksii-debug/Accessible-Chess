@@ -50,7 +50,8 @@ jobs:
           SERIAL_REF: converge/current-cbf-cbi-manifest-pair-20261005-ooxple7
           SERIAL_HEAD: d4e864d0f5c3fcddf902b17e5b91313401a96865
           BOOKS_REF: fix/book-provider-gametree-resource-bounds-20261005-sol56
-          BOOKS_HEAD: a61a9c44572571f8d2364d9329107e1f42fc9b40
+          BOOKS_INITIAL_HEAD: a61a9c44572571f8d2364d9329107e1f42fc9b40
+          BOOKS_HEAD: fb82ce49983d4afa3c5c9831ba70e262094c7030
           LOCAL_PROFILE_REF: fix/local-profile-deep-json-20261005-sol56d8q4
           LOCAL_PROFILE_HEAD: e8b8757ec0c648e22c509115684b887ee42d02f6
           KEYMAP_REF: fix/p0g-keymap-event-identity-20261005-7f3a9c
@@ -58,6 +59,8 @@ jobs:
           BOOKS_MERGE: 6de0c2baccb0b71a2187497f2f8402bf28f31928
           LOCAL_PROFILE_MERGE: 690c9d14e3aa5b39d9830e3a8861a0365d200c47
           KEYMAP_MERGE: f2221f9345f09457eb77e904af03a1dd2ed2052d
+          PRE_LEXICAL_PRODUCT: 0c18ee1baa5bec8c9d75656597723bd94785df25
+          LEXICAL_MERGE: 67a933ec647fc1da2bf188acf9bbb89082abea9c
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -82,10 +85,11 @@ jobs:
           fetch_exact "$LOCAL_PROFILE_REF" "$LOCAL_PROFILE_HEAD" CURRENT_PRODUCT_LOCAL_PROFILE
           fetch_exact "$KEYMAP_REF" "$KEYMAP_HEAD" CURRENT_PRODUCT_KEYMAP
 
-          test "$(git rev-parse HEAD^)" = "$KEYMAP_MERGE"
-          test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_HEAD"
+          test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
           test "$(git show -s --format=%P "$KEYMAP_MERGE")" = "$LOCAL_PROFILE_MERGE $KEYMAP_HEAD"
+          test "$(git show -s --format=%P "$LEXICAL_MERGE")" = "$PRE_LEXICAL_PRODUCT $BOOKS_HEAD"
+          git merge-base --is-ancestor "$LEXICAL_MERGE" HEAD
 
           for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
@@ -118,7 +122,9 @@ jobs:
             exit 1
           }
 
-          test "$(git rev-parse HEAD:acs/book_game_content.py)" = '9bc1594f1f5141dfa843f54755e670f392ba926d'
+          test "$(git rev-parse HEAD:acs/book_game_content.py)" = 'a4b03b3b2fe8660bd857990b47c3e1076baffde9'
+          test "$(git rev-parse HEAD:tests/test_book_lookup_detached_canonicalization.py)" = '8c22a4afe5af8af8687c00524315b6f37460b516'
+          test "$(git rev-parse HEAD:.github/workflows/book-variation-fen-equivalence.yml)" = '2cfd5a72328ffbc8976b13cd19506f92be96fc0f'
           test "$(git rev-parse HEAD:acs/bookdocument.py)" = '23249894e2e7d9c3b2c0602515188000ea846a41'
           test "$(git rev-parse HEAD:acs/local_profile.py)" = '96d9b523a93a18eb4cc473ef0c87abee49d84512'
           test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = '7a91103062b76b541d370ec3a3247974d5cd0b80'
