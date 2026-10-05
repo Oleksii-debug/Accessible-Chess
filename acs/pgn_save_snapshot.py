@@ -17,6 +17,7 @@ fingerprint still advances to the newly published generation.  This is the
 lower-level transaction needed by a non-blocking Windows Save/Save As host.
 """
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -32,6 +33,10 @@ from .pgn_workspace import PgnWorkspace, PgnWorkspaceError
 class PgnSaveMode(str, Enum):
     SAVE = "save"
     SAVE_AS = "save_as"
+
+
+class PgnSaveCancelledError(RuntimeError):
+    """Raised only while cancellation can still prevent durable publication."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +92,36 @@ def _canonical_detached_games(
     return detached, digest
 
 
+def _validated_cancel_check(
+    cancel_check: Callable[[], bool] | None,
+) -> Callable[[], bool] | None:
+    if cancel_check is not None and not callable(cancel_check):
+        raise TypeError("cancel_check must be callable or None")
+    return cancel_check
+
+
+def _raise_if_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is None:
+        return
+    cancelled = cancel_check()
+    if type(cancelled) is not bool:
+        raise TypeError("cancel_check must return a boolean")
+    if cancelled:
+        raise PgnSaveCancelledError("PGN save cancelled before publication")
+
+
+def _cancellable_games(
+    games: tuple[PgnGame, ...],
+    cancel_check: Callable[[], bool] | None,
+) -> Iterator[PgnGame]:
+    for game in games:
+        # save_pgn_atomic serializes games incrementally. Poll between canonical
+        # game records so a multi-game save can abort without publication while
+        # preserving the writer's existing temp-file cleanup semantics.
+        _raise_if_cancelled(cancel_check)
+        yield game
+
+
 def capture_pgn_save_snapshot(
     session: PgnDocumentSession,
     *,
@@ -136,18 +171,28 @@ def capture_pgn_save_snapshot(
     )
 
 
-def expected_pgn_destination_sha256(path: str | Path) -> str | None:
+def expected_pgn_destination_sha256(
+    path: str | Path,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> str | None:
     """Fingerprint an existing destination for explicit Save-As replacement.
 
-    This function is intentionally side-effect free and suitable for the same
-    worker that performs publication, keeping potentially expensive destination
-    hashing away from the Windows UI thread.
+    This function is intended for the same worker that performs publication,
+    keeping potentially expensive destination hashing away from the Windows UI
+    thread.  Cancellation is checked before and after hashing.  A request that
+    arrives during the hash therefore still prevents later publication without
+    inventing a second fingerprinting implementation.
     """
 
+    check = _validated_cancel_check(cancel_check)
+    _raise_if_cancelled(check)
     destination = Path(path)
     if not destination.exists():
         return None
-    return fingerprint(destination).sha256
+    digest = fingerprint(destination).sha256
+    _raise_if_cancelled(check)
+    return digest
 
 
 def publish_pgn_save_snapshot(
@@ -156,6 +201,7 @@ def publish_pgn_save_snapshot(
     path: str | Path | None = None,
     overwrite: bool = False,
     expected_sha256: str | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> PgnSavePublication:
     """Publish a detached snapshot through the existing canonical PGN writer.
 
@@ -164,14 +210,26 @@ def publish_pgn_save_snapshot(
     worker first makes one private canonical copy after digest validation; a
     caller retaining the public snapshot cannot race-mutate the graph consumed
     by the canonical writer after that validation point.
+
+    Cancellation is polled before filesystem work, between serialized games,
+    and through ``save_pgn_atomic(pre_publish_check=...)`` after flush/fsync but
+    before the atomic publication primitive.  There is deliberately no cancel
+    poll after ``save_pgn_atomic`` returns: at that point durable publication won
+    and the caller must report/commit success rather than contradictory cancel.
     """
 
     if type(snapshot) is not PgnSaveSnapshot:
         raise TypeError("PGN save publication requires an exact snapshot")
+    check = _validated_cancel_check(cancel_check)
+    _raise_if_cancelled(check)
     publication_games, _digest = _canonical_detached_games(
         snapshot.games,
         expected_digest=snapshot.content_digest,
     )
+    _raise_if_cancelled(check)
+
+    writer_games = _cancellable_games(publication_games, check)
+    pre_publish_check = None if check is None else lambda: _raise_if_cancelled(check)
 
     if snapshot.mode is PgnSaveMode.SAVE:
         if path is not None or overwrite or expected_sha256 is not None:
@@ -186,9 +244,10 @@ def publish_pgn_save_snapshot(
             )
         saved = save_pgn_atomic(
             source.path,
-            publication_games,
+            writer_games,
             overwrite=True,
             expected_sha256=source.sha256,
+            pre_publish_check=pre_publish_check,
         )
     elif snapshot.mode is PgnSaveMode.SAVE_AS:
         if path is None:
@@ -201,9 +260,10 @@ def publish_pgn_save_snapshot(
             )
         saved = save_pgn_atomic(
             destination,
-            publication_games,
+            writer_games,
             overwrite=overwrite,
             expected_sha256=expected_sha256,
+            pre_publish_check=pre_publish_check,
         )
     else:  # pragma: no cover - exact enum construction makes this defensive only.
         raise TypeError("PGN save mode is invalid")
@@ -276,6 +336,7 @@ def commit_pgn_save_publication(
 
 
 __all__ = [
+    "PgnSaveCancelledError",
     "PgnSaveMode",
     "PgnSavePublication",
     "PgnSaveSnapshot",
