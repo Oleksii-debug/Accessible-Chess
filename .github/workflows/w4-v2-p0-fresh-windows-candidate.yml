@@ -49,7 +49,6 @@ env:
   QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
   STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
-  CURRENT_STAGE_SOUND_PACK_URL: https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-8ab8-8210-88e0-78a2183d04ab/raw?se=2026-10-05T02%3A31%3A28Z&sp=r&sv=2026-02-06&sr=b&scid=6dfcca8e-d3a1-4b33-8b10-06612bd7bb3e&skoid=40ce4b34-a373-4a62-b0bf-44befe221915&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-04T03%3A54%3A03Z&ske=2026-10-05T03%3A54%3A03Z&sks=b&skv=2026-02-06&sig=Pzi%2BINtGqL5gpRrhQzdmg9lzVKOXEO1/iKQrVZ8IU1E%3D
   CURRENT_STAGE_SOUND_PACK_SHA256: 6ea155b578b70d030792223aad0fef772c132c0740a0bf66efa9958071ec8547
   USER_SOUND_WAV_COUNT: '330'
   USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
@@ -221,18 +220,23 @@ jobs:
         shell: pwsh
         working-directory: product-source
         env:
-          USER_SOUND_PACK_URL: ${{ github.event_name == 'push' && env.CURRENT_STAGE_SOUND_PACK_URL || inputs.sound_pack_url }}
+          USER_SOUND_PACK_URL: ${{ inputs.sound_pack_url }}
           USER_SOUND_PACK_SHA256: ${{ github.event_name == 'push' && env.CURRENT_STAGE_SOUND_PACK_SHA256 || inputs.sound_pack_sha256 }}
         run: |
           $ErrorActionPreference='Stop'
           $url=[string]$env:USER_SOUND_PACK_URL
           $wanted=([string]$env:USER_SOUND_PACK_SHA256).Trim().ToLowerInvariant()
-          if($url -notmatch '^https://'){throw 'USER_SOUND_PACK_URL_MUST_BE_HTTPS'}
           if($wanted -notmatch '^[0-9a-f]{64}$'){throw 'USER_SOUND_PACK_SHA256_INVALID'}
 
           New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
           $archive='release-inputs\user-sound-pack.zip'
-          Invoke-WebRequest -Uri $url -OutFile $archive
+          if($env:GITHUB_EVENT_NAME -eq 'push'){
+            python scripts/reconstruct_pinned_sound.py .github/build-inputs/330wav $archive $wanted
+            if($LASTEXITCODE -ne 0){throw 'PINNED_SOUND_RECONSTRUCTION_FAILED'}
+          }else{
+            if($url -notmatch '^https://'){throw 'USER_SOUND_PACK_URL_MUST_BE_HTTPS'}
+            Invoke-WebRequest -Uri $url -OutFile $archive
+          }
           $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           if($actual -ne $wanted){throw "USER_SOUND_PACK_ZIP_SHA256_MISMATCH actual=$actual expected=$wanted"}
           $env:USER_SOUND_PACK_ZIP_SHA256=$actual
