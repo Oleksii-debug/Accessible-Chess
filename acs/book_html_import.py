@@ -46,6 +46,42 @@ MAX_HTML_PGN_GAMES = 1_024
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
 MAX_HTML_WARNINGS = 2_048
 
+_HTML_WARNING_SUPPRESSION_NOTICE = "additional HTML import warnings were suppressed"
+_HTML_MISSING_ASSET_SUPPRESSION_NOTICE = (
+    "additional missing asset warnings were suppressed"
+)
+_HTML_WARNING_SUPPRESSION_NOTICES = frozenset(
+    {
+        _HTML_WARNING_SUPPRESSION_NOTICE,
+        _HTML_MISSING_ASSET_SUPPRESSION_NOTICE,
+    }
+)
+
+
+def _append_bounded_html_warning(
+    warnings: list[str],
+    message: str,
+    *,
+    suppression_notice: str = _HTML_WARNING_SUPPRESSION_NOTICE,
+) -> bool:
+    """Publish one HTML warning without ever exceeding MAX_HTML_WARNINGS.
+
+    Return True when the requested warning was retained. On the first overflow,
+    replace only the final budget slot with a deterministic suppression notice.
+    An existing suppression notice is never narrowed by a later warning phase.
+    """
+
+    if len(warnings) < MAX_HTML_WARNINGS:
+        warnings.append(message)
+        return True
+    if (
+        MAX_HTML_WARNINGS > 0
+        and warnings
+        and warnings[-1] not in _HTML_WARNING_SUPPRESSION_NOTICES
+    ):
+        warnings[-1] = suppression_notice
+    return False
+
 
 class BookHtmlImportErrorCode(str, Enum):
     INVALID_ARGUMENT = "invalid_argument"
@@ -262,14 +298,8 @@ class _SemanticHtmlParser(HTMLParser):
     def _warning(self, message: str) -> None:
         if self._warnings_suppressed:
             return
-        if len(self.warnings) < MAX_HTML_WARNINGS:
-            self.warnings.append(message)
-            return
-        # The configured maximum is a total-output bound, not a pre-marker
-        # allowance. Only a real overflow sacrifices the final warning slot.
-        if MAX_HTML_WARNINGS > 0:
-            self.warnings[-1] = "additional HTML import warnings were suppressed"
-        self._warnings_suppressed = True
+        if not _append_bounded_html_warning(self.warnings, message):
+            self._warnings_suppressed = True
 
     def _list_warning(self, message: str) -> None:
         if not self._warned_list_fallback:
@@ -1281,18 +1311,24 @@ def _canonical_pgn_games(
             control_checkpoint()
         candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
-            if len(warnings) < MAX_HTML_WARNINGS:
-                warnings.append(f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored")
+            _append_bounded_html_warning(
+                warnings,
+                f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored",
+            )
             continue
         try:
             parsed = parse_pgn_text(candidate, strict=False)
         except (PgnRoundTripError, RecursionError, ValueError):
-            if len(warnings) < MAX_HTML_WARNINGS:
-                warnings.append(f"PGN candidate {candidate_index} could not be represented canonically and was ignored")
+            _append_bounded_html_warning(
+                warnings,
+                f"PGN candidate {candidate_index} could not be represented canonically and was ignored",
+            )
             continue
         if not parsed:
-            if len(warnings) < MAX_HTML_WARNINGS:
-                warnings.append(f"PGN candidate {candidate_index} contains no canonical game and was ignored")
+            _append_bounded_html_warning(
+                warnings,
+                f"PGN candidate {candidate_index} contains no canonical game and was ignored",
+            )
             continue
         if len(games) + len(parsed) > MAX_HTML_PGN_GAMES:
             raise BookHtmlImportError(
@@ -1306,12 +1342,15 @@ def _canonical_pgn_games(
         try:
             sources = [candidate] if len(parsed) == 1 else [serialize_game(game) for game in parsed]
         except (GameTreeSerializationError, RecursionError, ValueError):
-            if len(warnings) < MAX_HTML_WARNINGS:
-                warnings.append(f"PGN candidate {candidate_index} could not be split canonically and was ignored")
+            _append_bounded_html_warning(
+                warnings,
+                f"PGN candidate {candidate_index} could not be split canonically and was ignored",
+            )
             continue
-        if len(parsed) > 1 and len(warnings) < MAX_HTML_WARNINGS:
-            warnings.append(
-                f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized"
+        if len(parsed) > 1:
+            _append_bounded_html_warning(
+                warnings,
+                f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized",
             )
         for game_index, (game, game_source) in enumerate(zip(parsed, sources), start=1):
             if control_checkpoint is not None:
@@ -1319,12 +1358,14 @@ def _canonical_pgn_games(
             # Recovery is useful for reading damaged historical sources, but it
             # is not lossless conversion. Preserve canonical diagnostics.
             for warning in game.warnings:
-                if len(warnings) >= MAX_HTML_WARNINGS:
-                    break
                 prefix = f"PGN candidate {candidate_index}"
                 if len(parsed) > 1:
                     prefix += f", game {game_index}"
-                warnings.append(f"{prefix}: {warning}")
+                if not _append_bounded_html_warning(
+                    warnings,
+                    f"{prefix}: {warning}",
+                ):
+                    break
             title = " — ".join(
                 part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?"
             ) or game.tags.get("Event") or f"Embedded game {candidate_index}.{game_index}"
@@ -1441,7 +1482,10 @@ def import_html_book(
     visible_text = "".join(parser.visible_parts)
     warnings = list(parser.warnings)
     if legacy_windows_1251:
-        warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
+        _append_bounded_html_warning(
+            warnings,
+            "Legacy Windows-1251 HTML was decoded losslessly.",
+        )
     # The global visible-text scan preserves historical marker acceptance,
     # including markers outside a semantic capture. Exact marked <pre> captures
     # override the same marker offset with their bounded local candidate so text
@@ -1519,11 +1563,13 @@ def import_html_book(
 
     missing = tuple(sorted(parser.missing_assets))
     if missing:
-        room = max(0, MAX_HTML_WARNINGS - len(warnings))
-        for name in missing[:room]:
-            warnings.append(f"referenced asset is unavailable: {name}")
-        if len(missing) > room and len(warnings) < MAX_HTML_WARNINGS + 1:
-            warnings.append("additional missing asset warnings were suppressed")
+        for name in missing:
+            if not _append_bounded_html_warning(
+                warnings,
+                f"referenced asset is unavailable: {name}",
+                suppression_notice=_HTML_MISSING_ASSET_SUPPRESSION_NOTICE,
+            ):
+                break
 
     document = BookDocument(
         title=resolved_title,
