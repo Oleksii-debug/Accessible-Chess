@@ -11,11 +11,20 @@ import zipfile
 from acs.book_epub_import import (
     BookEpubImportError,
     BookEpubImportErrorCode,
+    MAX_EPUB_WARNINGS,
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
     _Warnings,
 )
-from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph
+from acs.bookdocument import (
+    MAX_BOOK_DOCUMENT_WARNINGS,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+)
 from acs.chesscore import Board
 
 
@@ -53,6 +62,8 @@ def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
 
 class EpubWarningBudgetTests(unittest.TestCase):
     def test_warning_budget_includes_suppression_marker_and_stays_bookdocument_compatible(self) -> None:
+        self.assertEqual(MAX_EPUB_WARNINGS, MAX_BOOK_DOCUMENT_WARNINGS)
+
         with patch("acs.book_epub_import.MAX_EPUB_WARNINGS", 3):
             exact = _Warnings()
             for index in range(3):
