@@ -108,7 +108,7 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             poster.drain()
             self.assertEqual(len(async_events), event_count)
 
-    def test_late_cancel_resolves_completed_durable_save_as_success(self) -> None:
+    def test_late_cancel_resolves_completed_durable_save_success(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "success.pgn"
             source.write_text(_PGN, encoding="utf-8")
