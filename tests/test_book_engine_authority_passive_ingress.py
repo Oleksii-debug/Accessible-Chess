@@ -79,6 +79,36 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
 
         self.assertFalse(HostileBookBoardWorkflow.touched)
 
+    def test_book_workspace_rejects_mismatched_exact_reader_authorities(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        visible_reader = self._reader()
+        workflow_reader = BookReader(
+            BookDocument(
+                "Different semantic authority",
+                blocks=[Position(fen=Board.START, block_id="other")],
+            )
+        )
+        workflow = BookBoardWorkflow(
+            workflow_reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^V2 Books reader and workflow must share one authority$",
+        ):
+            Version2BookWebViewProjection(
+                visible_reader,
+                workflow,
+                lambda *_args: None,
+            )
+
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(visible_reader.index, 0)
+        self.assertEqual(workflow_reader.index, 0)
+
     def test_book_workspace_rejects_active_action_result_before_value_probe(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
