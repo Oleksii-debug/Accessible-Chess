@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -16,6 +17,7 @@ from acs.version2_application import (
     PreparedBookOpen,
     Version2Application,
 )
+from acs.version2_windows_book_open_worker import Version2BookOpenWorker
 
 
 class BookOpenPreparationTests(unittest.TestCase):
@@ -146,6 +148,111 @@ class BookOpenPreparationTests(unittest.TestCase):
                 )
 
             self.assertEqual(source.read_bytes(), before)
+
+
+    def test_application_book_open_returns_before_ui_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            source = self._source(root)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            callbacks = []
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                worker = Version2BookOpenWorker(
+                    prepare=app.prepare_book_open,
+                    commit=app.commit_prepared_book_open,
+                    post_to_ui=callbacks.append,
+                    event_sink=app._book_open_event,
+                )
+                app.bind_book_open_worker(worker)
+                app.open_book_dialog = lambda: source
+
+                self.assertIsNone(app._delegate("book.open", {}))
+                self.assertIsNone(app.reader)
+                deadline = time.monotonic() + 2
+                while not callbacks and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertTrue(callbacks)
+                self.assertIsNone(app.reader)
+
+                callbacks.pop(0)()
+                self.assertIsNotNone(app.reader)
+                self.assertEqual(app.shell.current_route.route_id, "books")
+                announcements = [
+                    event["payload"].get("announcement", "")
+                    for event in app.drain_events()
+                    if event["kind"] in {"status", "error"}
+                ]
+                self.assertTrue(any("Відкриття книги розпочато" in item for item in announcements))
+                self.assertTrue(any("Книгу відкрито" in item for item in announcements))
+            finally:
+                analysis.close()
+                database.close()
+
+    def test_application_cancel_action_prevents_pending_prepared_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            source = self._source(root)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            callbacks = []
+            release_prepare = threading.Event()
+            prepare_entered = threading.Event()
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                prepared = app.prepare_book_open(source)
+
+                def slow_prepare(_source, *, cancel_check):
+                    prepare_entered.set()
+                    release_prepare.wait(2)
+                    return prepared
+
+                worker = Version2BookOpenWorker(
+                    prepare=slow_prepare,
+                    commit=app.commit_prepared_book_open,
+                    post_to_ui=callbacks.append,
+                    event_sink=app._book_open_event,
+                )
+                app.bind_book_open_worker(worker)
+                app.open_book_dialog = lambda: source
+
+                app._delegate("book.open", {})
+                self.assertTrue(prepare_entered.wait(2))
+                self.assertIsNone(app._delegate("book.cancel_open", {}))
+                release_prepare.set()
+                deadline = time.monotonic() + 2
+                while not callbacks and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertTrue(callbacks)
+                callbacks.pop(0)()
+
+                self.assertIsNone(app.reader)
+                self.assertNotEqual(app.shell.current_route.route_id, "books")
+                events = app.drain_events()
+                self.assertTrue(
+                    any(
+                        event["kind"] == "status"
+                        and "скасовано" in event["payload"].get("announcement", "").casefold()
+                        for event in events
+                    )
+                )
+            finally:
+                release_prepare.set()
+                analysis.close()
+                database.close()
 
 
 if __name__ == "__main__":
