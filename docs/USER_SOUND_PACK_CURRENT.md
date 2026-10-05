@@ -25,6 +25,28 @@ Release integrity is closed over the same 330-file authority:
 - The fresh Windows candidate workflow rechecks the same inventory/notice identity after ZIP extraction and before packaged EXE, UIA and combined P0 acceptance.
 - That candidate gate also compares the complete shipped manifest, variant catalog, layer catalog and NEWGAME impact document against the builder's canonical semantic constants both immediately after materialization and again after fresh ZIP extraction; remapping an approved WAV to the wrong runtime role is therefore rejected independently of generic package checksums.
 
+## Current owner final-release requirement — 2026-10-05
+
+The byte authority above and the current final-release requirement are intentionally
+different facts:
+
+- the exact currently supplied `звуки.7z` bytes remain the proven 330-WAV source
+  identified above;
+- the repository owner now requires **332 current sounds** in the final owner
+  Windows delivery;
+- no second/new archive containing those two additional intended WAV files has
+  been byte-qualified yet;
+- therefore 330 must not be relabeled as 332, and no two WAV files may be invented,
+  restored from an older pack, or selected by guesswork;
+- the owner-final workflow must fail closed until the canonical sound authority
+  itself reaches 332 with a new exact archive identity and deterministic extracted
+  inventory fingerprint. W4/development qualification may continue against the
+  actually supplied 330-WAV byte set, but it is not authorization for a final
+  owner delivery.
+
+This distinction is a release-input blocker, not a reason to weaken any existing
+count, archive-SHA, inventory-SHA, path, or packaged-byte validation.
+
 ## Product defaults
 
 Variant 1 is the default for every semantic sound event.
