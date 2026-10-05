@@ -1635,6 +1635,15 @@ class Version2Application:
             empty_authority_payload = payload is None or (
                 type(payload) is dict and len(payload) == 0
             )
+            if (
+                self._pending_shell_publication is not None
+                and area_id != "shell"
+            ):
+                # Until the browser commits or rolls back its route snapshot,
+                # the old DOM may still be interactive while Python already
+                # holds the candidate route. Never reinterpret those stale
+                # surface commands against the unpublished owner.
+                raise ValueError("shell presentation publication is pending")
             if area_id == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
