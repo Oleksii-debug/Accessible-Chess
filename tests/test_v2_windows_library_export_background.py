@@ -176,6 +176,66 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
 
         self.assertEqual([], touched)
 
+    def test_export_delegate_rejects_active_action_id_without_comparison(self) -> None:
+        touched: list[str] = []
+        forwarded: list[tuple[object, object]] = []
+
+        class ActiveActionId(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action-id equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active action-id inequality executed")
+
+        delegate = Version2WindowsLibraryExportDelegate(
+            dialogs=_Dialogs(None),
+            worker_services_factory=lambda: (_ for _ in ()).throw(
+                AssertionError("worker factory must not run")
+            ),
+            post_to_ui=lambda callback: (_ for _ in ()).throw(
+                AssertionError("UI poster must not run")
+            ),
+            event_sink=lambda event: (_ for _ in ()).throw(
+                AssertionError("event sink must not run")
+            ),
+            next_delegate=lambda action_id, payload: forwarded.append(
+                (action_id, payload)
+            ),
+        )
+
+        with self.assertRaisesRegex(TypeError, "action id must be text"):
+            delegate(ActiveActionId("library.export"), {})
+
+        self.assertEqual([], touched)
+        self.assertEqual([], forwarded)
+
+    def test_export_delegate_still_forwards_unknown_exact_string_action(self) -> None:
+        forwarded: list[tuple[str, Mapping[str, object]]] = []
+        payload = {"opaque": object()}
+        delegate = Version2WindowsLibraryExportDelegate(
+            dialogs=_Dialogs(None),
+            worker_services_factory=lambda: (_ for _ in ()).throw(
+                AssertionError("worker factory must not run")
+            ),
+            post_to_ui=lambda callback: (_ for _ in ()).throw(
+                AssertionError("UI poster must not run")
+            ),
+            event_sink=lambda event: (_ for _ in ()).throw(
+                AssertionError("event sink must not run")
+            ),
+            next_delegate=lambda action_id, value: forwarded.append(
+                (action_id, value)
+            )
+            or "next",
+        )
+
+        result = delegate("library.other", payload)
+
+        self.assertEqual("next", result)
+        self.assertEqual([("library.other", payload)], forwarded)
+
     def test_reentrant_shutdown_during_started_event_never_starts_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
