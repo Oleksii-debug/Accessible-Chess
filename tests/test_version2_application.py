@@ -212,6 +212,7 @@ class Version2ApplicationTests(unittest.TestCase):
             ("pgn.open", "unsaved_confirmation_unavailable", "Інший PGN не відкрито"),
             ("pgn.open", "unsaved_confirmation_failed", "Інший PGN не відкрито"),
             ("pgn.save", "pgn_session_unavailable", "безпечно отримати поточний PGN"),
+            ("pgn.save_as", "pgn_save_as_failed", "вибраний файл"),
         )
         for action_id, error_code, fragment in cases:
             with self.subTest(error_code=error_code):
