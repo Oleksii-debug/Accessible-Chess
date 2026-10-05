@@ -14,6 +14,7 @@ from acs.full_product_ui_shell import UILanguage
 from acs.keybindings import BindingContext
 from acs.library_export_service import (
     LibraryExportCancelledError,
+    LibraryExportControlError,
     LibraryExportError,
     LibraryExportRequest,
     LibraryExportResult,
@@ -558,6 +559,37 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertIs(result, events[-1])
             self.assertEqual(result.error_code, "library_export_unavailable")
             self.assertEqual(result.focus_target, "library-results")
+
+    def test_cancel_callback_base_exception_is_a_bounded_control_failure(self) -> None:
+        class CancelAbort(BaseException):
+            pass
+
+        database = AcsDatabase()
+        try:
+            service = LibraryExportService(database)
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "cancel-control-abort.pgn"
+
+                with self.assertRaises(LibraryExportControlError):
+                    service.expected_destination_sha256(
+                        destination,
+                        cancel_check=lambda: (_ for _ in ()).throw(
+                            CancelAbort("cancel provider aborted")
+                        ),
+                    )
+
+                with self.assertRaises(LibraryExportControlError):
+                    service.export_to(
+                        destination,
+                        LibraryExportRequest.selected([1]),
+                        cancel_check=lambda: (_ for _ in ()).throw(
+                            CancelAbort("cancel provider aborted")
+                        ),
+                    )
+
+                self.assertFalse(destination.exists())
+        finally:
+            database.close()
 
     def test_destination_hashing_is_cooperatively_cancellable_between_chunks(self) -> None:
         database = AcsDatabase()
