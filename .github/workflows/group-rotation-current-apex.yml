@@ -10,6 +10,7 @@ on:
       - acs/classroom_pairing.py
       - acs/version2_final_product_application.py
       - acs/version2_release_app.py
+      - tests/test_child_coaching_rotation.py
       - tests/test_version2_group_rotation_binding.py
       - tests/test_child_coaching_final_product_binding.py
       - tests/test_child_coaching_rotation_completed_recovery.py
@@ -21,6 +22,7 @@ on:
       - acs/classroom_pairing.py
       - acs/version2_final_product_application.py
       - acs/version2_release_app.py
+      - tests/test_child_coaching_rotation.py
       - tests/test_version2_group_rotation_binding.py
       - tests/test_child_coaching_final_product_binding.py
       - tests/test_child_coaching_rotation_completed_recovery.py
@@ -44,9 +46,10 @@ jobs:
     timeout-minutes: 25
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-      ROTATION_BLOB: 7fe9da7f1d687f4976c3b4a50652c4c4fa830633
+      ROTATION_BLOB: 1bfe741944c83f440194d9473d90e0f0a75113b9
       ROTATION_STORE_BLOB: 15b480f880992020cc7c8bdf10cf7b467e809cc2
-      ROTATION_RECOVERY_TEST_BLOB: 3a66a3b0d67e3f2321fa005e9274c6f8fbf77584
+      ROTATION_TEST_BLOB: dddf614227c1381f5db7fedc049ade049915b024
+      ROTATION_RECOVERY_TEST_BLOB: 8275eaa1b93caf0811683226b50b2c758735b254
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
     steps:
       - name: Checkout exact candidate head
@@ -62,6 +65,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
           test "$(git hash-object acs/child_coaching_rotation_store.py)" = "$ROTATION_STORE_BLOB"
+          test "$(git hash-object tests/test_child_coaching_rotation.py)" = "$ROTATION_TEST_BLOB"
           test "$(git hash-object tests/test_child_coaching_rotation_completed_recovery.py)" = "$ROTATION_RECOVERY_TEST_BLOB"
           test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
           git diff --check
@@ -78,6 +82,7 @@ jobs:
           acs/classroom_pairing.py
           acs/version2_final_product_application.py
           acs/version2_release_app.py
+          tests/test_child_coaching_rotation.py
           tests/test_version2_group_rotation_binding.py
           tests/test_child_coaching_final_product_binding.py
           tests/test_child_coaching_rotation_completed_recovery.py
