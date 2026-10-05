@@ -130,6 +130,15 @@ class KeymapService:
                 version = profile.get("schema_version", 0)
                 self._profile_write_blocked = type(version) is int and version > SCHEMA_VERSION
                 registry = ActionRegistry.from_profile(profile)
+            except OSError:
+                # An existing profile that cannot currently be read is not the
+                # same thing as malformed content. Preserve its bytes and fail
+                # closed against incremental writes so a transient sharing,
+                # permission, device, or filesystem error cannot replace the
+                # user's keymap with defaults.
+                registry = ActionRegistry()
+                self._profile_write_blocked = True
+                recovery = "unreadable keymap profile"
             except Exception:
                 registry = ActionRegistry()
                 recovery = (
@@ -174,6 +183,14 @@ class KeymapService:
         ):
             try:
                 profile = _read_user_keymap_profile(self.path)
+            except OSError:
+                # The file was readable at initial boot but became unavailable
+                # before Product registry adoption. Do not let the wider default
+                # registry become new persisted authority while the original file
+                # is unreadable.
+                profile = source_profile
+                self._profile_write_blocked = True
+                self.recovery_message = "unreadable keymap profile"
             except Exception:
                 profile = source_profile
                 self.recovery_message = "invalid keymap profile"
@@ -434,13 +451,22 @@ class KeymapService:
     def _blocked_incremental_mutation(self) -> dict[str, Any] | None:
         if not self._profile_write_blocked:
             return None
-        message = (
-            "Keyboard settings were created by a newer Accessible Chess version and were preserved unchanged. "
-            "Use Reset all defaults or import a compatible profile to replace them."
-            if self.editor.lang == "en"
-            else "Налаштування клавіш створено новішою версією Accessible Chess і збережено без змін. "
-            "Щоб замінити їх, скиньте всі налаштування або імпортуйте сумісний профіль."
-        )
+        if self.recovery_message == "unreadable keymap profile":
+            message = (
+                "The existing keyboard profile could not be read and was preserved unchanged. "
+                "Restore access and restart Accessible Chess, or use Reset all defaults or import a compatible profile to replace it explicitly."
+                if self.editor.lang == "en"
+                else "Наявний профіль клавіш не вдалося прочитати, тому його збережено без змін. "
+                "Відновіть доступ і перезапустіть Accessible Chess або явно замініть профіль через скидання всіх налаштувань чи імпорт сумісного профілю."
+            )
+        else:
+            message = (
+                "Keyboard settings were created by a newer Accessible Chess version and were preserved unchanged. "
+                "Use Reset all defaults or import a compatible profile to replace them."
+                if self.editor.lang == "en"
+                else "Налаштування клавіш створено новішою версією Accessible Chess і збережено без змін. "
+                "Щоб замінити їх, скиньте всі налаштування або імпортуйте сумісний профіль."
+            )
         return {
             "ok": False,
             "message": message,
@@ -450,7 +476,7 @@ class KeymapService:
 
     def _persist(self, *, replace_incompatible: bool = False) -> None:
         if self._profile_write_blocked and not replace_incompatible:
-            raise RuntimeError("newer keymap profile must not be overwritten incrementally")
+            raise RuntimeError("protected keymap profile must not be overwritten incrementally")
         self.editor.registry.save(self.path)
         self._profile_write_blocked = False
         self.recovery_message = None
