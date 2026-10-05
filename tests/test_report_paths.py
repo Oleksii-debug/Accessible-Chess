@@ -23,6 +23,28 @@ class ReportSafeNameTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(report_safe_name(path), expected)
 
+    def test_local_file_uris_hide_private_directories_and_uri_metadata(self) -> None:
+        cases = {
+            "file:///C:/Users/Oleksii/secret/game.pgn": "game.pgn",
+            "file://server/share/private/book.cbh": "book.cbh",
+            r"file:C:secret\game.pgn": "game.pgn",
+            "FILE:///home/oleksii/private/%D0%B3%D1%80%D0%B0.pgn": "гра.pgn",
+            "file:///C:/private/dir%2Fgame.pgn": "game.pgn",
+            "file:///C:/private/game.pgn?token=private#fragment": "game.pgn",
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(report_safe_name(path), expected)
+
+    def test_encoded_unsafe_file_uri_text_fails_closed(self) -> None:
+        for path in (
+            "file:///C:/private/evil%0ASTATUS%3A%20PASS.pgn",
+            "file:///C:/private/evil%E2%80%AEgnp.live.pgn",
+            "file:///C:/private/%FFgame.pgn",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(report_safe_name(path), "source")
+
     def test_report_control_characters_fail_closed(self) -> None:
         for path in (
             "incoming/evil\nSTATUS: PASS.pgn",
