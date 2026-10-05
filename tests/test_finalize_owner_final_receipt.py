@@ -18,6 +18,7 @@ from scripts.finalize_owner_final_receipt import (
     finalize_owner_final_receipt,
     main,
 )
+from scripts.record_owner_physical_acceptance import FINAL_MACHINE_RECEIPT_KEYS
 
 
 PRODUCT_SHA = "a" * 40
@@ -87,6 +88,9 @@ class OwnerFinalReceiptTests(unittest.TestCase):
         self.assertIs(report["human_tested"], False)
         self.assertIs(report["nvda_verified"], False)
         self.assertEqual(report["result"], "PASS")
+
+    def test_final_schema_is_exact_physical_acceptance_machine_schema(self) -> None:
+        self.assertEqual(FINAL_RECEIPT_KEYS, FINAL_MACHINE_RECEIPT_KEYS)
 
     def test_finalizes_exact_machine_provenance_deterministically(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
