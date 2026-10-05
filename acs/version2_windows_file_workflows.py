@@ -1721,16 +1721,78 @@ class Version2WindowsFileActionDelegate:
     ) -> None:
         services: Version2ImportWorkerServices | None = None
         progress_started = False
+        progress_attempt_id: int | None = None
+        progress_total_games: int | None = None
+        progress_processed_games: int | None = None
         book_source_format = ""
         retained_book_blocks = 0
 
         def cancelled() -> bool:
             return cancel_event.is_set()
 
+        def snapshot_result(value: LibraryImportResult) -> LibraryImportResult:
+            if type(value) is not LibraryImportResult:
+                raise TypeError("canonical Library import result is invalid")
+            return LibraryImportResult(
+                value.attempt_id,
+                value.source_id,
+                value.game_count,
+                value.warning_count,
+                value.first_game_id,
+                value.last_game_id,
+                value.reused,
+            )
+
+        def validate_result_trace(value: LibraryImportResult) -> LibraryImportResult:
+            if (
+                progress_attempt_id is None
+                or progress_total_games is None
+                or progress_processed_games is None
+            ):
+                raise TypeError("Library import result has no canonical progress trace")
+            if value.attempt_id != progress_attempt_id:
+                raise TypeError("Library import result attempt id changed")
+            if value.game_count != progress_total_games:
+                raise TypeError("Library import result game count changed")
+            if value.reused:
+                if progress_processed_games != 0:
+                    raise TypeError("reused Library import reported staged progress")
+            elif progress_processed_games != value.game_count:
+                raise TypeError("Library import progress did not reach completion")
+            return value
+
         def progress(progress_value: LibraryImportProgress) -> None:
             nonlocal progress_started
+            nonlocal progress_attempt_id, progress_total_games, progress_processed_games
             if type(progress_value) is not LibraryImportProgress:
                 raise TypeError("canonical import progress object is invalid")
+            canonical = LibraryImportProgress(
+                progress_value.attempt_id,
+                progress_value.processed_games,
+                progress_value.total_games,
+            )
+            attempt_id = canonical.attempt_id
+            processed_games = canonical.processed_games
+            total_games = canonical.total_games
+
+            if progress_attempt_id is None:
+                if processed_games != 0:
+                    raise TypeError("Library import progress must start at zero")
+                progress_attempt_id = attempt_id
+                progress_total_games = total_games
+                progress_processed_games = processed_games
+            else:
+                if attempt_id != progress_attempt_id:
+                    raise TypeError("Library import progress attempt id changed")
+                if total_games != progress_total_games:
+                    raise TypeError("Library import progress total changed")
+                if (
+                    progress_processed_games is None
+                    or processed_games <= progress_processed_games
+                ):
+                    raise TypeError("Library import progress is not strictly increasing")
+                progress_processed_games = processed_games
+
             if not progress_started:
                 progress_started = True
                 self._emit_if_current(
@@ -1739,7 +1801,7 @@ class Version2WindowsFileActionDelegate:
                         FileWorkflowEventKind.IMPORT_STARTED,
                         "library.import",
                         focus_target="library-import-cancel",
-                        total_games=progress_value.total_games,
+                        total_games=total_games,
                         source_format=book_source_format,
                         retained_book_blocks=retained_book_blocks,
                     ),
@@ -1749,8 +1811,8 @@ class Version2WindowsFileActionDelegate:
                 FileWorkflowEvent(
                     FileWorkflowEventKind.IMPORT_PROGRESS,
                     "library.import",
-                    processed_games=progress_value.processed_games,
-                    total_games=progress_value.total_games,
+                    processed_games=processed_games,
+                    total_games=total_games,
                 ),
             )
 
@@ -1807,8 +1869,7 @@ class Version2WindowsFileActionDelegate:
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
-                if type(imported) is not LibraryImportResult:
-                    raise TypeError("canonical Library import result is invalid")
+                imported = validate_result_trace(snapshot_result(imported))
                 game_count = imported.game_count
                 warning_count = imported.warning_count
             else:
@@ -1868,10 +1929,9 @@ class Version2WindowsFileActionDelegate:
                     )
                     return
 
-                if type(library_result) is not LibraryImportResult:
-                    raise TypeError(
-                        "ChessBase Library import result is invalid"
-                    )
+                library_result = validate_result_trace(
+                    snapshot_result(library_result)
+                )
                 game_count = library_result.game_count
                 warning_count = library_result.warning_count
                 if type(game_count) is not int or game_count < 1:
