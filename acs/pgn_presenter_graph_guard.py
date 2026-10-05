@@ -30,6 +30,7 @@ MAX_PGN_PRESENTATION_TAGS = 256
 MAX_PGN_PRESENTATION_WARNINGS = 256
 MAX_PGN_PRESENTATION_COMMENTS_PER_SLOT = 256
 MAX_PGN_PRESENTATION_NAGS_PER_MOVE = 64
+MAX_PGN_PRESENTATION_GAMES = 100_000
 
 
 class _PresentationTextBudget:
@@ -63,6 +64,11 @@ def snapshot_pgn_presentation_games(games: object) -> tuple[PgnGame, ...]:
     """Snapshot a passive built-in game collection without invoking user hooks."""
     if type(games) not in {list, tuple}:
         raise TypeError("PGN presenter games must be a built-in list or tuple")
+    if len(games) > MAX_PGN_PRESENTATION_GAMES:
+        raise GameTreeContractError(
+            "PGN presenter game collection exceeds the presentation limit",
+            code=GameTreeErrorCode.INVALID_CONTAINER,
+        )
     for game in games:
         if type(game) is not PgnGame:
             raise GameTreeContractError(
