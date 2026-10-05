@@ -589,152 +589,209 @@ def _require_package_file(
     return path
 
 
+def _raw_offset_for_pe_section(
+    section_table: bytes,
+    *,
+    section_count: int,
+    file_size: int,
+    rva: int,
+    size: int,
+) -> int | None:
+    if rva <= 0 or size <= 0:
+        return None
+    for index in range(section_count):
+        offset = index * 40
+        virtual_address = int.from_bytes(
+            section_table[offset + 12:offset + 16],
+            "little",
+        )
+        raw_size = int.from_bytes(
+            section_table[offset + 16:offset + 20],
+            "little",
+        )
+        raw_pointer = int.from_bytes(
+            section_table[offset + 20:offset + 24],
+            "little",
+        )
+        if rva < virtual_address:
+            continue
+        delta = rva - virtual_address
+        if delta > raw_size or size > raw_size - delta:
+            continue
+        file_offset = raw_pointer + delta
+        if file_offset > file_size or size > file_size - file_offset:
+            continue
+        return file_offset
+    return None
+
+
+def _inspect_windows_pe_identity(
+    path: Path,
+    *,
+    label: str,
+    inspect_clr: bool = False,
+) -> tuple[int, int, bool] | None:
+    """Inspect one stable pathname/handle identity for PE and optional CLR metadata."""
+    if type(inspect_clr) is not bool:
+        raise TypeError("inspect_clr must be bool")
+    before = _safe_lstat(path, label=label)
+    if not stat.S_ISREG(before.st_mode):
+        return None
+
+    source = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail(f"{label} must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail(f"{label} changed while being opened")
+
+        source.seek(0, os.SEEK_END)
+        file_size = source.tell()
+        source.seek(0)
+        dos_header = source.read(64)
+        identity: tuple[int, int, bool] | None = None
+        if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
+            pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+            if 0x40 <= pe_offset <= file_size - 24:
+                source.seek(pe_offset)
+                pe_header = source.read(24)
+                if len(pe_header) == 24 and pe_header[:4] == b"PE\x00\x00":
+                    machine = int.from_bytes(pe_header[4:6], "little")
+                    section_count = int.from_bytes(pe_header[6:8], "little")
+                    optional_header_size = int.from_bytes(pe_header[20:22], "little")
+                    characteristics = int.from_bytes(pe_header[22:24], "little")
+                    if (
+                        machine != 0
+                        and section_count > 0
+                        and optional_header_size >= 2
+                        and characteristics & 0x0002
+                        and pe_offset + 24 + optional_header_size <= file_size
+                    ):
+                        optional_header = source.read(optional_header_size)
+                        if len(optional_header) == optional_header_size:
+                            optional_magic = int.from_bytes(optional_header[:2], "little")
+                            if optional_magic in {0x10B, 0x20B}:
+                                has_clr = False
+                                if inspect_clr and section_count <= 96:
+                                    if optional_magic == 0x10B:
+                                        directory_count_offset = 92
+                                        directory_table_offset = 96
+                                    else:
+                                        directory_count_offset = 108
+                                        directory_table_offset = 112
+                                    if len(optional_header) >= directory_count_offset + 4:
+                                        directory_count = int.from_bytes(
+                                            optional_header[
+                                                directory_count_offset:directory_count_offset + 4
+                                            ],
+                                            "little",
+                                        )
+                                        clr_directory_offset = directory_table_offset + (14 * 8)
+                                        if (
+                                            directory_count > 14
+                                            and len(optional_header) >= clr_directory_offset + 8
+                                        ):
+                                            clr_rva = int.from_bytes(
+                                                optional_header[
+                                                    clr_directory_offset:clr_directory_offset + 4
+                                                ],
+                                                "little",
+                                            )
+                                            clr_size = int.from_bytes(
+                                                optional_header[
+                                                    clr_directory_offset + 4:clr_directory_offset + 8
+                                                ],
+                                                "little",
+                                            )
+                                            section_table_offset = (
+                                                pe_offset + 24 + optional_header_size
+                                            )
+                                            section_table_size = section_count * 40
+                                            if (
+                                                clr_rva != 0
+                                                and clr_size == 0x48
+                                                and section_table_offset + section_table_size
+                                                <= file_size
+                                            ):
+                                                source.seek(section_table_offset)
+                                                section_table = source.read(section_table_size)
+                                                if len(section_table) == section_table_size:
+                                                    clr_offset = _raw_offset_for_pe_section(
+                                                        section_table,
+                                                        section_count=section_count,
+                                                        file_size=file_size,
+                                                        rva=clr_rva,
+                                                        size=0x48,
+                                                    )
+                                                    if clr_offset is not None:
+                                                        source.seek(clr_offset)
+                                                        clr_header = source.read(0x48)
+                                                        if (
+                                                            len(clr_header) == 0x48
+                                                            and int.from_bytes(
+                                                                clr_header[0:4], "little"
+                                                            ) == 0x48
+                                                        ):
+                                                            metadata_rva = int.from_bytes(
+                                                                clr_header[8:12], "little"
+                                                            )
+                                                            metadata_size = int.from_bytes(
+                                                                clr_header[12:16], "little"
+                                                            )
+                                                            metadata_offset = (
+                                                                _raw_offset_for_pe_section(
+                                                                    section_table,
+                                                                    section_count=section_count,
+                                                                    file_size=file_size,
+                                                                    rva=metadata_rva,
+                                                                    size=metadata_size,
+                                                                )
+                                                                if metadata_rva != 0
+                                                                and metadata_size >= 4
+                                                                else None
+                                                            )
+                                                            if metadata_offset is not None:
+                                                                source.seek(metadata_offset)
+                                                                has_clr = (
+                                                                    source.read(4) == b"BSJB"
+                                                                )
+                                identity = (machine, optional_magic, has_clr)
+
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label=label)
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+        ):
+            _fail(f"{label} changed while being read")
+        return identity
+    except Version2PackagePreflightError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read: {type(exc).__name__}")
+    finally:
+        if source is not None:
+            source.close()
+
+
 def _has_windows_pe_structure(path: Path) -> bool:
     """Recognize the bounded PE structure used by package validation and hygiene."""
-    with path.open("rb") as handle:
-        dos_header = handle.read(64)
-        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
-            return False
-        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-        handle.seek(0, os.SEEK_END)
-        file_size = handle.tell()
-        if pe_offset < 0x40 or pe_offset > file_size - 24:
-            return False
-        handle.seek(pe_offset)
-        pe_header = handle.read(24)
-        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
-            return False
-
-        machine = int.from_bytes(pe_header[4:6], "little")
-        section_count = int.from_bytes(pe_header[6:8], "little")
-        optional_header_size = int.from_bytes(pe_header[20:22], "little")
-        characteristics = int.from_bytes(pe_header[22:24], "little")
-        if (
-            machine == 0
-            or section_count == 0
-            or optional_header_size < 2
-            or not characteristics & 0x0002
-            or pe_offset + 24 + optional_header_size > file_size
-        ):
-            return False
-
-        optional_magic = handle.read(2)
-        return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+    return _inspect_windows_pe_identity(
+        path,
+        label="package PE image",
+    ) is not None
 
 
 def _has_windows_clr_descriptor(path: Path) -> bool:
     """Require a file-backed CLR header and metadata root for managed assemblies."""
-    with path.open("rb") as handle:
-        dos_header = handle.read(64)
-        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
-            return False
-        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-        handle.seek(0, os.SEEK_END)
-        file_size = handle.tell()
-        if pe_offset < 0x40 or pe_offset > file_size - 24:
-            return False
-        handle.seek(pe_offset)
-        pe_header = handle.read(24)
-        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
-            return False
-
-        section_count = int.from_bytes(pe_header[6:8], "little")
-        optional_header_size = int.from_bytes(pe_header[20:22], "little")
-        if (
-            section_count <= 0
-            or section_count > 96
-            or pe_offset + 24 + optional_header_size > file_size
-        ):
-            return False
-        optional_header = handle.read(optional_header_size)
-        if len(optional_header) != optional_header_size or len(optional_header) < 2:
-            return False
-
-        magic = optional_header[:2]
-        if magic == b"\x0b\x01":
-            directory_count_offset = 92
-            directory_table_offset = 96
-        elif magic == b"\x0b\x02":
-            directory_count_offset = 108
-            directory_table_offset = 112
-        else:
-            return False
-
-        if len(optional_header) < directory_count_offset + 4:
-            return False
-        directory_count = int.from_bytes(
-            optional_header[directory_count_offset:directory_count_offset + 4],
-            "little",
-        )
-        clr_directory_offset = directory_table_offset + (14 * 8)
-        if directory_count <= 14 or len(optional_header) < clr_directory_offset + 8:
-            return False
-        clr_rva = int.from_bytes(
-            optional_header[clr_directory_offset:clr_directory_offset + 4],
-            "little",
-        )
-        clr_size = int.from_bytes(
-            optional_header[clr_directory_offset + 4:clr_directory_offset + 8],
-            "little",
-        )
-        if clr_rva == 0 or clr_size != 0x48:
-            return False
-
-        section_table_offset = pe_offset + 24 + optional_header_size
-        section_table_size = section_count * 40
-        if section_table_offset + section_table_size > file_size:
-            return False
-        handle.seek(section_table_offset)
-        section_table = handle.read(section_table_size)
-        if len(section_table) != section_table_size:
-            return False
-
-        def raw_offset_for(rva: int, size: int) -> int | None:
-            if rva <= 0 or size <= 0:
-                return None
-            for index in range(section_count):
-                offset = index * 40
-                virtual_address = int.from_bytes(
-                    section_table[offset + 12:offset + 16],
-                    "little",
-                )
-                raw_size = int.from_bytes(
-                    section_table[offset + 16:offset + 20],
-                    "little",
-                )
-                raw_pointer = int.from_bytes(
-                    section_table[offset + 20:offset + 24],
-                    "little",
-                )
-                if rva < virtual_address:
-                    continue
-                delta = rva - virtual_address
-                if delta > raw_size or size > raw_size - delta:
-                    continue
-                file_offset = raw_pointer + delta
-                if file_offset > file_size or size > file_size - file_offset:
-                    continue
-                return file_offset
-            return None
-
-        clr_offset = raw_offset_for(clr_rva, 0x48)
-        if clr_offset is None:
-            return False
-        handle.seek(clr_offset)
-        clr_header = handle.read(0x48)
-        if len(clr_header) != 0x48:
-            return False
-        if int.from_bytes(clr_header[0:4], "little") != 0x48:
-            return False
-        metadata_rva = int.from_bytes(clr_header[8:12], "little")
-        metadata_size = int.from_bytes(clr_header[12:16], "little")
-        if metadata_rva == 0 or metadata_size < 4:
-            return False
-        metadata_offset = raw_offset_for(metadata_rva, metadata_size)
-        if metadata_offset is None:
-            return False
-        handle.seek(metadata_offset)
-        return handle.read(4) == b"BSJB"
+    identity = _inspect_windows_pe_identity(
+        path,
+        label="managed CLR assembly",
+        inspect_clr=True,
+    )
+    return identity is not None and identity[2]
 
 
 def _validate_windows_pe_executable(
@@ -745,52 +802,40 @@ def _validate_windows_pe_executable(
     expected_optional_magic: int | None = None,
     require_clr: bool = False,
 ) -> None:
-    """Require a bounded PE image plus requested CPU/managed-runtime identity."""
-    try:
-        if not _has_windows_pe_structure(path):
-            _fail(f"{label} is not a valid Windows PE executable")
-        if expected_machine is not None:
-            if type(expected_machine) is not int or not 0 < expected_machine <= 0xFFFF:
-                raise TypeError("expected_machine must be a positive 16-bit integer or null")
-        if expected_optional_magic is not None:
-            if expected_optional_magic not in {0x10B, 0x20B}:
-                raise TypeError("expected_optional_magic must be PE32, PE32+, or null")
-        if expected_machine is not None or expected_optional_magic is not None:
-            with path.open("rb") as handle:
-                dos_header = handle.read(64)
-                pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-                handle.seek(pe_offset + 4)
-                machine_bytes = handle.read(2)
-                handle.seek(pe_offset + 24)
-                optional_magic_bytes = handle.read(2)
-            if len(machine_bytes) != 2:
-                _fail(f"{label} machine header is truncated")
-            if len(optional_magic_bytes) != 2:
-                _fail(f"{label} optional header is truncated")
-            actual_machine = int.from_bytes(machine_bytes, "little")
-            actual_optional_magic = int.from_bytes(optional_magic_bytes, "little")
-            if expected_machine is not None and actual_machine != expected_machine:
-                _fail(
-                    f"{label} has unexpected Windows PE machine "
-                    f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
-                )
-            if (
-                expected_optional_magic is not None
-                and actual_optional_magic != expected_optional_magic
-            ):
-                _fail(
-                    f"{label} has unexpected Windows PE optional magic "
-                    f"0x{actual_optional_magic:04x}; "
-                    f"expected 0x{expected_optional_magic:04x}"
-                )
-        if type(require_clr) is not bool:
-            raise TypeError("require_clr must be bool")
-        if require_clr and not _has_windows_clr_descriptor(path):
-            _fail(f"{label} is not a managed CLR assembly")
-    except Version2PackagePreflightError:
-        raise
-    except OSError as exc:
-        _fail(f"{label} cannot be read: {type(exc).__name__}")
+    """Require one stable PE identity plus requested CPU/managed-runtime contract."""
+    if expected_machine is not None:
+        if type(expected_machine) is not int or not 0 < expected_machine <= 0xFFFF:
+            raise TypeError("expected_machine must be a positive 16-bit integer or null")
+    if expected_optional_magic is not None:
+        if expected_optional_magic not in {0x10B, 0x20B}:
+            raise TypeError("expected_optional_magic must be PE32, PE32+, or null")
+    if type(require_clr) is not bool:
+        raise TypeError("require_clr must be bool")
+
+    identity = _inspect_windows_pe_identity(
+        path,
+        label=label,
+        inspect_clr=require_clr,
+    )
+    if identity is None:
+        _fail(f"{label} is not a valid Windows PE executable")
+    actual_machine, actual_optional_magic, has_clr = identity
+    if expected_machine is not None and actual_machine != expected_machine:
+        _fail(
+            f"{label} has unexpected Windows PE machine "
+            f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
+        )
+    if (
+        expected_optional_magic is not None
+        and actual_optional_magic != expected_optional_magic
+    ):
+        _fail(
+            f"{label} has unexpected Windows PE optional magic "
+            f"0x{actual_optional_magic:04x}; "
+            f"expected 0x{expected_optional_magic:04x}"
+        )
+    if require_clr and not has_clr:
+        _fail(f"{label} is not a managed CLR assembly")
 
 
 def _provenance_text(value: object, *, label: str, max_length: int) -> str:
