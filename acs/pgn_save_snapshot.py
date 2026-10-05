@@ -684,7 +684,13 @@ def commit_pgn_save_publication(
         suffix=saved.suffix,
     )
     if live_content_digest == binding.content_digest:
-        current.workspace.mark_saved()
+        try:
+            current.workspace.mark_saved()
+        except BaseException as exc:
+            raise PgnDocumentError(
+                "PGN file was written but the document checkpoint could not be finalized",
+                code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            ) from exc
 
     # PgnDocumentSession owns these fields. This companion module is the only
     # background-save friend boundary: provenance advances only after the
