@@ -924,7 +924,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                 FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     "library.cancel_import",
-                    focus_target="library-export-filtered",
+                    focus_target="library-import-file",
                     error_code="no_import_running",
                 ),
             )
@@ -940,7 +940,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                     "kind": "status",
                     "payload": {
                         "announcement": "The Library operation has already finished.",
-                        "focus_target": "library-export-filtered",
+                        "focus_target": "library-import-file",
                     },
                 },
             )
