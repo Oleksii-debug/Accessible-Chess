@@ -33,8 +33,11 @@ class PortableLaunchReportReparseConcurrencyTests(unittest.TestCase):
 
     def test_focused_contract_is_part_of_trigger_and_owned_scope(self) -> None:
         path = "tests/test_portable_launch_report_reparse_concurrency.py"
-        self.assertGreaterEqual(self.text.count(f"      - '{path}'\n"), 1)
-        self.assertEqual(self.text.count(f"            '{path}' \\\n"), 2)
+        self.assertEqual(self.text.count(f"      - '{path}'\n"), 2)
+        self.assertEqual(
+            self.text.count(f"            '{path}' | LC_ALL=C sort)\"\n"),
+            2,
+        )
 
     def test_each_expensive_job_rejects_superseded_pull_request_head_first(self) -> None:
         self.assertEqual(
