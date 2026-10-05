@@ -1247,7 +1247,7 @@ class Version2WindowsFileActionDelegate:
             else:
                 _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
                 error_code = ordinary_failure_code
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
             error_code = ordinary_failure_code
 
@@ -1271,7 +1271,7 @@ class Version2WindowsFileActionDelegate:
         try:
             assert self._post_to_ui is not None
             self._post_to_ui(finish_on_owner)
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 PGN save UI publication post failed", exc_info=True)
             # Keep the result recoverable. A durable publication must be
             # committed on the owner thread during shutdown or the next posted
