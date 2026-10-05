@@ -17,6 +17,7 @@ from acs.bookdocument import BookDocument, Exercise
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import Version2Application
@@ -152,6 +153,23 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("не розпочато", preflight_message)
         self.assertNotIn("уже записано", preflight_message)
         self.assertIn("уже записано", durable_message)
+
+    def test_invalid_pgn_session_error_is_actionable_and_path_free(self):
+        event = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save",
+            focus_target="pgn-game-list",
+            error_code="pgn_session_invalid",
+        )
+
+        self.app._file_event(event)
+
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "error")
+        message = events[-1]["payload"]["message"]
+        self.assertIn("без зміни документа або файла", message)
+        self.assertIn("Перезапустіть програму", message)
+        self.assertNotIn(str(self.root), message)
 
     def test_pgn_save_conflict_announces_no_clobber_truth(self):
         conflict = FileWorkflowEvent(
