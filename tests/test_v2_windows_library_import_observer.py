@@ -159,6 +159,11 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
                         library_result=canonical_result,
                     )
 
+            def mutate_result(value):
+                results.append(value)
+                object.__setattr__(value, "game_count", 999)
+                object.__setattr__(value, "warning_count", 999)
+
             base_bundle = Version2ImportWorkerServices(
                 _UnusedLibrary(),
                 ChessBaseService(),
@@ -167,7 +172,7 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             factory = Version2ObservedImportServicesFactory(
                 lambda: base_bundle,
                 progress_sink=progress_values.append,
-                result_sink=results.append,
+                result_sink=mutate_result,
             )
             controller = self._controller(source, factory, events)
             controller("library.import", {})
@@ -176,9 +181,13 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             self.assertEqual([value.attempt_id for value in progress_values], [17, 17])
             self.assertEqual(len(results), 1)
             self.assertIsNot(results[0], canonical_result)
-            self.assertEqual(results[0], canonical_result)
+            self.assertEqual(results[0].game_count, 999)
+            self.assertEqual(results[0].warning_count, 999)
+            self.assertEqual(canonical_result.game_count, 2)
+            self.assertEqual(canonical_result.warning_count, 1)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertEqual(events[-1].game_count, 2)
+            self.assertEqual(events[-1].warning_count, 1)
             self.assertNotIn("attempt_id", repr(events[-1]))
             self.assertNotIn("source_id", repr(events[-1]))
 
