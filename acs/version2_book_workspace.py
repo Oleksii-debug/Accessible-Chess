@@ -686,6 +686,17 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         revision_before = self._workflow.revision
         active = self._workflow.active
         revision_after = self._workflow.revision
+        if (
+            type(revision_before) is not int
+            or revision_before < 0
+            or type(active) is not bool
+            or type(revision_after) is not int
+            or revision_after < 0
+        ):
+            raise BookBoardWorkflowError(
+                "Book Board state is invalid while preparing semantic reading",
+                code=BookBoardWorkflowCode.RETURN_FAILED,
+            )
         if revision_before != revision_after:
             raise BookBoardWorkflowError(
                 "Book Board state changed while preparing semantic reading",
