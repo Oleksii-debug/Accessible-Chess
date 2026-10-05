@@ -235,7 +235,7 @@ class Version2WindowsLibraryExportDelegate:
                 request,
                 expected_sha256=expected_sha256,
             )
-            if not isinstance(result, LibraryExportResult):
+            if type(result) is not LibraryExportResult:
                 raise TypeError("Library export service returned an invalid result")
             terminal = LibraryExportHostEvent(
                 LibraryExportHostEventKind.EXPORTED,
@@ -330,7 +330,7 @@ class Version2WindowsLibraryExportDelegate:
                 expected_sha256=expected_sha256,
                 cancel_check=cancel.is_set,
             )
-            if not isinstance(result, LibraryExportResult):
+            if type(result) is not LibraryExportResult:
                 raise TypeError("Library export worker returned an invalid result")
             terminal = LibraryExportHostEvent(
                 LibraryExportHostEventKind.EXPORTED,
