@@ -36,12 +36,15 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
-          PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20
+          INITIAL_PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20
+          PRODUCT_HEAD: 8f78c4c88890f07f974b5d552fda7e274beadc50
           ONECLICK_REF: fix/p0-oneclick-exact-head-concurrency-20261005-sol56r9k2
           ONECLICK_HEAD: 53123231abc76265e52b7d62832c9fb94adc0012
           LAUNCH_REPORT_REF: fix/portable-launch-report-ci-head-20261005-sol56h4q8
           LAUNCH_REPORT_HEAD: b108580b91a2917543b80379a88aa1d9accb7c38
-          CONVERGENCE_MERGE: 5a02ace57c693c893007f4509a93ad15001f0c77
+          INITIAL_CONVERGENCE_MERGE: 5a02ace57c693c893007f4509a93ad15001f0c77
+          PRE_PRODUCT_RECONVERGENCE: 7ad12171aeaca62fda0377a103e16a20ed8ec589
+          PRODUCT_RECONVERGENCE_MERGE: 43bf457011f77f04b885b39eeb49d6cf20066af3
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -68,8 +71,10 @@ jobs:
           fetch_exact "$ONECLICK_REF" "$ONECLICK_HEAD" WINDOWS_EVIDENCE_ONECLICK
           fetch_exact "$LAUNCH_REPORT_REF" "$LAUNCH_REPORT_HEAD" WINDOWS_EVIDENCE_LAUNCH_REPORT
 
-          test "$(git show -s --format=%P "$CONVERGENCE_MERGE")" = "$PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
-          git merge-base --is-ancestor "$CONVERGENCE_MERGE" HEAD
+          test "$(git show -s --format=%P "$INITIAL_CONVERGENCE_MERGE")" = "$INITIAL_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
+          git merge-base --is-ancestor "$INITIAL_CONVERGENCE_MERGE" HEAD
+          test "$(git show -s --format=%P "$PRODUCT_RECONVERGENCE_MERGE")" = "$PRE_PRODUCT_RECONVERGENCE $PRODUCT_HEAD"
+          git merge-base --is-ancestor "$PRODUCT_RECONVERGENCE_MERGE" HEAD
           for source in "$PRODUCT_HEAD" "$ONECLICK_HEAD" "$LAUNCH_REPORT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
@@ -97,6 +102,12 @@ jobs:
           tests/test_p0_oneclick_exact_head_concurrency.py
           tests/test_portable_launch_report_reparse_concurrency.py
           tests/test_current_product_windows_evidence_convergence_20261005.py
+          acs/pgn_conversion.py
+          acs/pgn_conversion_windows.py
+          acs/pgn_service.py
+          tests/test_pgn_conversion.py
+          tests/test_pgn_conversion_windows.py
+          tests/test_pgn_service.py
 
       - name: Execute packaging evidence regressions
         run: >-
@@ -110,6 +121,10 @@ jobs:
           tests.test_portable_launcher_window_readiness
           tests.test_portable_localappdata_persistence_binding
           tests.test_version2_portable_package
+          tests.test_pgn_service
+          tests.test_pgn_conversion
+          tests.test_pgn_conversion_windows
+          tests.test_pgn_conversion_native_windows
 
       - name: Whole-product smoke
         run: |
