@@ -475,7 +475,7 @@ class Version2Application:
         origin_route = self.shell.current_route.route_id
         try:
             route_focus = self.shell.open_route("pgn")
-        except Exception:
+        except BaseException:
             if self.shell.current_route.route_id != origin_route:
                 self._focus = self.shell.open_route(origin_route)
             raise
