@@ -1383,7 +1383,7 @@ class Version2Application:
                     self.pgn_board_active = False
                 raise
             return None
-        if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
+        if action.startswith("pgn.") and action not in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
             # All Board-owned PGN actions returned above. The remaining PGN
             # document/navigation commands belong to the visible PGN workspace;
             # central native/menu dispatch must not bypass the same route/modal
@@ -1607,7 +1607,7 @@ class Version2Application:
                     message = ""
                 raise ValueError(message) from None
             return result
-        if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
+        if self._files is not None and action in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
             if isinstance(result, FileWorkflowEvent):
                 ui = self.library.projection.import_projection
@@ -2029,6 +2029,20 @@ class Version2Application:
             self._progress = self._result = None
         for event in events:
             if event.action_id not in {"library.import", "library.cancel_import"}:
+                # Deferred PGN Open completion already committed the canonical
+                # document and shell route on the owner thread. Publish one
+                # route refresh so a retained WebView/NVDA presentation cannot
+                # remain on the document that was visible before the worker.
+                if event.kind is FileWorkflowEventKind.PGN_OPENED:
+                    self._events.append(
+                        {
+                            "kind": "route",
+                            "payload": {
+                                "route_id": "pgn",
+                                "focus_target": event.focus_target,
+                            },
+                        }
+                    )
                 self._file_event(event)
                 continue
             rendered = None
@@ -2095,6 +2109,34 @@ class Version2Application:
                 "Імпорт уже завершився або не був розпочатий.",
                 "The import has finished or has not started.",
             ),
+            "file_worker_busy": (
+                "Інша файлова операція ще виконується. Завершіть або скасуйте її та повторіть дію.",
+                "Another file operation is still running. Finish or cancel it, then retry.",
+            ),
+            "file_workflow_closed": (
+                "Файлові операції вже завершуються.",
+                "File operations are already shutting down.",
+            ),
+            "no_pgn_open_running": (
+                "Фонове відкриття PGN уже завершилося або не було розпочате.",
+                "Background PGN opening has finished or has not started.",
+            ),
+            "pgn_open_stale": (
+                "PGN не замінено, бо поточний документ змінився під час відкриття. Повторіть дію за потреби.",
+                "The PGN was not replaced because the current document changed while opening. Retry if needed.",
+            ),
+            "pgn_open_worker_unavailable": (
+                "Не вдалося запустити фонове відкриття PGN.",
+                "Background PGN opening could not be started.",
+            ),
+            "pgn_open_publish_failed": (
+                "PGN підготовлено, але безпечно показати його не вдалося. Поточний документ не змінено.",
+                "The PGN was prepared but could not be published safely. The current document was not changed.",
+            ),
+            "pgn_open_ui_post_failed": (
+                "PGN підготовлено, але передати результат у вікно програми не вдалося. Поточний документ не змінено.",
+                "The PGN was prepared but its result could not be delivered to the application window. The current document was not changed.",
+            ),
         }
         code = event.error_code
         if type(code) is str and len(code) <= 64:
@@ -2110,6 +2152,18 @@ class Version2Application:
             return
         kind = getattr(event.kind, "value", "")
         messages = {
+            "pgn_open_started": (
+                "PGN відкривається у фоновому режимі. За потреби скористайтеся командою скасування відкриття PGN.",
+                "PGN is opening in the background. Use Cancel PGN Open if needed.",
+            ),
+            "pgn_open_cancelling": (
+                "Скасовую відкриття PGN.",
+                "Cancelling PGN open.",
+            ),
+            "pgn_open_cancelled": (
+                "Відкриття PGN скасовано. Поточний документ не змінено.",
+                "PGN open cancelled. The current document was not changed.",
+            ),
             "pgn_opened": ("PGN відкрито.", "PGN opened."),
             "pgn_saved": ("PGN збережено.", "PGN saved."),
             "pgn_saved_as": ("PGN збережено.", "PGN saved."),
