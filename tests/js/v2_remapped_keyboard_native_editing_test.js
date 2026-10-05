@@ -3,13 +3,14 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const {shellForKeymap} = require('./keymap_shell_test_support');
 
 const html = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
 const releaseBootstrap = fs.readFileSync(
   path.join(__dirname, '..', '..', 'web', 'stage1_release_bootstrap.js'),
   'utf8'
 ).replace(/\r\n?/g, '\n');
-const prefix = "function editableShortcutTarget(node)";
+const prefix = "function projectedOwnedAction(e,contexts)";
 const start = html.indexOf(prefix);
 assert.notStrictEqual(start, -1, 'canonical editable-control keydown policy not found');
 const end = html.indexOf("})\nel('move-submit')", start);
@@ -66,6 +67,7 @@ const install = new Function(
   'resolveBinding',
   'executeAction',
   'capture',
+  'keymapActionForEvent',
   source
 );
 install(
@@ -74,7 +76,12 @@ install(
   eventChord,
   resolveBinding,
   actionId => { actions.push(actionId); },
-  null
+  null,
+  shellForKeymap([
+    {id: 'screen.help', binding: 'F1', registryContext: 'global'},
+    {id: 'file.new', binding: 'Ctrl+N', registryContext: 'global'},
+    {id: 'analysis.restart', binding: 'Alt+R', registryContext: 'analysis'},
+  ]).keymapActionForEvent
 );
 assert.ok(handler, 'canonical document keydown handler installed');
 

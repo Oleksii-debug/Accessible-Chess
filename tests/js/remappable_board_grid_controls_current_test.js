@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const {shellForKeymap} = require('./keymap_shell_test_support');
 
 const html = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8').replace(/\r\n?/g, '\n');
 
@@ -82,9 +83,7 @@ for (const actionId of [
 assert.ok(actionBody.includes('analysisViewingTemporaryPosition'), 'board activation must retain temporary-PV mutation guard');
 assert.ok(actionBody.includes("apiAction('activate_square',cell.square)"), 'board activation must use the currently focused canonical cell');
 
-const helpStart = html.indexOf('function renderHelp(){');
-const helpEnd = html.indexOf('\nfunction projectedOwnedAction', helpStart);
-const help = html.slice(helpStart, helpEnd);
+const rows = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'keybindings.json'), 'utf8')).actions;
 for (const actionId of [
   'board.cursor_left',
   'board.cursor_right',
@@ -94,7 +93,21 @@ for (const actionId of [
   'board.activate_alternative',
   'board.exit',
 ]) {
-  assert.ok(help.includes(`line('${actionId}')`), `live help omits remappable board action: ${actionId}`);
+  const row = rows.find(item => item.id === actionId);
+  assert.ok(row, 'missing central board action: ' + actionId);
+  for (const language of ['uk', 'en']) {
+    const shell = shellForKeymap(rows, language);
+    const projected = shell.keymap.find(item => item.id === actionId);
+    projected.binding = 'Ctrl+J';
+    shell.renderHelp();
+    assert.ok(shell.helpText.includes('Ctrl+J — ' + projected[language === 'en' ? 'labelEn' : 'labelUk']),
+      'live help omits current remapped board action: ' + actionId);
+    projected.binding = null;
+    projected.alias = null;
+    shell.renderHelp();
+    assert.ok(!shell.helpText.split('\n').some(line => line.endsWith(' — ' + projected[language === 'en' ? 'labelEn' : 'labelUk'])),
+      'live help resurrected an unbound board default: ' + actionId);
+  }
 }
 
 console.log('Current-apex remappable board controls: PASS');

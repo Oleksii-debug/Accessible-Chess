@@ -174,6 +174,37 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
             self.assertEqual(service.recovery_message, "invalid keymap profile")
             self.assertEqual(wider.get_binding("history.go_to_move"), "Alt+J")
 
+    def test_final_education_remaps_survive_restart_and_context_reset(self):
+        for language in ("en", "uk"):
+            with self.subTest(language=language), TemporaryDirectory() as root:
+                path = Path(root) / "keymap.json"
+                service = KeymapService(path, lang=language)
+                service.adopt_registry(build_final_product_action_registry())
+                for action, old, new in (
+                    ("education.previous_item", "Up", "Ctrl+K"),
+                    ("education.next_item", "Down", "Alt+J"),
+                    ("education.open_selected", "Enter", "Shift+O"),
+                ):
+                    self.assertTrue(service.save(action, new, allow_warnings=True)["ok"])
+                    self.assertIsNone(service.resolve_binding("education_list", old))
+                restarted = KeymapService(path, lang=language)
+                restarted.adopt_registry(build_final_product_action_registry())
+                for action, old, new in (
+                    ("education.previous_item", "Up", "Ctrl+K"),
+                    ("education.next_item", "Down", "Alt+J"),
+                    ("education.open_selected", "Enter", "Shift+O"),
+                ):
+                    self.assertEqual(restarted.resolve_binding("education_list", new)["actionId"], action)
+                    self.assertIsNone(restarted.resolve_binding("education_list", old))
+                self.assertTrue(restarted.reset_context("education_list")["ok"])
+                for action, old, new in (
+                    ("education.previous_item", "Up", "Ctrl+K"),
+                    ("education.next_item", "Down", "Alt+J"),
+                    ("education.open_selected", "Enter", "Shift+O"),
+                ):
+                    self.assertEqual(restarted.resolve_binding("education_list", old)["actionId"], action)
+                    self.assertIsNone(restarted.resolve_binding("education_list", new))
+
     def test_preview_classroom_list_remap_survives_restart_and_context_reset(self):
         with TemporaryDirectory() as root:
             path = Path(root) / "keymap.json"

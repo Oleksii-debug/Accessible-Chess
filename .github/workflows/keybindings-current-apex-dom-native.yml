@@ -24,6 +24,9 @@ on:
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/version2_local_profile_dom_test.js'
       - 'tests/js/toolbar_keymap_test_support.js'
+      - 'tests/js/keymap_shell_test_support.js'
+      - 'tests/js/remappable_board_grid_controls_current_test.js'
+      - 'tests/js/remappable_input_submit_keys_current_test.js'
       - 'tests/test_keymap_profile_ingress_current.py'
       - 'tests/test_version2_windows_composition_profile.py'
       - 'tests/test_current_remappable_surfaces_qualification.py'
@@ -88,6 +91,7 @@ jobs:
           PLUS_MINUS_DOM_TEST_BLOB: 7838bc5eabcf3c77d153a7b39628039f0bbbe253
           PLUS_MINUS_WEB_INDEX_BLOB: a148d4414c378c3952ff273071e4ebfb0648721a
           KEYMAP_CONTEXT_WEB_INDEX_BLOB: 0b7cbf84cfe7b038084d2de9014594d6a45da548
+          BILINGUAL_WEB_INDEX_BLOB: 75d8365df092de52d8ea48df76ab68fb7199faa6
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -116,7 +120,7 @@ jobs:
             *) echo 'Unqualified terminal keymap test identity' >&2; exit 1 ;;
           esac
           case "$(git rev-parse HEAD:web/index.html)" in
-            "$PLUS_MINUS_WEB_INDEX_BLOB"|"$KEYMAP_CONTEXT_WEB_INDEX_BLOB") ;;
+            "$PLUS_MINUS_WEB_INDEX_BLOB"|"$KEYMAP_CONTEXT_WEB_INDEX_BLOB"|"$BILINGUAL_WEB_INDEX_BLOB") ;;
             *) echo 'Unqualified shared keymap document identity' >&2; exit 1 ;;
           esac
 
@@ -219,6 +223,8 @@ jobs:
           node tests/js/stage1_terminal_keymap_dom_test.js
           node tests/js/stage1_board_rerender_keymap_integration_test.js
           node tests/js/v2_remapped_keyboard_native_editing_test.js
+          node tests/js/remappable_board_grid_controls_current_test.js
+          node tests/js/remappable_input_submit_keys_current_test.js
           node tests/js/pgn_surface_dom_test.js
           node tests/js/pgn_tree_keyboard_dom_test.js
           node tests/js/pgn_tree_boundary_key_ownership_test.js

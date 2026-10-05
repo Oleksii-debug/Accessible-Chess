@@ -105,3 +105,36 @@ uses the same PCM width/byte size to reach SHA-256 rejection, and synthetic
 semantic fixture counts follow the current SoundEvent set rather than a stale
 literal nine. These tests do not identify or substitute the user's latest
 332-file archive; that external archive remains unresolved.
+
+## Actual Classes route keyboard coverage
+
+A production-registry regression reproduced that all three `education_list`
+keyboard actions were absent from the final composition, although its Classes
+route composes EducationSurface. The preview registry tests alone missed this.
+The final profile now includes only the three composed Education keyboard
+actions, not the uncomposed Classroom preview actions. Both languages exercise
+modifier remaps, restart/adoption, removal of old defaults and context reset.
+The 19 Education/profile-ingress unittest cases passed locally. This remains a
+source candidate, not Windows/NVDA or final-package acceptance.
+
+## Bilingual integration and executable live-help coverage
+
+The separately owned #1959 exact source
+`a62e2e1e180cca21c51d013821bb249a45b0e209` is retained by a
+history-preserving merge; its branch is not modified. Its policy and generic
+WebView failure localization are consumed rather than recreated. A regression
+covering both the actual final and full preview registry reproduced 155 missing
+Ukrainian-label subcases. The existing canonical adapter catalog now supplies
+all missing product labels; the eight bilingual contract tests pass. Translation
+does not add remote or preview mutation actions to the production profile.
+
+Three obsolete keyboard tests now execute the actual shipping shell resolver
+and live Help function. They cover remapped board/submit labels in both languages,
+unbound action removal, empty-snapshot clearing, and native editing/copy guards;
+all three Node scripts pass. The plain UTF-8 owner guide now documents all 79
+fallback actions, current remapping/recovery and composed toolbar/Education/profile
+defaults without presenting Classroom preview as the final Classes route.
+All six owner-document tests pass, including executable keyboard coverage.
+The combined 40-case qualification/localization/docs/Education/ingress run passes.
+The previous broader full-suite failure remains unresolved, not overwritten by
+these focused results.
