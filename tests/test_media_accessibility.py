@@ -124,9 +124,10 @@ class MediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertEqual(state["qualification"], "unlinked")
         self.assertFalse(state["restoreEnabled"])
         self.assertIn("no confirmed position", state["announcement"].lower())
+        self.assertIn("nothing was restored", state["announcement"].lower())
         self.assertNotIn("MediaApplicationError", state["announcement"])
 
-    def test_restore_callback_failure_never_exposes_private_exception_text(self) -> None:
+    def test_restore_callback_failure_never_claims_unknown_effect_rolled_back(self) -> None:
         def reject(_value: str) -> None:
             raise RuntimeError(r"private C:\Users\Oleksii\secret\media.db")
 
@@ -139,7 +140,9 @@ class MediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertTrue(state["restoreEnabled"])
         self.assertEqual(service.revision, 0)
         self.assertEqual(service.session.chess_ref, "tree:analysis-private")
-        self.assertIn("could not be restored safely", state["announcement"])
+        self.assertIn("result could not be confirmed", state["announcement"].lower())
+        self.assertIn("check the current chess board", state["announcement"].lower())
+        self.assertNotIn("nothing was changed", state["announcement"].lower())
         self.assertNotIn("Oleksii", repr(state))
         self.assertNotIn("media.db", repr(state))
         self.assertNotIn("RuntimeError", repr(state))
@@ -176,6 +179,22 @@ class MediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertEqual(state["restoreLabel"], "Відновити позицію медіа")
         self.assertIn("Позицію шахів підтверджено", state["statusText"])
         self.assertIn("Відновлено шахову позицію", restored["announcement"])
+
+    def test_ukrainian_indeterminate_restore_result_is_explicit(self) -> None:
+        def reject_after_unknown_effect(_value: str) -> None:
+            raise RuntimeError("unknown external outcome")
+
+        bridge = MediaAccessibilityBridge(
+            _service((_link(20_000, "tree:restore"),), restore=reject_after_unknown_effect),
+            language="uk",
+        )
+
+        state = bridge.restore_position()
+
+        self.assertFalse(state["ok"])
+        self.assertIn("Не вдалося підтвердити результат", state["announcement"])
+        self.assertIn("Перевірте поточну шахову дошку", state["announcement"])
+        self.assertNotIn("Нічого не змінено", state["announcement"])
 
     def test_language_change_rerenders_without_media_mutation(self) -> None:
         service = _service((_link(20_000, "tree:restore"),))
