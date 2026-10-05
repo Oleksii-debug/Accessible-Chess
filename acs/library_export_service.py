@@ -348,6 +348,8 @@ class LibraryExportService:
                 or type(page.has_more) is not bool
             ):
                 raise LibraryExportError("Library export search page is invalid")
+            if len(page.items) > _EXPORT_PAGE_SIZE:
+                raise LibraryExportError("Library export search page exceeds the page limit")
 
             previous_id = 0 if cursor is None else cursor
             for item in page.items:
