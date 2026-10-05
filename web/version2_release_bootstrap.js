@@ -706,7 +706,22 @@
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
-    return actionId === "library.import" || actionId === "library.cancel_import";
+    return actionId === "library.import" || actionId === "library.cancel_import" ||
+      actionId === "library.export";
+  }
+
+  function restoreQueuedNativeFocus(id) {
+    if (!validFocusId(id)) return false;
+    const target = documentRef.getElementById(id);
+    if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
+    if (documentRef.activeElement === target) return true;
+    // A terminal worker event may arrive after the user deliberately moved to
+    // another still-visible V2 control. Never steal that newer focus. Recovery
+    // is only for focus that left the active product surface (for example via
+    // the native Save dialog/menu).
+    const active = documentRef.activeElement;
+    if (active && workspace.contains(active) && !hiddenByAncestor(active)) return true;
+    return focusById(id);
   }
 
   function refreshStage1Surface() {
@@ -831,19 +846,31 @@
         return;
       }
       let needsRefresh = false;
+      let queuedTerminalFocus = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
+        if (
+          plainObject(event) &&
+          (event.kind === "status" || event.kind === "error") &&
+          plainObject(event.payload) &&
+          validFocusId(event.payload.focus_target)
+        ) {
+          queuedTerminalFocus = event.payload.focus_target;
+        }
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
         if (refreshRequired) needsRefresh = true;
       });
-      if (!needsRefresh && !orderedStage1Refreshes.length) return;
+      if (!needsRefresh && !orderedStage1Refreshes.length) {
+        if (queuedTerminalFocus) restoreQueuedNativeFocus(queuedTerminalFocus);
+        return;
+      }
       const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
         return chain.then(function () { return refreshStage1(); });
       }, Promise.resolve());
       return repaintBarrier.then(function () {
-        // refresh(true) is the only focus authority. Native event payloads may
-        // request canonical re-rendering, but never apply a second raw DOM
-        // focus target after the snapshot has restored focus.
+        // A repaint owns focus through refresh(true). Raw terminal focus is used
+        // only in the no-repaint path above, so one event can never produce two
+        // competing focus transitions.
         return needsRefresh ? refresh(true) : undefined;
       });
     }).then(finishEventDrain, finishEventDrain);
