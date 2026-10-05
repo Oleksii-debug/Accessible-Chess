@@ -275,6 +275,60 @@ class MediaPositionTimeline:
             raise MediaContractError("no qualified media position exists at this timestamp")
         return binding.fen
 
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "version": 1,
+            "bindings": [
+                {
+                    "start_ms": item.start_ms,
+                    "end_ms": item.end_ms,
+                    "fen": item.fen,
+                    "tree_path": list(item.tree_path),
+                    "state": item.state.value,
+                    "evidence_ids": list(item.evidence_ids),
+                }
+                for item in self._bindings
+            ],
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> "MediaPositionTimeline":
+        if not isinstance(payload, Mapping) or set(payload) != {"version", "bindings"}:
+            raise MediaContractError("timeline payload fields are invalid")
+        if payload["version"] != 1:
+            raise MediaContractError("timeline payload version is unsupported")
+        raw_bindings = payload["bindings"]
+        if type(raw_bindings) is not list:
+            raise MediaContractError("timeline bindings payload must be a list")
+        bindings: list[MediaPositionBinding] = []
+        for raw in raw_bindings:
+            if type(raw) is not dict or set(raw) != {
+                "start_ms",
+                "end_ms",
+                "fen",
+                "tree_path",
+                "state",
+                "evidence_ids",
+            }:
+                raise MediaContractError("timeline binding payload fields are invalid")
+            tree_path = raw["tree_path"]
+            evidence_ids = raw["evidence_ids"]
+            if type(tree_path) is not list or any(type(item) is not int for item in tree_path):
+                raise MediaContractError("timeline tree_path payload is invalid")
+            if type(evidence_ids) is not list or any(type(item) is not str for item in evidence_ids):
+                raise MediaContractError("timeline evidence_ids payload is invalid")
+            bindings.append(
+                MediaPositionBinding(
+                    start_ms=raw["start_ms"],
+                    end_ms=raw["end_ms"],
+                    fen=raw["fen"],
+                    tree_path=tuple(tree_path),
+                    state=ReconciliationState(raw["state"]),
+                    evidence_ids=tuple(evidence_ids),
+                )
+            )
+        return cls(tuple(bindings))
+
 
 @dataclass(frozen=True, slots=True)
 class ReconciliationResult:
