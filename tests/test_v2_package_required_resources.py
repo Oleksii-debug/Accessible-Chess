@@ -104,6 +104,32 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_preflight_rejects_non_windows_product_executable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            (root / "AccessibleChess/AccessibleChess.exe").write_bytes(
+                b"\x7fELF" + (b"\x00" * 124)
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "packaged AccessibleChess executable is not a valid Windows PE executable",
+            ):
+                _validate_tree(root)
+
+    def test_preflight_rejects_mz_only_product_executable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            (root / "AccessibleChess/AccessibleChess.exe").write_bytes(
+                b"MZ" + (b"\x00" * 126)
+            )
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "packaged AccessibleChess executable is not a valid Windows PE executable",
+            ):
+                _validate_tree(root)
+
     def test_preflight_rejects_non_pe_desktop_startup_runtime(self):
         relative = "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
         with tempfile.TemporaryDirectory() as td:
