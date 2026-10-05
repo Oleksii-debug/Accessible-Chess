@@ -371,6 +371,20 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             PgnDocumentSession(workspace, saved_digest=digest)
 
+    def test_session_rejects_noncanonical_saved_digest_at_ingress(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        invalid = (
+            "",
+            "0" * 63,
+            "0" * 65,
+            "A" * 64,
+            "z" * 64,
+        )
+        for digest in invalid:
+            with self.subTest(digest=digest):
+                with self.assertRaises(ValueError):
+                    PgnDocumentSession(workspace, saved_digest=digest)
+
     def test_session_rejects_nonpassive_source_fingerprint_fields(self) -> None:
         workspace = PgnWorkspace.from_text(PGN)
         path = GuardedText("source.pgn")
