@@ -260,8 +260,13 @@ class Version2ImportUiWakeupPump:
                 return
             self._wakeup_pending = True
 
+        ready_callback = (
+            self._run_ui_ready
+            if schedule_retry
+            else lambda: self._run_ui_ready(schedule_retry=False)
+        )
         try:
-            self._post_to_ui(self._run_ui_ready)
+            self._post_to_ui(ready_callback)
         except BaseException:
             with self._lock:
                 self._wakeup_pending = False
@@ -301,7 +306,7 @@ class Version2ImportUiWakeupPump:
         except BaseException:
             _safe_warning("Version 2 Library UI wake-up retry failed")
 
-    def _run_ui_ready(self) -> None:
+    def _run_ui_ready(self, *, schedule_retry: bool = True) -> None:
         if threading.get_ident() != self._ui_thread_id:
             with self._lock:
                 self._wakeup_pending = False
@@ -317,11 +322,13 @@ class Version2ImportUiWakeupPump:
         except BaseException:
             with self._lock:
                 self._ready_failures += 1
-            # Presentation delivery is an observer boundary. Pending mailbox
-            # events remain available for explicit UI recovery/retry. Never let
-            # an abort-class presentation failure or diagnostic handler replace
-            # the retained canonical mailbox state.
+            # Presentation delivery is an observer boundary. Keep the exact
+            # mailbox batch authoritative and make one bounded automatic retry;
+            # a repeated presentation failure remains retained for explicit
+            # recovery without creating an infinite UI-post loop.
             _safe_warning("Version 2 Library UI-ready callback failed")
+            if schedule_retry:
+                self._schedule_retry()
 
     def request_pending_wakeup(self) -> bool:
         """Request a UI wakeup for already-pending events after recoverable failure."""
