@@ -94,6 +94,25 @@ class MediaApplicationTests(unittest.TestCase):
         self.assertEqual(service.session.chess_ref, "opaque:not-a-fen")
         self.assertIn("Restored the chess position", result.accessible_text)
 
+    def test_restore_can_use_explicit_provider_timestamp_atomically(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1", (link(20_000, "tree:provider-time"),)
+        )
+        calls = []
+        service = self.service(
+            timeline,
+            MediaChessSession(MediaCursor("lesson-1", 0), "tree:analysis"),
+            calls,
+        )
+
+        result = service.restore_media_position(20_500)
+
+        self.assertEqual(calls, ["tree:provider-time"])
+        self.assertEqual(result.position_ms, 20_500)
+        self.assertEqual(service.session.media_cursor.position_ms, 20_500)
+        self.assertEqual(service.session.chess_ref, "tree:provider-time")
+        self.assertEqual(service.revision, 1)
+
     def test_restore_failure_does_not_commit_application_cursor_or_revision(self):
         timeline = MediaPositionTimeline("lesson-1", (link(20_000, "tree:b"),))
 
@@ -110,9 +129,10 @@ class MediaApplicationTests(unittest.TestCase):
         )
 
         with self.assertRaises(RuntimeError):
-            service.restore_media_position()
+            service.restore_media_position(21_000)
 
         self.assertEqual(service.session.chess_ref, "tree:analysis")
+        self.assertEqual(service.session.media_cursor.position_ms, 20_500)
         self.assertEqual(service.revision, 0)
 
     def test_candidate_only_state_fails_before_restore_effect(self):
