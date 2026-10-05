@@ -693,6 +693,27 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assertEqual(session.source, source)
         self.assertTrue(session.dirty)
 
+    def test_bookmark_rejects_active_live_workspace_digest_before_hooks(self) -> None:
+        session = self.session()
+        digest = GuardedText(session.workspace.content_digest)
+        digest.armed = True
+        session.workspace._content_digest = digest
+
+        with self.assertRaises(TypeError):
+            session.bookmark()
+
+    def test_restore_rejects_active_live_workspace_digest_before_comparison(self) -> None:
+        session = self.session()
+        context = session.bookmark()
+        digest = GuardedText(session.workspace.content_digest)
+        digest.armed = True
+        session.workspace._content_digest = digest
+
+        self.assert_document_error(
+            PgnDocumentErrorCode.CONTEXT_STALE,
+            lambda: session.restore_context(context),
+        )
+
     def test_restore_rejects_context_subclass_before_attribute_hooks(self) -> None:
         session = self.session()
         bookmark = session.bookmark()
