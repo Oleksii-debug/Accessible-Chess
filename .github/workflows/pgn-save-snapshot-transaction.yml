@@ -21,25 +21,39 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
+      BASE_BRANCH: converge/current-product-books-provider-20261005-ooxple7
       BASE_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Prove exact Product ancestry and bounded scope
+      - name: Prove exact current Product ancestry and bounded scope
         shell: bash
         run: |
           set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+
+          git fetch --no-tags origin "$BASE_BRANCH"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test "$live_base" = "$BASE_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
           merge_base="$(git merge-base "$BASE_SHA" HEAD)"
           test "$merge_base" = "$BASE_SHA"
+
           mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
           expected=(
             ".github/workflows/pgn-save-snapshot-transaction.yml"
             "acs/pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot.py"
+            "tests/test_pgn_save_snapshot_cancel.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
@@ -47,10 +61,17 @@ jobs:
           done
 
       - name: Compile transaction boundary
-        run: python -m py_compile acs/pgn_save_snapshot.py tests/test_pgn_save_snapshot.py
+        run: >-
+          python -m py_compile
+          acs/pgn_save_snapshot.py
+          tests/test_pgn_save_snapshot.py
+          tests/test_pgn_save_snapshot_cancel.py
 
       - name: Execute snapshot transaction regressions
-        run: python -m unittest -v tests.test_pgn_save_snapshot
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_save_snapshot_cancel
 
       - name: Retain canonical PGN document regressions
         run: python -m unittest -v tests.test_pgn_document
