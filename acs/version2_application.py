@@ -1987,7 +1987,7 @@ class Version2Application:
         # AccessibleShellState owns the one canonical DOM focus-ID contract.
         # Validate there before publishing the token to native-menu ingress so
         # _focus can never diverge from the route-local shell memory.
-        self.shell.record_focus(token)
+        self.shell.record_observed_focus(token)
         self._focus = token
 
     def import_ui_ready(self, mailbox):
