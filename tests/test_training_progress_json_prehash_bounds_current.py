@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.chesscore import Board
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
@@ -57,6 +58,24 @@ class TrainingProgressJsonPrehashBoundsTests(unittest.TestCase):
                 "object contains too many members",
             ):
                 TrainingProgressStore(path).load(self._definition())
+
+            self.assertEqual(raw, path.read_bytes())
+
+    def test_decoder_recursion_failure_is_fail_closed_and_preserves_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "training-progress.json"
+            raw = b'{"schema_version":1,"snapshot":{}}'
+            path.write_bytes(raw)
+
+            with mock.patch(
+                "acs.training_progress_store.json.loads",
+                side_effect=RecursionError("maximum recursion depth exceeded"),
+            ):
+                with self.assertRaisesRegex(
+                    TrainingProgressResourceError,
+                    "nesting depth exceeds the resource limit",
+                ):
+                    TrainingProgressStore(path).load(self._definition())
 
             self.assertEqual(raw, path.read_bytes())
 
