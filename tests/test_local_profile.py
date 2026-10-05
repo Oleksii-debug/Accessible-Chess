@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import acs.local_profile as local_profile_module
 from acs.local_profile import (
     LocalProfileConflict,
     LocalProfileDurabilityUnknownError,
@@ -411,7 +412,7 @@ class LocalProfileStoreTests(unittest.TestCase):
             with self.assertRaises(LocalProfileDurabilityUnknownError) as caught:
                 self.store.create("Alice")
 
-        self.assertIsNone(caught.exception.__cause__.__cause__ if caught.exception.__cause__ else None)
+        self.assertIsInstance(caught.exception.__cause__, OSError)
         visible = self.store.load()
         self.assertIsNotNone(visible)
         self.assertEqual(visible.display_name, "Alice")
@@ -420,10 +421,7 @@ class LocalProfileStoreTests(unittest.TestCase):
     def test_rename_primary_durability_failure_keeps_new_revision_visible_and_backup_old(self) -> None:
         original = self.store.create("Alice")
         original_bytes = self.store.path.read_bytes()
-        real_sync = __import__(
-            "acs.local_profile",
-            fromlist=["_sync_profile_publication"],
-        )._sync_profile_publication
+        real_sync = local_profile_module._sync_profile_publication
 
         def fail_primary_sync(path: Path) -> None:
             if Path(path) == self.store.path:
