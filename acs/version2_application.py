@@ -436,8 +436,14 @@ class Version2Application:
             try:
                 chessbase = chessbase_factory(database) if chessbase_factory else None
                 return Version2ImportWorkerServices(LibraryImportService(database), chessbase, database.close)
-            except Exception:
-                database.close()
+            except BaseException:
+                # A provider/factory abort must not leak the per-worker DB handle,
+                # and a secondary close failure must not replace the original
+                # factory failure that the host will classify path-free.
+                try:
+                    database.close()
+                except BaseException:
+                    pass
                 raise
         return Version2ObservedImportServicesFactory(create, progress_sink=self.observe_progress, result_sink=self.observe_result)
 

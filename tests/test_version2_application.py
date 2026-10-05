@@ -60,6 +60,35 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
 
+    def test_worker_factory_abort_closes_database_without_replacing_primary_failure(self):
+        closed = []
+
+        class FactoryAbort(BaseException):
+            pass
+
+        class CloseAbort(BaseException):
+            pass
+
+        class FakeDatabase:
+            def close(self):
+                closed.append(True)
+                raise CloseAbort()
+
+        database = FakeDatabase()
+
+        def fail_chessbase(_database):
+            raise FactoryAbort()
+
+        with patch("acs.version2_application.AcsDatabase", return_value=database):
+            factory = self.app.worker_factory(
+                self.root / "factory-abort.acsdb",
+                chessbase_factory=fail_chessbase,
+            )
+            with self.assertRaises(FactoryAbort):
+                factory()
+
+        self.assertEqual(closed, [True])
+
     def test_record_focus_uses_one_exact_shell_dom_id_authority(self):
         self.app.record_focus("board-square-e4")
         self.assertEqual("board-square-e4", self.app._focus)
