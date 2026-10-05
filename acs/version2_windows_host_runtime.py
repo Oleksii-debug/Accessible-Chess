@@ -247,6 +247,8 @@ class Version2WindowsFileWorkflowRuntime:
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow actions require UI thread")
+        if type(action_id) is not str:
+            raise TypeError("Version 2 Windows file workflow action id must be text")
 
         library_start = action_id in {"library.import", "library.export"}
         with self._lock:
