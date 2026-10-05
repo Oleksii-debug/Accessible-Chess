@@ -576,6 +576,20 @@
       }
     }
     requireBookmarkSpec(snapshot);
+    if (snapshot.book_metadata !== undefined) {
+      const metadata = snapshot.book_metadata;
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+          Object.keys(metadata).length !== 3 ||
+          !["title", "author", "language"].every(function (key) { return Object.prototype.hasOwnProperty.call(metadata, key); })) {
+        throw new TypeError("Book reading metadata is invalid");
+      }
+      requireBoundedText(metadata.title, "Book title", false, 360);
+      requireBoundedText(metadata.author, "Book author", true, 360);
+      requireBoundedText(metadata.language, "Book source language", true, 63);
+      if (metadata.language && !/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(metadata.language)) {
+        throw new TypeError("Book source language is invalid");
+      }
+    }
     requireStarterMaterials(snapshot);
     requireActions(
       snapshot.actions,
@@ -1140,6 +1154,19 @@
     main.setAttribute("lang", snapshot.document.lang);
     main.appendChild(node("h2", snapshot.heading || ""));
     renderStarterMaterials(root, main, snapshot, invoke, announce, fallbackMessage);
+    if (snapshot.book_metadata) {
+      const metadata = snapshot.book_metadata;
+      const title = node("h3", metadata.title);
+      title.id = "book-document-title";
+      if (metadata.language) title.setAttribute("lang", metadata.language);
+      main.appendChild(title);
+      if (metadata.author) {
+        const author = node("p", metadata.author);
+        author.id = "book-document-author";
+        if (metadata.language) author.setAttribute("lang", metadata.language);
+        main.appendChild(author);
+      }
+    }
     const block = snapshot.block || {};
     renderBookBlock(main, block, snapshot.semantic_tree || null);
 

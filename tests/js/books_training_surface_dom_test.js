@@ -3106,10 +3106,14 @@ async function run() {
   const languageSnapshot = bookSnapshot(40, "English prose");
   languageSnapshot.document.lang = "uk";
   languageSnapshot.block.content_language = "en-GB";
+  languageSnapshot.book_metadata = { title: "English chess book", author: "Book author", language: "en-GB" };
   window.AccessibleChessBookSurface.render(languageRoot, languageSnapshot,
     () => null, () => {}, "book-block-40");
   const sourceBlock = languageRoot.querySelector("#book-block-40");
   check(sourceBlock.attributes.lang === "en-GB", "source language was not applied to narrative content");
+  check(languageRoot.querySelector("#book-document-title").textContent === "English chess book", "book title was not exposed");
+  check(languageRoot.querySelector("#book-document-author").textContent === "Book author", "book author was not exposed");
+  check(languageRoot.querySelector("#book-document-title").attributes.lang === "en-GB", "book title source language was lost");
   check(document.activeElement === sourceBlock, "source language changed reading focus");
   const languageRenders = languageRoot.replaceChildrenCalls;
   languageSnapshot.block.content_language = 'en\" onclick=\"attack';

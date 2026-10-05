@@ -92,6 +92,11 @@ class BookReader:
         self._require_indexed_revision()
         return self._indexed_document.language
 
+    def document_title_author_snapshot(self) -> tuple[str, str | None]:
+        """Reading metadata from the immutable indexed document revision."""
+        self._require_indexed_revision()
+        return self._indexed_document.title, self._indexed_document.author
+
     def document_warnings_snapshot(
         self,
         *,

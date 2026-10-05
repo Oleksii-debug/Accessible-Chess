@@ -679,12 +679,26 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
         semantic = self._reader.block_snapshot(block.index)
+        book_title, book_author = self._reader.document_title_author_snapshot()
+        source_language = self._reader.document_language_snapshot()
+        valid_source_language = (type(source_language) is str and len(source_language) <= 63
+                                 and re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", source_language))
+        def reading_metadata(value):
+            if value is None:
+                return ""
+            # Metadata stays complete in BookDocument; indicate the bounded
+            # presentation excerpt rather than scanning a source-sized scalar.
+            excerpt = value if len(value) <= 359 else value[:358] + "…"
+            return _safe_text(excerpt, language=self.language, limit=360)
+        snapshot["book_metadata"] = {
+            "title": reading_metadata(book_title),
+            "author": reading_metadata(book_author),
+            "language": source_language if valid_source_language else "",
+        }
         if block.kind in {"Heading", "Paragraph", "List"}:
-            source_language = self._reader.document_language_snapshot()
             # Source metadata is not a UI locale. Publish a bounded language
             # token only for narrative content; chess controls keep UI language.
-            if (type(source_language) is str and len(source_language) <= 63
-                    and re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", source_language)):
+            if valid_source_language:
                 snapshot["block"]["content_language"] = source_language
         board_active, workflow_revision = self._workflow_presentation_state()
         can_open_position = isinstance(

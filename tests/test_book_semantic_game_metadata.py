@@ -13,16 +13,31 @@ from acs.version2_book_workspace import build_version2_book_webview
 
 class BookSemanticGameMetadataTests(unittest.TestCase):
     def test_narrative_source_language_uses_detached_reader_metadata(self):
-        document = BookDocument('Study', language='en-GB', blocks=[Paragraph(text='English prose')])
+        document = BookDocument('Study', author='Author', language='en-GB', blocks=[Paragraph(text='English prose')])
         reader = BookReader(document)
         analysis = AnalysisService(lambda: None)
         self.addCleanup(analysis.close)
         workflow = BookBoardWorkflow(reader, EngineAssistedWorkflowService(analysis))
         bridge = build_version2_book_webview(reader, workflow, lambda *_: None, language=UILanguage.UA)
         document.language = 'uk'
+        document.title = 'Mutated title'
+        document.author = 'Mutated author'
         snapshot = bridge.projection.snapshot()
         self.assertEqual(snapshot['block']['content_language'], 'en-GB')
         self.assertEqual(snapshot['document']['lang'], 'uk')
+        self.assertEqual(snapshot['book_metadata'], {'title': 'Study', 'author': 'Author', 'language': 'en-GB'})
+
+    def test_book_reading_metadata_is_bounded_and_path_redacted(self):
+        reader = BookReader(BookDocument('T' * 1000, author='Author C:/private/source.epub', blocks=[Paragraph(text='Prose')]))
+        analysis = AnalysisService(lambda: None)
+        self.addCleanup(analysis.close)
+        workflow = BookBoardWorkflow(reader, EngineAssistedWorkflowService(analysis))
+        bridge = build_version2_book_webview(reader, workflow, lambda *_: None)
+        metadata = bridge.projection.snapshot()['book_metadata']
+        self.assertLessEqual(len(metadata['title']), 360)
+        self.assertTrue(metadata['title'].endswith('…'))
+        self.assertNotIn('C:/private', metadata['author'])
+        self.assertEqual(len(reader.document_title_author_snapshot()[0]), 1000)
 
     def test_invalid_source_language_is_not_a_browser_attribute(self):
         for language in ('x' * 64, 'en\" onclick=\"attack', 'C:/private/book'):
