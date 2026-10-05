@@ -296,6 +296,20 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                     runtime("library.import", {})
                 self.assertEqual(_OpenDialog.owners, [])
 
+                class HostileCancelPayload(dict):
+                    def __bool__(self):
+                        raise AssertionError("payload truthiness must not run")
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Library cancellation accepts no payload",
+                ):
+                    runtime(
+                        "library.cancel_import",
+                        HostileCancelPayload(unexpected=True),
+                    )
+                self.assertTrue(runtime.export_running)
+
                 self.assertEqual(len(owner.posted), 1)
                 owner.posted.pop(0)()
                 self.assertFalse(runtime.export_running)
