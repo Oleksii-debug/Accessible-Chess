@@ -62,23 +62,33 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
             'test "$product_count" -eq 216',
-            'test "$candidate_count" -eq 218',
+            'test "$candidate_count" -eq 227',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
-    def test_only_five_qualification_files_may_differ_from_product(self) -> None:
+    def test_exact_fifteen_qualification_and_evidence_files_may_differ_from_product(self) -> None:
         required = (
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             "ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml",
             "PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml",
             "INTEGRATION_WORKFLOW: .github/workflows/current-product-shipping-integration-20261005.yml",
             "INTEGRATION_TEST: tests/test_current_product_shipping_integration_20261005.py",
+            ".github/workflows/current-product-training-durability-convergence.yml",
+            ".github/workflows/current-product-windows-evidence-convergence.yml",
+            ".github/workflows/p0-user-oneclick-portable-launcher.yml",
+            ".github/workflows/portable-launch-report-reparse-safety.yml",
+            ".github/workflows/training-progress-durability.yml",
+            "tests/test_current_product_training_durability_convergence_20261005.py",
+            "tests/test_current_product_windows_evidence_convergence_20261005.py",
+            "tests/test_p0_oneclick_exact_head_concurrency.py",
+            "tests/test_portable_launch_report_reparse_concurrency.py",
+            "tests/test_training_progress_durability_concurrency.py",
             'extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"',
             'test "$extra_paths" = "$expected_extra"',
-            "QUALIFICATION_DELTA_PATHS=5",
+            "QUALIFICATION_DELTA_PATHS=15",
             'test "$candidate_paths" = "$expected_candidate"',
         )
         for fragment in required:
@@ -94,7 +104,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
             'test "$product_count" -eq 216',
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 218',
+            'test "$candidate_count" -eq 227',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -110,7 +120,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 218',
+            'test "$candidate_count" -eq 227',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -158,6 +168,11 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "tests.test_book_library_import_journey",
             "tests.test_book_training_variant_authority",
             "tests.test_pgn_board_start_authority",
+            "tests.test_current_product_windows_evidence_convergence_20261005",
+            "tests.test_current_product_training_durability_convergence_20261005",
+            "tests.test_p0_oneclick_exact_head_concurrency",
+            "tests.test_portable_launch_report_reparse_concurrency",
+            "tests.test_training_progress_durability_concurrency",
             "tests.test_current_main_full_product_convergence_workflow",
             "tests.test_p0_release_critical_triad_convergence",
             "tests.test_version2_application",
