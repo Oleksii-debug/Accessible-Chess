@@ -56,7 +56,9 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.standalone = self.root / "standalone"
         (self.standalone / "web").mkdir(parents=True)
-        (self.standalone / "AccessibleChess.exe").write_bytes(b"MZ\0v2-standalone")
+        (self.standalone / "AccessibleChess.exe").write_bytes(
+            self._windows_x64_pe(b"v2-standalone")
+        )
         (self.standalone / "AccessibleChess.exe.config").write_text(
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
