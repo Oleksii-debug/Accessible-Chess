@@ -1176,6 +1176,18 @@ def _validate_required_runtime_resources(
     inventory: tuple[str, ...],
     limits: PackageLimits,
 ) -> None:
+    product_executable = _require_package_file(
+        root,
+        inventory,
+        "AccessibleChess/AccessibleChess.exe",
+        label="packaged AccessibleChess executable",
+        min_bytes=64,
+    )
+    _validate_windows_pe_executable(
+        product_executable,
+        label="packaged AccessibleChess executable",
+    )
+
     app_config = _require_package_file(
         root,
         inventory,
