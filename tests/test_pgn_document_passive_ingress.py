@@ -11,6 +11,7 @@ from acs.pgn_document import (
     PgnDocumentSession,
 )
 from acs.pgn_workspace import PgnWorkspace
+from acs.position_editor import standard_position
 
 
 PGN = '''[Event "Passive ingress"]
@@ -52,6 +53,10 @@ class GuardedText(str):
     def strip(self, *args: object, **kwargs: object) -> str:
         self._guard("strip")
         return super().strip(*args, **kwargs)
+
+    def __format__(self, format_spec: str) -> str:
+        self._guard("format")
+        return super().__format__(format_spec)
 
 
 class ActiveMapping(dict[str, str]):
@@ -139,6 +144,16 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assert_document_error(
             PgnDocumentErrorCode.INVALID_TAG,
             lambda: PgnDocumentSession.new_game({"Event": value}),
+        )
+
+    def test_new_game_from_position_rejects_tampered_nested_text_before_format_hook(self) -> None:
+        position = standard_position()
+        castling = GuardedText("KQkq")
+        castling.armed = True
+        object.__setattr__(position, "castling", castling)
+        self.assert_document_error(
+            PgnDocumentErrorCode.INVALID_POSITION,
+            lambda: PgnDocumentSession.new_game_from_position(position),
         )
 
     def test_edit_tag_rejects_active_name_before_hash_or_equality(self) -> None:
