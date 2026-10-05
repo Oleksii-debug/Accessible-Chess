@@ -531,6 +531,9 @@
           if (event.key === "ArrowUp") actionId = "pgn.previous_item";
           else if (event.key === "ArrowDown") actionId = "pgn.next_item";
           else if (event.key === "ArrowLeft") actionId = "pgn.parent_variation";
+          else if (event.key === "ArrowRight") actionId = "pgn.first_child";
+          else if (event.key === "Home") actionId = "pgn.first_item";
+          else if (event.key === "End") actionId = "pgn.last_item";
         }
 
         let command = "";
@@ -551,28 +554,19 @@
         } else if (actionId === "pgn.parent_variation") {
           handled = true;
           if (item.has_parent) command = "pgn.parent";
-        } else if (
-          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
-          event.key === "ArrowRight"
-        ) {
+        } else if (actionId === "pgn.first_child") {
           handled = true;
           if (hasChild) {
             command = "pgn.select";
             payload = { node_id: snapshot.tree[itemIndex + 1].node_id };
           }
-        } else if (
-          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
-          event.key === "Home"
-        ) {
+        } else if (actionId === "pgn.first_item") {
           handled = true;
           if (itemIndex > 0 && snapshot.tree.length) {
             command = "pgn.select";
             payload = { node_id: snapshot.tree[0].node_id };
           }
-        } else if (
-          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
-          event.key === "End"
-        ) {
+        } else if (actionId === "pgn.last_item") {
           handled = true;
           if (itemIndex + 1 < snapshot.tree.length) {
             command = "pgn.select";
