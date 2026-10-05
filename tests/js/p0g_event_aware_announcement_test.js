@@ -40,6 +40,47 @@ const onBoardKey = shippingLine(
   line => line.startsWith('async function onBoardKey('),
   'board keyboard handler'
 );
+const stopCapture = shippingLine(
+  line => line.startsWith('function stopCapture('),
+  'shortcut capture stop handler'
+);
+const beginCapture = shippingLine(
+  line => line.startsWith('function beginCapture('),
+  'shortcut capture begin handler'
+);
+const captureHandler = shippingLine(
+  line => line.startsWith("document.addEventListener('keydown',async e=>{if(!capture)"),
+  'shortcut capture keyboard handler'
+);
+const applyKeymapMutation = shippingLine(
+  line => line.startsWith('async function applyKeymapMutation('),
+  'keymap mutation result handler'
+);
+const renderKeymap = shippingLine(
+  line => line.startsWith('function renderKeymap(){'),
+  'keymap editor renderer'
+);
+const keyResetHandlers = shippingLine(
+  line => line.startsWith("el('key-reset-context').addEventListener('click'"),
+  'keymap reset handlers'
+);
+const keyExportHandler = shippingLine(
+  line => line.startsWith("el('key-export').addEventListener('click'"),
+  'keymap export handler'
+);
+const keyImportHandler = shippingLine(
+  line => line.startsWith("el('key-import').addEventListener('change'"),
+  'keymap import handler'
+);
+const recoveryAnnouncement = shippingLine(
+  line => line.startsWith('function renderKeymapRecovery('),
+  'passive keymap recovery announcement'
+);
+const loadKeymap = shippingLine(
+  line => line.startsWith('async function loadKeymap('),
+  'keymap load handler'
+);
+
 assert(
   declaration.includes('announcementQueue=[]') &&
     declaration.includes('announcementPublishing=false'),
@@ -64,6 +105,35 @@ assert(
   onBoardKey.includes('analysisViewingTemporaryPosition') &&
     onBoardKey.includes('announceUserAction('),
   'temporary-variation board action warning must carry a fresh event identity'
+);
+
+for (const [source, label] of [
+  [stopCapture, 'shortcut capture cancellation'],
+  [beginCapture, 'shortcut capture start'],
+  [captureHandler, 'shortcut capture result/error'],
+  [applyKeymapMutation, 'keymap mutation result/error'],
+  [renderKeymap, 'keymap preview/save result/error'],
+  [keyResetHandlers, 'keymap reset result/error'],
+  [keyExportHandler, 'keymap export result/error'],
+  [keyImportHandler, 'keymap import result/error'],
+]) {
+  assert(
+    source.includes('announceUserAction('),
+    `${label} must publish with a fresh user-action event identity`
+  );
+  assert(
+    !/\bannounce\(/.test(source),
+    `${label} must not fall back to passive 500 ms text dedupe`
+  );
+}
+assert(
+  recoveryAnnouncement.includes('announce(message)') &&
+    !recoveryAnnouncement.includes('announceUserAction('),
+  'passive recovery status must retain bounded duplicate suppression'
+);
+assert(
+  loadKeymap.includes("announce(document.documentElement.lang"),
+  'passive keymap-load failure must retain bounded duplicate suppression'
 );
 
 const writes = [];
@@ -138,8 +208,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     'rapid distinct user results must be serialized without cancellation'
   );
 
-  // Direct keyboard feedback follows the same event semantics even when it does
-  // not pass through apiAction.
+  // Direct keyboard/settings feedback follows the same event semantics even when
+  // it does not pass through apiAction.
   writes.length = 0;
   context.testUserAction('Повторне попередження');
   context.testUserAction('Повторне попередження');
@@ -147,7 +217,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.deepStrictEqual(
     writes,
     ['', 'Повторне попередження', '', 'Повторне попередження'],
-    'distinct direct keyboard actions must both reach the live region'
+    'distinct direct user actions must both reach the live region'
   );
 
   // A duplicate emission from one event must stay suppressed even when another

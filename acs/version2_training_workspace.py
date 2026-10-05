@@ -215,16 +215,19 @@ class Version2BookTrainingWorkspace:
             raise
         self.reader.block_snapshot(current.index)
         for index in range(current.index + 1, len(indexed_document.blocks)):
-            block = self.reader.block_snapshot(index)
+            # The detached document is already bound to the indexed revision.
+            # Revalidating the entire live book for every intervening prose block
+            # makes Continue availability quadratic in book length. Traverse this
+            # snapshot, then revalidate before returning any successor or result.
+            block = indexed_document.blocks[index]
             if not isinstance(block, Exercise):
                 continue
             try:
                 candidate = build_book_training_material(indexed_document, index)
             except BookTrainingError:
-                # Distinguish stable malformed authored chess content from a live
-                # revision that changed during derivation. The former stays a
-                # readable Book block; the latter must fail closed.
-                self.reader.block_snapshot(index)
+                # Stable malformed material stays readable. Live authoring drift
+                # is still rejected by the final whole-revision validation; no
+                # intermediate candidate is published or changes the reader.
                 continue
             except Exception:
                 # Never leak implementation exceptions caused by concurrent

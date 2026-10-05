@@ -1,0 +1,167 @@
+name: Book Library Training and Education journeys
+on:
+  pull_request:
+    paths:
+      - 'acs/book*.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_book_workspace.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_pgn_streaming_host.py'
+      - 'acs/library_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - 'acs/library_export_service.py'
+      - 'web/full_product_library.js'
+      - 'tests/test_library_date_filter_journey.py'
+      - 'tests/test_dev1_library_webview_projection.py'
+      - 'tests/js/library_surface_dom_test.js'
+      - 'tests/js/library_export_surface_dom_test.js'
+      - 'tests/js/version2_library_progress_filter_preservation_dom_test.js'
+      - 'tests/test_pgn_source_reading_feedback.py'
+      - 'tests/test_pgn_stream*.py'
+      - 'tests/test_v2_windows_pgn_streaming*.py'
+      - 'acs/import_contract.py'
+      - 'acs/teacher_webview_bridge.py'
+      - 'acs/teacher_webview_projection.py'
+      - 'acs/student_progress_store.py'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/chessbase_library_import.py'
+      - 'acs/cbv_extractor.py'
+      - 'web/full_product_teacher.js'
+      - 'web/full_product_education.js'
+      - 'tests/js/education_surface_dom_test.js'
+      - 'acs/version2_final_product_application.py'
+      - 'acs/version2_education_mutation_application.py'
+      - 'web/full_product_books_training.js'
+      - 'tests/test_book*.py'
+      - 'tests/test_v2_book_html*.py'
+      - 'tests/test_v2_html_semantic_lists.py'
+      - 'tests/test_markdown_library_journey.py'
+      - 'tests/test_native_format_failure_feedback.py'
+      - 'tests/test_education_create_resume_journey.py'
+      - 'tests/test_version2_education*.py'
+      - 'tests/test_version2_teacher*.py'
+      - 'tests/test_teacher_webview_bridge.py'
+      - 'tests/test_dev1_teacher_webview_projection.py'
+      - 'tests/test_d09_teacher_canonical_webview_composition.py'
+      - 'tests/test_d08_training_canonical_resume.py'
+      - 'tests/test_w2_training_progress_crash_recovery.py'
+      - 'tests/test_dev3_student_progress*.py'
+      - 'tests/test_student_progress*.py'
+      - 'tests/test_version2_student_progress_context_binding.py'
+      - 'tests/test_chessbase_active_import_cancellation.py'
+      - 'tests/test_chessbase_decoder.py'
+      - 'tests/test_cbv_extractor.py'
+      - 'tests/test_v2_book_epub*.py'
+      - 'tests/test_epub_dc_metadata_identity.py'
+      - 'tests/test_legacy_book_utf16_integration.py'
+      - 'tests/test_legacy_text_encoding.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_epub_application_reachability.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/teacher_surface_dom_test.js'
+      - '.github/workflows/book-reading-library-work2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  book-journeys:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Retain exact reviewed Product authority
+        run: python -c "import subprocess; subprocess.run(['git','merge-base','--is-ancestor','59486e2c9eff903e416d59a0e7c349c22ee2111d','HEAD'],check=True)"
+      - name: Compile current Python and check whitespace
+        run: |
+          git diff --check 59486e2c9eff903e416d59a0e7c349c22ee2111d HEAD
+          python -m compileall -q acs tests
+      - name: Book Library Board Training and persistence journeys
+        shell: python
+        run: |
+          import importlib
+          import inspect
+          import unittest
+          patterns = (
+            'test_book_html_pgn_loss_accounting.py', 'test_pgn_board_start_authority.py',
+            'test_book_library_import_journey.py', 'test_v2_book_board_workflow.py',
+            'test_d06_pgn_roundtrip.py', 'test_v2_pgn_semantic_fidelity.py',
+            'test_d07_library_import_service.py', 'test_d07_library_export_service.py',
+            'test_import_contract.py', 'test_v2_windows_nvda_file_workflows.py',
+            'test_book_training_variant_authority.py', 'test_d08_book_training_contract.py',
+            'test_w2_book_training_canonical_ingress.py', 'test_book_open_source_authority.py',
+            'test_markdown_library_journey.py', 'test_version2_epub_application_reachability.py',
+            'test_v2_book_text_import.py', 'test_v2_book_training_route_rollback.py',
+            'test_version2_application.py', 'test_book_browser_presentation_lease_required.py',
+            'test_version2_book_workspace.py', 'test_book_semantic_game_metadata.py',
+            'test_book_library_reference_identity.py',
+            'test_book_library_conversion_feedback.py',
+            'test_native_format_failure_feedback.py',
+            'test_book_active_import_cancellation.py',
+            'test_book_training_large_reading_journey.py',
+            'test_bookdocument.py', 'test_bookdocument_deserialize_bounds_current.py',
+            'test_bookdocument_identity_bounds_current.py', 'test_bookdocument_scalar_bounds_current.py',
+            'test_bookdocument_total_text_budget_current.py', 'test_v2_book_game_content.py',
+            'test_v2_book_library_game_lookup.py',
+            'test_v2_book_html_import.py', 'test_v2_book_html_head_metadata_semantics.py',
+            'test_book_html_inline_image_order.py', 'test_v2_html_semantic_lists.py',
+            'test_education_create_resume_journey.py', 'test_version2_education_class_create.py',
+            'test_version2_education_open_selected.py', 'test_version2_teacher_session_runtime_binding.py',
+            'test_teacher_webview_bridge.py', 'test_dev1_teacher_webview_projection.py',
+            'test_d09_teacher_canonical_webview_composition.py', 'test_d08_training_canonical_resume.py',
+            'test_w2_training_progress_crash_recovery.py',
+            'test_dev3_student_progress.py', 'test_dev3_student_progress_store.py',
+            'test_student_progress_store_safety.py', 'test_student_progress_final_product_binding.py',
+            'test_version2_student_progress_context_binding.py',
+            'test_chessbase_active_import_cancellation.py', 'test_chessbase_decoder.py',
+            'test_cbv_extractor.py', 'test_chessbase_adapter.py', 'test_chessbase_integrity.py',
+            'test_d04_cbv_windows_path_safety.py', 'test_d04_chessbase_integrity_handle_identity.py',
+            'test_dev4_chessbase_integrity_atomicity.py', 'test_dev4_chessbase_symlink_security.py',
+            'test_v2_chessbase_capability_manifest.py', 'test_v2_chessbase_chess960_capability_boundary.py',
+            'test_v2_book_epub_import.py', 'test_v2_book_epub_package_contract.py',
+            'test_epub_dc_metadata_identity.py',
+            'test_pgn_source_reading_feedback.py', 'test_pgn_streaming_import.py',
+            'test_library_date_filter_journey.py', 'test_dev1_library_webview_projection.py',
+            'test_d07_library_export_webview.py', 'test_full_product_library_keybindings.py',
+            'test_pgn_stream_source_binding.py', 'test_v2_windows_pgn_streaming_host.py',
+            'test_v2_windows_pgn_streaming_host_lifecycle.py',
+            'test_legacy_book_utf16_integration.py', 'test_legacy_text_encoding.py',
+            'test_education_webview_bridge.py', 'test_education_webview_projection.py',
+            'test_version2_classroom_orchestration_binding.py', 'test_full_product_education_keybindings.py',
+            'test_child_coaching_final_product_binding.py', 'test_p0g_final_product_runtime_reachability.py',
+          )
+          suite = unittest.TestSuite()
+          for pattern in patterns:
+            suite.addTests(unittest.defaultTestLoader.discover('tests', pattern=pattern))
+          composition = importlib.import_module('test_version2_final_product_composition')
+          for name, function in inspect.getmembers(composition, inspect.isfunction):
+            if name.startswith('test_') and not inspect.signature(function).parameters:
+              suite.addTest(unittest.FunctionTestCase(function))
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+      - name: Actual Books Training DOM focus and metadata behavior
+        run: node tests/js/books_training_surface_dom_test.js
+      - name: Actual Teacher DOM focus and result feedback
+        run: node tests/js/teacher_surface_dom_test.js
+      - name: Actual Library DOM date filters and keyboard behavior
+        run: node tests/js/library_surface_dom_test.js
+      - name: Actual Library export checkbox and focus behavior
+        run: node tests/js/library_export_surface_dom_test.js
+      - name: Actual Library incremental import and filter preservation
+        run: node tests/js/version2_library_progress_filter_preservation_dom_test.js
+      - name: Actual Education DOM paging and transport feedback
+        run: node tests/js/education_surface_dom_test.js
+      - name: Canonical chess selftest
+        run: python -m acs.selftest

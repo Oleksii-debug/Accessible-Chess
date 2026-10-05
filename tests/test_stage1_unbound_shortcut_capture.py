@@ -183,7 +183,8 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
             "setText('key-reset-all',en?'Restore all':'Відновити всі')",
             "setText('key-import-label',en?'Import':'Імпорт')",
             "setText('close-keymap',en?'Close':'Закрити')",
-            "applyKeymapLanguage();if(changed&&keymap.length)renderKeymap()",
+            "applyKeymapLanguage();applyCoreUiLanguage(next==='en')",
+            "renderKeymapRecovery(keymapBase,false);if(changed&&keymap.length)renderKeymap()",
         ):
             self.assertIn(token, HTML)
         self.assertIn(
@@ -202,9 +203,11 @@ class Stage1UnboundShortcutCaptureTests(unittest.TestCase):
 
     def test_keymap_mutation_refresh_is_fail_closed_and_recoverable(self) -> None:
         self.assertIn(
-            "if(nextBase.recoveryMessage)announce(document.documentElement.lang==='en'?'Keyboard settings restored.':'Налаштування клавіш відновлено.');return true",
+            "installKeymapSnapshot(nextBase,nextCentral);renderKeymapRecovery(nextBase,true);return true",
             HTML,
         )
+        self.assertNotIn("Keyboard settings restored.", HTML)
+        self.assertNotIn("Налаштування клавіш відновлено.", HTML)
         self.assertIn(
             "announce(document.documentElement.lang==='en'?'Keyboard settings unavailable.':'Налаштування клавіш недоступні.');return false",
             HTML,

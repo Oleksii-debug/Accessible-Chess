@@ -128,9 +128,16 @@ async function run() {
           snapshot: snapshot(payload.coordinate),
           clear_editor: true,
           focus_target: "teacher-pointer-input",
-          announcement: ""
+          announcement: "Pointer " + payload.coordinate
         }
       };
+    }
+    if (command === "teacher.orientation.toggle") {
+      const turned = snapshot("f3");
+      turned.board.orientation = "black";
+      return { kind: "render-visual", payload: {
+        snapshot: turned, focus_target: "teacher-orientation-toggle", announcement: "Black at bottom"
+      } };
     }
     if (command === "teacher.student_event") {
       return {
@@ -187,6 +194,16 @@ async function run() {
   check(hiddenE4.getAttribute("aria-label") === "e4, white pawn", "hidden coordinate mode lost semantic square/piece identity");
 
   const input = root.querySelector("#teacher-pointer-input");
+  const ukrainianRoot = new FakeElement("div");
+  const ukrainianSnapshot = snapshot(null);
+  ukrainianSnapshot.language = "uk";
+  window.AccessibleChessTeacherSurface.render(ukrainianRoot, ukrainianSnapshot, invoke, function () {}, "teacher-pointer-input", "Помилка");
+  check(ukrainianRoot.descendants().some((item) => item.tagName === "H2" && item.textContent === "Викладач / клас"), "Ukrainian Teacher heading missing");
+  check(ukrainianRoot.descendants().some((item) => item.tagName === "LABEL" && item.textContent === "Поле вказівника викладача"), "Ukrainian pointer label missing");
+  check(ukrainianRoot.querySelector("#teacher-orientation-toggle").textContent === "Змінити орієнтацію", "Ukrainian orientation label missing");
+  check(ukrainianRoot.querySelector("#teacher-visual-board").getAttribute("aria-label") === "Навчальна дошка", "Ukrainian board accessible name missing");
+  check(ukrainianRoot.descendants().some((item) => item.getAttribute("lang") === "uk"), "Teacher language missing from accessibility tree");
+  input.focus();
   check(document.activeElement === input, "pointer input did not receive focus");
   const wholeRenders = root.replaceChildrenCalls;
   input.value = "f3";
@@ -200,6 +217,13 @@ async function run() {
   check(document.activeElement === input, "pointer editor focus was not restored");
   check(root.replaceChildrenCalls === wholeRenders, "pointer update rerendered the whole Teacher surface");
   check(root.querySelector("#teacher-square-f3").getAttribute("data-pointer") === "true", "visual pointer did not move to f3");
+  check(announcements.length === 1 && announcements[0] === "Pointer f3", "explicit pointer result was not announced once");
+  const orientation = root.querySelector("#teacher-orientation-toggle");
+  orientation.listeners.click();
+  await flushPromises();
+  check(announcements.length === 2 && announcements[1] === "Black at bottom", "orientation result was not announced once");
+  check(document.activeElement === orientation, "orientation update lost button focus");
+  check(root.querySelector("#teacher-pointer-input") === input, "orientation update replaced pointer editor");
 
   const delayedCalls = [];
   const delayedResolvers = [];
@@ -268,7 +292,25 @@ async function run() {
   check(hover[1].piece_name === "white pawn", "hover did not return canonical piece identity");
   check(select[1].piece_name === "white pawn", "selection did not return canonical piece identity");
   check(!calls.some((item) => item[0] === "student.move" || item[0] === "board.input"), "pointer/hover/selection became a move");
-  check(announcements.length === 1 && announcements[0] === "Selected e4", "hover flooded or selection failed to announce once");
+  check(announcements.length === 3 && announcements[2] === "Selected e4", "hover flooded or selection failed to announce once");
+
+  for (const failedInvoke of [
+    function () { throw new Error("private backend failure"); },
+    function () { return Promise.reject(new Error("private backend failure")); }
+  ]) {
+    const failedRoot = new FakeElement("div");
+    const failureMessages = [];
+    window.AccessibleChessTeacherSurface.render(failedRoot, snapshot(null), failedInvoke,
+      (message) => failureMessages.push(message), "teacher-pointer-input", "Action failed");
+    const failedInput = failedRoot.querySelector("#teacher-pointer-input");
+    failedInput.value = "e4";
+    failedInput.listeners.input();
+    await flushPromises();
+    await flushPromises();
+    check(failureMessages.length === 1 && failureMessages[0] === "Action failed", "Teacher failure did not announce one safe result");
+    check(document.activeElement === failedInput, "failed pointer request lost editor focus");
+    check(failedRoot.querySelector("#teacher-square-e4").getAttribute("data-pointer") !== "true", "failed pointer request invented a result");
+  }
 
   console.log("Teacher canonical-piece/spatial-arrow/pointer/hover/selection DOM contract PASS");
 }

@@ -669,6 +669,12 @@
       button.disabled = !action.enabled;
       button.tabIndex = -1;
       button.dataset.action = action.action;
+      button.addEventListener("focus", function () {
+        if (button.disabled) return;
+        buttons.forEach(function (candidate) {
+          candidate.tabIndex = candidate === button ? 0 : -1;
+        });
+      });
       button.addEventListener("click", function () {
         if (button.disabled) return;
         if (action.action === "pgn.comment_edit") {
@@ -678,15 +684,7 @@
         invokeCommand(root, invoke, announce, action.action, {});
       });
       button.addEventListener("keydown", function (event) {
-        if (
-          button.disabled ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.metaKey
-        ) {
-          return;
-        }
+        if (button.disabled) return;
         const enabled = buttons.filter(function (candidate) {
           return !candidate.disabled;
         });
@@ -694,20 +692,41 @@
         const current = enabled.indexOf(button);
         if (current < 0) return;
 
+        const resolve = global.accessibleChessKeymapAction;
+        let actionId = "";
+        let resolverReady = false;
+        if (typeof resolve === "function") {
+          const resolved = resolve(event, "toolbar");
+          if (resolved !== null && resolved !== undefined) {
+            resolverReady = true;
+            actionId = typeof resolved === "string" ? resolved : "";
+          }
+        }
+        if (
+          !resolverReady &&
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
+        ) {
+          if (event.key === "ArrowRight") actionId = "toolbar.next_control";
+          else if (event.key === "ArrowLeft") actionId = "toolbar.previous_control";
+          else if (event.key === "Home") actionId = "toolbar.first_control";
+          else if (event.key === "End") actionId = "toolbar.last_control";
+        }
+
         let target = -1;
-        if (event.key === "ArrowRight") {
+        if (actionId === "toolbar.next_control") {
           target = (current + 1) % enabled.length;
-        } else if (event.key === "ArrowLeft") {
+        } else if (actionId === "toolbar.previous_control") {
           target = (current + enabled.length - 1) % enabled.length;
-        } else if (event.key === "Home") {
+        } else if (actionId === "toolbar.first_control") {
           target = 0;
-        } else if (event.key === "End") {
+        } else if (actionId === "toolbar.last_control") {
           target = enabled.length - 1;
         } else {
           return;
         }
 
         event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
         enabled.forEach(function (candidate, index) {
           candidate.tabIndex = index === target ? 0 : -1;
         });

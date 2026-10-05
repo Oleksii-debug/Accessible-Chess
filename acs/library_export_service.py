@@ -26,7 +26,7 @@ _MAX_SELECTED_GAMES: Final = 5000
 _EXPORT_PAGE_SIZE: Final = 200
 _SQLITE_INTEGER_MAX: Final = (1 << 63) - 1
 _FILTER_FIELDS: Final = frozenset(
-    {"player", "event", "eco", "opening", "result", "source_id", "source_name"}
+    {"player", "event", "eco", "opening", "result", "source_id", "source_name", "date_from", "date_to", "game_date"}
 )
 
 
@@ -103,6 +103,9 @@ class LibraryExportRequest:
                 result=filters.get("result"),
                 source_id=filters.get("source_id"),
                 source_name=filters.get("source_name"),
+                date_from=filters.get("date_from"),
+                date_to=filters.get("date_to"),
+                game_date=filters.get("game_date"),
                 limit=_EXPORT_PAGE_SIZE,
             )
             return cls.filtered(query)
@@ -126,6 +129,9 @@ class LibraryExportRequest:
                 "result": q.result,
                 "source_id": q.source_id,
                 "source_name": q.source_name,
+                "date_from": q.date_from,
+                "date_to": q.date_to,
+                "game_date": q.game_date,
             }.items()
             if value is not None
         }

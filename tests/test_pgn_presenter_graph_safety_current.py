@@ -7,6 +7,7 @@ from acs.full_product_presenters import PgnTreePresenter
 from acs.full_product_ui_shell import UILanguage
 from acs.gametree import (
     MAX_VARIATION_DEPTH,
+    Comment,
     GameTreeContractError,
     GameTreeErrorCode,
     MoveNode,
@@ -45,6 +46,19 @@ class PgnPresenterGraphSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "built-in list or tuple"):
             PgnTreePresenter(games)
         self.assertFalse(_ExplodingList.touched)
+
+    def test_game_collection_count_is_bounded_before_snapshot_copy(self) -> None:
+        game, _, _ = self._game_with_move()
+        with patch.object(
+            pgn_presenter_graph_guard,
+            "MAX_PGN_PRESENTATION_GAMES",
+            1,
+        ):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "game collection exceeds the presentation limit",
+            ):
+                PgnTreePresenter([game, game])
 
     def test_nested_hostile_move_container_is_rejected_before_iteration(self) -> None:
         game, line, move = self._game_with_move()
@@ -102,6 +116,14 @@ class PgnPresenterGraphSafetyTests(unittest.TestCase):
             lambda: presenter.set_language(UILanguage.EN),
         )
 
+    def test_valid_san_uses_shared_accessible_move_label(self) -> None:
+        game, _, _ = self._game_with_move("Nbd2")
+        presenter = PgnTreePresenter([game], language=UILanguage.EN)
+
+        item = presenter.items()[0]
+        self.assertEqual("Nbd2", item.san)
+        self.assertEqual("N b d 2", item.label)
+
     def test_recovery_surface_does_not_turn_guard_into_san_rules_engine(self) -> None:
         game, _, _ = self._game_with_move("not-a-chess-move")
         game.warnings.append("Recovered historical movetext")
@@ -110,6 +132,81 @@ class PgnPresenterGraphSafetyTests(unittest.TestCase):
         self.assertEqual("A — B", view.title)
         self.assertEqual(("Recovered historical movetext",), view.warnings)
         self.assertEqual("not-a-chess-move", presenter.items()[0].san)
+        self.assertEqual(
+            "Unparsed move text: not-a-chess-move",
+            presenter.items()[0].label,
+        )
+
+        presenter.set_language(UILanguage.UA)
+        self.assertEqual("not-a-chess-move", presenter.items()[0].san)
+        self.assertEqual(
+            "Необроблений запис ходу: not-a-chess-move",
+            presenter.items()[0].label,
+        )
+
+    def test_san_text_budget_fails_before_presenter_label_materialization(self) -> None:
+        game, _, _ = self._game_with_move("xxxxx")
+        with patch.object(pgn_presenter_graph_guard, "MAX_PGN_PRESENTATION_SAN_CHARS", 4):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "PGN SAN text exceeds the presentation text limit",
+            ):
+                PgnTreePresenter([game])
+
+    def test_comment_cardinality_is_bounded_before_presenter_strip(self) -> None:
+        game, _, move = self._game_with_move()
+        move.comments_before.extend([Comment("one"), Comment("two")])
+        with patch.object(
+            pgn_presenter_graph_guard,
+            "MAX_PGN_PRESENTATION_COMMENTS_PER_SLOT",
+            1,
+        ):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "contains too many comments",
+            ):
+                PgnTreePresenter([game])
+
+    def test_nag_cardinality_is_bounded_before_presenter_join(self) -> None:
+        game, _, move = self._game_with_move()
+        move.nags.extend(["$1", "$2"])
+        with patch.object(
+            pgn_presenter_graph_guard,
+            "MAX_PGN_PRESENTATION_NAGS_PER_MOVE",
+            1,
+        ):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "PGN move has too many NAGs",
+            ):
+                PgnTreePresenter([game])
+
+    def test_comment_text_is_bounded_before_presenter_strip(self) -> None:
+        game, _, move = self._game_with_move()
+        move.comments_after.append(Comment("xxxxx"))
+        with patch.object(
+            pgn_presenter_graph_guard,
+            "MAX_PGN_PRESENTATION_RAW_TEXT_CHARS",
+            4,
+        ):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "comments after move text exceeds the presentation text limit",
+            ):
+                PgnTreePresenter([game])
+
+    def test_aggregate_presentation_text_budget_is_bounded(self) -> None:
+        game = PgnGame(line=VariationLine(moves=[MoveNode("e4")]))
+        with patch.object(
+            pgn_presenter_graph_guard,
+            "MAX_PGN_PRESENTATION_TOTAL_TEXT_CHARS",
+            1,
+        ):
+            with self.assertRaisesRegex(
+                GameTreeContractError,
+                "aggregate resource limit",
+            ):
+                PgnTreePresenter([game])
 
 
 if __name__ == "__main__":

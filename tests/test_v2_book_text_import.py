@@ -15,6 +15,7 @@ from acs.book_text_import import (
     BookTextImportError,
     BookTextImportErrorCode,
     import_text_book,
+    _Builder,
 )
 from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph, Position
 from acs.bookreader import BOOK_READER_SNAPSHOT_SCHEMA_VERSION, BookReader
@@ -55,6 +56,28 @@ class BookTextImportTests(unittest.TestCase):
         self.assertIn("8/8/8/8/8/8/8/8", result.document.blocks[1].text)
         self.assertFalse(any(isinstance(block, (Game, Position, Diagram)) for block in result.document.blocks))
         self.assertTrue(result.book_key.startswith("txt-sha256:"))
+
+    def test_warning_budget_includes_suppression_marker_without_losing_non_overflow_warnings(self) -> None:
+        with patch("acs.book_text_import.MAX_TEXT_WARNINGS", 3):
+            exact = _Builder(BookTextFormat.MARKDOWN)
+            for index in range(3):
+                exact.warning(f"warning {index}")
+            self.assertEqual(
+                exact.warnings,
+                ["warning 0", "warning 1", "warning 2"],
+            )
+
+            overflow = _Builder(BookTextFormat.MARKDOWN)
+            for index in range(5):
+                overflow.warning(f"warning {index}")
+            self.assertEqual(
+                overflow.warnings,
+                [
+                    "warning 0",
+                    "warning 1",
+                    "additional text import warnings were suppressed",
+                ],
+            )
 
     def test_windows_1251_txt_and_markdown_are_decoded_losslessly_without_ai(self) -> None:
         txt_source = (

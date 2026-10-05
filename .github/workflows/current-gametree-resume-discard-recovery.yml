@@ -1,0 +1,131 @@
+name: Current GameTree Resume Discard Recovery
+
+on:
+  pull_request:
+    paths:
+      - 'acs/version2_gametree_resume.py'
+      - 'tests/test_d06_v2_gametree_resume_discard_guard.py'
+      - '.github/workflows/current-gametree-resume-discard-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-gametree-resume-discard-recovery-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_GAMETREE_DISCARD_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_GAMETREE_DISCARD_EXACT_HEAD=PASS'
+
+      - name: Prove current Product ancestry, dependency authority and scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CURRENT_PRODUCT: f43b0f5b8f764da8572b318ad343a7069df759de
+          CURRENT_PRODUCT_REF: fix/current-pgn-accessible-label-resource-bounds-20261005-ooxple7
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          COORDINATOR_BLOB: 9a73abf3018e208f2650cdaec6a649c81904097e
+          DISCARD_TEST_BLOB: cfc36af55568679036e9e1703f8ee484d79d4a49
+          STORE_BLOB: e22a406a8f4c1f00c3d36390109d53f3088d332b
+          UPGRADE_BLOB: 0b4c43269595d297456625611b59c739f0d1704c
+          UPGRADE_TEST_BLOB: 9e26a615c933042378ef33004b54ac2c45ff404c
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF" || {
+              printf 'CURRENT_GAMETREE_DISCARD_BASE_REF_CHANGED expected=%s event=%s\n' "$CURRENT_PRODUCT_REF" "$EVENT_BASE_REF" >&2
+              exit 1
+            }
+          fi
+
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product="$(git rev-parse FETCH_HEAD)"
+          test "$live_product" = "$CURRENT_PRODUCT" || {
+            printf 'CURRENT_GAMETREE_DISCARD_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT" "$live_product" >&2
+            exit 1
+          }
+
+          test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
+          git diff --check "$CURRENT_PRODUCT"...HEAD
+
+          changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-gametree-resume-discard-recovery.yml' \
+            'acs/version2_gametree_resume.py' \
+            'tests/test_d06_v2_gametree_resume_discard_guard.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected GameTree discard-recovery scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          test "$(git rev-parse HEAD:acs/version2_gametree_resume.py)" = "$COORDINATOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_discard_guard.py)" = "$DISCARD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$STORE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_upgrade_base.py)" = "$UPGRADE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_upgrade_sound_artifact_control.py)" = "$UPGRADE_TEST_BLOB"
+          grep -F '".gametree-resume-discard"' acs/version2_upgrade_base.py >/dev/null
+          grep -F 'test_exact_root_gametree_discard_control_subtree_is_derived' tests/test_v2_upgrade_sound_artifact_control.py >/dev/null
+          echo 'CURRENT_GAMETREE_DISCARD_GEOMETRY_AND_DEPENDENCY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile current recovery surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_gametree_resume.py
+          acs/gametree_resume.py
+          acs/version2_upgrade_base.py
+          tests/test_d06_v2_gametree_resume_discard_guard.py
+          tests/test_d06_v2_gametree_resume_reachability.py
+          tests/test_d06_gametree_snapshot_resume.py
+          tests/test_w1_d06_resume_lock_toctou.py
+          tests/test_v2_upgrade_sound_artifact_control.py
+
+      - name: Execute discard, resume and current upgrade-classification regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d06_v2_gametree_resume_discard_guard
+          tests.test_d06_v2_gametree_resume_reachability
+          tests.test_d06_gametree_snapshot_resume
+          tests.test_w1_d06_resume_lock_toctou
+          tests.test_version2_release_app
+          tests.test_version2_shutdown
+          tests.test_w5_native_formclosing_dirty_pgn
+          tests.test_v2_upgrade_sound_artifact_control
+
+      - name: Core selftest and diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic

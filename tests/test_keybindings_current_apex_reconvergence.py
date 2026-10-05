@@ -56,6 +56,16 @@ class CurrentApexKeybindingReconvergenceTests(unittest.TestCase):
             "education.previous_item": (BindingContext.EDUCATION_LIST, "Up"),
             "education.next_item": (BindingContext.EDUCATION_LIST, "Down"),
             "education.open_selected": (BindingContext.EDUCATION_LIST, "Enter"),
+            "classroom.previous_item": (BindingContext.CLASSROOM_LIST, "Up"),
+            "classroom.next_item": (BindingContext.CLASSROOM_LIST, "Down"),
+            "classroom.first_item": (BindingContext.CLASSROOM_LIST, "Home"),
+            "classroom.last_item": (BindingContext.CLASSROOM_LIST, "End"),
+            "classroom.open_selected": (BindingContext.CLASSROOM_LIST, "Enter"),
+            "toolbar.previous_control": (BindingContext.TOOLBAR, "Left"),
+            "toolbar.next_control": (BindingContext.TOOLBAR, "Right"),
+            "toolbar.first_control": (BindingContext.TOOLBAR, "Home"),
+            "toolbar.last_control": (BindingContext.TOOLBAR, "End"),
+            "profile.save_name": (BindingContext.PROFILE_DIALOG, "Enter"),
         }
         for action_id, (context, binding) in expected.items():
             with self.subTest(action_id=action_id):
@@ -84,6 +94,9 @@ class CurrentApexKeybindingReconvergenceTests(unittest.TestCase):
         self.assertEqual(rows["pgn.previous_item"]["context"], "pgn_tree")
         self.assertEqual(rows["library.open_game"]["context"], "library_results")
         self.assertEqual(rows["education.open_selected"]["context"], "education_list")
+        self.assertEqual(rows["classroom.open_selected"]["context"], "classroom_list")
+        self.assertEqual(rows["toolbar.next_control"]["context"], "toolbar")
+        self.assertEqual(rows["profile.save_name"]["context"], "profile_dialog")
 
     def test_imported_duplicate_binding_fails_closed(self) -> None:
         registry = ActionRegistry()

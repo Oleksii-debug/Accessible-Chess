@@ -16,7 +16,10 @@ class P0FinalProductResourceOrderTests(unittest.TestCase):
         runtime_index = labels.index("P0 accessibility runtime")
 
         self.assertLess(bootstrap_index, runtime_index)
-        self.assertEqual("V2 final-product bootstrap", labels[runtime_index - 1])
+        profile_index = labels.index("V2 local profile surface")
+        self.assertLess(bootstrap_index, profile_index)
+        self.assertLess(profile_index, runtime_index)
+        self.assertEqual("V2 local profile surface", labels[runtime_index - 1])
 
         bootstrap_source = resources[bootstrap_index][1]
         runtime_source = resources[runtime_index][1]

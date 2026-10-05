@@ -9,6 +9,8 @@ from acs.ui_keymap_service import (
     KeymapService,
 )
 from acs.version2_final_product_profile import build_final_product_action_registry
+from acs.full_product_actions import build_full_product_action_registry
+from acs.version2_profile import build_version2_action_registry
 
 
 class _ActiveText(str):
@@ -35,6 +37,34 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             service = self._service(root)
             self.assertEqual(service.snapshot()["maxImportBytes"], MAX_KEYMAP_PROFILE_BYTES)
+
+    def test_blocking_import_conflicts_keep_shared_authority_and_disk_bytes(self):
+        for language in ("en", "uk"):
+            with self.subTest(language=language), TemporaryDirectory() as root:
+                path = Path(root) / "keymap.json"
+                service = KeymapService(path, lang=language)
+                service.adopt_registry(build_final_product_action_registry())
+                self.assertTrue(service.save("toolbar.next_control", "Ctrl+J")["ok"])
+                authority = service.editor.registry
+                before = service.snapshot()
+                original = path.read_bytes()
+                for field, action_id, value, kind in (
+                    ("bindings", "toolbar.next_control", "Left", "duplicate"),
+                    ("aliases", "move.undo", "y", "alias_duplicate"),
+                ):
+                    profile = json.loads(service.export_profile())
+                    profile[field][action_id] = value
+                    for confirmed in (False, True):
+                        result = service.import_profile(json.dumps(profile), allow_warnings=confirmed)
+                        self.assertFalse(result["ok"])
+                        self.assertFalse(result["requiresConfirmation"])
+                        self.assertNotIn("snapshot", result)
+                        self.assertTrue(any(item["severity"] == "error" and item["kind"] == kind
+                                            for item in result["conflicts"]), result)
+                        self.assertNotIn("invalid keymap profile:", result["message"])
+                        self.assertIs(service.editor.registry, authority)
+                        self.assertEqual(service.snapshot(), before)
+                        self.assertEqual(path.read_bytes(), original)
 
     def test_direct_import_rejects_active_text_before_any_text_hook(self):
         with TemporaryDirectory() as root:
@@ -117,7 +147,7 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
                     path.write_bytes(payload)
                     service = KeymapService(path, lang="en")
                     self.assertEqual(service.recovery_message, "invalid keymap profile")
-                    self.assertFalse(service.snapshot()["writeBlocked"])
+                    self.assertTrue(service.snapshot()["writeBlocked"])
                     self.assertEqual(path.read_bytes(), payload)
                     self.assertEqual(
                         service.editor.registry.get_binding("history.go_to_move"),
@@ -144,12 +174,168 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
             self.assertEqual(service.recovery_message, "invalid keymap profile")
             self.assertEqual(wider.get_binding("history.go_to_move"), "Alt+J")
 
+    def test_final_education_remaps_survive_restart_and_context_reset(self):
+        for language in ("en", "uk"):
+            with self.subTest(language=language), TemporaryDirectory() as root:
+                path = Path(root) / "keymap.json"
+                service = KeymapService(path, lang=language)
+                service.adopt_registry(build_final_product_action_registry())
+                for action, old, new in (
+                    ("education.previous_item", "Up", "Ctrl+K"),
+                    ("education.next_item", "Down", "Alt+J"),
+                    ("education.open_selected", "Enter", "Shift+O"),
+                ):
+                    self.assertTrue(service.save(action, new, allow_warnings=True)["ok"])
+                    self.assertIsNone(service.resolve_binding("education_list", old))
+                restarted = KeymapService(path, lang=language)
+                restarted.adopt_registry(build_final_product_action_registry())
+                for action, old, new in (
+                    ("education.previous_item", "Up", "Ctrl+K"),
+                    ("education.next_item", "Down", "Alt+J"),
+                    ("education.open_selected", "Enter", "Shift+O"),
+                ):
+                    self.assertEqual(restarted.resolve_binding("education_list", new)["actionId"], action)
+                    self.assertIsNone(restarted.resolve_binding("education_list", old))
+                self.assertTrue(restarted.reset_context("education_list")["ok"])
+                for action, old, new in (
+                    ("education.previous_item", "Up", "Ctrl+K"),
+                    ("education.next_item", "Down", "Alt+J"),
+                    ("education.open_selected", "Enter", "Shift+O"),
+                ):
+                    self.assertEqual(restarted.resolve_binding("education_list", old)["actionId"], action)
+                    self.assertIsNone(restarted.resolve_binding("education_list", new))
+
+    def test_preview_classroom_list_remap_survives_restart_and_context_reset(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            service.adopt_registry(build_full_product_action_registry())
+
+            saved = service.save("classroom.next_item", "J")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(
+                service.resolve_binding("classroom_list", "J")["actionId"],
+                "classroom.next_item",
+            )
+            self.assertIsNone(service.resolve_binding("classroom_list", "Down"))
+
+            restarted = KeymapService(path, lang="en")
+            restarted.adopt_registry(build_full_product_action_registry())
+            self.assertEqual(
+                restarted.resolve_binding("classroom_list", "J")["actionId"],
+                "classroom.next_item",
+            )
+            self.assertIsNone(restarted.resolve_binding("classroom_list", "Down"))
+
+            reset = restarted.reset_context("classroom_list")
+            self.assertTrue(reset["ok"])
+            self.assertEqual(
+                restarted.resolve_binding("classroom_list", "Down")["actionId"],
+                "classroom.next_item",
+            )
+            self.assertIsNone(restarted.resolve_binding("classroom_list", "J"))
+
+    def test_toolbar_remap_survives_restart_and_context_reset(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            service.adopt_registry(build_final_product_action_registry())
+
+            saved = service.save("toolbar.next_control", "J")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(
+                service.resolve_binding("toolbar", "J")["actionId"],
+                "toolbar.next_control",
+            )
+            self.assertIsNone(service.resolve_binding("toolbar", "Right"))
+
+            restarted = KeymapService(path, lang="en")
+            restarted.adopt_registry(build_final_product_action_registry())
+            self.assertEqual(
+                restarted.resolve_binding("toolbar", "J")["actionId"],
+                "toolbar.next_control",
+            )
+            self.assertIsNone(restarted.resolve_binding("toolbar", "Right"))
+
+            reset = restarted.reset_context("toolbar")
+            self.assertTrue(reset["ok"])
+            self.assertEqual(
+                restarted.resolve_binding("toolbar", "Right")["actionId"],
+                "toolbar.next_control",
+            )
+            self.assertIsNone(restarted.resolve_binding("toolbar", "J"))
+
+    def test_all_toolbar_modifier_remaps_persist_in_base_and_final_profiles(self):
+        remaps = {
+            "toolbar.previous_control": "Alt+K",
+            "toolbar.next_control": "Ctrl+J",
+            "toolbar.first_control": "Shift+F8",
+            "toolbar.last_control": "Ctrl+Shift+F9",
+        }
+        for build_registry in (build_version2_action_registry, build_final_product_action_registry):
+            with self.subTest(profile=build_registry.__name__), TemporaryDirectory() as root:
+                path = Path(root) / "keymap.json"
+                service = KeymapService(path, lang="en")
+                service.adopt_registry(build_registry())
+                for action_id, binding in remaps.items():
+                    result = service.save(action_id, binding)
+                    self.assertTrue(result["ok"], result)
+                restarted = KeymapService(path, lang="en")
+                restarted.adopt_registry(build_registry())
+                for action_id, binding in remaps.items():
+                    self.assertEqual(restarted.resolve_binding("toolbar", binding)["actionId"], action_id)
+                for old in ("Left", "Right", "Home", "End"):
+                    self.assertIsNone(restarted.resolve_binding("toolbar", old))
+                self.assertTrue(restarted.reset_context("toolbar")["ok"])
+                reset = KeymapService(path, lang="en")
+                reset.adopt_registry(build_registry())
+                for binding in remaps.values():
+                    self.assertIsNone(reset.resolve_binding("toolbar", binding))
+                for action_id in remaps:
+                    default = build_registry().get_binding(action_id)
+                    self.assertEqual(reset.resolve_binding("toolbar", default)["actionId"], action_id)
+
+    def test_profile_dialog_remap_survives_restart_and_context_reset(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            service.adopt_registry(build_final_product_action_registry())
+
+            saved = service.save("profile.save_name", "J")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(
+                service.resolve_binding("profile_dialog", "J")["actionId"],
+                "profile.save_name",
+            )
+            self.assertIsNone(service.resolve_binding("profile_dialog", "Enter"))
+
+            restarted = KeymapService(path, lang="en")
+            restarted.adopt_registry(build_final_product_action_registry())
+            self.assertEqual(
+                restarted.resolve_binding("profile_dialog", "J")["actionId"],
+                "profile.save_name",
+            )
+            self.assertIsNone(restarted.resolve_binding("profile_dialog", "Enter"))
+
+            reset = restarted.reset_context("profile_dialog")
+            self.assertTrue(reset["ok"])
+            self.assertEqual(
+                restarted.resolve_binding("profile_dialog", "Enter")["actionId"],
+                "profile.save_name",
+            )
+            self.assertIsNone(restarted.resolve_binding("profile_dialog", "J"))
+
     def test_valid_versioned_and_legacy_profiles_still_import(self):
         with TemporaryDirectory() as root:
             service = self._service(root)
             profile = json.loads(service.export_profile())
             profile["bindings"]["history.go_to_move"] = "Alt+J"
             result = service.import_profile(json.dumps(profile))
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["requiresConfirmation"])
+            self.assertEqual(service.editor.registry.get_binding("history.go_to_move"), "Ctrl+G")
+            self.assertFalse(service.path.exists())
+            result = service.import_profile(json.dumps(profile), allow_warnings=True)
             self.assertTrue(result["ok"])
             self.assertEqual(service.editor.registry.get_binding("history.go_to_move"), "Alt+J")
 
@@ -158,6 +344,10 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
                 "commands": {"move.undo": "back"},
             })
             result = service.import_profile(legacy)
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["requiresConfirmation"])
+            self.assertEqual(service.editor.registry.get_binding("history.go_to_move"), "Alt+J")
+            result = service.import_profile(legacy, allow_warnings=True)
             self.assertTrue(result["ok"])
             self.assertEqual(service.editor.registry.get_binding("history.go_to_move"), "Alt+K")
             self.assertEqual(service.editor.registry.get_alias("move.undo"), "back")

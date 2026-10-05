@@ -16,6 +16,7 @@ from .bookdocument import Diagram, Exercise, Game, Heading, ListBlock, Note, Par
 from .bookreader import BookReader, ReadingLocation
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .gametree import PgnGame, VariationLine
+from .notation import NotationError, format_accessible_compact_san
 from .pgn_presenter_graph_guard import (
     snapshot_pgn_presentation_games,
     validate_pgn_presentation_graph,
@@ -45,6 +46,22 @@ def _safe_source_label(value: object) -> str:
 
 def _localized(language: UILanguage, uk: str, en: str) -> str:
     return uk if language is UILanguage.UA else en
+
+
+def _pgn_accessible_move_label(san: str, language: UILanguage) -> str:
+    """Project valid SAN through the shared NVDA formatter without losing recovery text."""
+    try:
+        return format_accessible_compact_san(
+            san,
+            "en" if language is UILanguage.EN else "uk",
+        )
+    except NotationError:
+        prefix = _localized(
+            language,
+            "Необроблений запис ходу",
+            "Unparsed move text",
+        )
+        return f"{prefix}: {san}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +218,8 @@ class PgnTreePresenter:
             # exposing exact before/after slots to read-only semantic readers.
             comments = comments_before + comments_after
             annotation = " ".join(move.nags)
-            label = f"{number}{move.san}"
+            accessible_move = _pgn_accessible_move_label(move.san, self._language)
+            label = f"{number}{accessible_move}"
             if annotation:
                 label += f" {annotation}"
             out.append(

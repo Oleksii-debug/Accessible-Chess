@@ -352,8 +352,26 @@
 
   saveButton.addEventListener("click", saveName);
   nameInput.addEventListener("keydown", function (event) {
-    if (event.key !== "Enter") return;
+    const resolve = global.accessibleChessKeymapAction;
+    let actionId = "";
+    let resolverReady = false;
+    if (typeof resolve === "function") {
+      const resolved = resolve(event, "profile_dialog");
+      if (resolved !== null && resolved !== undefined) {
+        resolverReady = true;
+        actionId = typeof resolved === "string" ? resolved : "";
+      }
+    }
+    if (
+      !resolverReady &&
+      !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey &&
+      event.key === "Enter"
+    ) {
+      actionId = "profile.save_name";
+    }
+    if (actionId !== "profile.save_name") return;
     event.preventDefault();
+    if (typeof event.stopPropagation === "function") event.stopPropagation();
     saveName();
   });
 

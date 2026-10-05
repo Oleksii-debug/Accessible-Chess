@@ -11,7 +11,9 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from .keybindings import ActionRegistry, BindingContext, SCHEMA_VERSION, normalize_binding
+from .keybindings import (
+    ActionRegistry, BindingContext, KeymapProfileConflictError, SCHEMA_VERSION, normalize_binding,
+)
 from .ui_keymap_adapter import build_web_keymap
 from .ui_keymap_editor import KeymapEditorModel
 
@@ -130,6 +132,15 @@ class KeymapService:
                 version = profile.get("schema_version", 0)
                 self._profile_write_blocked = type(version) is int and version > SCHEMA_VERSION
                 registry = ActionRegistry.from_profile(profile)
+            except OSError:
+                # An existing profile that cannot currently be read is not the
+                # same thing as malformed content. Preserve its bytes and fail
+                # closed against incremental writes so a transient sharing,
+                # permission, device, or filesystem error cannot replace the
+                # user's keymap with defaults.
+                registry = ActionRegistry()
+                self._profile_write_blocked = True
+                recovery = "unreadable keymap profile"
             except Exception:
                 registry = ActionRegistry()
                 recovery = (
@@ -137,6 +148,12 @@ class KeymapService:
                     if self._profile_write_blocked
                     else "invalid keymap profile"
                 )
+                # Any existing profile that cannot be validated remains the
+                # persisted authority until the user explicitly chooses Reset all
+                # or imports a replacement. Defaults may be used in memory for
+                # recovery, but an ordinary incremental edit must not destroy the
+                # malformed/newer source bytes.
+                self._profile_write_blocked = True
         else:
             registry = ActionRegistry()
         self.editor = KeymapEditorModel(registry, lang=lang)
@@ -174,8 +191,21 @@ class KeymapService:
         ):
             try:
                 profile = _read_user_keymap_profile(self.path)
-            except Exception:
+            except OSError:
+                # The file was readable at initial boot but became unavailable
+                # before Product registry adoption. Do not let the wider default
+                # registry become new persisted authority while the original file
+                # is unreadable.
                 profile = source_profile
+                self._profile_write_blocked = True
+                self.recovery_message = "unreadable keymap profile"
+            except Exception:
+                # The file changed into malformed/unsupported content between
+                # initial boot and wider Product adoption. Keep the already-loaded
+                # values usable in memory but protect the changed file from later
+                # incremental overwrite until explicit recovery.
+                profile = source_profile
+                self._profile_write_blocked = True
                 self.recovery_message = "invalid keymap profile"
 
         merged = registry.to_profile()
@@ -204,6 +234,7 @@ class KeymapService:
             # becomes invalid under the wider Product definition set leaves the
             # application's existing wider registry untouched. Preserve the file
             # for explicit recovery instead of silently rewriting it at startup.
+            self._profile_write_blocked = True
             self.recovery_message = "invalid keymap profile"
 
         self.editor.registry = registry
@@ -349,31 +380,51 @@ class KeymapService:
         blocked = self._blocked_incremental_mutation()
         if blocked is not None:
             return blocked
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.save(action_id, value, allow_warnings=allow_warnings)
-        if result.ok:
-            self._persist()
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+        )
 
     def reset_action(self, action_id: str) -> dict[str, Any]:
         blocked = self._blocked_incremental_mutation()
         if blocked is not None:
             return blocked
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.reset_action(action_id)
-        self._persist()
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+        )
 
     def reset_context(self, context: str) -> dict[str, Any]:
         blocked = self._blocked_incremental_mutation()
         if blocked is not None:
             return blocked
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.reset_context(BindingContext(context))
-        self._persist()
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+        )
 
     def reset_all(self) -> dict[str, Any]:
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.reset_all()
-        self._persist(replace_incompatible=True)
-        return self._mutation_result(result)
+        return self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+            replace_incompatible=True,
+        )
 
     def export_profile(self) -> str:
         return self.editor.export_profile()
@@ -398,6 +449,14 @@ class KeymapService:
             profile = _decode_user_keymap_profile(text)
             candidate = ActionRegistry.from_profile(profile, self.editor.registry.definitions())
             conflicts = candidate.validate()
+        except KeymapProfileConflictError as exc:
+            blocking = tuple(item for item in exc.conflicts if item.severity == "error")
+            return {
+                "ok": False,
+                "message": self.editor.conflict_summary(blocking),
+                "conflicts": [self._conflict(item) for item in exc.conflicts],
+                "requiresConfirmation": False,
+            }
         except (ValueError, TypeError, AttributeError):
             return _invalid_profile_response(self.editor.lang)
 
@@ -420,10 +479,15 @@ class KeymapService:
                 "requiresConfirmation": True,
             }
 
+        before_registry = self.editor.registry
+        before_profile = before_registry.to_profile()
         result = self.editor.import_profile(text)
-        if result.ok:
-            self._persist(replace_incompatible=True)
-        response = self._mutation_result(result)
+        response = self._commit_persisted_mutation(
+            result,
+            before_registry=before_registry,
+            before_profile=before_profile,
+            replace_incompatible=True,
+        )
         response["requiresConfirmation"] = False
         return response
 
@@ -434,13 +498,30 @@ class KeymapService:
     def _blocked_incremental_mutation(self) -> dict[str, Any] | None:
         if not self._profile_write_blocked:
             return None
-        message = (
-            "Keyboard settings were created by a newer Accessible Chess version and were preserved unchanged. "
-            "Use Reset all defaults or import a compatible profile to replace them."
-            if self.editor.lang == "en"
-            else "Налаштування клавіш створено новішою версією Accessible Chess і збережено без змін. "
-            "Щоб замінити їх, скиньте всі налаштування або імпортуйте сумісний профіль."
-        )
+        if self.recovery_message == "unreadable keymap profile":
+            message = (
+                "The existing keyboard profile could not be read and was preserved unchanged. "
+                "Restore access and restart Accessible Chess, or use Reset all defaults or import a compatible profile to replace it explicitly."
+                if self.editor.lang == "en"
+                else "Наявний профіль клавіш не вдалося прочитати, тому його збережено без змін. "
+                "Відновіть доступ і перезапустіть Accessible Chess або явно замініть профіль через скидання всіх налаштувань чи імпорт сумісного профілю."
+            )
+        elif self.recovery_message == "invalid keymap profile":
+            message = (
+                "The existing keyboard profile is invalid and was preserved unchanged. "
+                "Use Reset all defaults or import a compatible profile to replace it explicitly."
+                if self.editor.lang == "en"
+                else "Наявний профіль клавіш некоректний і збережений без змін. "
+                "Явно замініть його через скидання всіх налаштувань або імпорт сумісного профілю."
+            )
+        else:
+            message = (
+                "Keyboard settings were created by a newer Accessible Chess version and were preserved unchanged. "
+                "Use Reset all defaults or import a compatible profile to replace them."
+                if self.editor.lang == "en"
+                else "Налаштування клавіш створено новішою версією Accessible Chess і збережено без змін. "
+                "Щоб замінити їх, скиньте всі налаштування або імпортуйте сумісний профіль."
+            )
         return {
             "ok": False,
             "message": message,
@@ -448,9 +529,51 @@ class KeymapService:
             "requiresConfirmation": False,
         }
 
+    def _commit_persisted_mutation(
+        self,
+        result,
+        *,
+        before_registry: ActionRegistry,
+        before_profile: Mapping[str, object],
+        replace_incompatible: bool = False,
+    ) -> dict[str, Any]:
+        if not result.ok:
+            return self._mutation_result(result)
+
+        # Import currently constructs a validated candidate registry. Fold that
+        # profile back into the already-shared registry object before persistence
+        # so application dispatch and the keymap editor keep one live authority.
+        if self.editor.registry is not before_registry:
+            imported_profile = self.editor.registry.to_profile()
+            before_registry.replace_profile(imported_profile)
+            self.editor.registry = before_registry
+
+        try:
+            self._persist(replace_incompatible=replace_incompatible)
+        except OSError:
+            # Editor mutations happen before disk I/O. Restore the exact prior
+            # live profile if persistence fails so runtime dispatch cannot diverge
+            # from the unchanged persisted authority. Protected-profile flags are
+            # cleared only by a successful _persist(), so they remain intact here.
+            before_registry.replace_profile(before_profile)
+            self.editor.registry = before_registry
+            message = (
+                "Keyboard settings could not be saved; previous settings remain active."
+                if self.editor.lang == "en"
+                else "Не вдалося зберегти налаштування клавіш; попередні налаштування залишаються активними."
+            )
+            return {
+                "ok": False,
+                "message": message,
+                "conflicts": [],
+                "requiresConfirmation": False,
+            }
+
+        return self._mutation_result(result)
+
     def _persist(self, *, replace_incompatible: bool = False) -> None:
         if self._profile_write_blocked and not replace_incompatible:
-            raise RuntimeError("newer keymap profile must not be overwritten incrementally")
+            raise RuntimeError("protected keymap profile must not be overwritten incrementally")
         self.editor.registry.save(self.path)
         self._profile_write_blocked = False
         self.recovery_message = None

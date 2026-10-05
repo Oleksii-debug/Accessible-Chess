@@ -1,6 +1,7 @@
 "use strict";
 const fs = require("fs");
 const vm = require("vm");
+const { toolbarResolver, exerciseToolbarRemaps } = require("./toolbar_keymap_test_support");
 
 class FakeElement {
   constructor(tagName) {
@@ -48,10 +49,18 @@ const pgnBindings = {
   ArrowDown: "pgn.next_item",
   ArrowLeft: "pgn.parent_variation"
 };
+const toolbarBindings = {
+  ArrowLeft: "toolbar.previous_control",
+  ArrowRight: "toolbar.next_control",
+  Home: "toolbar.first_control",
+  End: "toolbar.last_control"
+};
+const resolveToolbar = toolbarResolver(toolbarBindings);
 window.accessibleChessKeymapAction = function (event, context) {
-  if (context !== "pgn_tree") return "";
+  if (context === "toolbar") return resolveToolbar(event, context);
   if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return "";
-  return pgnBindings[event.key] || "";
+  if (context === "pgn_tree") return pgnBindings[event.key] || "";
+  return "";
 };
 
 function check(condition, message) { if (!condition) throw new Error(message); }
@@ -353,7 +362,24 @@ async function run() {
   check(document.activeElement === firstToolbarButtons[3], "PGN toolbar Home did not reach first enabled action");
   check(pressKey(firstToolbarButtons[3], firstToolbar, "End"), "PGN toolbar End must be handled");
   check(document.activeElement === firstToolbarButtons[8], "PGN toolbar End did not reach last enabled action");
+  delete toolbarBindings.ArrowRight;
+  toolbarBindings.j = "toolbar.next_control";
+  check(!pressKey(firstToolbarButtons[8], firstToolbar, "ArrowRight"), "unbound former PGN toolbar ArrowRight was still claimed");
+  check(document.activeElement === firstToolbarButtons[8], "unbound former PGN toolbar ArrowRight still moved focus");
+  check(pressKey(firstToolbarButtons[8], firstToolbar, "j"), "remapped PGN toolbar next-control key was not handled");
+  check(document.activeElement === firstToolbarButtons[3], "remapped PGN toolbar next-control key did not wrap focus");
+  toolbarBindings.ArrowRight = "toolbar.next_control";
+  delete toolbarBindings.j;
   check(!pressKey(firstToolbarButtons[8], firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
+  exerciseToolbarRemaps(
+    firstToolbarButtons, (button, event) => button.listeners.keydown(event),
+    window, toolbarBindings, document, "PGN toolbar"
+  );
+  firstToolbarButtons[8].listeners.focus();
+  check(firstToolbarButtons[8].tabIndex === 0, "PGN pointer/programmatic focus did not update the Tab stop");
+  check(firstToolbarButtons[3].tabIndex === -1, "PGN toolbar retained a second Tab stop after focus");
+  firstToolbarButtons[0].listeners.focus();
+  check(firstToolbarButtons[0].tabIndex === -1, "disabled PGN focus entered Tab order");
 
   let prevented = false;
   items[0].listeners.keydown({ key: "ArrowDown", preventDefault: () => { prevented = true; } });

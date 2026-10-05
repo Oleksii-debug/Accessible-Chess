@@ -521,7 +521,95 @@ check(
   "malformed Library filter partially replaced the surface"
 );
 
-runNavigationContract().then(function () {
+const dateCalls = [];
+const dateRoot = new FakeElement("div");
+const datedSnapshot = {
+  ...snapshot,
+  filters: libraryFilters().concat([
+    { id: "date_from", kind: "text", label: "Date from (YYYY.MM.DD)", value: "2026.01.01" },
+    { id: "date_to", kind: "text", label: "Date to (YYYY.MM.DD)", value: "2026.12.31" }
+  ])
+};
+window.AccessibleChessLibrarySurface.render(dateRoot, datedSnapshot,
+  (command, payload) => { dateCalls.push([command, payload]); return null; }, announce,
+  "library-search-date_from");
+const fromDate = dateRoot.querySelector("#library-search-date_from");
+const toDate = dateRoot.querySelector("#library-search-date_to");
+check(fromDate && toDate, "date filters did not render");
+check(document.activeElement === fromDate, "date filter focus was not restored");
+check(fromDate.value === "2026.01.01" && toDate.value === "2026.12.31", "date filter values changed");
+fromDate.parentNode.parentNode.listeners.submit({ preventDefault() {} });
+
+async function runPendingLibraryResponseContract() {
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const pendingRoot = new FakeElement("div");
+  const pending = [];
+  const messages = [];
+  const host = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  const say = (message) => messages.push(message);
+  function submit() {
+    const input = pendingRoot.querySelector("#library-search-player");
+    input.parentNode.parentNode.listeners.submit({ preventDefault() {} });
+  }
+  function response(heading, announcement) {
+    return { kind: "render", payload: {
+      snapshot: { ...snapshot, heading },
+      focus_target: "library-search-player", announcement
+    } };
+  }
+  window.AccessibleChessLibrarySurface.render(pendingRoot, snapshot, host, say, "library-search-player");
+  submit();
+  await tick();
+  submit();
+  await tick();
+  check(pending.length === 2, "independent Library requests were not dispatched");
+  pending[1].resolve(response("Newest results", "Newest search finished"));
+  await tick();
+  const stable = pendingRoot.replaceChildrenCalls;
+  const currentInput = pendingRoot.querySelector("#library-search-player");
+  currentInput.value = "Unsubmitted reading/search text";
+  currentInput.focus();
+  pending[0].resolve(response("Older results", "Older search finished"));
+  await tick();
+  check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Newest results", "late old response replaced the newer Library results");
+  check(pendingRoot.replaceChildrenCalls === stable, "late old response rebuilt the Library DOM");
+  check(document.activeElement === currentInput && currentInput.value === "Unsubmitted reading/search text", "late old response erased editing or moved focus");
+  check(messages.length === 1 && messages[0] === "Newest search finished", "late old response announced obsolete results");
+
+  submit();
+  await tick();
+  window.AccessibleChessLibrarySurface.render(pendingRoot, { ...snapshot, heading: "Host replacement" }, host, say, "library-search-player");
+  const replacementFocus = document.activeElement;
+  pending[2].reject(new Error("private source path"));
+  await tick();
+  check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Host replacement", "stale transport failure replaced host state");
+  check(document.activeElement === replacementFocus && messages.length === 1, "stale transport failure moved focus or announced obsolete error");
+
+  submit();
+  await tick();
+  pending[3].reject(new Error("private source path"));
+  await tick();
+  check(messages.length === 2 && messages[1] === snapshot.transport_error_message, "current transport failure lost the safe announcement");
+
+  submit();
+  await tick();
+  window.AccessibleChessLibrarySurface.apply(pendingRoot, {
+    kind: "render-import", payload: {
+      import: importState("completed", 4), focus_target: "", announcement: "Import completed"
+    }
+  }, host, say);
+  pending[4].resolve(response("Search during import", "Search finished"));
+  await tick();
+  check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Search during import", "independent import progress discarded current search results");
+  check(pendingRoot.__accessibleChessLibrarySnapshot.import.phase === "completed", "late search snapshot regressed canonical import completion");
+}
+Promise.resolve().then(function () {
+  check(dateCalls.length === 1 && dateCalls[0][0] === "library.search", "date search did not dispatch");
+  check(dateCalls[0][1].date_from === "2026.01.01" && dateCalls[0][1].date_to === "2026.12.31", "date bounds lost on submit");
+  return runNavigationContract();
+}).then(function () {
+  return runPendingLibraryResponseContract();
+}).then(function () {
   console.log("Library partial/full snapshot and remappable result navigation DOM contract PASS");
 }).catch(function (error) {
   console.error(error);

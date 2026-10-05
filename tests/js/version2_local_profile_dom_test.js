@@ -168,7 +168,8 @@ function makeHarness(overrides = {}) {
   const windowObject = {
     document: documentRef,
     pywebview: { api },
-    setTimeout: (callback) => { callback(); return 1; }
+    setTimeout: (callback) => { callback(); return 1; },
+    accessibleChessKeymapAction: overrides.keymapResolver
   };
   const context = {
     window: windowObject,
@@ -266,6 +267,62 @@ async function testRecoveryRequiresExplicitAction() {
   assert.strictEqual(input.value, "Recovered Coach");
 }
 
+async function testProfileSaveUsesLiveRemappableKey() {
+  const bindings = { j: "profile.save_name" };
+  const harness = makeHarness({
+    initial: {
+      ok: true,
+      exists: true,
+      displayName: "Coach",
+      generatedAlias: false,
+      recoveryRequired: false,
+      revision: 1,
+      announcement: ""
+    },
+    keymapResolver: (event, context) => {
+      assert.strictEqual(context, "profile_dialog");
+      return bindings[event.key] || "";
+    }
+  });
+  await flush();
+  const { documentRef, calls } = harness;
+  documentRef.getElementById("v2-profile-button").dispatch("click", {});
+  await flush();
+  const input = documentRef.getElementById("v2-profile-name");
+  input.value = "Remapped Coach";
+
+  let oldDefaultPrevented = false;
+  input.dispatch("keydown", {
+    key: "Enter",
+    altKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    metaKey: false,
+    preventDefault: () => { oldDefaultPrevented = true; }
+  });
+  await flush();
+  assert.strictEqual(oldDefaultPrevented, false, "unbound former Enter default was still claimed");
+  assert.ok(!calls.some((entry) => entry[0] === "profile_rename"), "unbound former Enter default still renamed the profile");
+
+  let remappedPrevented = false;
+  let remappedStopped = false;
+  input.dispatch("keydown", {
+    key: "j",
+    altKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    metaKey: false,
+    preventDefault: () => { remappedPrevented = true; },
+    stopPropagation: () => { remappedStopped = true; }
+  });
+  await flush();
+  assert.ok(remappedPrevented && remappedStopped, "remapped profile-save key was not owned");
+  assert.deepStrictEqual(
+    calls.find((entry) => entry[0] === "profile_rename"),
+    ["profile_rename", "Remapped Coach"]
+  );
+}
+
 async function testPrivateIdentityLeakFailsClosed() {
   const secret = "0123456789abcdef0123456789abcdef";
   const harness = makeHarness({
@@ -294,6 +351,7 @@ async function testPrivateIdentityLeakFailsClosed() {
 (async () => {
   await testFirstLaunchSkipAndRenameValidation();
   await testRecoveryRequiresExplicitAction();
+  await testProfileSaveUsesLiveRemappableKey();
   await testPrivateIdentityLeakFailsClosed();
   console.log("Version 2 local profile DOM contract PASS");
 })().catch((error) => {

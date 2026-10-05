@@ -83,7 +83,6 @@ jobs:
             acs/teacher_webview_projection.py \
             tests/js/teacher_surface_dom_test.js \
             tests/test_d09_teacher_canonical_webview_composition.py \
-            tests/test_dev1_classroom_web_asset.py \
             tests/test_dev1_classroom_webview_bridge.py \
             tests/test_dev1_classroom_webview_privacy.py \
             tests/test_dev1_classroom_webview_projection.py \
@@ -96,14 +95,17 @@ jobs:
               exit 1
             }
           done
-          test "$(git rev-parse HEAD:web/full_product_classroom.js)" = "$classroom_surface_successor" || {
-            printf 'D01 Classroom surface successor drift\n' >&2
-            exit 1
-          }
-          test "$(git rev-parse HEAD:tests/js/classroom_surface_dom_test.js)" = "$classroom_dom_successor" || {
-            printf 'D01 Classroom DOM successor drift\n' >&2
-            exit 1
-          }
+          classroom_surface="$(git rev-parse HEAD:web/full_product_classroom.js)"
+          classroom_dom="$(git rev-parse HEAD:tests/js/classroom_surface_dom_test.js)"
+          classroom_asset_test="$(git rev-parse HEAD:tests/test_dev1_classroom_web_asset.py)"
+          if [ "$classroom_surface" = '08d560db9a7c490b6beec2ed4f4e58aa957c063f' ]; then
+            test "$classroom_dom" = '64aa04194860b85d5e38f08d4f82d50d2892a7fa'
+            test "$classroom_asset_test" = '3dad9d3bd56e06001ce369231fed6d944de75a42'
+          else
+            test "$classroom_surface" = "$classroom_surface_successor"
+            test "$classroom_dom" = "$classroom_dom_successor"
+            test "$classroom_asset_test" = "$(git rev-parse "$d01_owner:tests/test_dev1_classroom_web_asset.py")"
+          fi
           printf 'D01 retained authority PASS: owner=%s base=%s classroom_surface=%s classroom_dom=%s\n' \
             "$d01_owner" "$base" "$classroom_surface_successor" "$classroom_dom_successor"
 

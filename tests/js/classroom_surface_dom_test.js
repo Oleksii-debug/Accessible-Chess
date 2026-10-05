@@ -77,10 +77,17 @@ function check(condition, message) {
 
 function keyEvent(key) {
   let prevented = false;
+  let stopped = false;
   return {
     key,
+    altKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    metaKey: false,
     preventDefault() { prevented = true; },
-    wasPrevented() { return prevented; }
+    stopPropagation() { stopped = true; },
+    wasPrevented() { return prevented; },
+    wasStopped() { return stopped; }
   };
 }
 
@@ -217,7 +224,66 @@ async function run() {
   check(calls.length === 1 && calls[0][0] === "management.open",
     "Enter stopped delegating through canonical management.open");
 
-  console.log("Classroom listbox boundary and direct-jump keyboard contract PASS");
+  calls.length = 0;
+  announcements.length = 0;
+  window.accessibleChessKeymapAction = function (event, context) {
+    check(context === "classroom_list", "classroom list used the wrong keymap context");
+    return {
+      H: "classroom.previous_item",
+      J: "classroom.next_item",
+      G: "classroom.first_item",
+      K: "classroom.last_item",
+      O: "classroom.open_selected"
+    }[event.key] || "";
+  };
+
+  const disabledOldDefault = keyEvent("ArrowDown");
+  options[0].listeners.keydown(disabledOldDefault);
+  await flushPromises();
+  check(!disabledOldDefault.wasPrevented(), "unbound former ArrowDown default was still claimed");
+  check(calls.length === 0, "unbound former ArrowDown default still moved the selection");
+
+  const remappedNext = keyEvent("J");
+  options[0].listeners.keydown(remappedNext);
+  await flushPromises();
+  check(remappedNext.wasPrevented() && remappedNext.wasStopped(),
+    "remapped next-item key was not owned by the classroom list");
+  check(calls.length === 1 && calls[0][0] === "management.move" && calls[0][1].delta === 1,
+    "remapped next-item key did not preserve canonical management.move");
+
+  calls.length = 0;
+  const remappedFirst = keyEvent("G");
+  options[2].listeners.keydown(remappedFirst);
+  await flushPromises();
+  check(remappedFirst.wasPrevented() && calls.length === 1 &&
+    calls[0][0] === "management.select" && calls[0][1].record_id === "one",
+    "remapped first-item key did not select the first canonical record");
+
+  calls.length = 0;
+  const remappedLast = keyEvent("K");
+  options[0].listeners.keydown(remappedLast);
+  await flushPromises();
+  check(remappedLast.wasPrevented() && calls.length === 1 &&
+    calls[0][0] === "management.select" && calls[0][1].record_id === "three",
+    "remapped last-item key did not select the last canonical record");
+
+  calls.length = 0;
+  const remappedOpen = keyEvent("O");
+  options[1].listeners.keydown(remappedOpen);
+  await flushPromises();
+  check(remappedOpen.wasPrevented() && calls.length === 1 && calls[0][0] === "management.open",
+    "remapped open key did not preserve canonical management.open");
+
+  calls.length = 0;
+  const remappedBoundary = keyEvent("H");
+  options[0].listeners.keydown(remappedBoundary);
+  await flushPromises();
+  check(remappedBoundary.wasPrevented() && remappedBoundary.wasStopped(),
+    "remapped boundary key was not quietly owned");
+  check(calls.length === 0 && announcements.length === 0,
+    "remapped boundary key emitted an impossible move or announcement");
+
+  console.log("Classroom listbox central keymap, boundary and direct-jump contract PASS");
 }
 
 run().catch(function (error) {
