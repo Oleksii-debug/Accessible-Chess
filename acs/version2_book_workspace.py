@@ -683,9 +683,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         }
 
     def _workflow_presentation_state(self) -> tuple[bool, int]:
-        revision_before = self._workflow.revision
-        active = self._workflow.active
-        revision_after = self._workflow.revision
+        try:
+            revision_before = self._workflow.revision
+            active = self._workflow.active
+            revision_after = self._workflow.revision
+        except BaseException as exc:
+            raise BookBoardWorkflowError(
+                "Book Board state is unavailable while preparing semantic reading",
+                code=BookBoardWorkflowCode.RETURN_FAILED,
+            ) from exc
         if (
             type(revision_before) is not int
             or revision_before < 0

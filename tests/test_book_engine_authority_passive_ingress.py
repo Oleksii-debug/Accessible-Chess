@@ -4,7 +4,11 @@ import unittest
 from unittest.mock import PropertyMock, patch
 
 from acs.analysis_service import AnalysisService
-from acs.book_board_workflow import BookBoardWorkflow
+from acs.book_board_workflow import (
+    BookBoardWorkflow,
+    BookBoardWorkflowCode,
+    BookBoardWorkflowError,
+)
 from acs.bookdocument import BookDocument, Diagram, Exercise, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
@@ -386,6 +390,35 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
                     BookBoardUiEventKind.BOARD_OPENED,
                 )
             )
+
+    def test_book_workspace_normalizes_direct_workflow_state_abort(self) -> None:
+        class WorkflowStateAbort(BaseException):
+            pass
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=WorkflowStateAbort("corrupted workflow state"),
+        ):
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                projection._workflow_presentation_state()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertFalse(workflow.active)
 
     def test_book_workspace_contains_workflow_state_abort_after_dispatch(self) -> None:
         class WorkflowStateAbort(BaseException):
