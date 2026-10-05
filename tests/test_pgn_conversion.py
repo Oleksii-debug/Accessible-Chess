@@ -230,6 +230,19 @@ class PgnConversionTests(unittest.TestCase):
         saved = run_conversion_job(self.source, "utf-16", self.destination, plan, lambda: False)
         self.assertEqual(saved.sha256, plan.output_sha256)
 
+    def test_cli_plain_preview_exposes_both_publication_digests(self):
+        original = self.write(codec="cp1251")
+        plan = preview_conversion(self.source)
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            self.assertEqual(main([str(self.source)]), 0)
+
+        review = output.getvalue()
+        self.assertIn("SHA-256 джерела: " + hashlib.sha256(original).hexdigest(), review)
+        self.assertIn("SHA-256 UTF-8 результату: " + plan.output_sha256, review)
+        self.assertNotIn(str(self.root), review)
+
     def test_cli_preview_review_bound_write_and_stale_digest(self):
         original = self.write(codec="cp1251")
         output = io.StringIO()
