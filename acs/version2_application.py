@@ -2141,17 +2141,29 @@ class Version2Application:
                 "Фонове збереження PGN уже завершилося або не було розпочате.",
                 "Background PGN saving has finished or has not started.",
             ),
+            "pgn_save_preflight_stale": (
+                "Збереження не розпочато, бо документ змінився, поки було відкрито вікно вибору файла.",
+                "Saving was not started because the document changed while the file dialog was open.",
+            ),
             "pgn_save_stale": (
-                "Файл не прив’язано до поточного документа, бо документ змінився під час збереження.",
-                "The saved file was not committed to the current document because the document changed while saving.",
+                "Файл уже записано, але його не прив’язано до поточного документа, бо активний документ змінився під час збереження.",
+                "The file was written, but it was not committed to the current document because the active document changed while saving.",
             ),
             "pgn_save_worker_unavailable": (
                 "Не вдалося запустити фонове збереження PGN.",
                 "Background PGN saving could not be started.",
             ),
             "pgn_save_commit_failed": (
-                "Файл було підготовлено, але стан документа не вдалося безпечно оновити. Перевідкрийте PGN перед наступним збереженням.",
-                "The file was prepared but document state could not be updated safely. Reopen the PGN before saving again.",
+                "Файл уже записано, але стан документа не вдалося безпечно оновити. Перевідкрийте PGN перед наступним збереженням.",
+                "The file was written, but document state could not be updated safely. Reopen the PGN before saving again.",
+            ),
+            "pgn_save_failed": (
+                "Не вдалося зберегти PGN. Поточні незбережені зміни залишилися в документі.",
+                "PGN could not be saved. The current unsaved edits remain in the document.",
+            ),
+            "pgn_save_as_failed": (
+                "Не вдалося зберегти PGN у вибраний файл. Поточні незбережені зміни залишилися в документі.",
+                "PGN could not be saved to the selected file. The current unsaved edits remain in the document.",
             ),
             "pgn_save_ui_post_failed": (
                 "Не вдалося передати результат фонового збереження у вікно програми.",
