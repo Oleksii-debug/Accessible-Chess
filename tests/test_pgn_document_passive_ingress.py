@@ -225,6 +225,48 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             PgnDocumentSession(workspace, source_overwrite_safe=ActiveBool())  # type: ignore[arg-type]
 
+    def test_direct_save_rejects_active_source_safety_without_truthiness(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        session._source_overwrite_safe = ActiveBool()  # type: ignore[assignment]
+
+        with patch("acs.pgn_document.save_pgn_atomic") as writer:
+            with self.assertRaises(TypeError):
+                session.save()
+
+        writer.assert_not_called()
+
+    def test_direct_save_as_rejects_active_source_safety_without_truthiness(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        session._source_overwrite_safe = ActiveBool()  # type: ignore[assignment]
+
+        with patch("acs.pgn_document.save_pgn_atomic") as writer:
+            with self.assertRaises(TypeError):
+                session.save_as("other.pgn")
+
+        writer.assert_not_called()
+
     def test_session_rejects_active_warning_and_saved_digest_scalars(self) -> None:
         workspace = PgnWorkspace.from_text(PGN)
         warning = GuardedText("warning")
