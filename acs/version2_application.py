@@ -2107,6 +2107,35 @@ class Version2Application:
         kind = getattr(event.kind, "value", "")
         library_export = getattr(event, "action_id", "") == "library.export"
         terminal_export = library_export and kind in {"exported", "dialog_cancelled", "failed"}
+
+        # Keep the visible Library operation controls aligned with the trusted
+        # host lifecycle without forcing a whole-product repaint. The partial
+        # import-region event preserves any newer Library focus while making the
+        # shared Cancel action accurately enabled for export as well as import.
+        if library_export:
+            projection = getattr(getattr(self, "library", None), "projection", None)
+            transition_name = {
+                "export_started": "host_export_started",
+                "export_cancelling": "host_export_cancelling",
+            }.get(kind)
+            if terminal_export:
+                transition_name = "host_export_finished"
+            transition = getattr(projection, transition_name, None) if transition_name else None
+            if callable(transition):
+                try:
+                    operation_event = transition()
+                    operation_kind = getattr(operation_event, "kind", "")
+                    operation_payload = getattr(operation_event, "payload", None)
+                    if operation_kind == "render-import" and isinstance(operation_payload, dict):
+                        self._events.append(
+                            {"kind": operation_kind, "payload": dict(operation_payload)}
+                        )
+                except Exception:
+                    # Presentation is an observer of the canonical host operation.
+                    # A failed accessibility projection must never change export
+                    # publication/cancellation authority.
+                    pass
+
         focus_target = ""
         if terminal_export:
             candidate = getattr(event, "focus_target", "")
