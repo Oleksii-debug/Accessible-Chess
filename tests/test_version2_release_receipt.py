@@ -314,6 +314,40 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 [],
             )
 
+    def test_staging_path_replacement_during_link_is_not_accepted_or_deleted(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_link = __import__("os").link
+
+            def replace_staging_then_link(source, destination, **kwargs):
+                staged = Path(source)
+                staged.unlink()
+                staged.write_bytes(b"replacement-staging-owned-by-another-writer")
+                real_link(source, destination, **kwargs)
+
+            with patch(
+                "acs.version2_release_receipt.os.link",
+                side_effect=replace_staging_then_link,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed during atomic publication",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(
+                output.read_bytes(),
+                b"replacement-staging-owned-by-another-writer",
+            )
+            leftovers = list(Path(td).glob(".receipt.json.receipt-*.tmp"))
+            self.assertEqual(len(leftovers), 1)
+            self.assertEqual(
+                leftovers[0].read_bytes(),
+                b"replacement-staging-owned-by-another-writer",
+            )
+
     def test_hardlink_publication_failure_leaves_no_canonical_or_staging_file(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
