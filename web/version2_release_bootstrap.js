@@ -13,6 +13,7 @@
   let pendingShellPublicationToken = 0;
   let shellPublicationRequestSequence = 0;
   let pendingShellPublicationRequestId = 0;
+  let pendingShellPublicationArea = "";
   let pendingShellPublicationActionId = "";
   let shellRouteTransitionInFlight = false;
   let eventDrainInFlight = false;
@@ -211,23 +212,23 @@
       if (!bridge || typeof bridge.v2_browser_command !== "function") {
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
-      return bridge.v2_browser_command(area, command, payload || {}).then(function (result) {
-        // Library Open is a direct browser command whose trusted application
-        // handler synchronously changes the canonical shell route to PGN but
-        // intentionally queues no second application event. Reuse the one V2
-        // snapshot/render/focus authority before resolving the command so the
-        // visible/NVDA surface cannot remain on stale Library content.
-        if (area === "library" && command === "library.open_game" &&
-            result && result.kind !== "error") {
-          return refresh(true).then(function () { return result; });
-        }
-        return result;
-      });
+      if (area === "library" && command === "library.open_game") {
+        return runPublishedBrowserTransition(
+          bridge,
+          "library",
+          command,
+          uiText("Не вдалося відкрити партію.", "Could not open the game."),
+          false
+        );
+      }
+      return bridge.v2_browser_command(area, command, payload || {});
     };
   }
 
   function shellPublicationToken(result) {
-    if (!plainObject(result) || result.kind !== "route" || !plainObject(result.payload)) {
+    if (!plainObject(result) ||
+        (result.kind !== "route" && result.kind !== "delegated") ||
+        !plainObject(result.payload)) {
       return 0;
     }
     const token = result.payload.publication_token;
@@ -243,13 +244,14 @@
   function clearPendingShellPublicationStart(requestId) {
     if (pendingShellPublicationRequestId !== requestId) return;
     pendingShellPublicationRequestId = 0;
+    pendingShellPublicationArea = "";
     pendingShellPublicationActionId = "";
   }
 
-  function startShellPublication(bridge, actionId, requestId) {
+  function startShellPublication(bridge, area, actionId, requestId) {
     function attempt() {
       return bridge.v2_browser_command(
-        "shell",
+        area,
         actionId,
         { publication_protocol: "ack-v1", request_id: requestId }
       ).then(function (result) {
@@ -354,6 +356,150 @@
     });
   }
 
+  function recoverPendingShellPublicationStart(bridge, failedMessage) {
+    const requestId = pendingShellPublicationRequestId;
+    const pendingArea = pendingShellPublicationArea;
+    const pendingActionId = pendingShellPublicationActionId;
+    if (!requestId || !pendingArea || !pendingActionId) return Promise.resolve(true);
+    return startShellPublication(
+      bridge,
+      pendingArea,
+      pendingActionId,
+      requestId
+    ).then(function (result) {
+      if (result && result.kind === "error") {
+        clearPendingShellPublicationStart(requestId);
+        return true;
+      }
+      const token = shellPublicationToken(result);
+      if (!token) return false;
+      clearPendingShellPublicationStart(requestId);
+      pendingShellPublicationToken = token;
+      return recoverShellPublication(bridge, token, failedMessage);
+    }, function () {
+      announce(failedMessage);
+      return false;
+    });
+  }
+
+  function recoverOutstandingShellPublication(bridge, failedMessage) {
+    function continueAfterKnownToken() {
+      return recoverPendingShellPublicationStart(bridge, failedMessage);
+    }
+    if (!pendingShellPublicationToken) return continueAfterKnownToken();
+    const previousToken = pendingShellPublicationToken;
+    return recoverShellPublication(
+      bridge,
+      previousToken,
+      failedMessage
+    ).then(function (recovered) {
+      if (!recovered) return false;
+      return continueAfterKnownToken();
+    });
+  }
+
+  function startPublishedBrowserTransition(
+    bridge,
+    area,
+    actionId,
+    failedMessage,
+    announceHostError
+  ) {
+    const requestId = nextShellPublicationRequestId();
+    if (!requestId) {
+      announce(failedMessage);
+      return Promise.resolve(null);
+    }
+    pendingShellPublicationRequestId = requestId;
+    pendingShellPublicationArea = area;
+    pendingShellPublicationActionId = actionId;
+
+    return startShellPublication(
+      bridge,
+      area,
+      actionId,
+      requestId
+    ).then(function (result) {
+      if (result && result.kind === "error") {
+        clearPendingShellPublicationStart(requestId);
+        if (announceHostError && result.payload) {
+          announce(result.payload.message || "");
+        }
+        return result;
+      }
+      const token = shellPublicationToken(result);
+      if (!token) {
+        announce(failedMessage);
+        return null;
+      }
+      clearPendingShellPublicationStart(requestId);
+      pendingShellPublicationToken = token;
+
+      return refresh(true).then(function () {
+        return finishShellPublication(
+          bridge,
+          "shell.presentation_commit",
+          token
+        ).then(function () {
+          clearPendingShellPublication(token);
+          return result;
+        }, function () {
+          return recoverShellPublication(
+            bridge,
+            token,
+            failedMessage
+          ).then(function () { return null; });
+        });
+      }, function () {
+        return recoverShellPublication(
+          bridge,
+          token,
+          failedMessage
+        ).then(function () { return null; });
+      });
+    }, function () {
+      // Keep the exact area/action/request tuple. The host may already have
+      // executed the transition and lost both responses; the next interaction
+      // must replay this request before doing anything new.
+      announce(failedMessage);
+      return null;
+    });
+  }
+
+  function runPublishedBrowserTransition(
+    bridge,
+    area,
+    actionId,
+    failedMessage,
+    announceHostError
+  ) {
+    if (shellRouteTransitionInFlight) return Promise.resolve(null);
+    shellRouteTransitionInFlight = true;
+    return Promise.resolve()
+      .then(waitForEventDrainIdle)
+      .then(function () {
+        return recoverOutstandingShellPublication(bridge, failedMessage);
+      })
+      .then(function (recovered) {
+        if (!recovered) return null;
+        return startPublishedBrowserTransition(
+          bridge,
+          area,
+          actionId,
+          failedMessage,
+          announceHostError
+        );
+      })
+      .then(function (result) {
+        finishRouteTransition();
+        return result;
+      }, function () {
+        announce(failedMessage);
+        finishRouteTransition();
+        return null;
+      });
+  }
+
   function renderNavigation(snapshot) {
     if (!Array.isArray(snapshot.navigation) ||
         snapshot.navigation.length < 1 ||
@@ -396,107 +542,13 @@
           "Не вдалося відкрити розділ.",
           "Could not open the section."
         );
-
-        function requestRoute() {
-          const requestId = nextShellPublicationRequestId();
-          if (!requestId) {
-            announce(failedMessage);
-            return Promise.resolve(false);
-          }
-          pendingShellPublicationRequestId = requestId;
-          pendingShellPublicationActionId = actionId;
-
-          return startShellPublication(
-            bridge,
-            actionId,
-            requestId
-          ).then(function (result) {
-            if (result && result.kind === "error") {
-              clearPendingShellPublicationStart(requestId);
-              if (result.payload) announce(result.payload.message || "");
-              return false;
-            }
-            const token = shellPublicationToken(result);
-            if (!token) {
-              announce(failedMessage);
-              return false;
-            }
-            clearPendingShellPublicationStart(requestId);
-            pendingShellPublicationToken = token;
-
-            return refresh(true).then(function () {
-              return finishShellPublication(
-                bridge,
-                "shell.presentation_commit",
-                token
-              ).then(function () {
-                clearPendingShellPublication(token);
-                return true;
-              }, function () {
-                return recoverShellPublication(bridge, token, failedMessage);
-              });
-            }, function () {
-              return recoverShellPublication(bridge, token, failedMessage);
-            });
-          }, function () {
-            announce(failedMessage);
-            return false;
-          });
-        }
-
-        function recoverPendingStart() {
-          const requestId = pendingShellPublicationRequestId;
-          const pendingActionId = pendingShellPublicationActionId;
-          if (!requestId || !pendingActionId) return Promise.resolve(true);
-          return startShellPublication(
-            bridge,
-            pendingActionId,
-            requestId
-          ).then(function (result) {
-            if (result && result.kind === "error") {
-              clearPendingShellPublicationStart(requestId);
-              return true;
-            }
-            const token = shellPublicationToken(result);
-            if (!token) return false;
-            clearPendingShellPublicationStart(requestId);
-            pendingShellPublicationToken = token;
-            return recoverShellPublication(bridge, token, failedMessage);
-          }, function () {
-            announce(failedMessage);
-            return false;
-          });
-        }
-
-        function continueAfterKnownPublication() {
-          return recoverPendingStart().then(function (recovered) {
-            if (recovered) return requestRoute();
-            return false;
-          });
-        }
-
-        if (shellRouteTransitionInFlight) return;
-        shellRouteTransitionInFlight = true;
-        Promise.resolve()
-          .then(waitForEventDrainIdle)
-          .then(function () {
-            if (pendingShellPublicationToken) {
-              const previousToken = pendingShellPublicationToken;
-              return recoverShellPublication(
-                bridge,
-                previousToken,
-                failedMessage
-              ).then(function (recovered) {
-                if (recovered) return continueAfterKnownPublication();
-                return false;
-              });
-            }
-            return continueAfterKnownPublication();
-          })
-          .then(finishRouteTransition, function () {
-            announce(failedMessage);
-            finishRouteTransition();
-          });
+        runPublishedBrowserTransition(
+          bridge,
+          "shell",
+          actionId,
+          failedMessage,
+          true
+        );
       });
       row.appendChild(button);
       fragment.appendChild(row);
