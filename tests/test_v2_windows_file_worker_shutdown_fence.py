@@ -283,6 +283,104 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(result.focus_target, "pgn-tree")
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_unsaved_confirmation_rejects_active_truthiness_without_hook(self) -> None:
+        touched: list[str] = []
+
+        class ActiveTruth:
+            def __bool__(self):
+                touched.append("bool")
+                raise AssertionError("confirmation truthiness hook executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-confirmation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Dirty before active confirmation")
+
+            class ActiveConfirmationDialogs(_Dialogs):
+                def confirm_discard_unsaved_pgn(self):
+                    return ActiveTruth()
+
+                def open_pgn(self):
+                    raise AssertionError(
+                        "open dialog must not run after malformed confirmation"
+                    )
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=ActiveConfirmationDialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=lambda event: event,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            result = delegate("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "unsaved_confirmation_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.pgn_open_running)
+
+    def test_native_dialog_results_reject_active_path_protocol_without_hook(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path protocol executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-dialog-result.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            active = ActivePath()
+
+            class ActiveResultDialogs(_Dialogs):
+                def open_pgn(self):
+                    return active
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return active
+
+                def select_library_import(self):
+                    return active
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=ActiveResultDialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=lambda event: event,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            opened = delegate("pgn.open", {})
+            saved_as = delegate("pgn.save_as", {})
+            imported = delegate("library.import", {})
+
+            for event, action in (
+                (opened, "pgn.open"),
+                (saved_as, "pgn.save_as"),
+                (imported, "library.import"),
+            ):
+                self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(event.action_id, action)
+                self.assertEqual(event.error_code, "file_dialog_failed")
+                self.assertEqual(event.focus_target, "pgn-tree")
+
+            self.assertEqual(touched, [])
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertFalse(delegate.pgn_save_running)
+            self.assertFalse(delegate.import_running)
+
     def test_file_workflow_event_rejects_derived_root_before_field_hooks(self) -> None:
         touched = []
 
