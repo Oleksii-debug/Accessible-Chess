@@ -19,6 +19,10 @@ import stat
 from typing import Any
 
 from .version2_package_preflight import validate_version2_package_zip
+from .version2_portable_package import (
+    Version2PortablePackageError,
+    _sync_published_zip_namespace,
+)
 
 
 RELEASE_RECEIPT_SCHEMA_VERSION = 1
@@ -529,6 +533,25 @@ def write_version2_release_receipt(
                 ):
                     raise Version2ReleaseReceiptError(
                         "release receipt changed during atomic publication"
+                    )
+
+                # Fsyncing the private staging inode does not make the newly
+                # created canonical hard-link namespace entry durable on POSIX.
+                # On Windows, use the repository's exact-file FlushFileBuffers
+                # barrier. Accept the receipt only after the canonical pathname
+                # still resolves to the same publication snapshot.
+                try:
+                    durable_published = _sync_published_zip_namespace(
+                        path,
+                        expected=published_info,
+                    )
+                except Version2PortablePackageError as exc:
+                    raise Version2ReleaseReceiptError(
+                        "release receipt publication durability could not be confirmed"
+                    ) from exc
+                if not _same_file_snapshot(after_link_handle, durable_published):
+                    raise Version2ReleaseReceiptError(
+                        "release receipt changed during durability confirmation"
                     )
                 publication_accepted = True
         except Version2ReleaseReceiptError:

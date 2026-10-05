@@ -3,10 +3,10 @@ name: W5 Release Receipt + Hardened Package Contract
 on:
   push:
     branches:
-      - converge/package-pe-release-receipt-20261005-zftrkmo
+      - fix/release-receipt-namespace-durability-20261006-sol56z8q5
   pull_request:
     branches:
-      - fix/package-snapshot-identity-fallback-20261005-sol56k8n3
+      - fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
     paths:
       - acs/version2_release_receipt.py
       - tests/test_version2_release_receipt.py
@@ -20,13 +20,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PACKAGE_HEAD: 1e4f197f3a157412b3ef22b555f30b6ff3f105cb
-  PACKAGE_BRANCH: fix/package-snapshot-identity-fallback-20261005-sol56k8n3
-  EXPECTED_RECEIPT_HEAD: d684d0a811913162f19f3ad1aadbc54f8f501769
+  EXPECTED_PACKAGE_HEAD: 5b39c342ca3761a00854bac2e3871ab31c0b7514
+  PACKAGE_BRANCH: fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
+  EXPECTED_RECEIPT_HEAD: 5b39c342ca3761a00854bac2e3871ab31c0b7514
   EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
   EXPECTED_PE_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
-  EXPECTED_RECEIPT_BLOB: 290e653ef5d4998189b7b61df1add8882d80ffcd
-  EXPECTED_RECEIPT_TEST_BLOB: 37be6d4926f5e68bdee20a1a9afc922421e31e3a
+  EXPECTED_RECEIPT_BLOB: bbb2aa22427b16e83c7181086b4d676e1164abc0
+  EXPECTED_RECEIPT_TEST_BLOB: ca7ea438aee29d49672a354ec3c84d257673fc5e
 
 jobs:
   receipt-package-contract:
@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact dual-parent convergence and bounded receipt delta
+      - name: Prove exact parent and bounded receipt durability delta
         shell: bash
         run: |
           set -euo pipefail

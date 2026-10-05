@@ -9,6 +9,7 @@ from unittest.mock import patch
 import zipfile
 
 from acs.version2_package_preflight import Version2PackagePreflightError
+from acs import version2_release_receipt as release_receipt_module
 from acs.version2_release_receipt import (
     CANONICAL_W5_WORKFLOW,
     RELEASE_RECEIPT_SCHEMA_VERSION,
@@ -194,9 +195,15 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             receipt = _build(archive)
             output = Path(td) / "receipt.json"
 
-            with patch("acs.version2_release_receipt.os.fsync") as fsync:
+            with patch(
+                "acs.version2_release_receipt._sync_published_zip_namespace",
+                side_effect=lambda _path, *, expected: expected,
+            ) as namespace_sync, patch(
+                "acs.version2_release_receipt.os.fsync"
+            ) as fsync:
                 write_version2_release_receipt(output, receipt)
             fsync.assert_called_once()
+            namespace_sync.assert_called_once()
             self.assertEqual(read_version2_release_receipt(output), receipt)
 
             swapped = Path(td) / "swapped.json"
@@ -214,6 +221,47 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 list(Path(td).glob(".swapped.json.receipt-*.tmp")),
                 [],
             )
+
+    def test_receipt_publication_crosses_namespace_durability_barrier(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            original = release_receipt_module._sync_published_zip_namespace
+            with patch(
+                "acs.version2_release_receipt._sync_published_zip_namespace",
+                wraps=original,
+            ) as namespace_sync:
+                write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(namespace_sync.call_count, 1)
+            args, kwargs = namespace_sync.call_args
+            self.assertEqual(Path(args[0]), output)
+            self.assertIn("expected", kwargs)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
+    def test_post_link_durability_failure_cleans_owned_receipt_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            with patch(
+                "acs.version2_release_receipt._sync_published_zip_namespace",
+                side_effect=release_receipt_module.Version2PortablePackageError(
+                    "simulated namespace durability failure"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "publication durability could not be confirmed",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertFalse(output.exists())
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
 
     def test_failed_receipt_write_discards_own_partial_file_and_retry_succeeds(self):
         with tempfile.TemporaryDirectory() as td:
