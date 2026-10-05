@@ -211,6 +211,53 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         self.assertEqual([], touched)
         self.assertEqual([], forwarded)
 
+    def test_export_scope_rejects_active_text_before_comparison_or_dialog(self) -> None:
+        touched: list[str] = []
+
+        class ActiveScope(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active scope equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active scope inequality executed")
+
+        payload = {
+            "scope": ActiveScope(LibraryExportScope.SELECTED.value),
+            "game_ids": [1],
+        }
+        with self.assertRaisesRegex(ValueError, "unsupported Library export scope"):
+            LibraryExportRequest.from_payload(payload)
+        self.assertEqual([], touched)
+
+        dialogs = _Dialogs(Path("must-not-open.pgn"))
+        events: list[LibraryExportHostEvent] = []
+        delegate = Version2WindowsLibraryExportDelegate(
+            dialogs=dialogs,
+            worker_services_factory=lambda: (_ for _ in ()).throw(
+                AssertionError("worker factory must not run")
+            ),
+            post_to_ui=lambda callback: (_ for _ in ()).throw(
+                AssertionError("UI poster must not run")
+            ),
+            event_sink=events.append,
+            next_delegate=lambda action_id, value: (_ for _ in ()).throw(
+                AssertionError("next delegate must not run")
+            ),
+            current_focus_provider=lambda: "library-results",
+        )
+
+        terminal = delegate("library.export", payload)
+
+        self.assertEqual([], touched)
+        self.assertEqual(dialogs.calls, [])
+        self.assertEqual(len(events), 1)
+        self.assertIs(terminal, events[0])
+        self.assertEqual(terminal.kind, LibraryExportHostEventKind.FAILED)
+        self.assertEqual(terminal.error_code, "invalid_export_request")
+        self.assertEqual(terminal.focus_target, "library-results")
+
     def test_export_delegate_still_forwards_unknown_exact_string_action(self) -> None:
         forwarded: list[tuple[str, object]] = []
         payload = {"opaque": object()}
