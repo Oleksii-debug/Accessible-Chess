@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/current-product-accessibility-formats-convergence.yml'
+      - '.github/workflows/current-books-keymap-semantic-convergence.yml'
       - '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml'
       - '.github/workflows/keybindings-current-apex-core.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
@@ -24,9 +25,12 @@ on:
       - 'web/index.html'
       - 'web/full_product_classroom.js'
       - 'web/full_product_pgn.js'
+      - 'web/full_product_books_training.js'
       - 'tests/js/dynamic_keymap_help_test.js'
       - 'tests/js/classroom_surface_dom_test.js'
       - 'tests/js/pgn_remaining_keybindings_test.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
       - 'tests/test_keybindings.py'
       - 'tests/test_dynamic_keymap_help_contract.py'
       - 'tests/test_dev1_release_ui_regressions.py'
