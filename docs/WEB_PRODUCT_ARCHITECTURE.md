@@ -188,3 +188,27 @@ Track Web separately:
 - WEB_PRODUCTION_READY.
 
 No Web readiness is claimed merely because existing desktop screens use WebView technology.
+
+## 13. Media Intelligence and Universal Chess Agent shared-service amendment — 2026-10-05
+
+Binding technical detail: `docs/MEDIA_INTELLIGENCE_AND_CHESS_AGENT_ARCHITECTURE.md`.
+
+Media and Agent capabilities follow the same one-core rule as Board/Library/Teacher.
+
+Shared application boundaries now include:
+- MediaSession/MediaClock;
+- MediaEvidence and MediaPositionTimeline;
+- ChessStateReconciler;
+- StructuredBroadcastProvider adapters;
+- BoardVisionPort;
+- SpeechContextPort;
+- UniversalChessAgent / ChessToolRegistry.
+
+Windows, future Web and provider-specific media implementations may differ in player/UI/capture adapters, but they must not duplicate media-to-chess reconciliation rules or chess legality.
+
+Expensive Agent/Vision/STT work may later execute locally or on a server according to product plan, privacy, quotas and entitlement policy, while preserving the same typed contracts.
+
+Third-party media providers require explicit compliant adapters. Documented playback/metadata APIs are preferred; prohibited downloading, caching, undocumented stream extraction or prohibited audio/video separation must not become architectural dependencies.
+
+The Universal Chess Agent operates through application tools rather than DOM scraping and remains subject to the same authentication, authorization, tenant isolation, quotas and canonical state validation as other clients.
+
