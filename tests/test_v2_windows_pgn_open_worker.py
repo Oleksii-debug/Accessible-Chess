@@ -6,6 +6,8 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
+from acs.gametree import Comment
+from acs.gametree_annotations import MoveAnnotationPatch, move_annotation_target
 from acs.pgn_document import PgnDocumentSession, PgnDocumentView
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
@@ -735,6 +737,34 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertFalse(controller.pgn_open_running)
             self.assertEqual(events[-1], result)
 
+    def test_modal_file_picker_direct_workspace_edit_invalidates_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-workspace-edit.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous-workspace-edit.pgn"
+            previous_path.write_text(PGN_TEXT.replace("Async open", "Previous"), encoding="utf-8")
+            previous = PgnDocumentSession.open(previous_path)
+            controller, dialogs, poster, events, session_box, publications = self._controller(source, previous=previous)
+
+            def reentrant_open():
+                game = previous.workspace.current_game()
+                target = move_annotation_target(game, (), 0)
+                previous.workspace.edit_move_annotations(
+                    target, MoveAnnotationPatch(comments_after=(Comment("modal workspace edit"),))
+                )
+                return source
+
+            dialogs.open_pgn = reentrant_open
+            result = controller("pgn.open", {})
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_open_stale")
+            self.assertIs(session_box["value"], previous)
+            self.assertTrue(previous.workspace.dirty)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
     def test_modal_file_picker_active_revision_fails_stale_without_worker_start(self) -> None:
         class ActiveInt(int):
             def __lt__(self, other):
@@ -799,6 +829,29 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             poster.drain()
 
             self.assertIs(session_box["value"], previous)
+            self.assertEqual(publications, [])
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "pgn_open_stale")
+            self.assertFalse(controller.pgn_open_running)
+
+    def test_prepared_open_does_not_overwrite_direct_workspace_edit_before_owner_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-workspace-owner.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous-workspace-owner.pgn"
+            previous_path.write_text(PGN_TEXT.replace("Async open", "Previous"), encoding="utf-8")
+            previous = PgnDocumentSession.open(previous_path)
+            controller, _, poster, events, session_box, publications = self._controller(source, previous=previous)
+            controller("pgn.open", {})
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            game = previous.workspace.current_game()
+            target = move_annotation_target(game, (), 0)
+            previous.workspace.edit_move_annotations(
+                target, MoveAnnotationPatch(comments_after=(Comment("owner workspace edit"),))
+            )
+            poster.drain()
+            self.assertIs(session_box["value"], previous)
+            self.assertTrue(previous.workspace.dirty)
             self.assertEqual(publications, [])
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "pgn_open_stale")

@@ -44,6 +44,7 @@ from .pgn_document import (
     PgnDocumentSession,
     PgnDocumentView,
 )
+from .pgn_workspace import PgnWorkspace
 from .pgn_save_snapshot import (
     PgnSaveCancelledError,
     PgnSaveMode,
@@ -428,6 +429,28 @@ class Version2WindowsFileActionDelegate:
             )
         )
 
+    @staticmethod
+    def _pgn_session_generation(session: PgnDocumentSession) -> tuple[int, int, str]:
+        if type(session) is not PgnDocumentSession:
+            raise TypeError("PGN generation requires an exact document session")
+        workspace = session.workspace
+        if type(workspace) is not PgnWorkspace:
+            raise TypeError("PGN generation requires the canonical workspace")
+        document_revision = session.document_revision
+        workspace_revision = workspace.content_revision
+        content_digest = workspace.content_digest
+        if type(document_revision) is not int or document_revision < 0:
+            raise TypeError("PGN document revision is invalid")
+        if type(workspace_revision) is not int or workspace_revision < 0:
+            raise TypeError("PGN workspace revision is invalid")
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(character not in "0123456789abcdef" for character in content_digest)
+        ):
+            raise TypeError("PGN workspace digest is invalid")
+        return document_revision, workspace_revision, content_digest
+
     def _prepare_open_path(
         self,
     ) -> tuple[
@@ -435,7 +458,7 @@ class Version2WindowsFileActionDelegate:
         FileWorkflowEvent | None,
         str,
         PgnDocumentSession | None,
-        int | None,
+        tuple[int, int, str] | None,
     ]:
         previous_focus = self._focus()
         try:
@@ -449,7 +472,9 @@ class Version2WindowsFileActionDelegate:
                 "pgn.open", "pgn_session_invalid", focus_target=previous_focus
             ), previous_focus, None, None
         try:
-            current_revision = None if current is None else current.document_revision
+            current_generation = (
+                None if current is None else self._pgn_session_generation(current)
+            )
             current_dirty = False if current is None else current.dirty
         except BaseException:
             return None, self._failed(
@@ -468,13 +493,13 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open",
                         "unsaved_confirmation_failed",
                         focus_target=previous_focus,
-                    ), previous_focus, current, current_revision
+                    ), previous_focus, current, current_generation
                 if not callable(confirmation):
                     return None, self._failed(
                         "pgn.open",
                         "unsaved_confirmation_unavailable",
                         focus_target=previous_focus,
-                    ), previous_focus, current, current_revision
+                    ), previous_focus, current, current_generation
                 try:
                     discard = confirmation()
                     if type(discard) is not bool:
@@ -486,11 +511,11 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open",
                         "unsaved_confirmation_failed",
                         focus_target=previous_focus,
-                    ), previous_focus, current, current_revision
+                    ), previous_focus, current, current_generation
                 if not discard:
                     return None, self._dialog_cancelled(
                         "pgn.open", previous_focus
-                    ), previous_focus, current, current_revision
+                    ), previous_focus, current, current_generation
         try:
             path = self._dialogs.open_pgn()
             if path is not None:
@@ -498,12 +523,12 @@ class Version2WindowsFileActionDelegate:
         except BaseException:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
-            ), previous_focus, current, current_revision
+            ), previous_focus, current, current_generation
         if path is None:
             return None, self._dialog_cancelled(
                 "pgn.open", previous_focus
-            ), previous_focus, current, current_revision
-        return path, None, previous_focus, current, current_revision
+            ), previous_focus, current, current_generation
+        return path, None, previous_focus, current, current_generation
 
     def _open_pgn(self) -> FileWorkflowEvent:
         # Fail before any dirty-confirmation or file-picker I/O when the shared
@@ -529,7 +554,7 @@ class Version2WindowsFileActionDelegate:
             early,
             previous_focus,
             expected_session,
-            expected_revision,
+            expected_generation,
         ) = self._prepare_open_path()
         if early is not None:
             return early
@@ -548,11 +573,12 @@ class Version2WindowsFileActionDelegate:
         try:
             stale = live_session is not expected_session
             if not stale and expected_session is not None:
-                if type(expected_revision) is not int or expected_revision < 0:
-                    raise TypeError("PGN Open expected revision is invalid")
-                stale = expected_session.document_revision != expected_revision
-            elif not stale and expected_revision is not None:
-                raise TypeError("PGN Open unexpected revision without session")
+                stale = (
+                    self._pgn_session_generation(expected_session)
+                    != expected_generation
+                )
+            elif not stale and expected_generation is not None:
+                raise TypeError("PGN Open unexpected generation without session")
         except BaseException:
             stale = True
         if stale:
@@ -619,7 +645,7 @@ class Version2WindowsFileActionDelegate:
                     previous_focus,
                     cancel_event,
                     expected_session,
-                    expected_revision,
+                    expected_generation,
                 ),
                 name=f"AccessibleChess-V2-PgnOpen-{generation}",
                 daemon=False,
@@ -669,7 +695,7 @@ class Version2WindowsFileActionDelegate:
         previous_focus: str,
         cancel_event: threading.Event,
         expected_session: PgnDocumentSession | None,
-        expected_revision: int | None,
+        expected_generation: tuple[int, int, str] | None,
     ) -> None:
         session: PgnDocumentSession | None = None
         view = None
@@ -735,7 +761,7 @@ class Version2WindowsFileActionDelegate:
         previous_focus: str,
         cancel_event: threading.Event,
         expected_session: PgnDocumentSession | None,
-        expected_revision: int | None,
+        expected_generation: tuple[int, int, str] | None,
     ) -> None:
         with self._lock:
             current = (
@@ -805,18 +831,13 @@ class Version2WindowsFileActionDelegate:
                     try:
                         stale = live_session is not expected_session
                         if not stale and expected_session is not None:
-                            if (
-                                type(expected_revision) is not int
-                                or expected_revision < 0
-                            ):
-                                raise TypeError(
-                                    "PGN Open expected revision is invalid"
-                                )
-                            live_revision = expected_session.document_revision
-                            stale = live_revision != expected_revision
-                        elif not stale and expected_revision is not None:
+                            stale = (
+                                self._pgn_session_generation(expected_session)
+                                != expected_generation
+                            )
+                        elif not stale and expected_generation is not None:
                             raise TypeError(
-                                "PGN Open unexpected revision without session"
+                                "PGN Open unexpected generation without session"
                             )
                     except BaseException:
                         _LOG.warning(
@@ -1072,10 +1093,8 @@ class Version2WindowsFileActionDelegate:
             # save snapshot is captured after the dialog returns; here we need
             # only passive canonical provenance and the pre-dialog revision fence.
             try:
-                expected_revision = current.document_revision
+                expected_generation = self._pgn_session_generation(current)
                 source = current.source
-                if type(expected_revision) is not int or expected_revision < 0:
-                    raise TypeError("PGN Save As revision is invalid")
                 if source is not None and type(source) is not SourceFingerprint:
                     raise TypeError("PGN Save As source provenance is invalid")
                 if source is not None:
@@ -1111,15 +1130,21 @@ class Version2WindowsFileActionDelegate:
         try:
             stale = live_session is not current
             if not stale:
-                live_revision = current.document_revision
-                if (
-                    type(expected_revision) is not int
-                    or expected_revision < 0
-                    or type(live_revision) is not int
-                    or live_revision < 0
-                ):
-                    raise TypeError("PGN Save As modal revision is invalid")
-                stale = live_revision != expected_revision
+                if self._post_to_ui is None:
+                    live_revision = current.document_revision
+                    if (
+                        type(expected_revision) is not int
+                        or expected_revision < 0
+                        or type(live_revision) is not int
+                        or live_revision < 0
+                    ):
+                        raise TypeError("PGN Save As modal revision is invalid")
+                    stale = live_revision != expected_revision
+                else:
+                    stale = (
+                        self._pgn_session_generation(current)
+                        != expected_generation
+                    )
         except BaseException:
             # The native picker pumps messages. A re-entrant callback can
             # corrupt the active session as well as replace/edit it; treat any

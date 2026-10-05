@@ -6,6 +6,8 @@ import threading
 import unittest
 from unittest import mock
 
+from acs.gametree import Comment
+from acs.gametree_annotations import MoveAnnotationPatch, move_annotation_target
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_save_snapshot import PgnSaveCancelledError
 from acs.version2_windows_file_workflows import (
@@ -556,6 +558,31 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(async_events, [])
             self.assertEqual(sync_events[-1], result)
             self.assertIn("Edited by modal reentry", session.copy_pgn())
+
+    def test_modal_save_as_direct_workspace_edit_fails_stale_before_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target_path = Path(tmp) / "must-not-save-workspace-edit.pgn"
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target_path
+
+            def workspace_edit():
+                game = session.workspace.current_game()
+                target = move_annotation_target(game, (), 0)
+                session.workspace.edit_move_annotations(
+                    target, MoveAnnotationPatch(comments_after=(Comment("modal workspace edit"),))
+                )
+
+            dialogs.on_save_dialog = workspace_edit
+            result = controller("pgn.save_as", {})
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_preflight_stale")
+            self.assertFalse(target_path.exists())
+            self.assertTrue(session.workspace.dirty)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(poster.callbacks, [])
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events[-1], result)
 
     def test_save_as_corrupted_revision_fails_before_dialog(self) -> None:
         session = PgnDocumentSession.from_text(PGN_TEXT)
