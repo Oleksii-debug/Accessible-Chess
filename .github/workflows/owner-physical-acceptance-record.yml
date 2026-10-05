@@ -25,11 +25,12 @@ env:
   RELEASE_BRANCH: converge/release-receipt-physical-acceptance-20261005-zftrkmo
   EXPECTED_PHYSICAL_PARENT: e8a23625dcb9f3ab759878c4b007af4801dc170e
   EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  EXPECTED_PORTABLE_PACKAGE_BLOB: fb52da953d3a13ef8ca0d4568f7b2a9f796057fd
   EXPECTED_RELEASE_RECEIPT_BLOB: 290e653ef5d4998189b7b61df1add8882d80ffcd
   EXPECTED_PE_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
-  EXPECTED_PHYSICAL_SOURCE_BLOB: 7cea6745c6a991f994f505d07d37313695e77dac
+  EXPECTED_PHYSICAL_SOURCE_BLOB: e19bf4663bee3545220f4fcea86ab5e367ab6c98
   EXPECTED_PHYSICAL_TEST_BLOB: 966c223f884e56ec241d66e73e4829de619f62d2
-  EXPECTED_PHYSICAL_JSON_TEST_BLOB: 6e5e39fa762557c794ed16d223a07bdde67a8f41
+  EXPECTED_PHYSICAL_JSON_TEST_BLOB: 39d03730f0d21a8b004675e32fadd547dba7074b
 
 jobs:
   contract:
@@ -81,6 +82,7 @@ jobs:
           done
 
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "$EXPECTED_PORTABLE_PACKAGE_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$EXPECTED_RELEASE_RECEIPT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$EXPECTED_PE_IDENTITY_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$EXPECTED_PHYSICAL_SOURCE_BLOB"
@@ -100,6 +102,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/version2_package_preflight.py
+          acs/version2_portable_package.py
           acs/version2_release_receipt.py
           scripts/finalize_owner_final_receipt.py
           scripts/record_owner_physical_acceptance.py
