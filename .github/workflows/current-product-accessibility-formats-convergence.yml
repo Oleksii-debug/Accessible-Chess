@@ -104,7 +104,7 @@ jobs:
           TOOLBAR_CONVERGENCE_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           SHIPPING_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          SHIPPING_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95
+          SHIPPING_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
@@ -187,6 +187,11 @@ jobs:
               'tests/test_p0_oneclick_exact_head_concurrency.py' \
               'tests/test_portable_launch_report_reparse_concurrency.py' \
               'tests/test_training_progress_durability_concurrency.py' \
+              '.github/workflows/owner-oneclick-from-w4.yml' \
+              'docs/USER_SOUND_PACK_CURRENT.md' \
+              'scripts/build_owner_portable_candidate.py' \
+              'tests/test_owner_oneclick_from_w4_workflow.py' \
+              'tests/test_owner_portable_candidate.py' \
               | sort)"
             test "$extra" = "$expected_extra" || {
               printf 'Unexpected shipping qualification delta in accessibility/formats gate.\n%s\n' "$extra" >&2

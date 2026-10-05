@@ -43,7 +43,7 @@ jobs:
           SOURCE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
           INTEGRATION_BRANCH: converge/current-product-package-manifest-integration-20261004-3pg7jcgq
           CURRENT_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          CURRENT_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95
+          CURRENT_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PACKAGE_INTEGRATION_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
@@ -116,7 +116,7 @@ jobs:
 
               product_paths="$(git diff --name-only "$live_base"..."$live_current_product" | sort)"
               product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-              test "$product_count" -eq 230
+              test "$product_count" -eq 231
 
               extra="$(git diff --name-only "$live_current_product"...HEAD | sort)"
               expected_extra="$(printf '%s\n' \
@@ -135,6 +135,11 @@ jobs:
                 'tests/test_p0_oneclick_exact_head_concurrency.py' \
                 'tests/test_portable_launch_report_reparse_concurrency.py' \
                 'tests/test_training_progress_durability_concurrency.py' \
+                '.github/workflows/owner-oneclick-from-w4.yml' \
+                'docs/USER_SOUND_PACK_CURRENT.md' \
+                'scripts/build_owner_portable_candidate.py' \
+                'tests/test_owner_oneclick_from_w4_workflow.py' \
+                'tests/test_owner_portable_candidate.py' \
                 | sort)"
               test "$extra" = "$expected_extra" || {
                 printf 'Unexpected current Product shipping manifest delta:\n%s\n' "$extra" >&2
@@ -147,7 +152,7 @@ jobs:
                 exit 1
               }
               candidate_count="$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')"
-              test "$candidate_count" -eq 241
+              test "$candidate_count" -eq 246
               echo 'PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
             fi
           fi
