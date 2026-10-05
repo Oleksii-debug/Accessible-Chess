@@ -250,6 +250,7 @@ class LibraryExportService:
             raise TypeError("search_service must be GameSearchService")
         self._database = database
         self._search = search_service or GameSearchService(database)
+        self._snapshot_cleanup_failed = False
 
     @staticmethod
     def expected_destination_sha256(
@@ -316,14 +317,34 @@ class LibraryExportService:
             yield self._load_game(game_id)
 
     @contextmanager
-    def _read_snapshot(self):
+    def _read_snapshot(self, *, post_publish_success_wins: bool = False):
+        if self._snapshot_cleanup_failed:
+            raise LibraryExportError("Library database snapshot cleanup previously failed")
+        if type(post_publish_success_wins) is not bool:
+            raise TypeError("post_publish_success_wins must be a boolean")
         if self._database.conn.in_transaction:
             raise LibraryExportError("Library database is busy")
         self._database.conn.execute("BEGIN")
+        body_error: BaseException | None = None
         try:
             yield
+        except BaseException as exc:
+            body_error = exc
+            raise
         finally:
-            self._database.conn.rollback()
+            try:
+                self._database.conn.rollback()
+            except BaseException:
+                # Never replace a primary parser/serialization/publication error
+                # with a secondary SQLite cleanup failure. If D06 already
+                # returned successfully, the filesystem publication is durable
+                # authority and must also win over this later cleanup failure.
+                # Poison this service so a reused synchronous embedding cannot
+                # silently continue on a connection with uncertain transaction
+                # state; the normal Windows worker closes it immediately.
+                self._snapshot_cleanup_failed = True
+                if body_error is None and not post_publish_success_wins:
+                    raise
 
     def resolve_games(self, request: LibraryExportRequest) -> tuple[PgnGame, ...]:
         """Resolve one immutable export snapshot in deterministic Library-id order."""
@@ -366,7 +387,7 @@ class LibraryExportService:
                 yield game
                 _poll_cancel(cancel_check)
 
-        with self._read_snapshot():
+        with self._read_snapshot(post_publish_success_wins=True):
             published = save_pgn_atomic(
                 destination,
                 counted_games(),
