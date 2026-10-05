@@ -23,6 +23,30 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
                         expected_keys={"value"},
                     )
 
+    def test_canonical_parser_normalizes_lone_surrogate_failure(self):
+        with self.assertRaisesRegex(
+            OwnerPhysicalAcceptanceError,
+            "invalid canonical JSON",
+        ):
+            _canonical_object_from_bytes(
+                b'{"value":"\\ud800"}\n',
+                label="physical acceptance evidence",
+                expected_keys={"value"},
+            )
+
+    def test_canonical_parser_normalizes_excessive_nesting_failure(self):
+        nested = "[" * 1500 + "0" + "]" * 1500
+        payload = f'{{"value":{nested}}}\n'.encode("utf-8")
+        with self.assertRaisesRegex(
+            OwnerPhysicalAcceptanceError,
+            "invalid canonical JSON",
+        ):
+            _canonical_object_from_bytes(
+                payload,
+                label="physical acceptance evidence",
+                expected_keys={"value"},
+            )
+
     def test_canonical_parser_still_accepts_finite_canonical_json(self):
         value = _canonical_object_from_bytes(
             b'{"value":1}\n',
