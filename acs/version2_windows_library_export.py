@@ -182,6 +182,10 @@ class Version2WindowsLibraryExportDelegate:
         )
 
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
+        # Action routing is a passive-data boundary. Reject active str subclasses
+        # before equality can dispatch arbitrary Python code through __eq__/__ne__.
+        if type(action_id) is not str:
+            raise TypeError("Library export action id must be text")
         if action_id != _LIBRARY_EXPORT_ACTION:
             return self._next_delegate(action_id, payload)
 
