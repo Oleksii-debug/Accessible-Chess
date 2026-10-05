@@ -2,8 +2,6 @@ name: Current SAN Grammar Integrity
 
 on:
   pull_request:
-    branches:
-      - fix/current-bookdocument-identity-warning-bounds-20261004-sol57i1
     paths:
       - 'acs/notation.py'
       - 'tests/test_notation.py'
@@ -14,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-san-grammar-integrity-${{ github.event.pull_request.number || github.ref }}
+  group: current-san-grammar-integrity-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -33,35 +31,47 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact serial geometry and bounded scope
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
         shell: bash
-        env:
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
-          test "$(git rev-parse HEAD)" = "$expected"
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_SAN_GRAMMAR_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_SAN_GRAMMAR_EXACT_HEAD=PASS'
 
-          base_ref="${EVENT_BASE_REF:-fix/current-bookdocument-identity-warning-bounds-20261004-sol57i1}"
-          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
-          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
-          if [ -n "${EVENT_BASE_SHA:-}" ]; then
-            test "$EVENT_BASE_SHA" = "$live_base"
-          fi
+      - name: Prove exact current Product ancestry and bounded scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CURRENT_PRODUCT: d247588c55bd915df41d8fad43c65154371056e4
+          NOTATION_BLOB: 31de077016a26a29038aa0694635bbb3ce2b8af1
+          TEST_BLOB: 75b711d045c285a511d68451f08ee16481fb5d5f
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git cat-file -e "$CURRENT_PRODUCT^{commit}"
+          test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
+          git diff --check "$CURRENT_PRODUCT"...HEAD
 
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base"...HEAD
-          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-san-grammar-integrity.yml' \
             'acs/notation.py' \
             'tests/test_notation.py' | sort)"
           test "$changed" = "$expected_paths" || {
-            printf 'Unexpected SAN-grammar scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected current SAN grammar scope:\n%s\n' "$changed" >&2
             exit 1
           }
+
+          test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_notation.py)" = "$TEST_BLOB"
+          echo 'CURRENT_SAN_GRAMMAR_GEOMETRY=PASS'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
