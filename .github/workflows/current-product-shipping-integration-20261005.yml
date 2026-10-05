@@ -41,7 +41,7 @@ jobs:
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
-          PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152
+          PINNED_PRODUCT_SHA: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
           WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
           WINDOWS_EVIDENCE_SHA: 1728432f216d4f6cdda9d2283bea89c242c89337
           TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo
