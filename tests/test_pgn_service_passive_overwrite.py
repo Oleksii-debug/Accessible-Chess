@@ -136,6 +136,36 @@ class PgnServicePassiveOverwriteTests(unittest.TestCase):
             self.assertFalse(session.dirty)
 
 
+    def test_namespace_durability_failure_after_publication_is_unverified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "published-unsynced.pgn"
+
+            with mock.patch(
+                "acs.pgn_service._sync_published_namespace",
+                side_effect=OSError("private directory sync failure"),
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                    save_pgn_atomic(target, self.games(), overwrite=False)
+
+            self.assertTrue(target.exists())
+            self.assertIn('[Event "Passive overwrite"]', target.read_text(encoding="utf-8"))
+            self.assertNotIn("private directory sync failure", str(caught.exception))
+
+    def test_successful_publication_reaches_namespace_durability_barrier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "durability-barrier.pgn"
+            calls: list[Path] = []
+
+            with mock.patch(
+                "acs.pgn_service._sync_published_namespace",
+                side_effect=lambda path: calls.append(path),
+            ):
+                saved = save_pgn_atomic(target, self.games(), overwrite=False)
+
+            self.assertEqual(calls, [target])
+            self.assertEqual(saved.path, str(target))
+            self.assertTrue(target.exists())
+
     def test_post_publication_fingerprint_failure_has_distinct_terminal_truth(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "published-but-unverified.pgn"
@@ -155,6 +185,35 @@ class PgnServicePassiveOverwriteTests(unittest.TestCase):
             self.assertIn('[Event "Passive overwrite"]', target.read_text(encoding="utf-8"))
             self.assertNotIn("private post-publication", str(caught.exception))
 
+
+    def test_cas_rollback_durability_failure_is_not_reported_as_clean_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "rollback-unsynced.pgn"
+            original = b"external generation restored by rollback\n"
+            target.write_bytes(original)
+            expected = hashlib.sha256(original).hexdigest()
+            competing = hashlib.sha256(b"simulated competing generation").hexdigest()
+
+            # The fifth digest is the post-replace recovery snapshot check. A
+            # mismatch forces rollback to the preserved pre-publication inode.
+            checks = [expected, expected, expected, expected, competing]
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=checks,
+            ), mock.patch(
+                "acs.pgn_service._sync_published_namespace",
+                side_effect=OSError("private rollback sync failure"),
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                    save_pgn_atomic(
+                        target,
+                        self.games(),
+                        overwrite=True,
+                        expected_sha256=expected,
+                    )
+
+            self.assertEqual(target.read_bytes(), original)
+            self.assertNotIn("private rollback sync failure", str(caught.exception))
 
     def test_cas_post_publication_recovery_verification_failure_preserves_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
