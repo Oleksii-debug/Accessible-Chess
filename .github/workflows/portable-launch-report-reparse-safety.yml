@@ -34,7 +34,8 @@ env:
   CURRENT_PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
   CURRENT_CONVERGENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
   INITIAL_PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20
-  CURRENT_PRODUCT_HEAD: ee3fe93aa379284d8af0672ae0cafb9961e88152
+  CAS_PRODUCT_HEAD: ee3fe93aa379284d8af0672ae0cafb9961e88152
+  CURRENT_PRODUCT_HEAD: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
   CURRENT_LAUNCHER_BLOB: 8089546cbc73cb35e3e8e50a4f28e7c9f175d15c
   CURRENT_CONTRACT_TEST_BLOB: a2ddfc7980cd8be2797f978bbbef9cb660b635ce
   CURRENT_CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
@@ -44,6 +45,8 @@ env:
   INITIAL_CONVERGENCE_MERGE: 5a02ace57c693c893007f4509a93ad15001f0c77
   PRE_PRODUCT_RECONVERGENCE: b5fc484eabcd462efbecb043c117164eb7a23575
   PRODUCT_RECONVERGENCE_MERGE: 8816ce114b07d7ced39b8b661f12d61fce2b0e6a
+  PRE_PARENT_RECONVERGENCE: 1728432f216d4f6cdda9d2283bea89c242c89337
+  PARENT_RECONVERGENCE_MERGE: 4808f82eaecfea1b0b9689b4beb4facee446d32a
 
 concurrency:
   group: portable-launch-report-reparse-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
@@ -92,8 +95,10 @@ jobs:
             }
             test "$(git show -s --format=%P "$INITIAL_CONVERGENCE_MERGE")" = "$INITIAL_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
             git merge-base --is-ancestor "$INITIAL_CONVERGENCE_MERGE" HEAD
-            test "$(git show -s --format=%P "$PRODUCT_RECONVERGENCE_MERGE")" = "$PRE_PRODUCT_RECONVERGENCE $CURRENT_PRODUCT_HEAD"
+            test "$(git show -s --format=%P "$PRODUCT_RECONVERGENCE_MERGE")" = "$PRE_PRODUCT_RECONVERGENCE $CAS_PRODUCT_HEAD"
             git merge-base --is-ancestor "$PRODUCT_RECONVERGENCE_MERGE" HEAD
+            test "$(git show -s --format=%P "$PARENT_RECONVERGENCE_MERGE")" = "$PRE_PARENT_RECONVERGENCE $CURRENT_PRODUCT_HEAD"
+            git merge-base --is-ancestor "$PARENT_RECONVERGENCE_MERGE" HEAD
             test "$(git hash-object packaging/portable_launcher.c)" = "$CURRENT_LAUNCHER_BLOB"
             test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CURRENT_CONTRACT_TEST_BLOB"
             test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CURRENT_CORE_GUARD_TEST_BLOB"
@@ -165,8 +170,10 @@ jobs:
             }
             test "$(git show -s --format=%P "$INITIAL_CONVERGENCE_MERGE")" = "$INITIAL_PRODUCT_HEAD $ONECLICK_HEAD $LAUNCH_REPORT_HEAD"
             git merge-base --is-ancestor "$INITIAL_CONVERGENCE_MERGE" HEAD
-            test "$(git show -s --format=%P "$PRODUCT_RECONVERGENCE_MERGE")" = "$PRE_PRODUCT_RECONVERGENCE $CURRENT_PRODUCT_HEAD"
+            test "$(git show -s --format=%P "$PRODUCT_RECONVERGENCE_MERGE")" = "$PRE_PRODUCT_RECONVERGENCE $CAS_PRODUCT_HEAD"
             git merge-base --is-ancestor "$PRODUCT_RECONVERGENCE_MERGE" HEAD
+            test "$(git show -s --format=%P "$PARENT_RECONVERGENCE_MERGE")" = "$PRE_PARENT_RECONVERGENCE $CURRENT_PRODUCT_HEAD"
+            git merge-base --is-ancestor "$PARENT_RECONVERGENCE_MERGE" HEAD
             test "$(git hash-object packaging/portable_launcher.c)" = "$CURRENT_LAUNCHER_BLOB"
             test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CURRENT_CONTRACT_TEST_BLOB"
             test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CURRENT_CORE_GUARD_TEST_BLOB"
