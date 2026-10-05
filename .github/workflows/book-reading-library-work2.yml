@@ -14,6 +14,8 @@ on:
       - 'tests/test_library_date_filter_journey.py'
       - 'tests/test_dev1_library_webview_projection.py'
       - 'tests/js/library_surface_dom_test.js'
+      - 'tests/js/library_export_surface_dom_test.js'
+      - 'tests/js/version2_library_progress_filter_preservation_dom_test.js'
       - 'tests/test_pgn_source_reading_feedback.py'
       - 'tests/test_pgn_stream*.py'
       - 'tests/test_v2_windows_pgn_streaming*.py'
@@ -155,6 +157,10 @@ jobs:
         run: node tests/js/teacher_surface_dom_test.js
       - name: Actual Library DOM date filters and keyboard behavior
         run: node tests/js/library_surface_dom_test.js
+      - name: Actual Library export checkbox and focus behavior
+        run: node tests/js/library_export_surface_dom_test.js
+      - name: Actual Library incremental import and filter preservation
+        run: node tests/js/version2_library_progress_filter_preservation_dom_test.js
       - name: Actual Education DOM paging and transport feedback
         run: node tests/js/education_surface_dom_test.js
       - name: Canonical chess selftest

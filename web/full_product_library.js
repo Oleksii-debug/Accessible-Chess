@@ -1,6 +1,10 @@
 (function (global) {
   "use strict";
 
+  const renderTokens = new WeakMap();
+  const importTokens = new WeakMap();
+  const commandFlights = new WeakMap();
+
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
     return value;
@@ -494,6 +498,7 @@
         if (region && replacement && typeof region.replaceWith === "function") {
           region.replaceWith(replacement);
           root.__accessibleChessLibrarySnapshot = updated;
+          importTokens.set(root, {});
           focusRequestedOption(root, importPayload.focus_target || restore);
         } else {
           renderLibrarySurface(
@@ -521,17 +526,49 @@
   }
 
   function invokeCommand(root, invoke, announce, snapshot, command, payload) {
+    const flight = {
+      renderToken: renderTokens.get(root), importToken: importTokens.get(root)
+    };
+    commandFlights.set(root, flight);
+    function isCurrent() {
+      return commandFlights.get(root) === flight &&
+        renderTokens.get(root) === flight.renderToken;
+    }
     const generic = snapshot && typeof snapshot.transport_error_message === "string"
       ? snapshot.transport_error_message
       : "";
     return Promise.resolve().then(function () {
+      // Commands from the same live surface still reach the canonical host in
+      // order (including independent export selection toggles). A detached old
+      // surface cannot start a delayed command after host replacement.
+      if (renderTokens.get(root) !== flight.renderToken) return null;
       return invoke(command, payload || {});
     }).then(function (result) {
+      if (!isCurrent()) return null;
+      if (importTokens.get(root) !== flight.importToken && plainObject(result)) {
+        if (result.kind === "render-import") {
+          requireImportEvent(result);
+          return null;
+        }
+        if (result.kind === "render") {
+          const payload = requireLibraryRenderEvent(result);
+          // Background import feedback is an independent host authority. Keep
+          // newer validated progress while still applying this current search.
+          result = { kind: "render", payload: Object.assign({}, payload, {
+            snapshot: Object.assign({}, payload.snapshot, {
+              import: root.__accessibleChessLibrarySnapshot.import
+            })
+          }) };
+        }
+      }
       applyEvent(root, result, invoke, announce);
       return result;
     }).catch(function () {
-      if (generic) announce(generic);
+      if (isCurrent() && generic) announce(generic);
       return null;
+    }).then(function (result) {
+      if (commandFlights.get(root) === flight) commandFlights.delete(root);
+      return result;
     });
   }
 
@@ -763,6 +800,9 @@
     }
     fragment.appendChild(main);
     root.replaceChildren(fragment);
+    renderTokens.set(root, {});
+    importTokens.set(root, {});
+    commandFlights.delete(root);
     root.__accessibleChessLibrarySnapshot = snapshot;
     focusRequestedOption(root, requestedFocus || "");
   }
