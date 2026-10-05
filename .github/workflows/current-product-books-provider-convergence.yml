@@ -91,6 +91,14 @@ jobs:
           PRESENTATION_HEAD: e3aaa1dd5fcc73e1ae81cf8a3536e09597e687a8
           PRE_PRESENTATION_PRODUCT: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
           PRESENTATION_MERGE: e59a9244a5236974560df09b3adec70027737676
+          LIBRARY_EXPORT_REF: fix/library-export-destination-cas-20261005-ooxple7
+          LIBRARY_EXPORT_HEAD: 381f6ae5c1a2f303d691341de2d5ef2c448b540e
+          PRE_LIBRARY_EXPORT_PRODUCT: b3ccef128ff2f885d9c71cc036ab630533158f62
+          LIBRARY_EXPORT_MERGE: d10e1a4667b152913a6096b98dfe319d7f95e30b
+          LANGUAGE_ATOMIC_REF: fix/library-language-transition-atomicity-20261005-hy6ez0h
+          LANGUAGE_ATOMIC_HEAD: 4e5603de1ba61604d618dcfb1d309d01102eaa21
+          PRE_LANGUAGE_ATOMIC_PRODUCT: d10e1a4667b152913a6096b98dfe319d7f95e30b
+          LANGUAGE_ATOMIC_MERGE: 8b2ffedb1e58def589fef67ff65668f982b971ee
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -120,6 +128,8 @@ jobs:
           fetch_exact "$CONVERSION_CAS_REF" "$CONVERSION_CAS_HEAD" CURRENT_PRODUCT_CONVERSION_CAS
           fetch_exact "$EXPORT_PARENT_REF" "$EXPORT_PARENT_HEAD" CURRENT_PRODUCT_EXPORT_PARENT
           fetch_exact "$PRESENTATION_REF" "$PRESENTATION_HEAD" CURRENT_PRODUCT_PGN_PRESENTATION
+          fetch_exact "$LIBRARY_EXPORT_REF" "$LIBRARY_EXPORT_HEAD" CURRENT_PRODUCT_LIBRARY_EXPORT
+          fetch_exact "$LANGUAGE_ATOMIC_REF" "$LANGUAGE_ATOMIC_HEAD" CURRENT_PRODUCT_LANGUAGE_ATOMICITY
 
           test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
@@ -142,8 +152,12 @@ jobs:
           git merge-base --is-ancestor "$EXPORT_PARENT_MERGE" HEAD
           test "$(git show -s --format=%P "$PRESENTATION_MERGE")" = "$PRE_PRESENTATION_PRODUCT $PRESENTATION_HEAD"
           git merge-base --is-ancestor "$PRESENTATION_MERGE" HEAD
+          test "$(git show -s --format=%P "$LIBRARY_EXPORT_MERGE")" = "$PRE_LIBRARY_EXPORT_PRODUCT $LIBRARY_EXPORT_HEAD"
+          git merge-base --is-ancestor "$LIBRARY_EXPORT_MERGE" HEAD
+          test "$(git show -s --format=%P "$LANGUAGE_ATOMIC_MERGE")" = "$PRE_LANGUAGE_ATOMIC_PRODUCT $LANGUAGE_ATOMIC_HEAD"
+          git merge-base --is-ancestor "$LANGUAGE_ATOMIC_MERGE" HEAD
 
-          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD" "$PRESENTATION_HEAD"; do
+          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD" "$PRESENTATION_HEAD" "$LIBRARY_EXPORT_HEAD" "$LANGUAGE_ATOMIC_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
 
@@ -152,6 +166,7 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/book-variation-fen-equivalence.yml' \
             '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
+            '.github/workflows/current-library-export-destination-cas.yml' \
             '.github/workflows/current-pgn-accessible-label-resource-bounds.yml' \
             '.github/workflows/current-product-books-provider-convergence.yml' \
             '.github/workflows/local-profile-current-apex.yml' \
@@ -164,12 +179,16 @@ jobs:
             'acs/bookdocument.py' \
             'acs/full_product_native_menu.py' \
             'acs/full_product_presenters.py' \
+            'acs/full_product_webview_adapter.py' \
+            'acs/library_export_service.py' \
+            'acs/library_webview_projection.py' \
             'acs/local_profile.py' \
             'acs/pgn_conversion.py' \
             'acs/pgn_conversion_windows.py' \
             'acs/pgn_service.py' \
             'acs/pgn_webview_projection.py' \
             'acs/report_paths.py' \
+            'acs/version2_windows_library_export.py' \
             'docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md' \
             'docs/PGN_CONVERSION_ACCEPTANCE_20261005_UA.md' \
             'docs/PGN_CONVERSION_REAL_CORPUS_20261005.json' \
@@ -177,6 +196,9 @@ jobs:
             'tests/js/p0g_event_aware_announcement_test.js' \
             'tests/test_book_lookup_detached_canonicalization.py' \
             'tests/test_bookdocument.py' \
+            'tests/test_d07_library_export_service.py' \
+            'tests/test_dev1_full_product_webview_adapter.py' \
+            'tests/test_dev1_library_webview_projection.py' \
             'tests/test_dev1_pgn_webview_projection.py' \
             'tests/test_full_product_native_menu.py' \
             'tests/test_local_profile_path_identity.py' \
@@ -190,6 +212,7 @@ jobs:
             'tests/test_v2_book_epub_import.py' \
             'tests/test_v2_book_html_import.py' \
             'tests/test_v2_book_text_import.py' \
+            'tests/test_v2_windows_library_export.py' \
             'web/index.html' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected current Product convergence scope:\n%s\n' "$changed" >&2
@@ -215,6 +238,15 @@ jobs:
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = 'ac0b7c9fda7bed09366c4999f329399427715cf5'
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = 'a75698cc44a0a92cb35e5b04c1c46e7dfedf0fc1'
           test "$(git rev-parse HEAD:tests/test_pgn_presenter_graph_safety_current.py)" = 'c66f1473f46f1595add938b27f9e8ea553e91348'
+          test "$(git rev-parse HEAD:.github/workflows/current-library-export-destination-cas.yml)" = 'b7aa2f93ec539e4ece317c7c587063c712698b3c'
+          test "$(git rev-parse HEAD:acs/library_export_service.py)" = 'eb7b1c4d770e619587d249fcdc29a95850eb50db'
+          test "$(git rev-parse HEAD:acs/version2_windows_library_export.py)" = 'c6b4b70ca6d490cbdbd880635b03d1e177905246'
+          test "$(git rev-parse HEAD:tests/test_d07_library_export_service.py)" = 'a2e6422314106c16a233070800b3e0c9c6f41d78'
+          test "$(git rev-parse HEAD:tests/test_v2_windows_library_export.py)" = '071eecf8523cf8eb0ca1b42c362da5686dc0b437'
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = 'c3f71baee9fbcc4ad6f93a931d3deeb80fd37d51'
+          test "$(git rev-parse HEAD:acs/full_product_webview_adapter.py)" = 'b5204e87a1e5491e23f9f7767a25a4436cf44b89'
+          test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = 'a6151636c03e59a28e57a4a1ebbfa75ee6b6fb67'
+          test "$(git rev-parse HEAD:tests/test_dev1_full_product_webview_adapter.py)" = 'e836cf6f0eca3121cae64582d73e159dc7d5dc07'
           test "$(git rev-parse HEAD:acs/report_paths.py)" = 'fafc8696a846a1b9c96a8ce89a76ce82593fd582'
           test "$(git rev-parse HEAD:tests/test_report_paths.py)" = 'dc3bd5c1be6259b83cb6316648663a213aeeae0e'
           test "$(git rev-parse HEAD:.github/workflows/pgn-reviewed-encoding-conversion.yml)" = '90494595a4158d302999575601a76440a7e1b9f4'
@@ -234,6 +266,9 @@ jobs:
           acs/book_html_import.py
           acs/book_epub_import.py
           acs/full_product_presenters.py
+          acs/full_product_webview_adapter.py
+          acs/library_export_service.py
+          acs/library_webview_projection.py
           acs/pgn_presenter_graph_guard.py
           acs/pgn_webview_projection.py
           acs/version2_gametree_resume.py
@@ -244,6 +279,7 @@ jobs:
           acs/pgn_conversion_windows.py
           acs/pgn_service.py
           acs/report_paths.py
+          acs/version2_windows_library_export.py
           scripts/qualify_pgn_conversion_corpus.py
 
       - name: Execute semantic reading malformed-content persistence and accessibility regressions
@@ -252,6 +288,10 @@ jobs:
           tests.test_notation
           tests.test_pgn_presenter_graph_safety_current
           tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_library_webview_projection
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_d07_library_export_service
+          tests.test_v2_windows_library_export
           tests.test_d06_v2_gametree_resume_discard_guard
           tests.test_v2_upgrade_sound_artifact_control
           tests.test_book_lookup_detached_canonicalization
