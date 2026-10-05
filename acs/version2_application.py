@@ -54,6 +54,9 @@ from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEven
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
 
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+
 class _BoundedApplicationEventQueue(deque):
     """Bounded event FIFO that records actual truncation, not mere fullness."""
 
@@ -1480,12 +1483,37 @@ class Version2Application:
         if action == "library.open_game":
             if self.shell.active_dialog_id is not None:
                 raise ValueError("close the active dialog before opening a Library game")
-            if not payload: return self.library.projection.open_selected()
-            if set(payload) != {"game_id", "source_id", "source_index"}: raise ValueError("invalid Library game request")
-            row = self.database.get_game(payload["game_id"])
-            if row is None or (row["source_id"], row["source_index"]) != (payload["source_id"], payload["source_index"]):
+            if payload is None or (type(payload) is dict and not payload):
+                return self.library.projection.open_selected()
+            if (
+                type(payload) is not dict
+                or set(payload) != {"game_id", "source_id", "source_index"}
+            ):
+                raise ValueError("invalid Library game request")
+            game_id = payload["game_id"]
+            source_id = payload["source_id"]
+            source_index = payload["source_index"]
+            if (
+                type(game_id) is not int
+                or game_id <= 0
+                or game_id > _SQLITE_INTEGER_MAX
+                or type(source_id) is not int
+                or source_id <= 0
+                or source_id > _SQLITE_INTEGER_MAX
+                or type(source_index) is not int
+                or source_index < 0
+                or source_index > _SQLITE_INTEGER_MAX
+            ):
+                raise ValueError("invalid Library game request")
+            row = self.database.get_game(game_id)
+            if (
+                type(row) is not dict
+                or type(row.get("source_id")) is not int
+                or type(row.get("source_index")) is not int
+                or (row["source_id"], row["source_index"]) != (source_id, source_index)
+            ):
                 raise ValueError("Library selection is stale")
-            game = AcsdbBookGameLookup(self.database).load_book_game(payload["game_id"])
+            game = AcsdbBookGameLookup(self.database).load_book_game(game_id)
             # Opening a detached Library record must not renumber/write its source.
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
@@ -1496,6 +1524,8 @@ class Version2Application:
             "library.next_page",
             "library.previous_page",
         }:
+            if payload is not None and not (type(payload) is dict and not payload):
+                raise ValueError("Library navigation accepts no payload")
             # Native/global Library actions can originate on another route.
             # Treat the presenter/query/export-selection mutation and shell route
             # acquisition as one presentation transaction. A failed render or
