@@ -146,6 +146,58 @@ async function main() {
   check(candidateButton.disabled === true, "candidate restore must be disabled");
   check(document.activeElement === candidateStatus, "disabled restore must focus stable visible status");
 
+  const staleRoot = new FakeElement("div");
+  let finishOldRestore;
+  let staleCalls = 0;
+  window.AccessibleChessMediaRestoreSurface.render(
+    staleRoot,
+    state(),
+    () => {
+      staleCalls += 1;
+      return new Promise((resolve) => {
+        finishOldRestore = resolve;
+      });
+    },
+    false,
+  );
+  const staleButton = staleRoot.querySelector("#media-restore-position");
+  const pendingOldRestore = staleButton.listeners.click();
+  check(staleCalls === 1, "deferred Restore command did not start exactly once");
+  check(typeof finishOldRestore === "function", "deferred Restore resolver was not captured");
+
+  const newestStatusText = "The media position has unconfirmed candidates after a newer seek.";
+  window.AccessibleChessMediaRestoreSurface.render(
+    staleRoot,
+    state({
+      revision: 2,
+      positionMs: 45000,
+      positionText: "00:45.000",
+      qualification: "candidate",
+      restoreEnabled: false,
+      statusText: newestStatusText,
+      focusTarget: "media-sync-status",
+    }),
+    async () => {
+      throw new Error("newer disabled state must not invoke Restore");
+    },
+    true,
+  );
+  const newestStatus = staleRoot.querySelector("#media-sync-status");
+  check(document.activeElement === newestStatus, "newer seek render did not establish its own focus");
+
+  finishOldRestore(state({
+    revision: 1,
+    announcement: "STALE restore completion must never be rendered.",
+  }));
+  await pendingOldRestore;
+  const afterStaleStatus = staleRoot.querySelector("#media-sync-status");
+  const afterStaleButton = staleRoot.querySelector("#media-restore-position");
+  const afterStaleAnnouncement = staleRoot.querySelector("#media-restore-announcement");
+  check(afterStaleStatus.textContent === newestStatusText, "stale Restore completion clobbered newer status");
+  check(afterStaleButton.disabled === true, "stale Restore completion re-enabled a newer disabled command");
+  check(!afterStaleAnnouncement.textContent.includes("STALE"), "stale Restore completion reached the live region");
+  check(document.activeElement === afterStaleStatus, "stale Restore completion stole newer focus");
+
   const rejectedRoot = new FakeElement("div");
   window.AccessibleChessMediaRestoreSurface.render(
     rejectedRoot,
