@@ -16,6 +16,8 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
             "keymap_reset_action", "keymap_reset_context", "keymap_reset_all",
             "keymap_export_profile", "keymap_import_profile", "keymap_resolve_binding",
             "await apiAction('make_move',v)",
+            "for(const context of ['board','analysis','global'])",
+            "resolveBinding(chord,'board','board')",
         ):
             self.assertIn(marker, html)
         self.assertNotIn("localStorage.setItem", html)
@@ -52,6 +54,54 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
             self.assertEqual(global_action["context"], "global")
 
             self.assertIsNone(api.keymap_resolve_binding("history", "Alt+1"))
+
+    def test_board_focus_collision_prefers_board_over_analysis_and_global(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            api = KeymapAwareAccessibleChessAPI(keymap_path=path)
+
+            self.assertTrue(api.keymap_save("analysis.pv1", "Left")["ok"])
+            self.assertTrue(api.keymap_save("edit.undo", "Left")["ok"])
+
+            resolved = api.keymap_resolve_binding("board", "Left")
+            self.assertIsNotNone(resolved)
+            self.assertEqual(resolved["actionId"], "board.cursor_left")
+            self.assertEqual(resolved["context"], "board")
+
+            restarted = KeymapAwareAccessibleChessAPI(keymap_path=path)
+            persisted = restarted.keymap_resolve_binding("board", "Left")
+            self.assertIsNotNone(persisted)
+            self.assertEqual(persisted["actionId"], "board.cursor_left")
+            self.assertEqual(persisted["context"], "board")
+
+    def test_board_focus_collision_prefers_analysis_over_global_without_context_leak(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "keymap.json"
+            api = KeymapAwareAccessibleChessAPI(keymap_path=path)
+            collision = "Ctrl+Shift+J"
+
+            self.assertTrue(api.keymap_save("analysis.pv1", collision)["ok"])
+            self.assertTrue(api.keymap_save("edit.undo", collision)["ok"])
+
+            board = api.keymap_resolve_binding("board", collision)
+            self.assertIsNotNone(board)
+            self.assertEqual(board["actionId"], "analysis.pv1")
+            self.assertEqual(board["context"], "analysis")
+
+            history = api.keymap_resolve_binding("history", collision)
+            self.assertIsNotNone(history)
+            self.assertEqual(history["actionId"], "edit.undo")
+            self.assertEqual(history["context"], "global")
+
+            restarted = KeymapAwareAccessibleChessAPI(keymap_path=path)
+            persisted_board = restarted.keymap_resolve_binding("board", collision)
+            self.assertIsNotNone(persisted_board)
+            self.assertEqual(persisted_board["actionId"], "analysis.pv1")
+            self.assertEqual(persisted_board["context"], "analysis")
+            persisted_history = restarted.keymap_resolve_binding("history", collision)
+            self.assertIsNotNone(persisted_history)
+            self.assertEqual(persisted_history["actionId"], "edit.undo")
+            self.assertEqual(persisted_history["context"], "global")
 
     def test_board_focus_analysis_resolution_tracks_persisted_remap(self):
         with tempfile.TemporaryDirectory() as td:
