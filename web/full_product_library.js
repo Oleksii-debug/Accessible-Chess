@@ -452,22 +452,38 @@
   }
 
   function focusRequestedOption(root, focusTarget) {
-    if (!focusTarget) return;
+    if (!focusTarget) return false;
+    const importTarget = focusTarget === "library-import-file" ||
+      focusTarget === "library-import-cancel";
     if (LIBRARY_FILTERS.some(function (filter) { return focusTarget === "library-search-" + filter[0]; }) ||
-        focusTarget === "library-import-file" ||
-        focusTarget === "library-import-cancel" ||
+        importTarget ||
         (focusTarget.indexOf("library-game-") === 0 && focusTarget.endsWith("-export"))) {
       const control = root.querySelector("#" + focusTarget);
-      if (control && typeof control.focus === "function") control.focus({ preventScroll: true });
-      return;
+      if (control && !control.disabled && typeof control.focus === "function") {
+        control.focus({ preventScroll: true });
+        return true;
+      }
+      // Import/export operation updates replace only their shared control region.
+      // Once cancellation begins, both operation buttons can be disabled. A real
+      // browser will reject focus on that disabled replacement, so move keyboard/
+      // NVDA focus to the stable enabled Library search field instead of body.
+      if (importTarget) {
+        const search = root.querySelector("#library-search-player");
+        if (search && !search.disabled && typeof search.focus === "function") {
+          search.focus({ preventScroll: true });
+          return true;
+        }
+      }
+      return false;
     }
     const options = root.querySelectorAll('[role="option"]');
     for (let index = 0; index < options.length; index += 1) {
       if (options[index].id === focusTarget && typeof options[index].focus === "function") {
         options[index].focus({ preventScroll: true });
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   function reconcileOperationActions(snapshot, importSnapshot) {
