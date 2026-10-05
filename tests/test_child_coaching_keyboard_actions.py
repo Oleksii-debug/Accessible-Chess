@@ -293,6 +293,26 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
             self.app.shell.restore_focus_target(),
         )
 
+    def test_keyboard_status_speaks_recovery_when_durable_rotation_is_corrupt(self) -> None:
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        store.path.write_bytes(b"{not-valid-json")
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+R")
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertEqual("group-rotation", status["kind"])
+        self.assertTrue(status["recovery_required"])
+        self.assertNotIn("revision", status)
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+        self.assertEqual(
+            "teacher-pointer-input",
+            self.app.shell.restore_focus_target(),
+        )
+
     def test_hidden_route_and_modal_reject_teacher_keyboard_actions_without_mutation(self) -> None:
         selected_before = self.app.prepared_position_snapshot()
         self.app.router.dispatch("screen.books")
