@@ -250,6 +250,44 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertEqual(list(parent.glob("*.tmp")), [])
             self.assertEqual(list(moved.glob("*.tmp")), [])
 
+    def test_export_parent_replacement_after_commit_cannot_report_false_success(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "chosen"
+            parent.mkdir()
+            moved = root / "chosen-original"
+            path = parent / "out.pgn"
+
+            import acs.pgn_service as pgn_service_module
+
+            real_fingerprint = pgn_service_module.fingerprint
+
+            def replace_parent_during_final_fingerprint(candidate, *args, **kwargs):
+                parent.rename(moved)
+                parent.mkdir()
+                path.write_text(
+                    '[Event "Replacement path"]\n[Result "*"]\n\n1. d4 *\n',
+                    encoding="utf-8",
+                )
+                return real_fingerprint(candidate, *args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=replace_parent_during_final_fingerprint,
+            ):
+                with self.assertRaises(PgnUnsafePathError):
+                    save_pgn_atomic(path, games)
+
+            self.assertIn(
+                "Prepared",
+                (moved / "out.pgn").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Replacement path",
+                path.read_text(encoding="utf-8"),
+            )
+
     def test_pre_publish_check_aborts_after_fsync_without_publication(self):
         games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
