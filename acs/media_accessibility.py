@@ -93,12 +93,18 @@ def _restore_error(code: MediaApplicationCode | None, language: str) -> str:
             return "Позиція медіа неоднозначна. Нічого не відновлено."
         if code is MediaApplicationCode.NO_CONFIRMED_POSITION:
             return "Для поточного часу медіа немає підтвердженої позиції. Нічого не відновлено."
-        return "Не вдалося безпечно відновити позицію медіа. Нічого не змінено."
+        return (
+            "Не вдалося підтвердити результат відновлення позиції медіа. "
+            "Перевірте поточну шахову дошку перед продовженням."
+        )
     if code is MediaApplicationCode.AMBIGUOUS_POSITION:
         return "The media position is ambiguous. Nothing was restored."
     if code is MediaApplicationCode.NO_CONFIRMED_POSITION:
         return "There is no confirmed position at the current media time. Nothing was restored."
-    return "The media position could not be restored safely. Nothing was changed."
+    return (
+        "The Restore Media Position result could not be confirmed. "
+        "Check the current chess board before continuing."
+    )
 
 
 def _snapshot_failure(language: str) -> dict[str, Any]:
@@ -183,8 +189,9 @@ class MediaAccessibilityBridge:
             )
             return state
         except Exception:
-            # The canonical application may reject its opaque reference.  Never
-            # expose exception text, file paths or implementation details to NVDA.
+            # The canonical application may have performed an external chess
+            # effect before an exception escaped. Never expose private details,
+            # and never claim rollback that this presentation layer cannot prove.
             state = self.snapshot()
             state["ok"] = False
             state["announcement"] = _restore_error(None, self._language)
