@@ -174,6 +174,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         closed_services: list[bool] | None = None,
         pgn_session: PgnDocumentSession | None = None,
         pgn_session_box: dict[str, PgnDocumentSession | None] | None = None,
+        import_ui_ready_override=None,
     ) -> Version2WindowsFileWorkflowRuntime:
         imported_events = imported_events if imported_events is not None else []
         export_calls = export_calls if export_calls is not None else []
@@ -193,6 +194,9 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             export_calls.append((request, destination))
 
         def import_ui_ready(mailbox) -> None:
+            if import_ui_ready_override is not None:
+                import_ui_ready_override(mailbox)
+                return
             imported_events.extend(mailbox.drain())
 
         def fallback(action_id: str, payload) -> object:
@@ -462,6 +466,70 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(imported_events[-1].game_count, 1)
             self.assertEqual(_OpenDialog.owners, [owner])
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_retries_failed_transactional_terminal_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-presentation-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _Library()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                library=library,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(runtime.wait_for_import(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertEqual(len(leased_batches), 1)
+                self.assertGreater(runtime.import_mailbox.pending_count, 0)
+                first_batch = leased_batches[0]
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(leased_batches[1], first_batch)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(runtime.import_ui_pump.ready_failure_count, 1)
+            self.assertFalse(runtime.import_ui_pump.wakeup_pending)
+            self.assertFalse(runtime.import_running)
             self.assertTrue(runtime.shutdown())
 
     def test_real_import_recovers_after_abort_class_begininvoke_failure(self) -> None:
