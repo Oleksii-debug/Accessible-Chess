@@ -44,7 +44,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
             "PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75",
-            "PINNED_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95",
+            "PINNED_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2",
             'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
             'test "$live_shipping" = "$PINNED_SHIPPING_SHA"',
             'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
@@ -72,14 +72,17 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
     def test_gate_pins_evidence_stack_and_rejects_late_mutation(self) -> None:
         required = (
             "WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo",
-            "WINDOWS_EVIDENCE_SHA: 0569c17efa3b798fa11edb69549e0f380de02224",
+            "WINDOWS_EVIDENCE_SHA: 298a3d982f79caf126560a7017a7a1b65e25816a",
             "TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo",
-            "TRAINING_DURABILITY_SHA: 42fe13e70dc71d52cf54b930e12c05ce0fb3ff20",
+            "TRAINING_DURABILITY_SHA: b6444f6fb17238c24a193a03461e9dc8cf1bd235",
             "SHIPPING_WINDOWS_EVIDENCE_MOVED",
             "SHIPPING_TRAINING_DURABILITY_MOVED",
             "EVIDENCE_STACK_LIVE_HEADS=PASS",
             'git merge-base --is-ancestor "$live_product" "$WINDOWS_EVIDENCE_SHA"',
             'git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"',
+            "PRE_FOCUS_SHIPPING_HEAD: 42145bb7684249e07946c02dda5b28223f1e0caa",
+            "TRAINING_RECONVERGENCE_MERGE: c65f0641a866744c583ea21f7b2baa7ec8c5d53e",
+            'test "$(git show -s --format=%P "$TRAINING_RECONVERGENCE_MERGE")" = "$PRE_FOCUS_SHIPPING_HEAD $TRAINING_DURABILITY_SHA"',
             'git rev-parse "$TRAINING_DURABILITY_SHA:$evidence_path"',
             "Evidence path mutated after convergence",
             "EVIDENCE_STACK_PATHS_UNMODIFIED=PASS",
@@ -116,7 +119,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_manifest_source_gate_retains_two_legacy_modes_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95",
+            "CURRENT_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=FOCUSED_SOURCE",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
@@ -131,7 +134,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_inherited_package_gate_retains_legacy_mode_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95",
+            "CURRENT_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
@@ -149,7 +152,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "SHIPPING_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
-            "SHIPPING_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95",
+            "SHIPPING_PRODUCT_SHA: 492861b4e3ed2365ac63ddf925b182db7d3342e2",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
             'test "$live_shipping_product" = "$SHIPPING_PRODUCT_SHA"',
