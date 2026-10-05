@@ -930,6 +930,11 @@
     renderTokens.set(root, {});
     importTokens.set(root, {});
     commandFlights.delete(root);
+    // Detach unresolved work from any future Library incarnation. Its own
+    // completion still observes the old epoch and cannot publish; identity
+    // checks in the settled callbacks prevent it from deleting newer queues.
+    commandTails.delete(root);
+    listboxKeyFlights.delete(root);
   }
 
   function applyLibraryEvent(root, result, invoke, announce) {
