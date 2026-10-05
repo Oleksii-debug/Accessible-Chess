@@ -86,6 +86,30 @@ class MediaApplicationService:
     def detach_for_analysis(self) -> None:
         self._analysis_detached = True
 
+    async def sync_playback_timestamp(self, timestamp_ms: int) -> TimelineEntry | None:
+        """Advance only the media cursor while preserving detached analysis.
+
+        When the user is exploring an alternative line, live/recorded playback
+        may continue updating the media cursor in the background. The canonical
+        board is republished only while the user remains attached.
+        """
+        if type(timestamp_ms) is not int or timestamp_ms < 0:
+            raise ValueError("timestamp_ms must be a non-negative integer")
+
+        async def operation() -> TimelineEntry | None:
+            entry = self._timeline.at(timestamp_ms)
+            self._session = replace(
+                self._session,
+                current_ms=timestamp_ms,
+                revision=self._session.revision + 1,
+            )
+            self._media_entry = entry
+            if not self._analysis_detached and entry is not None:
+                self._publish_position(entry.position_id)
+            return entry
+
+        return await self._lock.run(self._session.session_id, operation)
+
     async def restore_media_position(self) -> TimelineEntry:
         async def operation() -> TimelineEntry:
             entry = self._timeline.at(self._session.current_ms)
