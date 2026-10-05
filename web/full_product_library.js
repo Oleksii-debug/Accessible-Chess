@@ -930,6 +930,12 @@
     // from the now-detached presentation.
     if (!commandRenderRoots.get(root) || !librarySurfaceEpochs.has(root)) {
       librarySurfaceEpochs.set(root, {});
+      // This snapshot did not come from the serialized command currently at the
+      // head of the queue. Treat it as a new presentation incarnation: old
+      // transport completions remain fenced by their captured epoch, while
+      // controls in this freshly rendered DOM must not wait behind them.
+      commandTails.delete(root);
+      listboxKeyFlights.delete(root);
     }
     root.__accessibleChessLibrarySnapshot = snapshot;
     focusRequestedOption(root, requestedFocus || "");
