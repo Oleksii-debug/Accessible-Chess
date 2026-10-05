@@ -122,6 +122,19 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
             self.assertEqual(persisted["actionId"], "analysis.pv1")
             self.assertEqual(persisted["context"], "analysis")
 
+    def test_bridge_resolution_fails_closed_for_malformed_inputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
+            malformed = (
+                ("board", None),
+                ("board", 7),
+                ("unknown-context", "Left"),
+                (None, "Left"),
+            )
+            for context, binding in malformed:
+                with self.subTest(context=context, binding=binding):
+                    self.assertIsNone(api.keymap_resolve_binding(context, binding))
+
     def test_import_warning_requires_explicit_bridge_confirmation(self):
         with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
