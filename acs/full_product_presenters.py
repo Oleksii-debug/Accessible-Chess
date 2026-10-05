@@ -91,6 +91,16 @@ class PgnGameView:
     selected_node_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _PgnPresenterState:
+    """Rollback-only state for one not-yet-published browser transition."""
+
+    language: UILanguage
+    game_index: int
+    selected_node_id: str | None
+    items: tuple[PgnTreeItem, ...]
+
+
 class PgnTreePresenter:
     """Read-only recursive projection plus canonical edit-command dispatch.
 
@@ -136,6 +146,23 @@ class PgnTreePresenter:
     @property
     def status(self) -> SurfaceStatus:
         return SurfaceStatus.READY if self._games else SurfaceStatus.EMPTY
+
+    def _capture_presentation_state(self) -> _PgnPresenterState:
+        """Capture transient PGN cursor/locale state for WebView publication rollback."""
+        return _PgnPresenterState(
+            language=self._language,
+            game_index=self._game_index,
+            selected_node_id=self._selected_node_id,
+            items=self._items,
+        )
+
+    def _restore_presentation_state(self, state: _PgnPresenterState) -> None:
+        if type(state) is not _PgnPresenterState:
+            raise TypeError("PGN presentation rollback state is invalid")
+        self._language = state.language
+        self._game_index = state.game_index
+        self._selected_node_id = state.selected_node_id
+        self._items = state.items
 
     def set_language(self, language: UILanguage) -> None:
         """Rebuild localized labels transactionally before publishing the locale."""
