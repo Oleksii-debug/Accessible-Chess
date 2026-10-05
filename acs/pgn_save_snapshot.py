@@ -25,7 +25,12 @@ from weakref import ReferenceType, ref
 
 from .gametree import PgnGame
 from .import_contract import SourceFingerprint, SourceReadCancelledError, fingerprint
-from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
+from .pgn_document import (
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+    PgnDocumentView,
+)
 from .pgn_service import (
     _same_direct_path,
     _validated_expected_sha256,
@@ -712,16 +717,69 @@ def commit_pgn_save_publication(
     elif binding.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
 
-    # Prepare all values and complete the workspace checkpoint before mutating
-    # session provenance. If semantic mark_saved() fails, the host can report a
-    # post-publication commit failure while source/saved/revision still describe
-    # the pre-commit in-memory document.
+    # Validate the complete owner-thread presentation before mutating either
+    # the workspace persistence checkpoint or session provenance.  The file is
+    # already durable at this point, so any malformed cursor/warning/presentation
+    # state must become SAVE_COMMIT_FAILED without leaving an in-memory half
+    # commit.  This view was historically materialized only after the mutations,
+    # which could report failure after source/saved/revision had already advanced.
+    try:
+        precommit_view = current.view()
+        if (
+            type(precommit_view) is not PgnDocumentView
+            or type(precommit_view.game_count) is not int
+            or precommit_view.game_count < 1
+            or type(precommit_view.selected_game_index) is not int
+            or precommit_view.selected_game_index < 0
+            or precommit_view.selected_game_index >= precommit_view.game_count
+            or type(precommit_view.dirty) is not bool
+            or type(precommit_view.document_revision) is not int
+            or precommit_view.document_revision != live_document_revision
+            or type(precommit_view.source_overwrite_safe) is not bool
+            or precommit_view.source_overwrite_safe is not live_source_overwrite_safe
+            or type(precommit_view.global_warnings) is not tuple
+            or any(type(item) is not str for item in precommit_view.global_warnings)
+        ):
+            raise TypeError("PGN pre-commit presentation is invalid")
+    except BaseException as exc:
+        raise PgnDocumentError(
+            "PGN file was written but the document checkpoint could not be finalized",
+            code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        ) from exc
+
     next_source = SourceFingerprint(
         path=saved.path,
         size=saved.size,
         sha256=saved.sha256,
         suffix=saved.suffix,
     )
+    next_revision = live_document_revision + 1
+    final_dirty = live_content_digest != binding.content_digest
+    final_view = PgnDocumentView(
+        source_path=next_source.path,
+        source_sha256=next_source.sha256,
+        game_count=precommit_view.game_count,
+        selected_game_index=precommit_view.selected_game_index,
+        cursor=precommit_view.cursor,
+        dirty=final_dirty,
+        document_revision=next_revision,
+        source_overwrite_safe=(
+            True
+            if binding.mode is PgnSaveMode.SAVE_AS
+            else precommit_view.source_overwrite_safe
+        ),
+        global_warnings=(
+            ()
+            if binding.mode is PgnSaveMode.SAVE_AS
+            else precommit_view.global_warnings
+        ),
+    )
+
+    # Complete the fallible workspace checkpoint before provenance mutation.
+    # No presentation reconstruction is allowed after the mutations below: the
+    # already-prepared final view is returned directly, so a successful
+    # checkpoint has no later fallible step that can turn into a contradictory
+    # failure after in-memory provenance advances.
     try:
         if live_content_digest == binding.content_digest:
             current.workspace.mark_saved()
@@ -740,15 +798,15 @@ def commit_pgn_save_publication(
 
     # PgnDocumentSession owns these fields. This companion module is the only
     # background-save friend boundary: provenance advances only after the
-    # canonical writer returned verified bytes and the local workspace checkpoint
-    # (when applicable) completed successfully.
+    # canonical writer returned verified bytes and every fallible owner-thread
+    # preparation step completed successfully.
     current._source = next_source
     if binding.mode is PgnSaveMode.SAVE_AS:
         current._source_overwrite_safe = True
         current._global_warnings = ()
     current._saved_digest = binding.content_digest
-    current._document_revision = live_document_revision + 1
-    return current.view()
+    current._document_revision = next_revision
+    return final_view
 
 
 __all__ = [
