@@ -60,6 +60,15 @@ class NotationFormatterTests(unittest.TestCase):
         self.assertEqual(format_accessible_compact_san("exd5", "uk"), "e б’є d 5")
         self.assertEqual(format_accessible_compact_san("O-O#", "uk"), "коротка рокіровка, мат")
 
+    def test_compact_accessible_profile_separates_disambiguation(self):
+        self.assertEqual(format_accessible_compact_san("Nbd2", "en"), "N b d 2")
+        self.assertEqual(format_accessible_compact_san("R1e2", "en"), "R 1 e 2")
+        self.assertEqual(format_accessible_compact_san("Qh4e1", "uk"), "Q h 4 e 1")
+        self.assertEqual(
+            format_accessible_compact_san("exd8=Q+", "en"),
+            "e captures d 8=Q, check",
+        )
+
     def test_compact_language_is_passive_before_comparison(self):
         class ActiveLanguage(str):
             def __eq__(self, other):
