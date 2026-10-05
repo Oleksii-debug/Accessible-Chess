@@ -41,6 +41,14 @@ class _Dialogs:
         return None
 
 
+class _SaveAsDialogs(_Dialogs):
+    def __init__(self, destination: Path) -> None:
+        self.destination = destination
+
+    def save_pgn_as(self, suggested_filename="game.pgn"):
+        return self.destination
+
+
 class _OwnerPoster:
     def __init__(self) -> None:
         self.owner = threading.get_ident()
@@ -63,6 +71,40 @@ class _OwnerPoster:
 
 
 class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
+    def test_direct_save_as_reports_post_publication_uncertainty_without_rebinding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "direct-published-unverified.pgn"
+            session = PgnDocumentSession.from_text(_PGN)
+            original_source = session.source
+            sync_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_SaveAsDialogs(target),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+            )
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=OSError("private post-publication verification failure"),
+            ):
+                terminal = controller("pgn.save_as", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(
+                terminal.error_code,
+                "pgn_save_publication_unverified",
+            )
+            self.assertTrue(target.exists())
+            self.assertIn('[Event "Failure truth"]', target.read_text(encoding="utf-8"))
+            self.assertEqual(session.source, original_source)
+            self.assertTrue(session.dirty)
+            self.assertNotIn("private post-publication", repr(terminal))
+            self.assertEqual(sync_events[-1], terminal)
+
     def test_post_publication_verification_failure_is_not_generic_save_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "post-publication-unverified.pgn"
