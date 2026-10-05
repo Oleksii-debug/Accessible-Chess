@@ -8,10 +8,13 @@ from unittest import mock
 
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
+    FileWorkflowEvent,
     FileWorkflowEventKind,
     Version2ImportWorkerServices,
     Version2WindowsFileActionDelegate,
 )
+from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
+from acs.version2_windows_import_ui_pump import Version2ImportUiWakeupPump
 
 
 PGN_TEXT = """[Event \"Async open\"]
@@ -74,7 +77,13 @@ class _OwnerQueuePoster:
 
 
 class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
-    def _controller(self, source: Path, *, previous: PgnDocumentSession | None = None):
+    def _controller(
+        self,
+        source: Path,
+        *,
+        previous: PgnDocumentSession | None = None,
+        owner_async_events: list[FileWorkflowEvent] | None = None,
+    ):
         dialogs = _Dialogs(source)
         poster = _OwnerQueuePoster()
         events = []
@@ -96,6 +105,9 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             next_delegate=lambda action_id, payload: None,
             current_focus_provider=lambda: "pgn-tree",
             post_to_ui=poster,
+            owner_async_event_sink=(
+                None if owner_async_events is None else owner_async_events.append
+            ),
         )
         return controller, dialogs, poster, events, session_box, publication_threads
 
@@ -146,6 +158,83 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             for event in events:
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-worker-source", repr(event))
+
+    def test_owner_async_terminal_uses_distinct_delivery_sink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "owner-async.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            owner_async_events: list[FileWorkflowEvent] = []
+            controller, _, poster, sync_events, session_box, _ = self._controller(
+                source,
+                owner_async_events=owner_async_events,
+            )
+
+            started = controller("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertEqual(sync_events, [started])
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            self.assertEqual(owner_async_events, [])
+
+            poster.drain()
+
+            self.assertIsInstance(session_box["value"], PgnDocumentSession)
+            self.assertEqual(len(owner_async_events), 1)
+            self.assertEqual(
+                owner_async_events[0].kind,
+                FileWorkflowEventKind.PGN_OPENED,
+            )
+            self.assertEqual(sync_events, [started])
+
+    def test_bounded_mailbox_delivers_pgn_open_owner_and_worker_terminals(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        posted: list[object] = []
+        delivered: list[FileWorkflowEvent] = []
+
+        def ui_ready() -> None:
+            delivered.extend(mailbox.drain())
+
+        pump = Version2ImportUiWakeupPump(
+            mailbox,
+            posted.append,
+            ui_ready,
+        )
+        opened = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_OPENED,
+            "pgn.open",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+        pump.owner_async_event_sink(opened)
+        self.assertEqual(delivered, [opened])
+        self.assertEqual(mailbox.pending_count, 0)
+        self.assertEqual(posted, [])
+
+        failed = FileWorkflowEvent(
+            FileWorkflowEventKind.FAILED,
+            "pgn.open",
+            focus_target="pgn-tree",
+            error_code="pgn_open_ui_post_failed",
+        )
+
+        errors: list[BaseException] = []
+        def worker_emit() -> None:
+            try:
+                pump.event_sink(failed)
+            except BaseException as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=worker_emit)
+        worker.start()
+        worker.join(2.0)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(mailbox.pending_count, 1)
+        self.assertEqual(len(posted), 1)
+
+        callback = posted.pop(0)
+        callback()
+        self.assertEqual(delivered, [opened, failed])
+        self.assertEqual(mailbox.pending_count, 0)
 
     def test_slow_open_returns_started_without_waiting_for_parse(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
