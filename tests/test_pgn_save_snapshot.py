@@ -89,6 +89,59 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
+    def test_destination_fingerprint_rejects_noncanonical_authority_result(self) -> None:
+        class ActiveFingerprint:
+            @property
+            def sha256(self):
+                raise AssertionError("malformed fingerprint property executed")
+
+        target = self.write_document("fingerprint-authority-result.pgn")
+
+        with patch(
+            "acs.pgn_save_snapshot.fingerprint",
+            return_value=ActiveFingerprint(),
+        ):
+            with self.assertRaises(TypeError):
+                expected_pgn_destination_sha256(target)
+
+    def test_destination_fingerprint_rejects_active_digest_without_hook(self) -> None:
+        class ActiveText(str):
+            def __len__(self):
+                raise AssertionError("active digest length executed")
+
+        target = self.write_document("fingerprint-active-digest.pgn")
+        canonical = SourceFingerprint(
+            path=str(target.absolute()),
+            size=target.stat().st_size,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        object.__setattr__(canonical, "sha256", ActiveText("0" * 64))
+
+        with patch(
+            "acs.pgn_save_snapshot.fingerprint",
+            return_value=canonical,
+        ):
+            with self.assertRaises(TypeError):
+                expected_pgn_destination_sha256(target)
+
+    def test_destination_fingerprint_rejects_wrong_path_authority(self) -> None:
+        target = self.write_document("fingerprint-requested.pgn")
+        other = self.write_document("fingerprint-other.pgn")
+        wrong = SourceFingerprint(
+            path=str(other.absolute()),
+            size=other.stat().st_size,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.fingerprint",
+            return_value=wrong,
+        ):
+            with self.assertRaises(ValueError):
+                expected_pgn_destination_sha256(target)
+
     def test_destination_fingerprint_rejects_active_path_protocol_without_hook(self) -> None:
         touched: list[str] = []
 
