@@ -167,7 +167,7 @@ jobs:
           # qualified bytes without depending on a historical ref name.
           presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
           case "$presenter_actual" in
-            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6|d8d69b595da990576b4240e16ea120cd6fb71c21)
+            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6|d8d69b595da990576b4240e16ea120cd6fb71c21|2c5c92f6229be97ffe8241f98eb636959e27f92c)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
