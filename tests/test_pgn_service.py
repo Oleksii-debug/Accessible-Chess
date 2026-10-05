@@ -128,6 +128,44 @@ class PgnFileServiceTests(unittest.TestCase):
                 save_pgn_atomic(path, opened.games, overwrite=True, expected_sha256=opened.source.sha256)
             self.assertIn("Other editor", path.read_text(encoding="utf-8"))
 
+    def test_expected_hash_boundary_rejects_noncanonical_or_active_digest_before_mutation(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *')
+
+        class HostileDigest(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("digest equality hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("digest iteration hook must not execute")
+
+        invalid_values = (
+            HostileDigest("0" * 64),
+            True,
+            0,
+            "0" * 63,
+            "0" * 65,
+            "A" * 64,
+            "g" * 64,
+        )
+        for index, digest in enumerate(invalid_values):
+            with self.subTest(index=index, digest_type=type(digest).__name__):
+                with tempfile.TemporaryDirectory() as tmp:
+                    parent = Path(tmp) / "not-created"
+                    path = parent / "out.pgn"
+                    with self.assertRaises((TypeError, ValueError)):
+                        save_pgn_atomic(
+                            path,
+                            games,
+                            overwrite=True,
+                            expected_sha256=digest,  # type: ignore[arg-type]
+                        )
+                    self.assertFalse(parent.exists())
+        self.assertFalse(HostileDigest.touched)
+
     def test_expected_hash_preserves_writer_racing_at_replace_boundary(self):
         games = parse_games('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
@@ -204,6 +242,40 @@ class PgnFileServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(TypeError, "pre_publish_check must be callable"):
                 save_pgn_atomic(path, games, pre_publish_check=object())
             self.assertFalse(parent.exists())
+
+    def test_publication_cas_workflow_qualifies_exact_absorbed_product_successor(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "pgn-conversion-prepublish-cancel.yml"
+        ).read_text(encoding="utf-8")
+        required = (
+            "PINNED_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
+            "PREDECESSOR_PGN_HEAD: ab2cb5b9e9872a5c53598cf82c9699fe02155f16",
+            'test "$live_product" = "$PINNED_PRODUCT_SHA"',
+            'git merge-base --is-ancestor "$PREDECESSOR_PGN_HEAD" "$live_product"',
+            'git merge-base --is-ancestor "$live_product" HEAD',
+            'test "$(git merge-base "$live_product" HEAD)" = "$live_product"',
+            "PGN_PUBLICATION_CAS_SUPERSEDED",
+            "PGN_PUBLICATION_CAS_PRODUCT_MOVED",
+            "'.github/workflows/pgn-conversion-prepublish-cancel.yml'",
+            "'acs/pgn_service.py'",
+            "'tests/test_pgn_service.py'",
+            "PGN_PUBLICATION_CAS_SCOPE=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, workflow)
+        self.assertNotIn("SOURCE_BASE_SHA:", workflow)
+        self.assertIn(
+            'test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion.py")"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion_windows.py")"',
+            workflow,
+        )
 
     def test_importer_reports_warning_and_blank_damage(self):
         with tempfile.TemporaryDirectory() as tmp:
