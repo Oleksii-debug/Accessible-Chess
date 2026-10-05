@@ -73,8 +73,8 @@ class SemVer:
 
     @classmethod
     def parse(cls, value: str) -> "SemVer":
-        if not isinstance(value, str):
-            raise ApplicationUpdateError("version must be a string")
+        if type(value) is not str:
+            raise ApplicationUpdateError("version must be exact text")
         match = _SEMVER_RE.fullmatch(value)
         if match is None:
             raise ApplicationUpdateError(f"invalid semantic version: {value!r}")
@@ -86,8 +86,8 @@ class SemVer:
         )
 
     def compare_precedence(self, other: "SemVer") -> int:
-        if not isinstance(other, SemVer):
-            raise TypeError("other must be SemVer")
+        if type(other) is not SemVer:
+            raise TypeError("other must be an exact SemVer")
         left_core = (self.major, self.minor, self.patch)
         right_core = (other.major, other.minor, other.patch)
         if left_core != right_core:
@@ -126,10 +126,12 @@ class ApplicationUpdateManifest:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "ApplicationUpdateManifest":
-        if not isinstance(raw, Mapping):
-            raise ApplicationUpdateError("update manifest must be an object")
-        if any(not isinstance(key, str) for key in raw):
-            raise ApplicationUpdateError("manifest keys must be strings")
+        if type(raw) is not dict:
+            raise ApplicationUpdateError(
+                "update manifest must be an exact passive object"
+            )
+        if any(type(key) is not str for key in raw):
+            raise ApplicationUpdateError("manifest keys must be exact text")
         keys = frozenset(raw.keys())
         if keys != _REQUIRED_KEYS:
             missing = sorted(_REQUIRED_KEYS - keys)
@@ -137,7 +139,8 @@ class ApplicationUpdateManifest:
             raise ApplicationUpdateError(
                 f"manifest keys mismatch: missing={missing}, extra={extra}"
             )
-        if raw["schema"] != UPDATE_MANIFEST_SCHEMA:
+        schema = _bounded_token(raw["schema"], "schema", 64)
+        if schema != UPDATE_MANIFEST_SCHEMA:
             raise ApplicationUpdateError("unsupported update manifest schema")
 
         product_id = _bounded_token(raw["product_id"], "product_id", 64)
@@ -151,8 +154,8 @@ class ApplicationUpdateManifest:
             )
         artifact_name = _validate_artifact_name(raw["artifact_name"])
         artifact_size = raw["artifact_size"]
-        if isinstance(artifact_size, bool) or not isinstance(artifact_size, int):
-            raise ApplicationUpdateError("artifact_size must be an integer")
+        if type(artifact_size) is not int:
+            raise ApplicationUpdateError("artifact_size must be an exact integer")
         if artifact_size <= 0 or artifact_size > MAX_UPDATE_BYTES:
             raise ApplicationUpdateError("artifact_size is outside the allowed range")
         artifact_sha256 = _bounded_token(
@@ -233,10 +236,14 @@ def verify_artifact_bytes(
         expected_platform,
         allow_downgrade,
     )
+    if type(artifact) not in (bytes, bytearray, memoryview):
+        raise ApplicationUpdateError(
+            "artifact must be exact bytes, bytearray, or memoryview"
+        )
     try:
         view = memoryview(artifact)
-    except TypeError as exc:
-        raise ApplicationUpdateError("artifact must be bytes-like") from exc
+    except (TypeError, ValueError) as exc:
+        raise ApplicationUpdateError("artifact must be a readable byte buffer") from exc
     if view.nbytes != manifest.artifact_size:
         raise ApplicationUpdateError("artifact size does not match manifest")
     digest = hashlib.sha256(view).hexdigest()
@@ -264,6 +271,10 @@ def verify_local_update(
         expected_platform,
         allow_downgrade,
     )
+    if type(artifact_path) not in (str, type(Path())):
+        raise ApplicationUpdateError(
+            "artifact_path must be exact text or a concrete Path"
+        )
     path = Path(artifact_path)
     if path.name != manifest.artifact_name:
         raise ApplicationUpdateError("local artifact name does not match manifest")
@@ -324,8 +335,10 @@ def verify_local_update(
 def _validated_manifest(
     manifest: ApplicationUpdateManifest,
 ) -> ApplicationUpdateManifest:
-    if not isinstance(manifest, ApplicationUpdateManifest):
-        raise ApplicationUpdateError("manifest must be ApplicationUpdateManifest")
+    if type(manifest) is not ApplicationUpdateManifest:
+        raise ApplicationUpdateError(
+            "manifest must be an exact ApplicationUpdateManifest"
+        )
     return ApplicationUpdateManifest.from_mapping(
         {
             "schema": manifest.schema,
@@ -347,8 +360,8 @@ def _validate_target(
     expected_platform: str,
     allow_downgrade: bool,
 ) -> None:
-    if not isinstance(allow_downgrade, bool):
-        raise ApplicationUpdateError("allow_downgrade must be a boolean")
+    if type(allow_downgrade) is not bool:
+        raise ApplicationUpdateError("allow_downgrade must be an exact boolean")
     expected_product_id = _bounded_token(
         expected_product_id, "expected_product_id", 64
     )
@@ -404,8 +417,8 @@ def _reject_nonfinite(value: str) -> None:
 
 
 def _bounded_token(value: Any, field: str, maximum: int) -> str:
-    if not isinstance(value, str):
-        raise ApplicationUpdateError(f"{field} must be a string")
+    if type(value) is not str:
+        raise ApplicationUpdateError(f"{field} must be exact text")
     if not value or len(value) > maximum or value != value.strip():
         raise ApplicationUpdateError(
             f"{field} is empty, padded, or too long"
