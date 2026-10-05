@@ -206,6 +206,18 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertTrue(session.dirty)
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
 
+            second = controller("pgn.save", {})
+            self.assertEqual(second.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            poster.drain()
+
+            self.assertIn("Newer in memory", source.read_text(encoding="utf-8"))
+            self.assertFalse(session.dirty)
+            self.assertEqual(
+                [event.kind for event in async_events],
+                [FileWorkflowEventKind.PGN_SAVED, FileWorkflowEventKind.PGN_SAVED],
+            )
+
     def test_cancel_before_publication_preserves_source_and_dirty_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
@@ -291,6 +303,79 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertFalse(session.dirty)
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED_AS)
 
+    def test_existing_save_as_destination_hashing_runs_off_owner_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "existing.pgn"
+            target.write_text(
+                PGN_TEXT.replace("Background save", "Existing destination"),
+                encoding="utf-8",
+            )
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session.edit_tag("Event", "Replacement generation")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+            owner = threading.get_ident()
+            hash_threads: list[int] = []
+
+            from acs import version2_windows_file_workflows as workflows
+
+            real_hash = workflows.expected_pgn_destination_sha256
+
+            def observed_hash(*args, **kwargs):
+                hash_threads.append(threading.get_ident())
+                return real_hash(*args, **kwargs)
+
+            with mock.patch.object(
+                workflows,
+                "expected_pgn_destination_sha256",
+                side_effect=observed_hash,
+            ):
+                started = controller("pgn.save_as", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertTrue(hash_threads)
+            self.assertTrue(all(thread_id != owner for thread_id in hash_threads))
+            self.assertIn("Replacement generation", target.read_text(encoding="utf-8"))
+            self.assertFalse(session.dirty)
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED_AS)
+
+    def test_slow_save_as_worker_does_not_hold_owner_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "slow-save-as.pgn"
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            controller, dialogs, poster, _, _, _, _ = self._controller(session)
+            dialogs.save_destination = target
+            entered = threading.Event()
+            release = threading.Event()
+
+            from acs import version2_windows_file_workflows as workflows
+
+            real_publish = workflows.publish_pgn_save_snapshot
+
+            def slow_publish(*args, **kwargs):
+                entered.set()
+                if not release.wait(5.0):
+                    raise AssertionError("slow Save As worker was not released")
+                return real_publish(*args, **kwargs)
+
+            with mock.patch.object(
+                workflows,
+                "publish_pgn_save_snapshot",
+                side_effect=slow_publish,
+            ):
+                result = controller("pgn.save_as", {})
+                self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(entered.wait(2.0))
+                self.assertTrue(controller.pgn_save_running)
+                self.assertTrue(poster.callbacks == [])
+                release.set()
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertTrue(target.exists())
+
     def test_modal_save_as_edit_fails_stale_before_worker_or_file_write(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "must-not-exist.pgn"
@@ -352,6 +437,65 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
                 release.set()
                 self.assertTrue(controller.wait_for_pgn_save(5.0))
                 poster.drain()
+
+    def test_worker_failure_preserves_dirty_state_and_source_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Still dirty")
+            controller, _, poster, _, async_events, _, _ = self._controller(session)
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.publish_pgn_save_snapshot",
+                side_effect=RuntimeError("private writer failure"),
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_failed")
+            self.assertNotIn("private writer failure", repr(terminal))
+
+    def test_session_replacement_before_owner_commit_cannot_mutate_new_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            old_session = PgnDocumentSession.open(source)
+            old_source = old_session.source
+            old_session.edit_tag("Event", "Published old session")
+            newer_path = Path(tmp) / "newer.pgn"
+            newer_path.write_text(
+                PGN_TEXT.replace("Background save", "New current session"),
+                encoding="utf-8",
+            )
+            newer_session = PgnDocumentSession.open(newer_path)
+            newer_source = newer_session.source
+            controller, _, poster, _, async_events, box, _ = self._controller(old_session)
+
+            controller("pgn.save", {})
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn("Published old session", source.read_text(encoding="utf-8"))
+            box["session"] = newer_session
+
+            poster.drain()
+
+            self.assertIs(box["session"], newer_session)
+            self.assertEqual(newer_session.source, newer_source)
+            self.assertFalse(newer_session.dirty)
+            self.assertEqual(old_session.source, old_source)
+            self.assertTrue(old_session.dirty)
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_stale")
 
     def test_shutdown_commits_already_published_save_before_owner_callback_is_drained(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
