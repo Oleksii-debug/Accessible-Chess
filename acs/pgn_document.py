@@ -28,6 +28,7 @@ from .pgn_service import (
     PgnConcurrentWriteError,
     PgnOpenResult,
     _same_direct_path,
+    _validated_expected_sha256,
     export_game_atomic,
     open_pgn,
     save_pgn_atomic,
@@ -684,7 +685,7 @@ class PgnDocumentSession:
                 "destination overwrite requires its expected fingerprint",
                 PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
             )
-        return expected_sha256
+        return _validated_expected_sha256(expected_sha256)
 
     def save_as(
         self,
@@ -694,6 +695,11 @@ class PgnDocumentSession:
         expected_sha256: str | None = None,
     ) -> SourceFingerprint:
         destination = Path(path)
+        expected = self._destination_expectation(
+            destination,
+            overwrite=overwrite,
+            expected_sha256=expected_sha256,
+        )
         if (
             self._source is not None
             and not self._source_overwrite_safe
@@ -703,11 +709,6 @@ class PgnDocumentSession:
                 "recovery source must be preserved; choose a different Save As destination",
                 PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION,
             )
-        expected = self._destination_expectation(
-            destination,
-            overwrite=overwrite,
-            expected_sha256=expected_sha256,
-        )
         # Save As may explicitly select this document's current source. Keep
         # that overwrite bound to the source generation captured by the session;
         # a fresh hash obtained after an external edit is not overwrite authority.

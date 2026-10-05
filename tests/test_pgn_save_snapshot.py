@@ -564,6 +564,30 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIn("Session External Save As", disk_text)
         self.assertNotIn("Session Local Save As", disk_text)
 
+    def test_same_source_save_as_rejects_noncanonical_expected_digest(self) -> None:
+        source = self.write_document("same-source-invalid-expected.pgn", DOCUMENT)
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        before = source.read_bytes()
+
+        with self.assertRaises(ValueError):
+            session.save_as(
+                source,
+                overwrite=True,
+                expected_sha256="F" * 64,
+            )
+        with self.assertRaises(ValueError):
+            publish_pgn_save_snapshot(
+                snapshot,
+                path=source,
+                overwrite=True,
+                expected_sha256="F" * 64,
+            )
+
+        self.assertEqual(source.read_bytes(), before)
+        self.assertEqual(Path(session.source.path), source)
+        self.assertFalse(session.dirty)
+
     def test_session_recovery_source_requires_different_save_as_path(self) -> None:
         source = self.root / "recovery-session-source.pgn"
         raw = DOCUMENT.encode("utf-8") + b"\n{broken byte: \xff}\n"
