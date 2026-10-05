@@ -8,16 +8,24 @@ has been validated. PGN serialization/publication is delegated to the existing
 D06 atomic writer so Library export cannot become a second serializer.
 """
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
+import hashlib
+import os
 from pathlib import Path
+import stat
 from typing import Final
 
 from .acsdb import AcsDatabase
 from .gametree import PgnGame
-from .import_contract import fingerprint
+from .import_contract import (
+    _open_readonly_no_reparse,
+    _publish_opened_fingerprint,
+    _validate_source_path,
+    fingerprint,
+)
 from .pgn_roundtrip import parse_pgn_text
 from .pgn_service import SourceFingerprint, save_pgn_atomic
 from .search_service import GameSearchQuery, GameSearchService
@@ -26,6 +34,7 @@ from .search_service import GameSearchQuery, GameSearchService
 _MAX_SELECTED_GAMES: Final = 5000
 _EXPORT_PAGE_SIZE: Final = 200
 _SQLITE_INTEGER_MAX: Final = (1 << 63) - 1
+_FINGERPRINT_CHUNK_SIZE: Final = 1024 * 1024
 _FILTER_FIELDS: Final = frozenset(
     {"player", "event", "eco", "opening", "result", "source_id", "source_name", "date_from", "date_to", "game_date"}
 )
@@ -38,6 +47,90 @@ class LibraryExportScope(str, Enum):
 
 class LibraryExportError(RuntimeError):
     """Stable application-level failure for invalid/unavailable Library export."""
+
+
+class LibraryExportCancelledError(LibraryExportError):
+    """Cooperative cancellation before the D06 publication point."""
+
+
+class LibraryExportControlError(LibraryExportError):
+    """A cancellation callback violated the bounded control contract."""
+
+
+CancelCheck = Callable[[], bool]
+
+
+def _poll_cancel(cancel_check: CancelCheck | None) -> None:
+    if cancel_check is None:
+        return
+    try:
+        cancelled = cancel_check()
+    except LibraryExportCancelledError:
+        raise
+    except Exception as exc:
+        raise LibraryExportControlError("Library export cancellation check failed") from exc
+    if type(cancelled) is not bool:
+        raise LibraryExportControlError("Library export cancel_check must return a boolean")
+    if cancelled:
+        raise LibraryExportCancelledError("Library export cancelled")
+
+
+def _cancellable_fingerprint(
+    path: str | Path,
+    *,
+    cancel_check: CancelCheck | None,
+    chunk_size: int = _FINGERPRINT_CHUNK_SIZE,
+) -> SourceFingerprint:
+    """Fingerprint one direct file with canonical two-pass authority checks.
+
+    ``import_contract.fingerprint`` remains the canonical non-cancellable path.
+    This control adapter reuses its no-follow/opened-object/publication primitives
+    and differs only by polling cancellation between finite hash chunks.
+    """
+    if cancel_check is None:
+        return fingerprint(path, chunk_size=chunk_size)
+    if type(chunk_size) is not int or chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    _poll_cancel(cancel_check)
+    submitted = Path(path)
+    absolute, path_before = _validate_source_path(submitted)
+    descriptor = _open_readonly_no_reparse(absolute)
+    try:
+        fd_before = os.fstat(descriptor)
+        if not stat.S_ISREG(fd_before.st_mode):
+            raise ValueError("Library export destination must be a regular file")
+        if (fd_before.st_dev, fd_before.st_ino) != (path_before.st_dev, path_before.st_ino):
+            raise ValueError("Library export destination changed before fingerprinting")
+
+        def digest_open_inode() -> str:
+            digest = hashlib.sha256()
+            while True:
+                _poll_cancel(cancel_check)
+                chunk = os.read(descriptor, chunk_size)
+                if not chunk:
+                    _poll_cancel(cancel_check)
+                    return digest.hexdigest()
+                digest.update(chunk)
+
+        first_sha256 = digest_open_inode()
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        verified_sha256 = digest_open_inode()
+        if first_sha256 != verified_sha256:
+            raise ValueError("Library export destination changed while fingerprinting")
+        fd_after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+
+    _poll_cancel(cancel_check)
+    return _publish_opened_fingerprint(
+        submitted,
+        absolute,
+        path_before,
+        fd_before,
+        fd_after,
+        verified_sha256,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +154,6 @@ class LibraryExportRequest:
                 raise ValueError("Library export contains a duplicate game id")
             seen.add(value)
             normalized.append(value)
-        # Canonical Library identity order, independent of browser click order.
         return cls(scope=LibraryExportScope.SELECTED, game_ids=tuple(sorted(normalized)))
 
     @classmethod
@@ -71,7 +163,6 @@ class LibraryExportRequest:
         normalized = query.normalized()
         if normalized.after_game_id is not None:
             raise ValueError("filtered Library export cannot accept a paging cursor")
-        # Page size is an execution detail, not part of filtered-set identity.
         normalized = replace(normalized, after_game_id=None, limit=_EXPORT_PAGE_SIZE)
         return cls(scope=LibraryExportScope.FILTERED, query=normalized)
 
@@ -114,7 +205,6 @@ class LibraryExportRequest:
 
     def browser_payload(self) -> dict[str, object]:
         """Return path-free JSON-ready authority for the trusted host delegate."""
-
         if self.scope is LibraryExportScope.SELECTED:
             return {"scope": self.scope.value, "game_ids": self.game_ids}
         if self.query is None:
@@ -162,13 +252,18 @@ class LibraryExportService:
         self._search = search_service or GameSearchService(database)
 
     @staticmethod
-    def expected_destination_sha256(destination: str | Path) -> str | None:
-        """Bind an existing export target before a potentially long streamed export."""
-
+    def expected_destination_sha256(
+        destination: str | Path,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> str | None:
+        """Bind the post-dialog destination generation without blocking Cancel."""
+        _poll_cancel(cancel_check)
         path = Path(destination)
         if not path.exists():
+            _poll_cancel(cancel_check)
             return None
-        return fingerprint(path).sha256
+        return _cancellable_fingerprint(path, cancel_check=cancel_check).sha256
 
     def _iter_selected_ids(self, request: LibraryExportRequest) -> Iterator[int]:
         if request.scope is LibraryExportScope.SELECTED:
@@ -199,7 +294,6 @@ class LibraryExportService:
 
     def _selected_ids(self, request: LibraryExportRequest) -> tuple[int, ...]:
         """Compatibility helper for callers that explicitly request materialized ids."""
-
         return tuple(self._iter_selected_ids(request))
 
     def _load_game(self, game_id: int) -> PgnGame:
@@ -225,8 +319,6 @@ class LibraryExportService:
     def _read_snapshot(self):
         if self._database.conn.in_transaction:
             raise LibraryExportError("Library database is busy")
-        # Hold one SQLite read transaction for the whole D06 consumption. This
-        # preserves the exact filtered set while avoiding all-game materialization.
         self._database.conn.execute("BEGIN")
         try:
             yield
@@ -234,12 +326,7 @@ class LibraryExportService:
             self._database.conn.rollback()
 
     def resolve_games(self, request: LibraryExportRequest) -> tuple[PgnGame, ...]:
-        """Resolve one immutable export snapshot in deterministic Library-id order.
-
-        This compatibility API intentionally materializes its result. The normal
-        end-user export path below is incremental and should be used for large sets.
-        """
-
+        """Resolve one immutable export snapshot in deterministic Library-id order."""
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
         with self._read_snapshot():
@@ -254,39 +341,38 @@ class LibraryExportService:
         request: LibraryExportRequest,
         *,
         expected_sha256: str | None = None,
+        cancel_check: CancelCheck | None = None,
     ) -> LibraryExportResult:
-        """Stream one stable Library snapshot into the canonical D06 writer.
+        """Stream a stable Library snapshot through D06 with cooperative Cancel.
 
-        A new destination is published no-clobber. Replacing an existing
-        destination requires the SHA-256 generation captured after the trusted
-        host's Save-dialog confirmation, so a later external edit cannot be
-        silently lost while a large Library export is still streaming.
+        Cancellation is observed between bounded game loads/serializations and once
+        after the complete temporary file is flushed+fsynced but before D06 can
+        publish it. Once D06 publication commits, success wins over a later Cancel.
         """
-
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
-        # Preserve the historical selected-scope resource bound even when a
-        # caller constructs the frozen request dataclass directly. FILTERED is
-        # intentionally uncapped here: its complete result set is streamed.
         if request.scope is LibraryExportScope.SELECTED and len(request.game_ids) > _MAX_SELECTED_GAMES:
             raise LibraryExportError("selected Library export is too large")
+        _poll_cancel(cancel_check)
         game_count = 0
 
         def counted_games() -> Iterator[PgnGame]:
             nonlocal game_count
             for game in self._iter_games(request):
+                _poll_cancel(cancel_check)
                 game_count += 1
                 yield game
+                _poll_cancel(cancel_check)
 
-        # The transaction stays open while save_pgn_atomic consumes the lazy
-        # iterable, so paging and row loads all observe one exact read snapshot.
-        # D06 still owns temp-file writing, cleanup and atomic publication.
         with self._read_snapshot():
             published = save_pgn_atomic(
                 destination,
                 counted_games(),
                 overwrite=expected_sha256 is not None,
                 expected_sha256=expected_sha256,
+                pre_publish_check=(
+                    None if cancel_check is None else lambda: _poll_cancel(cancel_check)
+                ),
             )
         return LibraryExportResult(
             game_count=game_count,
@@ -295,6 +381,8 @@ class LibraryExportService:
 
 
 __all__ = [
+    "LibraryExportCancelledError",
+    "LibraryExportControlError",
     "LibraryExportError",
     "LibraryExportRequest",
     "LibraryExportResult",
