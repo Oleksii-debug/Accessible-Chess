@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/w5-release-receipt-20261005-a7f3
+      - fix/release-receipt-atomic-publication-20261005-sol56k8n3
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
