@@ -32,6 +32,10 @@ from .library_import_service import (
     LibraryImportProgress,
     LibraryImportResult,
 )
+from .chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from .book_library_import import (
     BOOK_LIBRARY_SUFFIXES,
     BookLibrarySourceReadError,
@@ -1760,22 +1764,73 @@ class Version2WindowsFileActionDelegate:
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
-                library_result = getattr(report, "library_result", None)
+                # The trusted backend has one canonical bounded report DTO.
+                # Do not structurally probe arbitrary provider objects or coerce
+                # active scalars through getattr/int on this worker boundary.
+                if type(report) is not ChessBaseLibraryImportReport:
+                    raise TypeError(
+                        "canonical ChessBase import report is invalid"
+                    )
+                status = report.status
+                decoded_game_count = report.decoded_game_count
+                warnings = report.warnings
+                library_result = report.library_result
+                if type(status) is not ChessBaseLibraryImportStatus:
+                    raise TypeError("ChessBase import report status is invalid")
+                if type(decoded_game_count) is not int or decoded_game_count < 0:
+                    raise TypeError(
+                        "ChessBase import decoded game count is invalid"
+                    )
+                if type(warnings) is not tuple:
+                    raise TypeError("ChessBase import warnings are invalid")
+                warning_count = len(warnings)
+
                 if library_result is None:
+                    if (
+                        status is not ChessBaseLibraryImportStatus.NO_GAMES
+                        or decoded_game_count != 0
+                    ):
+                        raise TypeError(
+                            "ChessBase empty import report is inconsistent"
+                        )
                     self._emit_if_current(
                         generation,
                         FileWorkflowEvent(
                             FileWorkflowEventKind.IMPORT_EMPTY,
                             "library.import",
                             focus_target="library-import-file",
-                            warning_count=int(
-                                getattr(report, "warning_count", 0)
-                            ),
+                            warning_count=warning_count,
                         ),
                     )
                     return
-                game_count = int(library_result.game_count)
-                warning_count = int(library_result.warning_count)
+
+                if type(library_result) is not LibraryImportResult:
+                    raise TypeError(
+                        "ChessBase Library import result is invalid"
+                    )
+                game_count = library_result.game_count
+                warning_count = library_result.warning_count
+                if type(game_count) is not int or game_count < 1:
+                    raise TypeError(
+                        "ChessBase Library result game count is invalid"
+                    )
+                if type(warning_count) is not int or warning_count < 0:
+                    raise TypeError(
+                        "ChessBase Library result warning count is invalid"
+                    )
+                if decoded_game_count != game_count:
+                    raise TypeError(
+                        "ChessBase decoded/imported game counts differ"
+                    )
+                expected_status = (
+                    ChessBaseLibraryImportStatus.IMPORTED_WITH_WARNINGS
+                    if warning_count
+                    else ChessBaseLibraryImportStatus.IMPORTED
+                )
+                if status is not expected_status:
+                    raise TypeError(
+                        "ChessBase import status does not match warning count"
+                    )
 
             self._emit_if_current(
                 generation,
