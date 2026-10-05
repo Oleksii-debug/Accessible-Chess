@@ -207,6 +207,30 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertFalse(self.workspace.dirty)
         self.assertEqual(self.workspace.content_revision, 1)
 
+    def test_mark_saved_failure_does_not_leave_workspace_falsely_clean(self):
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(comments_after=(Comment("pending save"),)),
+        )
+        self.assertTrue(self.workspace.dirty)
+        baseline_before = self.workspace._baseline_digest
+        revision_before = self.workspace.content_revision
+        digest_before = self.workspace.content_digest
+
+        with patch(
+            "acs.pgn_workspace.identity_for_game",
+            side_effect=RuntimeError("semantic identity unavailable"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.workspace.mark_saved()
+
+        self.assertTrue(self.workspace.dirty)
+        self.assertEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace.content_revision, revision_before)
+        self.assertEqual(self.workspace.content_digest, digest_before)
+
     def test_stale_annotation_target_fails_without_partial_workspace_mutation(self):
         game = self.workspace.current_game()
         stale = move_annotation_target(game, (), 0)
