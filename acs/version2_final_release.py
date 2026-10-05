@@ -10,11 +10,14 @@ large in-process regression suites and tooling legitimately use both profiles.
 """
 
 from contextlib import contextmanager
+from types import MethodType
 from typing import Any, Callable, Iterator
 
 from . import version2_release_app as _release_app
 from . import version2_release_ui as _release_ui
 from .full_product_ui_shell import UILanguage
+from .media_accessibility import MediaAccessibilityBridge
+from .media_application import MediaApplicationService
 from .version2_final_product_application import Version2FinalProductApplication
 from .version2_final_product_profile import (
     FINAL_PRODUCT_ACTION_IDS,
@@ -32,7 +35,9 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Books surface", root / "full_product_books_training.js"),
         ("V2 Teacher surface", root / "full_product_teacher.js"),
         ("V2 Education surface", root / "full_product_education.js"),
+        ("Media accessible Restore Position surface", root / "media_accessible_restore.js"),
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
+        ("V2 Media Restore Position bootstrap", root / "version2_media_restore_bootstrap.js"),
         # The final bootstrap creates #v2-workspace synchronously, then starts an
         # asynchronous snapshot refresh. Load P0 after that DOM owner exists so
         # selection retention observes the real workspace, while surface wrappers
@@ -57,6 +62,85 @@ def _composed_language_sync(
             composed_sync(language)
 
     return sync
+
+
+def _media_unavailable_state(language: str) -> dict[str, object]:
+    uk = language == "uk"
+    return {
+        "ok": False,
+        "revision": None,
+        "positionMs": None,
+        "positionText": "",
+        "qualification": "unavailable",
+        "restoreEnabled": False,
+        "restoreLabel": "Відновити позицію медіа" if uk else "Restore Media Position",
+        "restoreDescription": (
+            "Відновлює підтверджену шахову позицію, синхронізовану з поточним часом медіа."
+            if uk
+            else "Restores the confirmed chess position synchronized with the current media time."
+        ),
+        "statusText": (
+            "Синхронізація медіа зараз недоступна. Шахову позицію не змінено."
+            if uk
+            else "Media synchronization is currently unavailable. The chess position was not changed."
+        ),
+        "announcement": "",
+        "focusTarget": "media-sync-status",
+    }
+
+
+def _media_bridge(api: Any) -> MediaAccessibilityBridge | None:
+    bridge = getattr(api, "_final_product_media_accessibility", None)
+    if bridge is None:
+        return None
+    if not isinstance(bridge, MediaAccessibilityBridge):
+        raise TypeError("final Product Media accessibility bridge is invalid")
+    language = getattr(api, "lang", "en")
+    if bridge.language != language:
+        bridge.set_language(language)
+    return bridge
+
+
+def _media_restore_snapshot_api(api: Any) -> dict[str, object]:
+    def read() -> dict[str, object]:
+        bridge = _media_bridge(api)
+        if bridge is None:
+            return _media_unavailable_state(getattr(api, "lang", "en"))
+        return dict(bridge.snapshot())
+
+    return api._invoke_ui(read)
+
+
+def _media_restore_position_api(api: Any) -> dict[str, object]:
+    def restore() -> dict[str, object]:
+        bridge = _media_bridge(api)
+        if bridge is None:
+            state = _media_unavailable_state(getattr(api, "lang", "en"))
+            state["announcement"] = state["statusText"]
+            return state
+        return dict(bridge.restore_position())
+
+    return api._invoke_ui(restore)
+
+
+def _bind_api_media(
+    api: Any,
+    service: MediaApplicationService | None,
+) -> None:
+    if service is not None and not isinstance(service, MediaApplicationService):
+        raise TypeError("media_application_service must be MediaApplicationService or None")
+    bridge = (
+        MediaAccessibilityBridge(service, language=getattr(api, "lang", "en"))
+        if service is not None
+        else None
+    )
+    setattr(api, "_final_product_media_accessibility", bridge)
+    # pywebview introspects the concrete API instance at window creation. Bind the
+    # two Media methods to that one API object rather than creating a second host
+    # API or a parallel Media service. Each method reuses the accepted native-UI
+    # serializer before touching canonical Media application state.
+    setattr(api, "media_restore_snapshot", MethodType(_media_restore_snapshot_api, api))
+    setattr(api, "media_restore_position", MethodType(_media_restore_position_api, api))
 
 
 @contextmanager
@@ -98,13 +182,23 @@ def _bind_api_language_sync(
 
 
 def create_version2_release_application(*args: Any, **kwargs: Any):
-    """Create the final product without leaking its process-global release seams."""
+    """Create the final product without leaking its process-global release seams.
+
+    ``media_application_service`` is an optional trusted composition input. When it
+    is absent the Product still exposes a truthful disabled Media status. When it
+    is supplied, Restore Media Position delegates only to that canonical service.
+    """
+
+    media_service = kwargs.pop("media_application_service", None)
+    if media_service is not None and not isinstance(media_service, MediaApplicationService):
+        raise TypeError("media_application_service must be MediaApplicationService or None")
 
     defer_ui = kwargs.get("defer_ui", False) is True
     with _final_product_bindings() as base_sync:
         composed = _release_app.create_version2_release_application(*args, **kwargs)
         api = composed[0]
         _bind_api_language_sync(api, base_sync)
+        _bind_api_media(api, media_service)
 
     if not defer_ui:
         return composed
@@ -123,9 +217,20 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
 def main() -> None:
     # The accepted main() owns the complete synchronous native UI lifetime.
     # Keep final-product seams installed only for that lifetime and restore even
-    # when startup or shutdown raises.
-    with _final_product_bindings():
-        _release_app.main()
+    # when startup or shutdown raises. Media is exposed fail-closed until a
+    # canonical MediaApplicationService is composed by its owning product flow.
+    with _final_product_bindings() as base_sync:
+        api, application, runtime, native_runtime_factory = (
+            _release_app.create_version2_release_application(defer_ui=True)
+        )
+        _bind_api_language_sync(api, base_sync)
+        _bind_api_media(api, None)
+        _release_ui.run_version2_release_window(
+            api,
+            application,
+            runtime,
+            file_runtime_factory=native_runtime_factory,
+        )
 
 
 __all__ = ["create_version2_release_application", "main"]
