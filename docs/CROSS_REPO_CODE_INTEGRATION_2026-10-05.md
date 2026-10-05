@@ -94,7 +94,20 @@ Adaptation policy: retain bounded history, product-owned event priority, stable 
 
 ### ChatGPT-Deep-Research-Shortcut
 
-The owner repository currently exposes no implementation files on `main`; no reusable source was available to transplant in this pass.
+Both `main` and `feat/deep-research-shortcut-v1` were inspected. The feature branch contains only a small browser-extension implementation and no reusable agent/media/runtime primitive that improves the current Accessible Chess composition, so no code was transplanted.
+
+### scripture-archive — media timeline recovery
+
+Donor branch:
+`qa-current-package-accessibility-0913-sol`
+
+Donor:
+- `runtime_engine/scripture_archive_runtime/persistence.py` blob `31e9ce5db8f34272667d0079abc315910e78268e`.
+
+Accessible Chess destination:
+- `acs/media_timeline_store.py`
+
+Adaptation policy: retain bounded state size, atomic temp-file publication, fsync, valid-backup recovery, corruption quarantine and strict JSON behavior. Replace the Scripture application state schema with a dedicated Accessible Chess MediaPositionTimeline schema. No Scripture content, grading, player-memory or domain state is imported.
 
 ## Accessible Chess-owned implementation added on top
 
@@ -135,8 +148,6 @@ Training-specific model/RNG/tensor/checkpoint logic is intentionally excluded fr
 ### AudioTacticalFPS
 The accessible owner-visible repository has no reusable implementation beyond coordination metadata on `main`; there is no code worth moving in this pass.
 
-### scripture-archive
-Current reusable candidates are domain/content-validation specific and do not improve the Media/Agent foundation enough to justify another authority.
 
 ## Tests
 
