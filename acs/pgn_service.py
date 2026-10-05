@@ -71,6 +71,17 @@ class PgnUnsafePathError(PgnFileError):
     """Raised when export would traverse filesystem indirection."""
 
 
+def _same_direct_path(left: str | Path, right: str | Path) -> bool:
+    """Compare direct path spellings with platform path/case normalization."""
+
+    def key(value: str | Path) -> str:
+        return os.path.normcase(
+            os.path.abspath(os.fspath(Path(value).expanduser()))
+        )
+
+    return key(left) == key(right)
+
+
 @dataclass(frozen=True)
 class PgnOpenResult:
     source: SourceFingerprint

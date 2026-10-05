@@ -652,6 +652,39 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(terminal.error_code, "pgn_save_conflict")
             self.assertNotIn(str(source), repr(terminal))
 
+    def test_save_as_same_source_external_change_reports_conflict_without_clobber(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "same-source-save-as-conflict.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            source_before = session.source
+            session.edit_tag("Event", "Local Save As generation")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = source
+
+            external = PGN_TEXT.replace(
+                "Background save", "External Save As generation"
+            )
+            dialogs.on_save_dialog = lambda: source.write_text(
+                external,
+                encoding="utf-8",
+            )
+
+            started = controller("pgn.save_as", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            poster.drain()
+
+            disk_text = source.read_text(encoding="utf-8")
+            self.assertIn("External Save As generation", disk_text)
+            self.assertNotIn("Local Save As generation", disk_text)
+            self.assertEqual(session.source, source_before)
+            self.assertTrue(session.dirty)
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_conflict")
+            self.assertNotIn(str(source), repr(terminal))
+
     def test_worker_failure_preserves_dirty_state_and_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"

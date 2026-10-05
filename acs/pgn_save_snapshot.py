@@ -26,7 +26,7 @@ from weakref import ReferenceType, ref
 from .gametree import PgnGame
 from .import_contract import SourceFingerprint, SourceReadCancelledError, fingerprint
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
-from .pgn_service import save_pgn_atomic
+from .pgn_service import _same_direct_path, save_pgn_atomic
 from .pgn_workspace import PgnWorkspace, PgnWorkspaceError
 
 
@@ -488,6 +488,19 @@ def publish_pgn_save_snapshot(
                 "Save As overwrite requires its expected destination fingerprint",
                 code=PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
             )
+        source = _detached_source_fingerprint(
+            metadata.source_before,
+            allow_none=True,
+        )
+        # If Save As points back to the captured source, a worker-time target
+        # fingerprint may describe a newer external edit. Preserve the captured
+        # source CAS generation instead of adopting that edit as write authority.
+        if (
+            overwrite
+            and source is not None
+            and _same_direct_path(destination, source.path)
+        ):
+            expected_sha256 = source.sha256
         saved = save_pgn_atomic(
             destination,
             writer_games,

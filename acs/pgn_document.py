@@ -27,6 +27,7 @@ from .position_editor import PositionState
 from .pgn_service import (
     PgnConcurrentWriteError,
     PgnOpenResult,
+    _same_direct_path,
     export_game_atomic,
     open_pgn,
     save_pgn_atomic,
@@ -695,6 +696,15 @@ class PgnDocumentSession:
             overwrite=overwrite,
             expected_sha256=expected_sha256,
         )
+        # Save As may explicitly select this document's current source. Keep
+        # that overwrite bound to the source generation captured by the session;
+        # a fresh hash obtained after an external edit is not overwrite authority.
+        if (
+            overwrite
+            and self._source is not None
+            and _same_direct_path(destination, self._source.path)
+        ):
+            expected = self._source.sha256
         saved = save_pgn_atomic(
             destination,
             self._workspace.games(),
