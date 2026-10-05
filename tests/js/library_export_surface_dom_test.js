@@ -365,6 +365,138 @@ function snapshot(checked) {
   check(actionButton("library.clear_export_selection").disabled,
     "terminal event enabled clear export without a current selection");
 
+  // Library commands share one canonical presenter. Do not let a second
+  // command enter the host until the first command and its returned render have
+  // settled, even when both controls are activated from the same live DOM.
+  const serialRoot = new FakeElement("div");
+  const serialCalls = [];
+  const serialDeferred = [];
+  const serialInvoke = (command, payload) => {
+    serialCalls.push([command, Object.assign({}, payload)]);
+    return new Promise((resolve) => serialDeferred.push(resolve));
+  };
+  window.AccessibleChessLibrarySurface.render(
+    serialRoot,
+    snapshot(false),
+    serialInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const serialCheckbox = serialRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  const serialFiltered = serialRoot.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === "library.export_filtered");
+  serialCheckbox.checked = true;
+  serialCheckbox.listeners.change({});
+  serialFiltered.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(serialCalls.length === 1, "second Library command entered host before first settled");
+  check(serialCalls[0][0] === "library.toggle_export_selection",
+    "serialized first Library command changed identity");
+
+  serialDeferred[0]({
+    kind: "render",
+    payload: {
+      snapshot: snapshot(true),
+      focus_target: "library-game-0123456789abcdefabcd-export",
+      announcement: "Added to export."
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  check(serialCalls.length === 2, "second Library command did not resume after first render");
+  check(serialCalls[1][0] === "library.export_filtered",
+    "serialized second Library command changed identity");
+  check(
+    serialRoot.__accessibleChessLibrarySnapshot.export_selection_count === 1,
+    "first Library render was not published before second host invocation"
+  );
+  serialDeferred[1](null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // Key-repeat from the still-live selected option must not queue stale Open
+  // Game intent while the authoritative first Enter remains unresolved.
+  const keyRoot = new FakeElement("div");
+  const keyCalls = [];
+  let resolveKey = null;
+  const keyInvoke = (command, payload) => {
+    keyCalls.push([command, Object.assign({}, payload)]);
+    return new Promise((resolve) => { resolveKey = resolve; });
+  };
+  window.AccessibleChessLibrarySurface.render(
+    keyRoot,
+    snapshot(true),
+    keyInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const keyOption = keyRoot.querySelectorAll('[role="option"]')[0];
+  const keyEvent = {
+    key: "Enter",
+    altKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    metaKey: false,
+    preventDefault() {},
+    stopPropagation() {}
+  };
+  keyOption.listeners.keydown(keyEvent);
+  keyOption.listeners.keydown(keyEvent);
+  await new Promise((resolve) => setImmediate(resolve));
+  check(keyCalls.length === 1, "stale repeated Enter queued a second Library Open");
+  check(keyCalls[0][0] === "library.open_game", "Enter dispatched wrong Library command");
+  resolveKey(null);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  check(keyCalls.length === 1, "stale repeated Enter escaped after first settlement");
+
+  keyOption.listeners.keydown(keyEvent);
+  await new Promise((resolve) => setImmediate(resolve));
+  check(keyCalls.length === 2, "Library key gate did not release for a fresh Enter");
+  resolveKey(null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  // Route departure invalidates both an in-flight response and commands queued
+  // behind it. A late Library render must never reclaim the shared workspace.
+  const staleRoot = new FakeElement("div");
+  const staleCalls = [];
+  let resolveStale = null;
+  const staleInvoke = (command, payload) => {
+    staleCalls.push([command, Object.assign({}, payload)]);
+    return new Promise((resolve) => { resolveStale = resolve; });
+  };
+  window.AccessibleChessLibrarySurface.render(
+    staleRoot,
+    snapshot(false),
+    staleInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const staleCheckbox = staleRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  staleCheckbox.checked = true;
+  staleCheckbox.listeners.change({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(staleCalls.length === 1, "stale-response setup did not enter host");
+  const retainedCheckbox = staleRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  window.AccessibleChessLibrarySurface.deactivate(staleRoot);
+  resolveStale({
+    kind: "render",
+    payload: {
+      snapshot: snapshot(true),
+      focus_target: "library-game-0123456789abcdefabcd-export",
+      announcement: "Added to export."
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    staleRoot.querySelector("#library-game-0123456789abcdefabcd-export") === retainedCheckbox,
+    "late Library response repainted a surface after route deactivation"
+  );
+  check(
+    staleRoot.__accessibleChessLibrarySnapshot.export_selection_count === 0,
+    "late Library response replaced canonical browser snapshot after deactivation"
+  );
+
   console.log("Library export checkbox DOM contract PASS");
 })().catch((error) => {
   console.error(error);
