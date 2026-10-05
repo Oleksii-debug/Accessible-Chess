@@ -508,7 +508,7 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 self.assertTrue(controller.wait_for_pgn_open(2.0))
                 poster.drain()
 
-            self.assertEqual(dialogs.open_calls, 2)
+            self.assertEqual(dialogs.open_calls, 1)
 
 
 if __name__ == "__main__":
