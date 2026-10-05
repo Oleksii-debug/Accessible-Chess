@@ -5,6 +5,11 @@ import tempfile
 import unittest
 
 from acs.gametree import parse_games
+from acs.pgn_document import (
+    PgnDocumentError,
+    PgnDocumentErrorCode,
+    PgnDocumentSession,
+)
 from acs.pgn_service import export_game_atomic, save_pgn_atomic
 
 
@@ -68,6 +73,61 @@ class PgnServicePassiveOverwriteTests(unittest.TestCase):
 
             self.assertEqual(first.sha256, second.sha256)
             self.assertEqual(target.read_bytes(), before)
+
+    def test_document_save_as_absent_target_rejects_unversioned_overwrite(self) -> None:
+        session = PgnDocumentSession.from_text(PGN)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "absent-save-as.pgn"
+
+            with self.assertRaises(PgnDocumentError) as caught:
+                session.save_as(target, overwrite=True)
+
+            self.assertEqual(
+                caught.exception.code,
+                PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
+            )
+            self.assertFalse(target.exists())
+            self.assertIsNone(session.source)
+            self.assertTrue(session.dirty)
+
+    def test_document_export_absent_target_rejects_unversioned_overwrite(self) -> None:
+        session = PgnDocumentSession.from_text(PGN)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "absent-export.pgn"
+
+            with self.assertRaises(PgnDocumentError) as caught:
+                session.export_selected(target, overwrite=True)
+
+            self.assertEqual(
+                caught.exception.code,
+                PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
+            )
+            self.assertFalse(target.exists())
+
+    def test_document_guard_rejects_active_overwrite_without_truthiness(self) -> None:
+        session = PgnDocumentSession.from_text(PGN)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "existing-document.pgn"
+            original = b"preserve exactly\n"
+            target.write_bytes(original)
+
+            with self.assertRaises(TypeError):
+                session.save_as(target, overwrite=ActiveBool())  # type: ignore[arg-type]
+
+            self.assertEqual(target.read_bytes(), original)
+            self.assertIsNone(session.source)
+            self.assertTrue(session.dirty)
+
+    def test_document_new_target_uses_no_clobber_create_path(self) -> None:
+        session = PgnDocumentSession.from_text(PGN)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "new-document.pgn"
+
+            saved = session.save_as(target, overwrite=False)
+
+            self.assertTrue(target.exists())
+            self.assertEqual(saved.path, str(target))
+            self.assertFalse(session.dirty)
 
 
 if __name__ == "__main__":
