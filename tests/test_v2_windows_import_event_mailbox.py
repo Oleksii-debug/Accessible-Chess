@@ -352,6 +352,125 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
                 count = database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
             self.assertEqual(count, 1)
 
+    def test_worker_queue_owns_detached_event_snapshot(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            "library.import",
+            focus_target="library-import-file",
+            processed_games=2,
+            total_games=2,
+            game_count=2,
+        )
+
+        _run_thread(lambda: mailbox(event))
+        object.__setattr__(event, "kind", FileWorkflowEventKind.FAILED)
+        object.__setattr__(event, "error_code", "caller_corruption")
+        object.__setattr__(event, "game_count", 999)
+
+        queued, = mailbox.drain()
+        self.assertIsNot(queued, event)
+        self.assertEqual(queued.kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+        self.assertEqual(queued.error_code, "")
+        self.assertEqual(queued.game_count, 2)
+
+    def test_owner_async_queue_owns_detached_event_snapshot(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_SAVED,
+            "pgn.save",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+
+        returned = mailbox.put_async_owner(event)
+        self.assertIs(returned, event)
+        object.__setattr__(event, "kind", FileWorkflowEventKind.FAILED)
+        object.__setattr__(event, "error_code", "caller_corruption")
+
+        queued, = mailbox.drain()
+        self.assertIsNot(queued, event)
+        self.assertEqual(queued.kind, FileWorkflowEventKind.PGN_SAVED)
+        self.assertEqual(queued.error_code, "")
+        self.assertEqual(queued.game_count, 1)
+
+    def test_derived_event_is_rejected_before_field_hooks(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        touched = []
+
+        class ActiveEvent(FileWorkflowEvent):
+            def __getattribute__(self, name):
+                if name in {"kind", "action_id", "error_code"}:
+                    touched.append(name)
+                    raise AssertionError("derived mailbox event hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveEvent.__new__(ActiveEvent)
+        for name, value in (
+            ("kind", FileWorkflowEventKind.IMPORT_CANCELLED),
+            ("action_id", "library.import"),
+            ("focus_target", "library-import-file"),
+            ("processed_games", 0),
+            ("total_games", 0),
+            ("game_count", 0),
+            ("warning_count", 0),
+            ("error_code", ""),
+            ("source_bytes_read", 0),
+            ("source_total_bytes", 0),
+            ("source_parsing", False),
+            ("source_format", ""),
+            ("retained_book_blocks", 0),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        errors = []
+
+        def submit() -> None:
+            try:
+                mailbox(hostile)
+            except BaseException as exc:
+                errors.append(exc)
+
+        _run_thread(submit)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], TypeError)
+        self.assertEqual(touched, [])
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_exact_event_with_active_scalar_is_rejected_before_hooks(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        touched = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active mailbox scalar hook executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active mailbox scalar hook executed")
+
+        hostile = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_PROGRESS,
+            "library.import",
+            processed_games=1,
+            total_games=2,
+        )
+        object.__setattr__(hostile, "processed_games", ActiveInt(1))
+        errors = []
+
+        def submit() -> None:
+            try:
+                mailbox(hostile)
+            except BaseException as exc:
+                errors.append(exc)
+
+        _run_thread(submit)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], TypeError)
+        self.assertEqual(touched, [])
+        self.assertEqual(mailbox.pending_count, 0)
+
     def test_constructor_and_partial_drain_are_bounded(self) -> None:
         with self.assertRaises(TypeError):
             Version2ImportUiEventMailbox(max_events=4.0)  # type: ignore[arg-type]
