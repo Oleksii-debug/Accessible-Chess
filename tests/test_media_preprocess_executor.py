@@ -1,0 +1,89 @@
+import unittest
+
+from acs.media_preprocess import (
+    AdaptiveSamplingPolicy,
+    BoardFrameEvidence,
+    FrameDisposition,
+    PreprocessContractError,
+    PreprocessErrorCode,
+    PreprocessStatus,
+    RecordedMediaPreprocessPlan,
+    RecordedMediaSourceRevision,
+    SpeechEvidence,
+)
+from acs.media_preprocess_executor import (
+    FixtureBoardVisionPort,
+    FixtureSpeechContextPort,
+    RecordedMediaPreprocessExecutor,
+)
+
+
+class ExecutorTests(unittest.TestCase):
+    def plan(self, speech=True):
+        source = RecordedMediaSourceRevision("v1", "source-v1", "opaque-local-ref", 2000)
+        return RecordedMediaPreprocessPlan.build(
+            source,
+            board_revision="vision-v1",
+            speech_revision="speech-v1" if speech else None,
+            policy=AdaptiveSamplingPolicy(1000, 200, 0),
+        )
+
+    def board(self, t):
+        return BoardFrameEvidence("v1", "source-v1", t, FrameDisposition.STABLE,
+                                  confidence=.9, observation_ref=f"fixture:{t}")
+
+    def test_fixture_executor_processes_exact_plan_to_completion(self):
+        plan = self.plan(speech=False)
+        port = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+        executor = RecordedMediaPreprocessExecutor(plan, port)
+        seen = []
+        while executor.status is PreprocessStatus.RUNNING:
+            result = executor.step_board(); seen.append(result.board_evidence.timestamp_ms)
+        self.assertEqual(seen, [0, 1000, 2000])
+        self.assertIs(executor.status, PreprocessStatus.COMPLETE)
+        self.assertIsNone(executor.step_board())
+
+    def test_provider_failure_does_not_advance_progress_and_can_retry(self):
+        plan = self.plan(speech=False)
+        port = FixtureBoardVisionPort("vision-v1", [self.board(1000), self.board(2000)])
+        executor = RecordedMediaPreprocessExecutor(plan, port)
+        before = executor.run.checkpoint()
+        with self.assertRaises(PreprocessContractError): executor.step_board()
+        self.assertEqual(executor.run.checkpoint(), before)
+
+    def test_revision_mismatch_fails_before_provider_use(self):
+        plan = self.plan(speech=False)
+        with self.assertRaises(PreprocessContractError) as c:
+            RecordedMediaPreprocessExecutor(plan, FixtureBoardVisionPort("vision-v2", []))
+        self.assertEqual(c.exception.code, PreprocessErrorCode.REVISION_MISMATCH)
+
+    def test_speech_context_is_bounded_context_and_does_not_move_board_cursor(self):
+        plan = self.plan()
+        boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+        speech = FixtureSpeechContextPort("speech-v1", [
+            SpeechEvidence("v1", "source-v1", 100, 400, "candidate words", False, .4),
+            SpeechEvidence("v1", "source-v1", 100, 500, "Knight f3", True, .9),
+        ])
+        executor = RecordedMediaPreprocessExecutor(plan, boards, speech_port=speech)
+        before = executor.run.current_request
+        accepted = executor.collect_speech(0, 600)
+        self.assertEqual(len(accepted), 2)
+        self.assertEqual(executor.run.current_request, before)
+
+    def test_cancel_and_resume_executor_from_checkpoint(self):
+        plan = self.plan(speech=False)
+        boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+        first = RecordedMediaPreprocessExecutor(plan, boards)
+        self.assertEqual(first.step_board().board_evidence.timestamp_ms, 0)
+        checkpoint = first.cancel()
+        resumed = RecordedMediaPreprocessExecutor(plan, boards, checkpoint=checkpoint)
+        self.assertEqual(resumed.step_board().board_evidence.timestamp_ms, 1000)
+
+    def test_speech_port_requirement_matches_plan_revision_contract(self):
+        with self.assertRaises(PreprocessContractError) as c:
+            RecordedMediaPreprocessExecutor(self.plan(), FixtureBoardVisionPort("vision-v1", []))
+        self.assertEqual(c.exception.code, PreprocessErrorCode.INVALID_STATE)
+
+
+if __name__ == "__main__":
+    unittest.main()
