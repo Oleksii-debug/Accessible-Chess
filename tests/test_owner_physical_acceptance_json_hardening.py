@@ -15,6 +15,7 @@ from tests.test_owner_physical_acceptance import (
     _machine_receipt,
     _record,
     _scenarios,
+    _verify,
     _write_machine_receipt,
 )
 
@@ -92,7 +93,7 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
             self.assertEqual(digest.call_count, 1)
             self.assertTrue(output.is_file())
             self.assertEqual(
-                verify_owner_physical_acceptance(output, machine, final_zip),
+                _verify(output, machine, final_zip),
                 value,
             )
 
