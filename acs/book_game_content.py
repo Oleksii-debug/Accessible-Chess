@@ -217,7 +217,10 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
         raise ValueError("canonical provider game contains too many tag pairs")
     claim_lexical_items(len(game.tags), field="game tags")
     for key, value in game.tags.items():
-        charge_text(key, field="game tag name", limit=MAX_PGN_TOKEN_CHARS)
+        # D06 counts one complete tag-pair as one lexical unit and bounds the
+        # full decoded source plus tag value, but it does not impose the movetext
+        # token-size ceiling on a tag name. Preserve that canonical compatibility.
+        charge_text(key, field="game tag name", limit=MAX_PGN_TEXT_CHARS)
         charge_text(
             value,
             field="game tag value",
