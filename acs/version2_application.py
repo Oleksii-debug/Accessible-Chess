@@ -144,6 +144,7 @@ class Version2Application:
         self._focus = ""
         self._shell_publication_sequence = 0
         self._pending_shell_publication = None
+        self._last_shell_publication_resolution = None
         self.session = None
         self.pgn_board_active = False
         self.pgn = None
@@ -186,10 +187,28 @@ class Version2Application:
     def _finish_shell_publication(self, token: int, *, commit: bool):
         """Commit or roll back one browser route only after DOM publication."""
         pending = self._pending_shell_publication
-        if pending is None or pending[0] != token:
+        if pending is None:
+            last = self._last_shell_publication_resolution
+            if last is not None and last == (token, commit):
+                if commit:
+                    return {
+                        "kind": "presentation-commit",
+                        "payload": {"token": token},
+                    }
+                return {
+                    "kind": "presentation-rollback",
+                    "payload": {
+                        "token": token,
+                        "route_id": self.shell.current_route.route_id,
+                        "focus_target": self._focus,
+                    },
+                }
+            raise ValueError("stale shell publication acknowledgement")
+        if pending[0] != token:
             raise ValueError("stale shell publication acknowledgement")
         self._pending_shell_publication = None
         if commit:
+            self._last_shell_publication_resolution = (token, True)
             return {
                 "kind": "presentation-commit",
                 "payload": {"token": token},
@@ -206,6 +225,7 @@ class Version2Application:
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
+        self._last_shell_publication_resolution = (token, False)
         return {
             "kind": "presentation-rollback",
             "payload": {
