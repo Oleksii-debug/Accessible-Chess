@@ -221,6 +221,10 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertTrue(
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.advance_group_rotation(
+                expected_rotation_revision=state.revision
+            )
 
     def test_pair_bind_store_io_failure_marks_rotation_recovery_required(self) -> None:
         state = self._reach_pair_round()
@@ -242,6 +246,10 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertTrue(
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.bind_current_pairing_to_group_rotation(
+                expected_rotation_revision=state.revision
+            )
 
     def test_post_publication_failure_blocks_mutation_until_exact_reload(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
