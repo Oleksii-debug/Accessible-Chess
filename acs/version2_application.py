@@ -2403,8 +2403,16 @@ class Version2Application:
 
     def _file_event(self, event):
         kind = getattr(event.kind, "value", "")
-        library_export = getattr(event, "action_id", "") == "library.export"
+        action_id = getattr(event, "action_id", "")
         error_code = getattr(event, "error_code", "")
+        projection = getattr(getattr(self, "library", None), "projection", None)
+        stale_export_cancel = (
+            kind == "failed"
+            and action_id == "library.cancel_import"
+            and error_code == "no_import_running"
+            and getattr(projection, "export_running", False) is True
+        )
+        library_export = action_id == "library.export" or stale_export_cancel
         active_worker_failure = (
             library_export
             and kind == "failed"
@@ -2430,7 +2438,6 @@ class Version2Application:
         # import-region event preserves any newer Library focus while making the
         # shared Cancel action accurately enabled for export as well as import.
         if library_export:
-            projection = getattr(getattr(self, "library", None), "projection", None)
             transition_name = {
                 "export_started": "host_export_started",
                 "export_cancelling": "host_export_cancelling",
@@ -2468,6 +2475,16 @@ class Version2Application:
 
         failed = kind == "failed"
         if failed:
+            if stale_export_cancel:
+                announcement = (
+                    "Операція бібліотеки вже завершилася.",
+                    "The Library operation has already finished.",
+                )[self.shell.language is UILanguage.EN]
+                payload = {"announcement": announcement}
+                if focus_target:
+                    payload["focus_target"] = focus_target
+                self._events.append({"kind": "status", "payload": payload})
+                return
             payload = {"message": self._native_file_error_message(event)}
             if focus_target:
                 payload["focus_target"] = focus_target
