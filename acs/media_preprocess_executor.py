@@ -75,14 +75,33 @@ class RecordedMediaPreprocessExecutor:
             raise PreprocessContractError("invalid speech request range", code=PreprocessErrorCode.INVALID)
         if end_ms > self.plan.source.duration_ms:
             raise PreprocessContractError("speech request outside duration", code=PreprocessErrorCode.INVALID)
+        if self.run.status is not PreprocessStatus.RUNNING:
+            raise PreprocessContractError("run not running", code=PreprocessErrorCode.INVALID_STATE)
         if self.speech_port is None:
             raise PreprocessContractError("speech port unavailable", code=PreprocessErrorCode.INVALID_STATE)
+
+        remaining = MAX_SPEECH - self.run.speech_count
+        if remaining <= 0:
+            raise PreprocessContractError("speech evidence limit", code=PreprocessErrorCode.LIMIT)
+
+        # Validate the complete bounded provider batch before publishing any
+        # checkpoint progress. A malformed or interrupted provider stream must
+        # therefore be retryable without duplicating earlier evidence counts.
         accepted: list[SpeechEvidence] = []
-        for index, evidence in enumerate(self.speech_port.evidence_for_range(self.plan.source.source_ref, start_ms, end_ms)):
-            if index >= MAX_SPEECH:
+        for index, evidence in enumerate(
+            self.speech_port.evidence_for_range(
+                self.plan.source.source_ref,
+                start_ms,
+                end_ms,
+            )
+        ):
+            if index >= remaining:
                 raise PreprocessContractError("speech provider result limit", code=PreprocessErrorCode.LIMIT)
-            self.run.accept_speech(evidence)
+            self.run.validate_speech(evidence)
             accepted.append(evidence)
+
+        for evidence in accepted:
+            self.run.accept_speech(evidence)
         return tuple(accepted)
 
     def cancel(self) -> PreprocessCheckpoint:
