@@ -167,6 +167,43 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(reopened.kind, FileWorkflowEventKind.PGN_OPENED)
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_pgn_open_owner_terminal_sink_base_exception_is_contained(self) -> None:
+        class SinkAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "owner-terminal-sink.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            posted = []
+            owner_events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=lambda _event: None,
+                owner_async_event_sink=lambda event: (
+                    owner_events.append(event),
+                    (_ for _ in ()).throw(SinkAbort("owner terminal sink aborted")),
+                )[1],
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=posted.append,
+            )
+
+            started = delegate("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(delegate.wait_for_pgn_open(2.0))
+            self.assertEqual(len(posted), 1)
+
+            posted.pop()()
+
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertEqual(len(owner_events), 1)
+            self.assertEqual(owner_events[0].kind, FileWorkflowEventKind.PGN_OPENED)
+
     def test_import_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "import-shutdown.pgn"
