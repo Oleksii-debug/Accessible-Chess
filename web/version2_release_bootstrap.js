@@ -588,6 +588,13 @@
     currentRouteId = routeId;
   }
 
+  function deactivateLibrarySurface() {
+    const surface = global.AccessibleChessLibrarySurface;
+    if (surface && typeof surface.deactivate === "function") {
+      surface.deactivate(workspace);
+    }
+  }
+
   function renderProductSurface(
     snapshot,
     routeId,
@@ -706,6 +713,11 @@
         nextLanguage
       );
 
+      // Candidate validation/render succeeded. Retire the previously rendered
+      // Library command authority only now: malformed target rendering must
+      // leave the still-canonical Library surface active for rollback.
+      if (routeId !== "library") deactivateLibrarySurface();
+
       // Only a fully rendered product surface may commit the shell state.
       commitShellChrome(navigationState, nextLanguage, routeId);
       originalMain.hidden = true;
@@ -724,6 +736,7 @@
     // Stage-1 fallback focus may target the newly committed navigation button,
     // so publish navigation before restoring Stage-1 focus.
     commitShellChrome(navigationState, nextLanguage, routeId);
+    deactivateLibrarySurface();
     workspace.hidden = true;
     workspace.replaceChildren();
     originalMain.hidden = false;
