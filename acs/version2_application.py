@@ -2189,6 +2189,10 @@ class Version2Application:
                 "Файл уже записано, але стан документа не вдалося безпечно оновити. Перевідкрийте PGN перед наступним збереженням.",
                 "The file was written, but document state could not be updated safely. Reopen the PGN before saving again.",
             ),
+            "pgn_save_publication_unverified": (
+                "Збереження PGN уже перейшло межу публікації, але остаточно перевірити опублікований файл не вдалося. Не повторюйте збереження навмання: перевідкрийте вибраний PGN і перевірте його вміст перед наступним збереженням.",
+                "The PGN save crossed the publication boundary, but the published file could not be verified safely. Do not retry blindly: reopen the selected PGN and verify its contents before saving again.",
+            ),
             "pgn_save_conflict": (
                 "PGN змінився на диску під час збереження. Файл не перезаписано; перевірте актуальну версію та повторіть дію.",
                 "The PGN changed on disk while saving. The file was not overwritten; review the current version and retry.",
