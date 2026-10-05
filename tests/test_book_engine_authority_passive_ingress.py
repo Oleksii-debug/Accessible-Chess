@@ -325,6 +325,142 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
                 )
             )
 
+    def test_book_workspace_rejects_active_workflow_revision_scalar_before_comparison(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=0,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        class ActiveRevision(int):
+            touched = False
+
+            def __ne__(self, other):
+                type(self).touched = True
+                raise AssertionError("active workflow revision comparison must not execute")
+
+            def __lt__(self, other):
+                type(self).touched = True
+                raise AssertionError("active workflow revision ordering must not execute")
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(ActiveRevision(0), ActiveRevision(0)),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=True,
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+        self.assertFalse(ActiveRevision.touched)
+
+    def test_book_workspace_rejects_active_workflow_active_scalar_before_truthiness(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=0,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        class ActiveState:
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("active workflow truthiness must not execute")
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(0, 0),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=ActiveState(),
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+        self.assertFalse(ActiveState.touched)
+
+    def test_book_workspace_rejects_negative_workflow_revision(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=-1,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(-1, -1),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=True,
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
     def test_book_workspace_accepts_exact_router_result_with_exact_ui_event(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
