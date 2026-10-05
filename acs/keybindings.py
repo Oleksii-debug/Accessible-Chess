@@ -337,6 +337,8 @@ class ActionRegistry:
 
     def resolve_binding(self, context: BindingContext, binding: str) -> Resolution | None:
         normalized = normalize_binding(binding)
+        if normalized is None:
+            return None
         for ctx in (context, BindingContext.GLOBAL):
             for action_id, definition in self._definitions.items():
                 if definition.external or definition.context != ctx:

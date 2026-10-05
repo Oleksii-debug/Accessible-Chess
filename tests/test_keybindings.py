@@ -13,6 +13,12 @@ from acs.keybindings import (
 
 
 class ActionRegistryTests(unittest.TestCase):
+    def test_unbound_shortcut_cannot_resolve_from_none_or_empty_input(self):
+        registry = ActionRegistry()
+        for value in (None, "", "  "):
+            with self.subTest(value=value):
+                self.assertIsNone(registry.resolve_binding(BindingContext.BOARD, value))
+
     def test_locked_defaults_are_present_and_resolvable(self):
         registry = ActionRegistry()
         self.assertEqual(registry.resolve_binding(BindingContext.HISTORY, "shift+a").action_id, "history.previous")

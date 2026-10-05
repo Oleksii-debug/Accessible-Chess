@@ -552,8 +552,8 @@ class AccessibleChessAPI:
             return self._error(self._t("move_history_failed"))
         try:
             san = candidate_board.push_text(text)
-        except ValueError as exc:
-            return self._error(str(exc) if self.lang == "uk" else self._t("move_invalid"))
+        except ValueError:
+            return self._error(self._t("move_invalid"))
         except Exception:
             return self._error(self._t("move_history_failed"))
         try:
