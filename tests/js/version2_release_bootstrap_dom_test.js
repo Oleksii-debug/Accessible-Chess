@@ -470,11 +470,30 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 2, "transport outage incorrectly committed Teacher");
   check(shellPublicationRollbacks === 2, "transport outage incorrectly rolled Teacher back");
 
+  const drainCallsBeforePendingPublication = drainCalls;
+  eventQueue = [{
+    kind: "status",
+    payload: { announcement: "Deferred while route publication is pending." }
+  }];
+  check(typeof intervalCallback === "function", "event drain interval was not installed");
+  intervalCallback();
+  await flush();
+  check(
+    drainCalls === drainCallsBeforePendingPublication,
+    "pending route publication consumed a native event batch"
+  );
+  check(eventQueue.length === 1, "pending route publication lost the deferred native event");
+
   await clickRoute("board");
   check(currentRoute === "board", "next route did not recover the unresolved publication first");
   check(pendingShellPublication === null, "next route left an unresolved host publication");
   check(shellPublicationRollbacks === 3, "next route did not roll back the stale Teacher publication once");
   check(shellPublicationCommits === 3, "next route did not commit Board exactly once after recovery");
+  check(
+    drainCalls === drainCallsBeforePendingPublication + 1,
+    "deferred native event batch was not drained exactly once after publication recovery"
+  );
+  check(eventQueue.length === 0, "deferred native event batch remained queued after recovery");
 
   booksAvailable = false;
   trainingAvailable = false;
