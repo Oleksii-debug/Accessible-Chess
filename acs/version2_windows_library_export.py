@@ -353,7 +353,10 @@ class Version2WindowsLibraryExportDelegate:
             if services is not None:
                 try:
                     services.close()
-                except Exception:
+                except BaseException:
+                    # Cleanup is secondary to the already selected bounded
+                    # terminal. A provider callback must not strand single-flight
+                    # ownership by aborting this worker before UI publication.
                     _LOG.warning("Library export worker cleanup failed", exc_info=True)
 
         with self._lock:
