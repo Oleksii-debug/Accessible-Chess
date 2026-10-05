@@ -189,6 +189,32 @@ class CompletedRotationRecoveryTests(unittest.TestCase):
             ):
                 store.load()
 
+    def test_load_rejects_escaped_surrogate_title_as_store_error(self) -> None:
+        plan = self._plan()
+        state = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+        )
+        payload = self._payload(plan, state)
+        payload["plan"]["rounds"][0]["title"] = "\ud800"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            path.write_text(
+                json.dumps(
+                    payload,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+            store = ChildCoachingRotationStore(path)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "invalid rotation plan/state payload",
+            ):
+                store.load()
+
     def test_save_rechecks_existing_target_after_temp_fsync(self) -> None:
         plan = self._plan()
         planned = RotationState(
