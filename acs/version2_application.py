@@ -1599,61 +1599,74 @@ class Version2Application:
                     )
                 ):
                     raise ValueError("unsupported shell command")
+                route_transition = command.startswith("screen.")
+                previous_shell = (
+                    self.shell._capture_presentation_state()
+                    if route_transition
+                    else None
+                )
+                previous_focus = self._focus
                 training_transition = None
-                if command == "screen.training":
-                    # Route changes are modal-blocked by the shell. Apply the same
-                    # fence before Training preflight can move or wrap the reader.
-                    if self.shell.active_dialog_id is not None:
-                        raise ValueError("close the active dialog before opening Training")
-                    training_transition = (
-                        self.training_workspace,
-                        self.training,
-                        self.shell.current_route.route_id,
-                    )
-                    if not self._start_training_from_current_book():
-                        raise ValueError("Training exercise is unavailable")
                 try:
+                    if command == "screen.training":
+                        # Route changes are modal-blocked by the shell. Apply the same
+                        # fence before Training preflight can move or wrap the reader.
+                        if self.shell.active_dialog_id is not None:
+                            raise ValueError("close the active dialog before opening Training")
+                        training_transition = (
+                            self.training_workspace,
+                            self.training,
+                        )
+                        if not self._start_training_from_current_book():
+                            raise ValueError("Training exercise is unavailable")
+
                     value = self.adapter.activate_action(
                         command,
                         current_focus_id=self._focus,
                     )
+
+                    if value.kind != "route" and route_transition:
+                        # A screen route command that the adapter sanitized into
+                        # an error never became browser authority. Restore exact
+                        # pre-command shell/focus state before returning it.
+                        self.shell._restore_presentation_state(previous_shell)
+                        self._focus = previous_focus
+                        if training_transition is not None:
+                            (
+                                self.training_workspace,
+                                self.training,
+                            ) = training_transition
+
+                    if value.kind == "route":
+                        # Router dispatch has already changed shell ownership.
+                        # Synchronize before another keyboard/native action can
+                        # reuse the previous route's focus token. The repair and
+                        # serialization below are still part of publication: if
+                        # either fails, the outer rollback restores the old route.
+                        self._focus = self.shell.restore_focus_target()
+                        self._repair_book_block_focus_after_rebind()
+
+                    projected = asdict(value)
+                    if value.kind == "route":
+                        projected_payload = projected.get("payload")
+                        if isinstance(projected_payload, dict):
+                            projected_payload["focus_target"] = self._focus
+                            projected_snapshot = projected_payload.get("snapshot")
+                            if isinstance(projected_snapshot, dict):
+                                projected_screen = projected_snapshot.get("screen")
+                                if isinstance(projected_screen, dict):
+                                    projected_screen["focus_target"] = self._focus
+                    return projected
                 except Exception:
                     if training_transition is not None:
-                        previous_workspace, previous_training, origin_route = training_transition
-                        self.training_workspace = previous_workspace
-                        self.training = previous_training
-                        if self.shell.current_route.route_id != origin_route:
-                            self._focus = self.shell.open_route(origin_route)
-                            self._repair_book_block_focus_after_rebind()
+                        (
+                            self.training_workspace,
+                            self.training,
+                        ) = training_transition
+                    if previous_shell is not None:
+                        self.shell._restore_presentation_state(previous_shell)
+                        self._focus = previous_focus
                     raise
-                if training_transition is not None and value.kind != "route":
-                    # FullProductWebViewAdapter sanitizes shell failures into an
-                    # error command. Treat that as a rejected transaction: a
-                    # staged Training owner must not survive on the old route,
-                    # and a partial open_route() commit must be restored.
-                    previous_workspace, previous_training, origin_route = training_transition
-                    self.training_workspace = previous_workspace
-                    self.training = previous_training
-                    if self.shell.current_route.route_id != origin_route:
-                        self._focus = self.shell.open_route(origin_route)
-                        self._repair_book_block_focus_after_rebind()
-                if value.kind == "route":
-                    # Router dispatch has already changed shell ownership.
-                    # Synchronize before another keyboard/native action can
-                    # reuse the previous route's focus token.
-                    self._focus = self.shell.restore_focus_target()
-                    self._repair_book_block_focus_after_rebind()
-                projected = asdict(value)
-                if value.kind == "route":
-                    projected_payload = projected.get("payload")
-                    if isinstance(projected_payload, dict):
-                        projected_payload["focus_target"] = self._focus
-                        projected_snapshot = projected_payload.get("snapshot")
-                        if isinstance(projected_snapshot, dict):
-                            projected_screen = projected_snapshot.get("screen")
-                            if isinstance(projected_screen, dict):
-                                projected_screen["focus_target"] = self._focus
-                return projected
             if area_id == "training":
                 try:
                     return asdict(self._dispatch_training_surface_command(command, payload))
