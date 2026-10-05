@@ -228,6 +228,75 @@ function snapshot(checked) {
     "partial operation event left canonical browser export action state enabled"
   );
 
+  // Cancellation replaces the focused Cancel control with a disabled one.
+  // Real browsers reject focus() on disabled buttons; preserve keyboard/NVDA
+  // continuity by falling back to the stable enabled Library search control.
+  window.AccessibleChessLibrarySurface.apply(root, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "idle", heading: "Import", description: "Import games",
+        processed_games: 0, total_games: 0, progress_label: "", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: false }
+        ]
+      },
+      focus_target: "library-import-cancel",
+      announcement: ""
+    }
+  }, invoke, announce);
+  const disabledCancel = root.querySelector("#library-import-cancel");
+  const searchFallback = root.querySelector("#library-search-player");
+  check(disabledCancel !== null && disabledCancel.disabled,
+    "cancelling export did not disable the shared Cancel control");
+  check(searchFallback !== null && !searchFallback.disabled,
+    "cancelling export lost the stable Library search fallback");
+  check(
+    document.activeElement === searchFallback,
+    "cancelling export lost keyboard/NVDA focus on a disabled Cancel replacement"
+  );
+
+  // The host-side cancelling observer does not request focus explicitly. If the
+  // old Cancel button was focused, partial replacement must use the same fallback.
+  window.AccessibleChessLibrarySurface.apply(root, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "idle", heading: "Import", description: "Import games",
+        processed_games: 0, total_games: 0, progress_label: "", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: true }
+        ]
+      },
+      focus_target: "library-import-cancel",
+      announcement: ""
+    }
+  }, invoke, announce);
+  const refocusedCancel = root.querySelector("#library-import-cancel");
+  check(document.activeElement === refocusedCancel,
+    "enabled export Cancel control did not regain focus before observer fallback");
+  window.AccessibleChessLibrarySurface.apply(root, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "idle", heading: "Import", description: "Import games",
+        processed_games: 0, total_games: 0, progress_label: "", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: false }
+        ]
+      },
+      focus_target: "",
+      announcement: ""
+    }
+  }, invoke, announce);
+  check(
+    document.activeElement === root.querySelector("#library-search-player"),
+    "host cancelling observer lost focus instead of falling back from disabled Cancel"
+  );
+
   // A user-initiated Library refresh/search may publish newer rows while the
   // worker is still exporting the immutable request it captured earlier. The
   // later worker terminal event must update only operation controls; it must
