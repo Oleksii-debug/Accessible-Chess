@@ -495,6 +495,49 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_synchronous_host_rejects_export_result_subclass(self) -> None:
+        class DerivedResult(LibraryExportResult):
+            pass
+
+        class DerivedResultService(LibraryExportService):
+            def export_to(
+                self,
+                destination,
+                request,
+                *,
+                expected_sha256=None,
+                cancel_check=None,
+            ):
+                return DerivedResult(
+                    game_count=1,
+                    destination_fingerprint=SimpleNamespace(),
+                )
+
+        database = AcsDatabase()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "derived-result.pgn"
+                events: list[LibraryExportHostEvent] = []
+                delegate = Version2WindowsLibraryExportDelegate(
+                    dialogs=_Dialogs(destination),
+                    service=DerivedResultService(database),
+                    event_sink=events.append,
+                    next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                    current_focus_provider=lambda: "library-results",
+                )
+
+                result = delegate(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+
+                self.assertEqual(result.kind, LibraryExportHostEventKind.FAILED)
+                self.assertEqual(result.error_code, "library_export_failed")
+                self.assertIs(result, events[-1])
+                self.assertFalse(destination.exists())
+        finally:
+            database.close()
+
     def test_invalid_zero_count_synchronous_result_is_bounded_failure(self) -> None:
         database = AcsDatabase()
         try:
