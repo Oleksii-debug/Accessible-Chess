@@ -219,6 +219,36 @@
     };
   }
 
+  function shellPublicationToken(result) {
+    if (!plainObject(result) || result.kind !== "route" || !plainObject(result.payload)) {
+      return 0;
+    }
+    const token = result.payload.publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
+  function finishShellPublication(bridge, command, token) {
+    const expectedKind =
+      command === "shell.presentation_commit"
+        ? "presentation-commit"
+        : "presentation-rollback";
+
+    function attempt() {
+      return bridge.v2_browser_command("shell", command, { token: token }).then(function (result) {
+        if (!plainObject(result) || result.kind !== expectedKind ||
+            !plainObject(result.payload) || result.payload.token !== token) {
+          throw new TypeError("invalid shell publication acknowledgement");
+        }
+        return result;
+      });
+    }
+
+    // The Python boundary is idempotent for the same token/outcome. A single
+    // retry therefore closes local bridge response loss without duplicating a
+    // route commit or rollback.
+    return attempt().catch(function () { return attempt(); });
+  }
+
   function renderNavigation(snapshot) {
     if (!Array.isArray(snapshot.navigation) ||
         snapshot.navigation.length < 1 ||
@@ -257,12 +287,55 @@
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
-          if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          return refresh(true).catch(function () {
-            announce(uiText("Не вдалося відкрити розділ.", "Could not open the section."));
+        const failedMessage = uiText(
+          "Не вдалося відкрити розділ.",
+          "Could not open the section."
+        );
+        bridge.v2_browser_command(
+          "shell",
+          actionId,
+          { publication_protocol: "ack-v1" }
+        ).then(function (result) {
+          if (result && result.kind === "error") {
+            if (result.payload) announce(result.payload.message || "");
+            return;
+          }
+          const token = shellPublicationToken(result);
+          if (!token) {
+            announce(failedMessage);
+            return;
+          }
+
+          return refresh(true).then(function () {
+            return finishShellPublication(
+              bridge,
+              "shell.presentation_commit",
+              token
+            ).catch(function () {
+              announce(failedMessage);
+            });
+          }, function () {
+            return finishShellPublication(
+              bridge,
+              "shell.presentation_rollback",
+              token
+            ).then(function () {
+              return refresh(true);
+            }, function () {
+              // A rollback transport failure is still followed by one canonical
+              // refresh attempt. The user gets a bounded failure announcement;
+              // the next interaction cannot create a second pending route.
+              return refresh(true);
+            }).catch(function () {
+              // Preserve the already-visible usable surface and avoid an
+              // unhandled promise rejection if recovery rendering also fails.
+            }).then(function () {
+              announce(failedMessage);
+            });
           });
-        }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
+        }, function () {
+          announce(failedMessage);
+        });
       });
       row.appendChild(button);
       fragment.appendChild(row);
