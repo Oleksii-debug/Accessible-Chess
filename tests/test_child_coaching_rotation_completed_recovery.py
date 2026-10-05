@@ -189,6 +189,37 @@ class CompletedRotationRecoveryTests(unittest.TestCase):
             ):
                 store.load()
 
+    def test_load_rejects_plan_exceeding_canonical_wire_bound(self) -> None:
+        plan = self._plan()
+        state = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+        )
+        payload = self._payload(plan, state)
+        target_ids = [
+            f"s{index:04d}" + ("x" * 122)
+            for index in range(2000)
+        ]
+        for round_record in payload["plan"]["rounds"]:
+            round_record["target"] = "group"
+            round_record["target_ids"] = target_ids
+        raw = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertLess(len(raw.encode("utf-8")), 1_000_000)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            path.write_text(raw, encoding="utf-8")
+            store = ChildCoachingRotationStore(path)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "invalid rotation plan/state payload",
+            ):
+                store.load()
+
     def test_load_rejects_escaped_surrogate_title_as_store_error(self) -> None:
         plan = self._plan()
         state = RotationState(
