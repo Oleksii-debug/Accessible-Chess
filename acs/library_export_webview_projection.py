@@ -99,7 +99,10 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
     def host_export_started(self) -> LibraryWebViewEvent:
         self._export_running = True
         self._export_cancelling = False
-        return self._operation_event()
+        # The native Save dialog has just released focus. Publish the one
+        # keyboard-reachable operation control now; the pre-dialog export
+        # control is intentionally restored only by the terminal host event.
+        return self._operation_event(focus_target="library-import-cancel")
 
     def host_export_cancelling(self) -> LibraryWebViewEvent:
         if self._export_running:
