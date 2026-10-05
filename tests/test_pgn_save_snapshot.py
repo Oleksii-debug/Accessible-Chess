@@ -89,6 +89,67 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
+    def test_destination_fingerprint_rejects_active_path_protocol_without_hook(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path protocol executed")
+
+        with self.assertRaises(TypeError):
+            expected_pgn_destination_sha256(ActivePath())  # type: ignore[arg-type]
+
+        self.assertEqual(touched, [])
+
+    def test_publish_save_as_rejects_active_path_protocol_before_writer_io(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path protocol executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            side_effect=AssertionError("writer must not run for active destination"),
+        ) as writer:
+            with self.assertRaises(TypeError):
+                publish_pgn_save_snapshot(
+                    snapshot,
+                    path=ActivePath(),  # type: ignore[arg-type]
+                )
+
+        writer.assert_not_called()
+        self.assertEqual(touched, [])
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_publish_save_as_rejects_derived_text_path_before_writer_io(self) -> None:
+        class ActiveText(str):
+            def __str__(self):
+                raise AssertionError("derived text conversion executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            side_effect=AssertionError("writer must not run for derived destination"),
+        ) as writer:
+            with self.assertRaises(TypeError):
+                publish_pgn_save_snapshot(
+                    snapshot,
+                    path=ActiveText(str(self.root / "derived.pgn")),
+                )
+
+        writer.assert_not_called()
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
     def test_capture_rejects_active_saved_digest_before_worker_handoff(self) -> None:
         class ActiveText(str):
             def __len__(self):
