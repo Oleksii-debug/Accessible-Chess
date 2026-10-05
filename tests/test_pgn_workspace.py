@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import unittest
 from unittest.mock import patch
 
@@ -53,6 +54,10 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
 
     def test_validated_content_digest_reads_do_not_reserialize_document(self):
         digest = self.workspace.content_digest
+        self.assertEqual(
+            digest,
+            hashlib.sha256(self.workspace.to_text().encode("utf-8")).hexdigest(),
+        )
 
         with patch(
             "acs.pgn_workspace.serialize_pgn_text",
@@ -75,6 +80,10 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
             MoveAnnotationPatch(comments_after=(Comment("digest cache edit"),)),
         )
         self.assertNotEqual(self.workspace.content_digest, digest)
+        self.assertEqual(
+            self.workspace.content_digest,
+            hashlib.sha256(self.workspace.to_text().encode("utf-8")).hexdigest(),
+        )
         self.assertTrue(self.workspace.dirty)
 
     def test_external_game_copy_cannot_mutate_workspace(self):
