@@ -1,4 +1,4 @@
-name: Current Release Boundary Fail-Closed Qualification
+name: Current Release Boundary and App Launch Fail-Closed Qualification
 
 on:
   pull_request:
@@ -11,6 +11,8 @@ on:
       - 'acs/version2_application.py'
       - 'acs/version2_book_workspace.py'
       - 'tests/test_full_product_book_command_authority.py'
+      - 'acs/webapp_keymap.py'
+      - 'tests/test_webview_keymap_bridge_contract.py'
       - '.github/workflows/owner-oneclick-from-w4.yml'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/current-portable-manifest-recursion-failclosed.yml'
@@ -65,8 +67,10 @@ jobs:
             'acs/version2_application.py' \\
             'acs/version2_book_workspace.py' \\
             'acs/version2_portable_package.py' \\
+            'acs/webapp_keymap.py' \\
             'tests/test_full_product_book_command_authority.py' \\
-            'tests/test_portable_manifest_json_prehash_bounds_current.py' | sort)"
+            'tests/test_portable_manifest_json_prehash_bounds_current.py' \\
+            'tests/test_webview_keymap_bridge_contract.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected portable-manifest recursion repair scope:\n%s\n' "$changed" >&2
             exit 1
@@ -85,12 +89,15 @@ jobs:
           acs/full_product_actions.py
           tests/test_portable_manifest_json_prehash_bounds_current.py
           tests/test_full_product_book_command_authority.py
+          acs/webapp_keymap.py
+          tests/test_webview_keymap_bridge_contract.py
 
       - name: Execute Book-to-board launch regressions
         run: >-
           python -m unittest -v
           tests.test_book_board_progress_failure_exact
           tests.test_full_product_book_command_authority
+          tests.test_webview_keymap_bridge_contract
 
       - name: Execute focused manifest resource regressions
         run: >-
