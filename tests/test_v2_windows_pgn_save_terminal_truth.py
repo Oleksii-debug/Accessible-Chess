@@ -108,6 +108,55 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             poster.drain()
             self.assertEqual(len(async_events), event_count)
 
+    def test_late_cancel_resolves_completed_durable_save_as_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "success.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Durably saved before late cancel")
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+
+            # Publication is already durable, but the owner commit is queued.
+            # Cancel can no longer affect disk bytes, so it must resolve the
+            # already-fixed success terminal without first announcing CANCELLING.
+            self.assertIn(
+                '[Event "Durably saved before late cancel"]',
+                source.read_text(encoding="utf-8"),
+            )
+            self.assertTrue(session.dirty)
+            terminal = controller("pgn.cancel_save", {})
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertEqual(terminal.action_id, "pgn.save")
+            self.assertEqual(terminal.focus_target, "pgn-game-list")
+            self.assertEqual(async_events, [terminal])
+            self.assertEqual(sync_events, [started])
+            self.assertFalse(session.dirty)
+            self.assertFalse(controller.pgn_save_running)
+
+            # The callback queued by the worker is stale after immediate owner
+            # resolution and cannot publish a duplicate terminal later.
+            self.assertTrue(poster.callbacks)
+            event_count = len(async_events)
+            poster.drain()
+            self.assertEqual(len(async_events), event_count)
+
 
 if __name__ == "__main__":
     unittest.main()
