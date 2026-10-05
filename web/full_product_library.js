@@ -793,7 +793,7 @@
     const list = node("ul");
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", snapshot.results_heading || "");
-    rows.forEach(function (row) {
+    rows.forEach(function (row, index) {
       const option = node("li");
       option.id = String(row.dom_id || "");
       option.setAttribute("role", "option");
@@ -826,23 +826,43 @@
         ) {
           if (event.key === "ArrowUp") actionId = "library.previous_result";
           else if (event.key === "ArrowDown") actionId = "library.next_result";
+          else if (event.key === "Home") actionId = "library.first_result";
+          else if (event.key === "End") actionId = "library.last_result";
           else if (event.key === "Enter") actionId = "library.open_game";
         }
 
         let command = "";
         let payload = {};
+        let handled = true;
         if (actionId === "library.previous_result") {
-          command = "library.move";
-          payload = { delta: -1 };
+          if (index > 0) {
+            command = "library.move";
+            payload = { delta: -1 };
+          }
         } else if (actionId === "library.next_result") {
-          command = "library.move";
-          payload = { delta: 1 };
+          if (index + 1 < rows.length) {
+            command = "library.move";
+            payload = { delta: 1 };
+          }
+        } else if (actionId === "library.first_result") {
+          if (index > 0 && rows.length) {
+            command = "library.select";
+            payload = { game_id: rows[0].game_id };
+          }
+        } else if (actionId === "library.last_result") {
+          if (index + 1 < rows.length) {
+            command = "library.select";
+            payload = { game_id: rows[rows.length - 1].game_id };
+          }
         } else if (actionId === "library.open_game") {
           command = "library.open_game";
+        } else {
+          handled = false;
         }
-        if (!command) return;
+        if (!handled) return;
         event.preventDefault();
         if (typeof event.stopPropagation === "function") event.stopPropagation();
+        if (!command) return;
         invokeListboxKeyCommand(root, invoke, announce, snapshot, command, payload);
       });
       list.appendChild(option);
