@@ -727,7 +727,7 @@ class Version2WindowsFileActionDelegate:
         else:
             try:
                 live_session = self._get_pgn_session()
-            except Exception:
+            except BaseException:
                 terminal = FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     "pgn.open",
@@ -758,7 +758,7 @@ class Version2WindowsFileActionDelegate:
                         # This is the only publication point and it executes through the
                         # owner-thread poster supplied by the production Windows runtime.
                         self._set_pgn_session(session)
-                    except Exception:
+                    except BaseException:
                         _LOG.warning(
                             "Version 2 PGN Open session publication failed",
                             exc_info=True,
@@ -1337,7 +1337,7 @@ class Version2WindowsFileActionDelegate:
         else:
             try:
                 live_session = self._get_pgn_session()
-            except Exception:
+            except BaseException:
                 terminal = FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     action_id,
@@ -1359,7 +1359,7 @@ class Version2WindowsFileActionDelegate:
                 else:
                     try:
                         commit_pgn_save_publication(session, publication)
-                    except Exception:
+                    except BaseException:
                         _LOG.warning(
                             "Version 2 PGN save owner commit failed",
                             exc_info=True,
