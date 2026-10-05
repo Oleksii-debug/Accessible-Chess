@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import wave
 
+from acs import version2_package_preflight as preflight
 from acs.version2_package_preflight import Version2PackagePreflightError
 from tests.test_version2_package_preflight import (
     _make_tree,
@@ -84,6 +85,36 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 _write_checksums(root)
                 with self.assertRaises(Version2PackagePreflightError):
                     _validate_tree(root)
+
+    def test_preflight_requires_exact_desktop_startup_runtime_closure(self):
+        with tempfile.TemporaryDirectory() as td:
+            report = _validate_tree(self._package(td))
+            for relative in preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
+                with self.subTest(relative=relative):
+                    self.assertIn(relative, report.inventory)
+
+        for relative in preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                root = self._package(td)
+                root.joinpath(*relative.split("/")).unlink()
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "desktop runtime",
+                ):
+                    _validate_tree(root)
+
+    def test_preflight_rejects_non_pe_desktop_startup_runtime(self):
+        relative = "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            root.joinpath(*relative.split("/")).write_bytes(b"not-a-windows-runtime")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "Windows PE executable",
+            ):
+                _validate_tree(root)
 
     def test_preflight_rejects_non_windows_stockfish_binary(self):
         with tempfile.TemporaryDirectory() as td:
