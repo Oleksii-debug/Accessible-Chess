@@ -36,9 +36,9 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
-          PRE_RECONVERGENCE_BASE_HEAD: 241c22893e362090298015621f7d577169c6407c
-          BASE_HEAD: 0569c17efa3b798fa11edb69549e0f380de02224
-          BASE_RECONVERGENCE_MERGE: b74c60586c1098591c430bc95af0874c97240ad8
+          PRE_RECONVERGENCE_BASE_HEAD: 42fe13e70dc71d52cf54b930e12c05ce0fb3ff20
+          BASE_HEAD: d14081a181ae204f657123ae08a5aadc36256703
+          BASE_RECONVERGENCE_MERGE: 5e9ba4711224c9e5b402f2a77e79e275bdb40fa1
           SOURCE_REF: fix/training-progress-ci-head-concurrency-20261005-sol56k7m3
           SOURCE_HEAD: 9b2dceeb2ca6ebcea9cb558dfd2b9495b1e758e5
         run: |
