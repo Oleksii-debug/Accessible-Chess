@@ -765,10 +765,26 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         # passive: never probe arbitrary wrappers for a value attribute, and
         # never read fields from provider-defined BookBoardUiEvent subclasses.
         if type(result) is ActionDispatchResult:
+            if (
+                type(result.action_id) is not str
+                or result.action_id != action
+                or type(result.handled_by_shell) is not bool
+                or result.handled_by_shell
+                or result.route_id is not None
+                or result.focus_target is not None
+            ):
+                return False
             result = result.value
+        if type(result) is not BookBoardUiEvent:
+            return False
         if (
-            type(result) is not BookBoardUiEvent
-            or result.kind is not expected
+            type(result.kind) is not BookBoardUiEventKind
+            or type(result.action_id) is not str
+            or type(result.revision) is not int
+        ):
+            return False
+        if (
+            result.kind is not expected
             or result.action_id != action
             or result.revision != self._workflow.revision
         ):
