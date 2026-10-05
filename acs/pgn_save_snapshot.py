@@ -634,7 +634,12 @@ def publish_pgn_save_snapshot(
     else:  # pragma: no cover - exact enum construction makes this defensive only.
         raise TypeError("PGN save mode is invalid")
 
-    bound_saved = _detached_source_fingerprint(saved)
+    try:
+        bound_saved = _detached_source_fingerprint(saved)
+    except (TypeError, ValueError) as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN writer returned invalid provenance after publication"
+        ) from exc
     assert bound_saved is not None
     if not _same_direct_path(publication_destination, bound_saved.path):
         raise PgnPublicationUnverifiedError(
