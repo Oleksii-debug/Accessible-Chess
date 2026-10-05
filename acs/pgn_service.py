@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterable, TextIO
+from typing import Callable, Iterable, TextIO
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .import_contract import (
@@ -594,6 +594,7 @@ def save_pgn_atomic(
     *,
     overwrite: bool = False,
     expected_sha256: str | None = None,
+    pre_publish_check: Callable[[], None] | None = None,
 ) -> SourceFingerprint:
     """Serialize GameTree content and commit one complete PGN file safely.
 
@@ -608,8 +609,15 @@ def save_pgn_atomic(
     inode snapshot so an in-place writer racing at publication is detected and
     restored instead of silently lost. Plain ``overwrite=True`` without an
     expected digest intentionally requests unconditional replacement.
+
+    ``pre_publish_check`` runs after the temporary file has been completely
+    written, flushed and fsynced, but before any publication primitive can make
+    it visible at ``destination``. If it raises, the temporary file is
+    cleaned and the destination remains unchanged.
     """
 
+    if pre_publish_check is not None and not callable(pre_publish_check):
+        raise TypeError("pre_publish_check must be callable")
     destination = Path(path)
     _reject_export_indirection(destination)
     if destination.exists() and not overwrite:
@@ -639,6 +647,8 @@ def save_pgn_atomic(
             os.fsync(handle.fileno())
 
         _reject_export_indirection(destination)
+        if pre_publish_check is not None:
+            pre_publish_check()
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
