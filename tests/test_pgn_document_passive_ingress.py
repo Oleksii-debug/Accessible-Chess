@@ -124,6 +124,26 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
             callback()
         self.assertEqual(caught.exception.code, code)
 
+    def test_document_digest_reads_remain_passive_after_validation(self) -> None:
+        session = self.session()
+        digest = session.workspace.content_digest
+
+        with patch(
+            "acs.pgn_workspace.serialize_pgn_text",
+            side_effect=AssertionError(
+                "document digest reads must not reserialize the canonical PGN"
+            ),
+        ) as serializer:
+            self.assertTrue(session.dirty)
+            self.assertEqual(session.view().document_revision, 0)
+            self.assertEqual(session.bookmark().content_digest, digest)
+
+        serializer.assert_not_called()
+
+        session.edit_tag("Event", "Digest cache mutation")
+        self.assertNotEqual(session.workspace.content_digest, digest)
+        self.assertTrue(session.dirty)
+
     def test_new_game_rejects_active_mapping_before_mapping_hooks(self) -> None:
         self.assert_document_error(
             PgnDocumentErrorCode.INVALID_TAG,
