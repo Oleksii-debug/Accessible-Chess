@@ -324,6 +324,17 @@ class PgnDocumentSession:
                 or type(source.suffix) is not str
             ):
                 raise TypeError("source fingerprint fields must be passive built-in scalars")
+            # Frozen dataclasses can still be mutated through low-level object
+            # APIs by a caller retaining the original instance. Detach source
+            # provenance at ingress so later caller mutation cannot silently
+            # rewrite this session's path/CAS identity without a document
+            # revision or canonical save/open transition.
+            source = SourceFingerprint(
+                path=source.path,
+                size=source.size,
+                sha256=source.sha256,
+                suffix=source.suffix,
+            )
         if type(global_warnings) is not tuple or any(
             type(item) is not str for item in global_warnings
         ):
