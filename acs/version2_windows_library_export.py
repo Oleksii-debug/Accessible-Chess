@@ -52,9 +52,9 @@ class LibraryExportHostEvent:
     game_count: int = 0
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, LibraryExportHostEventKind):
+        if type(self.kind) is not LibraryExportHostEventKind:
             raise TypeError("Library export event kind is invalid")
-        if self.action_id != _LIBRARY_EXPORT_ACTION:
+        if type(self.action_id) is not str or self.action_id != _LIBRARY_EXPORT_ACTION:
             raise ValueError("Library export event action is invalid")
         if type(self.focus_target) is not str or type(self.error_code) is not str:
             raise TypeError("Library export event text fields must be text")
