@@ -667,9 +667,17 @@ class PgnDocumentSession:
         overwrite: bool,
         expected_sha256: str | None,
     ) -> str | None:
-        if destination.exists() and overwrite and expected_sha256 is None:
+        # Overwrite is an authorization request, not a hint inferred from a
+        # potentially stale existence check. Requiring the exact destination
+        # generation for every replacement closes the check/use race where a
+        # previously absent target could appear before atomic publication and be
+        # silently clobbered. New targets must use overwrite=False so the
+        # canonical writer owns the no-clobber create race.
+        if type(overwrite) is not bool:
+            raise TypeError("overwrite must be a boolean")
+        if overwrite and expected_sha256 is None:
             raise _error(
-                "existing destination requires its expected fingerprint before overwrite",
+                "destination overwrite requires its expected fingerprint",
                 PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
             )
         return expected_sha256
