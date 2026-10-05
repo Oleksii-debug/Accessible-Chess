@@ -1246,11 +1246,10 @@ class Version2WindowsFileActionDelegate:
             if not current:
                 return
 
-        # Once canonical publication returned, durable success wins over a late
-        # cancel signal. Otherwise cancellation remains terminal and path-free.
-        if publication is None and (
-            error_code == "pgn_save_cancelled" or cancel_event.is_set()
-        ):
+        # Terminal truth is fixed by the worker result. A Cancel click that
+        # arrives after publication success or a completed worker failure must
+        # not rewrite that result into a contradictory cancellation terminal.
+        if publication is None and error_code == "pgn_save_cancelled":
             terminal = FileWorkflowEvent(
                 FileWorkflowEventKind.PGN_SAVE_CANCELLED,
                 action_id,
