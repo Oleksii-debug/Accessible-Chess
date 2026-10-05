@@ -135,10 +135,9 @@ def _bind_api_media(
         else None
     )
     setattr(api, "_final_product_media_accessibility", bridge)
-    # pywebview introspects the concrete API instance at window creation. Bind the
-    # two Media methods to that one API object rather than creating a second host
-    # API or a parallel Media service. Each method reuses the accepted native-UI
-    # serializer before touching canonical Media application state.
+    # Keep the canonical service on the concrete API instance after the bounded
+    # final-product class bindings are restored. No second host API or Media
+    # service is created; both commands still use the accepted native UI serializer.
     setattr(api, "media_restore_snapshot", MethodType(_media_restore_snapshot_api, api))
     setattr(api, "media_restore_position", MethodType(_media_restore_position_api, api))
 
@@ -154,6 +153,10 @@ def _final_product_bindings() -> Iterator[Callable[[Any, UILanguage], None]]:
     previous_sync_descriptor = api_type.__dict__["_sync_version2_language"]
     previous_sync = getattr(api_type, "_sync_version2_language")
     previous_resources = _release_ui._resource_sources
+    had_media_snapshot = "media_restore_snapshot" in api_type.__dict__
+    had_media_restore = "media_restore_position" in api_type.__dict__
+    previous_media_snapshot = api_type.__dict__.get("media_restore_snapshot")
+    previous_media_restore = api_type.__dict__.get("media_restore_position")
 
     _release_app.Version2Application = Version2FinalProductApplication
     _release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS = FINAL_PRODUCT_ACTION_IDS
@@ -163,11 +166,26 @@ def _final_product_bindings() -> Iterator[Callable[[Any, UILanguage], None]]:
         "_sync_version2_language",
         staticmethod(_composed_language_sync(previous_sync)),
     )
+    # The accepted release main() creates the pywebview API itself. Install the
+    # two fail-closed Media methods on that existing API type only for the final
+    # Product lifetime so pywebview sees them at window creation without replacing
+    # the accepted main lifecycle. Explicit service composition later overrides
+    # these methods on that one API instance through _bind_api_media().
+    setattr(api_type, "media_restore_snapshot", _media_restore_snapshot_api)
+    setattr(api_type, "media_restore_position", _media_restore_position_api)
     _release_ui._resource_sources = _final_product_resource_sources
     try:
         yield previous_sync
     finally:
         _release_ui._resource_sources = previous_resources
+        if had_media_restore:
+            setattr(api_type, "media_restore_position", previous_media_restore)
+        else:
+            delattr(api_type, "media_restore_position")
+        if had_media_snapshot:
+            setattr(api_type, "media_restore_snapshot", previous_media_snapshot)
+        else:
+            delattr(api_type, "media_restore_snapshot")
         setattr(api_type, "_sync_version2_language", previous_sync_descriptor)
         _release_ui.Version2NativeMenuController = previous_controller
         _release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS = previous_action_ids
@@ -215,22 +233,11 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
 
 
 def main() -> None:
-    # The accepted main() owns the complete synchronous native UI lifetime.
-    # Keep final-product seams installed only for that lifetime and restore even
-    # when startup or shutdown raises. Media is exposed fail-closed until a
-    # canonical MediaApplicationService is composed by its owning product flow.
-    with _final_product_bindings() as base_sync:
-        api, application, runtime, native_runtime_factory = (
-            _release_app.create_version2_release_application(defer_ui=True)
-        )
-        _bind_api_language_sync(api, base_sync)
-        _bind_api_media(api, None)
-        _release_ui.run_version2_release_window(
-            api,
-            application,
-            runtime,
-            file_runtime_factory=native_runtime_factory,
-        )
+    # Preserve the accepted complete synchronous native UI lifecycle. The bounded
+    # final-product bindings add the fail-closed Media API/resources before that
+    # lifecycle constructs pywebview and restore every process-global seam on exit.
+    with _final_product_bindings():
+        _release_app.main()
 
 
 __all__ = ["create_version2_release_application", "main"]
