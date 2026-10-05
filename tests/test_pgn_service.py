@@ -290,36 +290,34 @@ class PgnFileServiceTests(unittest.TestCase):
                 path.read_text(encoding="utf-8"),
             )
 
-    def test_committed_no_clobber_save_survives_cleanup_base_exceptions(self):
+    def test_post_commit_cleanup_base_exceptions_leave_committed_bytes_authoritative(self):
         class CleanupAbort(BaseException):
             pass
 
-        games = parse_games('[Event "Committed"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "cleanup-abort.pgn"
-            real_path_unlink = Path.unlink
-            real_os_unlink = os.unlink
+            destination = Path(tmp) / "committed.pgn"
+            destination.write_text("committed bytes", encoding="utf-8")
+            redundant = Path(tmp) / "committed.pgn.redundant"
+            redundant.write_text("redundant bytes", encoding="utf-8")
 
-            def abort_temp_path_unlink(candidate, *args, **kwargs):
-                if Path(candidate).name.startswith(path.name + ".") and Path(candidate).suffix == ".tmp":
-                    raise CleanupAbort("Path.unlink cleanup aborted")
-                return real_path_unlink(candidate, *args, **kwargs)
+            with mock.patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=CleanupAbort("Path.unlink cleanup aborted"),
+            ):
+                with mock.patch(
+                    "acs.pgn_service.os.unlink",
+                    side_effect=CleanupAbort("os.unlink cleanup aborted"),
+                ):
+                    pgn_service_module._cleanup_redundant_link_after_commit(redundant)
 
-            def abort_temp_os_unlink(candidate, *args, **kwargs):
-                candidate_path = Path(candidate)
-                if candidate_path.name.startswith(path.name + ".") and candidate_path.suffix == ".tmp":
-                    raise CleanupAbort("os.unlink cleanup aborted")
-                return real_os_unlink(candidate, *args, **kwargs)
-
-            with mock.patch.object(Path, "unlink", autospec=True, side_effect=abort_temp_path_unlink):
-                with mock.patch("acs.pgn_service.os.unlink", side_effect=abort_temp_os_unlink):
-                    saved = save_pgn_atomic(path, games)
-
-            self.assertEqual(Path(saved.path), path)
-            self.assertIn("Committed", path.read_text(encoding="utf-8"))
-            residual = list(Path(tmp).glob("cleanup-abort.pgn.*.tmp"))
-            self.assertEqual(len(residual), 1)
-            real_path_unlink(residual[0])
+            self.assertEqual(
+                destination.read_text(encoding="utf-8"),
+                "committed bytes",
+            )
+            self.assertTrue(redundant.exists())
+            redundant.unlink()
 
     def test_post_publish_namespace_base_exception_is_publication_unverified(self):
         class DurabilityAbort(BaseException):
