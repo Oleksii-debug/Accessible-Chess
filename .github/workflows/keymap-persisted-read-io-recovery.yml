@@ -21,14 +21,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: Verify live PR-base ancestry and bounded scope
+      - name: Verify exact PR-head ancestry and bounded scope
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           if [ -n "$EVENT_BASE_SHA" ]; then
+            test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
             git cat-file -e "$EVENT_BASE_SHA^{commit}"
             git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
             git diff --check "$EVENT_BASE_SHA" HEAD
