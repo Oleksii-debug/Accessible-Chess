@@ -4,7 +4,13 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
+from acs.acsdb import AcsDatabase
+from acs.analysis_service import AnalysisService
+from acs.book_progress_store import BookProgressStore
+from acs.engine_assisted_workflows import EngineAssistedWorkflowService
+from acs.import_contract import SourceReadCancelledError
 from acs.version2_application import (
     BookOpenCancelled,
     PreparedBookOpen,
@@ -83,6 +89,50 @@ class BookOpenPreparationTests(unittest.TestCase):
                     source,
                     cancel_check=lambda: 1,
                 )
+
+    def test_source_reader_cancellation_is_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            source = self._source(Path(raw))
+            with mock.patch(
+                "acs.version2_application.read_source_snapshot",
+                side_effect=SourceReadCancelledError("cancelled"),
+            ):
+                with self.assertRaises(BookOpenCancelled):
+                    Version2Application.prepare_book_open(
+                        source,
+                        cancel_check=lambda: False,
+                    )
+
+    def test_direct_open_preserves_fail_before_read_modal_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            source = self._source(root)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                app.shell.open_dialog(
+                    "book-open-modal",
+                    opener_focus_id="books-open",
+                    initial_focus_id="book-open-cancel",
+                )
+                with mock.patch.object(
+                    Version2Application,
+                    "prepare_book_open",
+                    side_effect=AssertionError("Book source must not be read"),
+                ) as prepare:
+                    with self.assertRaisesRegex(ValueError, "active dialog"):
+                        app.open_book(source)
+                prepare.assert_not_called()
+            finally:
+                analysis.close()
+                database.close()
 
     def test_cancel_before_read_does_not_mutate_source(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
