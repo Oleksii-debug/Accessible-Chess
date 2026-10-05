@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.full_product_actions import build_full_product_action_registry
@@ -717,6 +718,41 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertTrue(finished_actions[0]["enabled"])
             self.assertFalse(finished_actions[1]["enabled"])
             self.assertFalse(bridge.projection.export_running)
+        finally:
+            database.close()
+
+    def test_export_selection_mutations_roll_back_when_render_validation_fails(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="selection-atomicity.pgn")
+            bridge = build_library_export_webview(
+                database,
+                lambda action, payload: None,
+                language=UILanguage.EN,
+            )
+            projection = bridge.projection
+            rendered = projection.search(GameSearchQuery())
+            game_id = rendered.payload["snapshot"]["rows"][0]["game_id"]
+
+            with patch.object(
+                projection,
+                "_render_event",
+                side_effect=ValueError("simulated malformed presenter render"),
+            ):
+                with self.assertRaisesRegex(ValueError, "malformed presenter render"):
+                    projection.toggle_export_selection(game_id)
+            self.assertEqual(projection.export_game_ids, ())
+
+            projection.toggle_export_selection(game_id)
+            self.assertEqual(projection.export_game_ids, (game_id,))
+            with patch.object(
+                projection,
+                "_render_event",
+                side_effect=ValueError("simulated malformed clear render"),
+            ):
+                with self.assertRaisesRegex(ValueError, "malformed clear render"):
+                    projection.clear_export_selection()
+            self.assertEqual(projection.export_game_ids, (game_id,))
         finally:
             database.close()
 
