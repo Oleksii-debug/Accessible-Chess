@@ -369,12 +369,14 @@ class Version2WindowsFileActionDelegate:
 
     @staticmethod
     def _empty_payload(payload: Mapping[str, object]) -> None:
-        if not isinstance(payload, Mapping):
-            raise TypeError("file action payload must be a mapping")
+        if type(payload) is not dict:
+            raise TypeError("file action payload must be an exact object")
         if payload:
             raise ValueError("file actions accept no browser path payload")
 
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
+        if type(action_id) is not str:
+            raise TypeError("file action id must be exact text")
         if action_id not in self.OWNED_ACTIONS:
             return self._next_delegate(action_id, payload)
         self._empty_payload(payload)
