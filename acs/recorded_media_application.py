@@ -174,7 +174,10 @@ class CanonicalRecordedFrameApplicationAdapter:
                 raise RecordedMediaApplicationAdapterError(
                     "speech_context belongs to a stale recorded source revision"
                 )
-        if safe_frame.disposition in (
+        frame_source_id = safe_frame.source_id
+        frame_timestamp_ms = safe_frame.timestamp_ms
+        frame_disposition = safe_frame.disposition
+        if frame_disposition in (
             FrameDisposition.TRANSITION,
             FrameDisposition.OCCLUDED,
         ):
@@ -198,7 +201,7 @@ class CanonicalRecordedFrameApplicationAdapter:
             resolution.confidence,
         )
         if (
-            safe_frame.disposition is FrameDisposition.AMBIGUOUS
+            frame_disposition is FrameDisposition.AMBIGUOUS
             and safe_resolution.confirmed
         ):
             raise RecordedMediaApplicationAdapterError(
@@ -206,8 +209,8 @@ class CanonicalRecordedFrameApplicationAdapter:
             )
 
         return MediaChessLink(
-            source_id=safe_frame.source_id,
-            timestamp_ms=safe_frame.timestamp_ms,
+            source_id=frame_source_id,
+            timestamp_ms=frame_timestamp_ms,
             chess_ref=safe_resolution.chess_ref,
             status=(
                 MediaLinkStatus.CONFIRMED
