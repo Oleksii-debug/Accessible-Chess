@@ -347,11 +347,13 @@ def capture_pgn_save_snapshot(
             )
 
     # The exact canonical workspace is already the content authority. Freeze its
-    # detached games once, then validate that detached graph canonically. Avoid
-    # materializing PgnDocumentView/PgnWorkspaceView or repeatedly serializing
-    # the live document merely to obtain presentation digests on the UI thread.
+    # detached games once and bind them to the digest established by the
+    # workspace's last strict validation. Do not strict-round-trip the detached
+    # graph here: capture executes on the Windows owner thread. The worker
+    # revalidates this detached graph against the bound digest immediately
+    # before publication, so malformed/tampered snapshots still fail closed.
     games = workspace.games()
-    canonical_games, detached_digest = _canonical_detached_games(games)
+    detached_digest = workspace.content_digest
     source_after = _detached_source_fingerprint(current.source, allow_none=True)
     if (
         current.workspace is not workspace
@@ -376,7 +378,7 @@ def capture_pgn_save_snapshot(
         mode=mode,
         document_revision=document_revision,
         content_digest=detached_digest,
-        games=canonical_games,
+        games=games,
         source_before=source,
         source_overwrite_safe_before=source_overwrite_safe,
         _saved_digest_before=saved_digest,
