@@ -16,6 +16,7 @@ from acs.recorded_media_application import (
     CanonicalRecordedPositionResolution,
     RecordedMediaApplicationAdapterError,
 )
+from acs.recorded_media_sync import MAX_SPEECH_CONTEXT
 
 
 class _Application:
@@ -125,6 +126,84 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
             with self.subTest(args=args):
                 with self.assertRaises(RecordedMediaApplicationAdapterError):
                     CanonicalRecordedPositionResolution(*args)
+
+    def test_application_receives_detached_revalidated_evidence(self):
+        application = _Application(
+            CanonicalRecordedPositionResolution("game:42/node:17", True, 0.88)
+        )
+        adapter = CanonicalRecordedFrameApplicationAdapter(application)
+        frame = _frame()
+        speech = (_speech(),)
+
+        adapter.resolve_recorded_frame(frame=frame, speech_context=speech)
+
+        sent_frame, sent_speech = application.calls[0]
+        self.assertEqual(sent_frame, frame)
+        self.assertIsNot(sent_frame, frame)
+        self.assertEqual(sent_speech, speech)
+        self.assertIsNot(sent_speech, speech)
+        self.assertIsNot(sent_speech[0], speech[0])
+
+    def test_tampered_frame_fields_fail_before_application_call(self):
+        cases = (
+            ("source_id", object()),
+            ("disposition", "stable"),
+            ("confidence", object()),
+        )
+        for field_name, value in cases:
+            with self.subTest(field=field_name):
+                application = _Application(None)
+                adapter = CanonicalRecordedFrameApplicationAdapter(application)
+                frame = _frame()
+                object.__setattr__(frame, field_name, value)
+
+                with self.assertRaises(RecordedMediaApplicationAdapterError):
+                    adapter.resolve_recorded_frame(frame=frame, speech_context=())
+
+                self.assertEqual(application.calls, [])
+
+    def test_tampered_speech_fields_fail_before_application_call(self):
+        cases = (
+            ("text", object()),
+            ("is_final", 1),
+            ("confidence", object()),
+        )
+        for field_name, value in cases:
+            with self.subTest(field=field_name):
+                application = _Application(None)
+                adapter = CanonicalRecordedFrameApplicationAdapter(application)
+                speech = _speech()
+                object.__setattr__(speech, field_name, value)
+
+                with self.assertRaises(RecordedMediaApplicationAdapterError):
+                    adapter.resolve_recorded_frame(
+                        frame=_frame(), speech_context=(speech,)
+                    )
+
+                self.assertEqual(application.calls, [])
+
+    def test_speech_context_limit_fails_before_application_call(self):
+        application = _Application(None)
+        adapter = CanonicalRecordedFrameApplicationAdapter(application)
+        speech = tuple(_speech() for _ in range(MAX_SPEECH_CONTEXT + 1))
+
+        with self.assertRaises(RecordedMediaApplicationAdapterError):
+            adapter.resolve_recorded_frame(frame=_frame(), speech_context=speech)
+
+        self.assertEqual(application.calls, [])
+
+    def test_tampered_resolution_fields_fail_closed(self):
+        resolution = CanonicalRecordedPositionResolution(
+            "game:42/node:17", True, 0.9
+        )
+        object.__setattr__(resolution, "confirmed", 1)
+        application = _Application(resolution)
+        adapter = CanonicalRecordedFrameApplicationAdapter(application)
+
+        with self.assertRaises(RecordedMediaApplicationAdapterError):
+            adapter.resolve_recorded_frame(frame=_frame(), speech_context=())
+
+        self.assertEqual(len(application.calls), 1)
 
     def test_adapter_contains_no_chess_parser_or_rules_authority(self):
         source = Path(inspect.getsourcefile(CanonicalRecordedFrameApplicationAdapter)).read_text(
