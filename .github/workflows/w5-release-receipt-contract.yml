@@ -1,12 +1,12 @@
-name: W5 Release Receipt + Hardened Package Contract
+name: W5 Release Receipt Durability + Physical Evidence Convergence
 
 on:
   push:
     branches:
-      - converge/package-pe-release-receipt-20261005-zftrkmo
+      - converge/w5-physical-evidence-20261006-zftrkmo
   pull_request:
     branches:
-      - fix/package-snapshot-identity-fallback-20261005-sol56k8n3
+      - fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
     paths:
       - acs/version2_release_receipt.py
       - tests/test_version2_release_receipt.py
@@ -20,13 +20,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PACKAGE_HEAD: 1e4f197f3a157412b3ef22b555f30b6ff3f105cb
-  PACKAGE_BRANCH: fix/package-snapshot-identity-fallback-20261005-sol56k8n3
-  EXPECTED_RECEIPT_HEAD: d684d0a811913162f19f3ad1aadbc54f8f501769
+  EXPECTED_PACKAGE_HEAD: 5b39c342ca3761a00854bac2e3871ab31c0b7514
+  PACKAGE_BRANCH: fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
+  EXPECTED_RECEIPT_HEAD: 5b39c342ca3761a00854bac2e3871ab31c0b7514
+  EXPECTED_RECEIPT_SOURCE_HEAD: 170c9b894cca64320d50dccb648a058c71bda749
+  RECEIPT_SOURCE_BRANCH: fix/release-receipt-namespace-durability-20261006-sol56z8q5
+  EXPECTED_RECEIPT_SOURCE_WORKFLOW_BLOB: 9829db392fcb1dc5c1996eebb642cd1190881284
   EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
   EXPECTED_PE_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
-  EXPECTED_RECEIPT_BLOB: 290e653ef5d4998189b7b61df1add8882d80ffcd
-  EXPECTED_RECEIPT_TEST_BLOB: 37be6d4926f5e68bdee20a1a9afc922421e31e3a
+  EXPECTED_RECEIPT_BLOB: bbb2aa22427b16e83c7181086b4d676e1164abc0
+  EXPECTED_RECEIPT_TEST_BLOB: ca7ea438aee29d49672a354ec3c84d257673fc5e
 
 jobs:
   receipt-package-contract:
@@ -46,17 +49,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact dual-parent convergence and bounded receipt delta
+      - name: Prove exact parent and bounded receipt durability delta
         shell: bash
         run: |
           set -euo pipefail
           expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$expected_head"
 
-          git fetch --no-tags origin "+refs/heads/$PACKAGE_BRANCH:refs/remotes/origin/release-package-base"
+          git fetch --no-tags origin \
+            "+refs/heads/$PACKAGE_BRANCH:refs/remotes/origin/release-package-base" \
+            "+refs/heads/$RECEIPT_SOURCE_BRANCH:refs/remotes/origin/release-receipt-source"
           live_package="$(git rev-parse refs/remotes/origin/release-package-base)"
           test "$live_package" = "$EXPECTED_PACKAGE_HEAD" || {
             echo "RELEASE_PACKAGE_BASE_MOVED expected=$EXPECTED_PACKAGE_HEAD live=$live_package" >&2
+            exit 1
+          }
+
+          live_receipt_source="$(git rev-parse refs/remotes/origin/release-receipt-source)"
+          test "$live_receipt_source" = "$EXPECTED_RECEIPT_SOURCE_HEAD" || {
+            echo "RELEASE_RECEIPT_SOURCE_MOVED expected=$EXPECTED_RECEIPT_SOURCE_HEAD live=$live_receipt_source" >&2
             exit 1
           }
 
@@ -68,6 +79,7 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$EXPECTED_PACKAGE_HEAD"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
           expected=(
+            ".github/workflows/w5-portable-package-contract.yml"
             ".github/workflows/w5-release-receipt-contract.yml"
             "acs/version2_release_receipt.py"
             "tests/test_version2_release_receipt.py"
@@ -77,10 +89,13 @@ jobs:
             test "${paths[$index]}" = "${expected[$index]}"
           done
 
+          test "$(git rev-parse refs/remotes/origin/release-receipt-source:.github/workflows/w5-release-receipt-contract.yml)" = "$EXPECTED_RECEIPT_SOURCE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$EXPECTED_PE_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$EXPECTED_RECEIPT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$EXPECTED_RECEIPT_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$(git rev-parse refs/remotes/origin/release-receipt-source:acs/version2_release_receipt.py)"
+          test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$(git rev-parse refs/remotes/origin/release-receipt-source:tests/test_version2_release_receipt.py)"
 
           echo "RELEASE_PACKAGE_HEAD=$EXPECTED_PACKAGE_HEAD"
           echo "RELEASE_RECEIPT_ANCESTOR=$EXPECTED_RECEIPT_HEAD"
