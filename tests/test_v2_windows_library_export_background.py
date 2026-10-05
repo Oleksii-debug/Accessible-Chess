@@ -256,6 +256,54 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             finally:
                 database.close()
 
+    def test_worker_cleanup_base_exception_cannot_strand_selected_terminal(self) -> None:
+        class CleanupAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "cleanup-abort.pgn"
+            events: list[LibraryExportHostEvent] = []
+            posted: list[object] = []
+            cleanup_calls: list[str] = []
+
+            def worker_factory() -> LibraryExportWorkerServices:
+                database = AcsDatabase(database_path)
+
+                def close() -> None:
+                    cleanup_calls.append("close")
+                    database.close()
+                    raise CleanupAbort("secondary cleanup abort")
+
+                return LibraryExportWorkerServices(
+                    LibraryExportService(database),
+                    close,
+                )
+
+            delegate, _ = self._delegate(
+                destination,
+                worker_factory,
+                events,
+                posted,
+            )
+            started = delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertEqual(cleanup_calls, ["close"])
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.export_running)
+
+            posted.pop()()
+
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events[-1].game_count, 1)
+            self.assertTrue(destination.exists())
+            self.assertEqual(len(open_pgn(destination)), 1)
+
     def test_export_scope_rejects_active_text_before_comparison_or_dialog(self) -> None:
         touched: list[str] = []
 
