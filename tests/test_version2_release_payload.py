@@ -153,23 +153,41 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         machine: int = 0x8664,
         managed: bool = False,
     ) -> bytes:
-        data = bytearray(0x200)
+        data = bytearray(0x400)
         data[:2] = b"MZ"
         pe_offset = 0x80
         struct.pack_into("<I", data, 0x3C, pe_offset)
         data[pe_offset : pe_offset + 4] = b"PE\0\0"
         coff = pe_offset + 4
         struct.pack_into("<H", data, coff, machine)
-        struct.pack_into("<H", data, coff + 2, 3)
-        struct.pack_into("<H", data, coff + 16, 0xF0)
+        struct.pack_into("<H", data, coff + 2, 1)
+        optional_size = 0xF0 if machine == 0x8664 else 0xE0
+        struct.pack_into("<H", data, coff + 16, optional_size)
         struct.pack_into("<H", data, coff + 18, 0x0022)
         optional = coff + 20
-        struct.pack_into("<H", data, optional, 0x20B)
+        pe32_plus = machine == 0x8664
+        struct.pack_into("<H", data, optional, 0x20B if pe32_plus else 0x10B)
+
+        section = optional + optional_size
+        data[section : section + 8] = b".text\0\0\0"
+        struct.pack_into("<I", data, section + 8, 0x1000)
+        struct.pack_into("<I", data, section + 12, 0x2000)
+        struct.pack_into("<I", data, section + 16, 0x200)
+        struct.pack_into("<I", data, section + 20, 0x200)
+
         if managed:
-            struct.pack_into("<I", data, optional + 108, 16)
-            clr_directory = optional + 112 + (14 * 8)
+            directory_count_offset = 108 if pe32_plus else 92
+            directory_table_offset = 112 if pe32_plus else 96
+            struct.pack_into("<I", data, optional + directory_count_offset, 16)
+            clr_directory = optional + directory_table_offset + (14 * 8)
             struct.pack_into("<I", data, clr_directory, 0x2000)
             struct.pack_into("<I", data, clr_directory + 4, 0x48)
+            struct.pack_into("<I", data, 0x200, 0x48)
+            struct.pack_into("<H", data, 0x204, 2)
+            struct.pack_into("<H", data, 0x206, 5)
+            struct.pack_into("<I", data, 0x208, 0x2080)
+            struct.pack_into("<I", data, 0x20C, 0x40)
+            data[0x280:0x284] = b"BSJB"
         data.extend(payload_bytes)
         return bytes(data)
 
