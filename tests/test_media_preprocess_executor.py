@@ -1,5 +1,8 @@
+import ast
+import inspect
 import unittest
 
+import acs.media_preprocess_executor as executor_module
 from acs.media_preprocess import (
     AdaptiveSamplingPolicy,
     BoardFrameEvidence,
@@ -69,6 +72,33 @@ class ExecutorTests(unittest.TestCase):
         accepted = executor.collect_speech(0, 600)
         self.assertEqual(len(accepted), 2)
         self.assertEqual(executor.run.current_request, before)
+
+    def test_invalid_speech_range_fails_before_provider_use(self):
+        plan = self.plan()
+        boards = FixtureBoardVisionPort("vision-v1", [self.board(r.timestamp_ms) for r in plan.requests])
+
+        class ExplodingSpeech:
+            revision_id = "speech-v1"
+            called = False
+            def evidence_for_range(self, source_ref, start_ms, end_ms):
+                self.called = True
+                raise AssertionError("provider must not be called for invalid range")
+
+        speech = ExplodingSpeech()
+        executor = RecordedMediaPreprocessExecutor(plan, boards, speech_port=speech)
+        for start, end in ((-1, 10), (20, 10), (0, 2001), (True, 10)):
+            with self.subTest(start=start, end=end):
+                with self.assertRaises(PreprocessContractError) as c:
+                    executor.collect_speech(start, end)
+                self.assertEqual(c.exception.code, PreprocessErrorCode.INVALID)
+        self.assertFalse(speech.called)
+
+    def test_executor_has_no_chess_rules_or_provider_network_dependency(self):
+        tree = ast.parse(inspect.getsource(executor_module)); roots = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import): roots.update(a.name.split('.')[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module: roots.add(node.module.split('.')[0])
+        self.assertTrue(roots.isdisjoint({"chess", "chesscore", "gametree", "pgn", "requests", "urllib", "http", "socket", "subprocess"}))
 
     def test_cancel_and_resume_executor_from_checkpoint(self):
         plan = self.plan(speech=False)
