@@ -156,6 +156,7 @@ class PgnConversionNativeLifecycleTests(unittest.TestCase):
             c.close.Click.fire()
         with fake_forms(driver, self.source, self.destination) as (workers, dialogs):
             native.show_pgn_conversion_dialog(language="uk")
+        self.assertFalse(dialogs[-1].OverwritePrompt)
         self.assertEqual(self.source.read_bytes(), self.raw)
         self.assertIn("Шахова книга", self.destination.read_text(encoding="utf-8"))
         self.assertTrue(all(d.disposed for d in dialogs))
