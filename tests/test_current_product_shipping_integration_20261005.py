@@ -62,7 +62,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
             'test "$product_count" -eq 231',
-            'test "$candidate_count" -eq 246',
+            'test "$candidate_count" -eq 242',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
@@ -136,7 +136,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
             'test "$product_count" -eq 231',
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 246',
+            'test "$candidate_count" -eq 242',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -152,7 +152,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 246',
+            'test "$candidate_count" -eq 242',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -225,6 +225,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "tests.test_pgn_conversion_windows",
             "tests.test_pgn_conversion_native_windows",
             "tests.test_pgn_service",
+            "tests.test_dev1_full_product_webview_adapter",
             "tests.test_full_product_native_menu",
             "tests.test_report_paths",
             "python -m acs.selftest",

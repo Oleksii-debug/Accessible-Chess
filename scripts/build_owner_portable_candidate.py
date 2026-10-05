@@ -8,7 +8,7 @@ Library seed importer and exact user-sound-pack identity authority.
 
 The generic portable package may exist without private owner content. The final
 owner candidate may not: this module fails closed unless the immutable package
-contains the required private seed, exact canonical sound inventory, and two explicitly
+contains the required private seed, exact 330-WAV inventory, and two explicitly
 SHA-256-authorized DOCX inputs.
 """
 
@@ -268,7 +268,7 @@ def _validate_owner_sound_pack(
         len(actual_paths) != EXPECTED_SOURCE_WAV_COUNT
         or len(all_sound_wavs) != EXPECTED_SOURCE_WAV_COUNT
     ):
-        _fail(f"owner sound tree does not contain exactly the authorized {EXPECTED_SOURCE_WAV_COUNT} WAV files")
+        _fail("owner sound tree does not contain exactly the authorized 330 WAV files")
 
     actual_names: set[str] = set()
     for path in actual_paths:
@@ -314,7 +314,7 @@ def _validate_owner_sound_pack(
         computed_inventory != EXPECTED_SOURCE_INVENTORY_SHA256
         or declared_inventory != EXPECTED_SOURCE_INVENTORY_SHA256
     ):
-        _fail(f"owner sound inventory does not match the exact authorized {EXPECTED_SOURCE_WAV_COUNT}-WAV identity")
+        _fail("owner sound inventory does not match the exact authorized 330-WAV identity")
 
     return len(actual_paths), declared_inventory, declared_archive
 

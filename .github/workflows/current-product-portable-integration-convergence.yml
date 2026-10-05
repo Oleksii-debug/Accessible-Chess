@@ -124,7 +124,7 @@ jobs:
               exit 1
             }
             candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-            test "$candidate_count" -eq 246
+            test "$candidate_count" -eq 242
             echo 'PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
           else
             git fetch --no-tags origin "+refs/heads/$PRIOR_INTEGRATION_BRANCH:refs/remotes/origin/$PRIOR_INTEGRATION_BRANCH"
