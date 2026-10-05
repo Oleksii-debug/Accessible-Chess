@@ -77,7 +77,7 @@ class Version2Application:
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
     _BOOK_BOARD_RETURN_COMMANDS = frozenset({"book.return", "book.return_from_board"})
-    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books"})
+    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books", "library"})
     _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
         {
             "book.board_next_move",
@@ -1423,6 +1423,7 @@ class Version2Application:
                     raise ValueError("invalid review command")
                 if (
                     command.startswith("book.")
+                    and command != "book.return"
                     and self.shell.current_route.route_id != "board"
                 ):
                     # The review WebView is a Board-owned surface. Its retained

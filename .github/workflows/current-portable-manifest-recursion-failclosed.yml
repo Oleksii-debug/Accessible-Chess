@@ -13,6 +13,7 @@ on:
       - 'tests/test_full_product_book_command_authority.py'
       - 'acs/webapp_keymap.py'
       - 'tests/test_webview_keymap_bridge_contract.py'
+      - 'acs/full_product_webview_adapter.py'
       - '.github/workflows/owner-oneclick-from-w4.yml'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/current-portable-manifest-recursion-failclosed.yml'
@@ -64,6 +65,7 @@ jobs:
             '.github/workflows/owner-oneclick-from-w4.yml' \\
             '.github/workflows/p0-user-oneclick-portable-launcher.yml' \\
             'acs/full_product_actions.py' \\
+            'acs/full_product_webview_adapter.py' \\
             'acs/version2_application.py' \\
             'acs/version2_book_workspace.py' \\
             'acs/version2_portable_package.py' \\
@@ -87,6 +89,7 @@ jobs:
           acs/version2_book_workspace.py
           acs/version2_application.py
           acs/full_product_actions.py
+          acs/full_product_webview_adapter.py
           tests/test_portable_manifest_json_prehash_bounds_current.py
           tests/test_full_product_book_command_authority.py
           acs/webapp_keymap.py
@@ -98,6 +101,7 @@ jobs:
           tests.test_book_board_progress_failure_exact
           tests.test_full_product_book_command_authority
           tests.test_webview_keymap_bridge_contract
+          tests.test_book_reverse_progress_failure_exact
 
       - name: Execute focused manifest resource regressions
         run: >-

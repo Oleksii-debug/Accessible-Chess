@@ -85,8 +85,11 @@ class FullProductWebViewAdapter:
         return WebViewCommand("focus-recorded", {"element_id": element_id.strip()})
 
     def _safe_error(self, exc: Exception) -> WebViewCommand:
-        # Registry misses are developer/integration details, never user-facing IDs.
-        source: object = "" if isinstance(exc, KeyError) else exc
+        # Registry misses and non-domain exceptions are implementation details,
+        # not user-facing messages. In particular, OSError text can expose local
+        # paths or storage state. Only a plain ValueError is an intentional
+        # concise domain message from the application boundary.
+        source: object = exc if type(exc) is ValueError else ""
         return WebViewCommand(
             "error",
             {"message": concise_user_error(source, language=self._shell.language)},
