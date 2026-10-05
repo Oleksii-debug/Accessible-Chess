@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.gametree_navigation import GameTreeCursor, VariationStep
 from acs.import_contract import SourceFingerprint
@@ -283,6 +284,60 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assertEqual(session.workspace.cursor, live_cursor)
         self.assertEqual(session.workspace.cursor.next_move_index, 0)
         self.assertEqual(session.workspace.cursor.line_path, ())
+
+    def test_save_returned_fingerprint_cannot_mutate_session_provenance(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        session.edit_tag("Event", "Changed")
+        published = SourceFingerprint(
+            path="source.pgn",
+            size=101,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+        with patch("acs.pgn_document.save_pgn_atomic", return_value=published):
+            returned = session.save()
+
+        self.assertIs(returned, published)
+        self.assertEqual(session.source, published)
+        object.__setattr__(returned, "sha256", "f" * 64)
+        object.__setattr__(returned, "path", "attacker-save.pgn")
+        retained = session.source
+        self.assertIsNotNone(retained)
+        self.assertEqual(retained.path, "source.pgn")
+        self.assertEqual(retained.sha256, "1" * 64)
+        self.assertFalse(session.dirty)
+
+    def test_save_as_returned_fingerprint_cannot_mutate_session_provenance(self) -> None:
+        session = self.session()
+        published = SourceFingerprint(
+            path="fresh-passive-save-as.pgn",
+            size=101,
+            sha256="2" * 64,
+            suffix=".pgn",
+        )
+        with patch("acs.pgn_document.save_pgn_atomic", return_value=published):
+            returned = session.save_as("fresh-passive-save-as.pgn")
+
+        self.assertIs(returned, published)
+        self.assertEqual(session.source, published)
+        object.__setattr__(returned, "sha256", "e" * 64)
+        object.__setattr__(returned, "path", "attacker-save-as.pgn")
+        retained = session.source
+        self.assertIsNotNone(retained)
+        self.assertEqual(retained.path, "fresh-passive-save-as.pgn")
+        self.assertEqual(retained.sha256, "2" * 64)
+        self.assertFalse(session.dirty)
 
     def test_restore_rejects_context_subclass_before_attribute_hooks(self) -> None:
         session = self.session()
