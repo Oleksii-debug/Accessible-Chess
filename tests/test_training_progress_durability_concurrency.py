@@ -35,6 +35,17 @@ class TrainingProgressDurabilityConcurrencyTests(unittest.TestCase):
             self.text,
         )
 
+    def test_superseded_pr_head_fails_before_product_tests(self) -> None:
+        self.assertIn("      - name: Reject superseded pull-request candidate\n", self.text)
+        self.assertIn(
+            '          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"\n',
+            self.text,
+        )
+        self.assertIn('          event_sha="${{ github.event.pull_request.head.sha }}"\n', self.text)
+        self.assertIn('          live_sha="$(git rev-parse FETCH_HEAD)"\n', self.text)
+        self.assertIn('          test "$live_sha" = "$event_sha" || {\n', self.text)
+        self.assertIn("          echo 'TRAINING_PROGRESS_EXACT_HEAD=PASS'\n", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
