@@ -2192,8 +2192,8 @@ class Version2Application:
                 "Background PGN saving could not be started.",
             ),
             "pgn_save_commit_failed": (
-                "Файл уже записано, але стан документа не вдалося безпечно оновити. Перевідкрийте PGN перед наступним збереженням.",
-                "The file was written, but document state could not be updated safely. Reopen the PGN before saving again.",
+                "Файл уже записано, але стан документа не вдалося безпечно оновити. Не повторюйте збереження навмання. Якщо після початку збереження ви вносили нові зміни, не закривайте і не перевідкривайте документ, доки не зафіксуєте ці зміни окремо, наприклад копіюванням або експортом вибраного PGN. Після цього перевідкрийте записаний PGN і перевірте його перед наступним збереженням.",
+                "The file was written, but document state could not be updated safely. Do not retry saving blindly. If you made newer edits after the save started, do not close or reopen the document until you preserve those edits separately, for example by copying or exporting the selected PGN. Then reopen the written PGN and verify it before saving again.",
             ),
             "pgn_save_publication_unverified": (
                 "Збереження PGN уже перейшло межу публікації, але остаточно перевірити опублікований файл не вдалося. Не повторюйте збереження навмання: перевідкрийте вибраний PGN і перевірте його вміст перед наступним збереженням.",
