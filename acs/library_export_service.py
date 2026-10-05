@@ -351,6 +351,8 @@ class LibraryExportService:
         """
         if not isinstance(request, LibraryExportRequest):
             raise TypeError("request must be LibraryExportRequest")
+        if request.scope is LibraryExportScope.SELECTED and not request.game_ids:
+            raise LibraryExportError("selected Library export contains no games")
         if request.scope is LibraryExportScope.SELECTED and len(request.game_ids) > _MAX_SELECTED_GAMES:
             raise LibraryExportError("selected Library export is too large")
         _poll_cancel(cancel_check)
