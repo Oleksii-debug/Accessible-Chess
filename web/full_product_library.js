@@ -611,9 +611,9 @@
     const current = gate.then(function () {
       // Serialize canonical Library mutations. A second key/search/export/import
       // command must not enter the host until the prior command and its returned
-      // presentation have settled. Route/full-render replacement changes the
-      // epoch; partial Import/Cancel replacement changes its own token. Intent
-      // queued by either detached presentation is discarded before invoke.
+      // presentation have settled. Route deactivation/re-entry changes the
+      // surface epoch; partial Import/Cancel replacement changes its own token.
+      // Intent queued by either detached presentation is discarded before invoke.
       if (activeLibrarySurfaces.get(root) !== true ||
           librarySurfaceEpochs.get(root) !== queuedEpoch ||
           (importRegionCommand && importTokens.get(root) !== queuedImportToken)) {
