@@ -6,6 +6,7 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/agent_runtime.py'
+      - 'acs/assistive_announcements.py'
       - 'acs/agent_tools.py'
       - 'acs/agent_model_gateway.py'
       - 'acs/agent_budget.py'
@@ -53,6 +54,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/agent_runtime.py
+          acs/assistive_announcements.py
           acs/agent_tools.py
           acs/agent_model_gateway.py
           acs/agent_budget.py
