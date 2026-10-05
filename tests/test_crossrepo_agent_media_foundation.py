@@ -34,10 +34,13 @@ from acs.agent_tools import (
 )
 from acs.durable_checkpoint import CheckpointCorruptError, FileCheckpointStore
 from acs.media_audio import AudioInspectionPolicy, inspect_pcm16_wav
+from acs.analysis_service import AnalysisService
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
+from acs.engine_ports import RawAnalysisLine
 from acs.media_application import MediaApplicationService
 from acs.media_core import MediaPlaybackState, MediaSession
 from acs.universal_chess_agent import UniversalChessAgentTools
+from acs.search_service import GameSearchItem, GameSearchPage, GameSearchService
 from acs.media_timeline_store import MediaTimelineStore
 from acs.media_core import (
     ChessStateReconciler,
@@ -524,6 +527,108 @@ class MediaTimelinePersistenceTests(unittest.TestCase):
         self.assertEqual(restored.position_id, "position-1")
         self.assertEqual(published, ["position-1"])
         self.assertFalse(service.analysis_detached)
+
+class _FakeAnalysisEngine:
+    def analyze(self, fen, multipv=5, depth=16):
+        return (
+            RawAnalysisLine(
+                depth=depth,
+                score_kind="cp",
+                score_value=34,
+                pv=("g1f3", "g8f6"),
+            ),
+        )
+
+    def close(self):
+        return None
+
+
+class _FakeGameSearchService(GameSearchService):
+    def __init__(self):
+        pass
+
+    def search(self, query=None, *, cancel_check=None):
+        item = GameSearchItem(
+            game_id=7,
+            source_id=2,
+            source_name="fixture.pgn",
+            source_format="pgn",
+            source_index=0,
+            import_status="full",
+            white="Carlsen, Magnus",
+            black="Nepo, Ian",
+            event="World Championship",
+            site="Dubai",
+            game_date="2021.12.03",
+            round="6",
+            result="1-0",
+            eco="D02",
+            opening="Catalan",
+            start_fen=None,
+        )
+        return GameSearchPage((item,), None, False)
+
+
+class AgentEngineLibraryCompositionTests(unittest.TestCase):
+    @staticmethod
+    def _board_service() -> BoardCommandService:
+        return ProductCompositionTests._board_service()
+
+    def test_agent_engine_analysis_uses_existing_analysis_service(self):
+        service = AnalysisService(lambda: _FakeAnalysisEngine())
+        tools = UniversalChessAgentTools(
+            self._board_service,
+            analysis_service=lambda: service,
+            fen_provider=lambda: "8/8/8/8/8/8/8/K6k w - - 0 1",
+        )
+        result = asyncio.run(
+            tools.execute(
+                ChessToolCall(
+                    "call-engine",
+                    "engine.analyze",
+                    {"multipv": 1, "depth": 12},
+                )
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output["lines"][0]["scoreValue"], 34)
+        self.assertEqual(result.output["lines"][0]["pv"], ["g1f3", "g8f6"])
+        service.close()
+
+    def test_agent_library_search_uses_existing_game_search_service(self):
+        tools = UniversalChessAgentTools(
+            self._board_service,
+            search_service=lambda: _FakeGameSearchService(),
+        )
+        result = asyncio.run(
+            tools.execute(
+                ChessToolCall(
+                    "call-library",
+                    "library.search_games",
+                    {"player": "Carlsen", "limit": 5},
+                )
+            )
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.output["items"][0]["game_id"], 7)
+        self.assertEqual(result.output["items"][0]["white"], "Carlsen, Magnus")
+        self.assertFalse(result.output["has_more"])
+
+    def test_agent_library_search_rejects_raw_sql_like_unknown_argument(self):
+        tools = UniversalChessAgentTools(
+            self._board_service,
+            search_service=lambda: _FakeGameSearchService(),
+        )
+        result = asyncio.run(
+            tools.execute(
+                ChessToolCall(
+                    "call-library-bad",
+                    "library.search_games",
+                    {"where": "1=1"},
+                )
+            )
+        )
+        self.assertFalse(result.ok)
 
 
 if __name__ == "__main__":
