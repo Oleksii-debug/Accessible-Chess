@@ -159,6 +159,72 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIsNone(self.app._pending_shell_publication)
         self.assertIsNone(self.app._pending_shell_publication_restore)
 
+    def test_dirty_prior_pgn_is_restored_after_accepted_open_rolls_back(self) -> None:
+        prior_session, prior_pgn, _prior_focus = self._prior_library_state()
+        prior_session.edit_tag("Event", "Unsaved prior owner")
+        self.assertTrue(prior_session.dirty)
+        replacement = self._session("dirty-replacement.pgn", "Replacement")
+        confirmations: list[str] = []
+        dispatch_calls: list[tuple[object, object]] = []
+
+        def accept() -> bool:
+            confirmations.append("confirm")
+            return True
+
+        self.app.confirm_document_replace = accept
+        request = {"publication_protocol": "ack-v1", "request_id": 73}
+        with patch.object(
+            self.app.library,
+            "dispatch",
+            side_effect=self._staged_dispatch(replacement, dispatch_calls),
+        ):
+            started = self.app.browser_command("library", "library.open_game", request)
+            replayed = self.app.browser_command("library", "library.open_game", request)
+
+        self.assertEqual(started, replayed)
+        self.assertEqual(confirmations, ["confirm"])
+        self.assertEqual(dispatch_calls, [("library.open_game", {})])
+        token = started["payload"]["publication_token"]
+
+        rolled_back = self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+
+        self.assertEqual(rolled_back["kind"], "presentation-rollback")
+        self.assertIs(self.app.session, prior_session)
+        self.assertIs(self.app.pgn, prior_pgn)
+        self.assertTrue(prior_session.dirty)
+        self.assertEqual(
+            prior_session.workspace.current_game().tags["Event"],
+            "Unsaved prior owner",
+        )
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+
+    def test_new_library_publication_requires_visible_unblocked_library(self) -> None:
+        prior_session = self._session("non-library.pgn", "Prior")
+        self.app.set_document(prior_session)
+        replacement = self._session("stale-library.pgn", "Replacement")
+        calls: list[tuple[object, object]] = []
+
+        with patch.object(
+            self.app.library,
+            "dispatch",
+            side_effect=self._staged_dispatch(replacement, calls),
+        ):
+            rejected = self.app.browser_command(
+                "library",
+                "library.open_game",
+                {"publication_protocol": "ack-v1", "request_id": 74},
+            )
+
+        self.assertEqual(rejected["kind"], "error")
+        self.assertEqual(calls, [])
+        self.assertIs(self.app.session, prior_session)
+        self.assertEqual(self.app.shell.current_route.route_id, "pgn")
+        self.assertIsNone(self.app._pending_shell_publication)
+
     def test_browser_library_open_fails_closed_without_ack_protocol(self) -> None:
         prior_session, prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("legacy.pgn", "Legacy")
