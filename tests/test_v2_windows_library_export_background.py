@@ -173,6 +173,40 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_service_revalidates_directly_constructed_export_requests(self) -> None:
+        database = AcsDatabase()
+        try:
+            service = LibraryExportService(database)
+            invalid = (
+                LibraryExportRequest(
+                    scope=LibraryExportScope.SELECTED,
+                    game_ids=(True,),
+                ),
+                LibraryExportRequest(
+                    scope=LibraryExportScope.SELECTED,
+                    game_ids=(1,),
+                    query=GameSearchQuery(),
+                ),
+                LibraryExportRequest(
+                    scope=LibraryExportScope.FILTERED,
+                    game_ids=(1,),
+                    query=GameSearchQuery(),
+                ),
+                LibraryExportRequest(
+                    scope=LibraryExportScope.FILTERED,
+                    query=GameSearchQuery(after_game_id=1),
+                ),
+            )
+            with tempfile.TemporaryDirectory() as directory:
+                for index, request in enumerate(invalid):
+                    with self.subTest(index=index):
+                        destination = Path(directory) / f"invalid-{index}.pgn"
+                        with self.assertRaises(LibraryExportError):
+                            service.export_to(destination, request)
+                        self.assertFalse(destination.exists())
+        finally:
+            database.close()
+
     def test_filtered_export_rejects_nonadvancing_or_inconsistent_search_pages(self) -> None:
         database = AcsDatabase()
         try:
