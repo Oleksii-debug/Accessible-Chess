@@ -180,6 +180,8 @@ class LibraryExportRequest:
         if any(type(key) is not str for key in payload):
             raise ValueError("invalid Library export request")
         scope = payload.get("scope")
+        if type(scope) is not str:
+            raise ValueError("unsupported Library export scope")
         if scope == LibraryExportScope.SELECTED.value:
             if set(payload) != {"scope", "game_ids"}:
                 raise ValueError("invalid selected Library export fields")
