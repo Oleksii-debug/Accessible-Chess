@@ -84,6 +84,26 @@ class _ZeroCountLibraryExportService(LibraryExportService):
         )
 
 
+class _RollbackFailingConnection:
+    """Delegate SQLite work but fail the transaction cleanup boundary."""
+
+    def __init__(self, connection) -> None:
+        self._connection = connection
+
+    @property
+    def in_transaction(self):
+        return self._connection.in_transaction
+
+    def execute(self, *args, **kwargs):
+        return self._connection.execute(*args, **kwargs)
+
+    def rollback(self):
+        raise RuntimeError("simulated snapshot rollback failure")
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
 class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
     def _create_library(self, directory: str) -> tuple[Path, int]:
         database_path = Path(directory) / "library.acsdb"
@@ -207,6 +227,55 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertEqual(events[-1].kind, LibraryExportHostEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "library_export_failed")
             self.assertFalse(destination.exists())
+
+    def test_post_publish_rollback_failure_keeps_durable_success_authoritative(self) -> None:
+        database = AcsDatabase()
+        real_connection = database.conn
+        try:
+            database.import_pgn_text(_PGN, source_name="cleanup-success.pgn")
+            row = real_connection.execute(
+                "SELECT id FROM games ORDER BY id LIMIT 1"
+            ).fetchone()
+            assert row is not None
+            request = LibraryExportRequest.selected([int(row["id"])])
+            service = LibraryExportService(database)
+            database.conn = _RollbackFailingConnection(real_connection)
+
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "published-before-cleanup-failure.pgn"
+                result = service.export_to(destination, request)
+
+                self.assertEqual(result.game_count, 1)
+                self.assertTrue(destination.exists())
+                self.assertEqual(len(open_pgn(destination).games), 1)
+                with self.assertRaisesRegex(
+                    LibraryExportError,
+                    "snapshot cleanup previously failed",
+                ):
+                    service.resolve_games(request)
+        finally:
+            database.conn = real_connection
+            database.close()
+
+    def test_primary_export_error_is_not_masked_by_snapshot_cleanup_failure(self) -> None:
+        database = AcsDatabase()
+        real_connection = database.conn
+        try:
+            service = LibraryExportService(database)
+            database.conn = _RollbackFailingConnection(real_connection)
+            missing = LibraryExportRequest.selected([9223372036854775807])
+
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "must-not-publish.pgn"
+                with self.assertRaisesRegex(
+                    LibraryExportError,
+                    "Library export game is unavailable",
+                ):
+                    service.export_to(destination, missing)
+                self.assertFalse(destination.exists())
+        finally:
+            database.conn = real_connection
+            database.close()
 
     def test_cancel_at_prepublication_gate_leaves_no_output_or_temp_file(self) -> None:
         database = AcsDatabase()
