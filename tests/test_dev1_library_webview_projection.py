@@ -153,6 +153,78 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         boundary = bridge.dispatch("library.move", {"delta": 1})
         self.assertEqual("error", boundary.kind)
 
+    def test_failed_search_render_restores_query_page_and_selection(self) -> None:
+        _service, presenter, projection, bridge, _calls = self.build()
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.select(2)
+        before_query = projection.query
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate search render rejected"),
+        ):
+            failed = bridge.dispatch(
+                "library.search",
+                {"player": "Gamma", "limit": "2"},
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(before_query, projection.query)
+        self.assertEqual(2, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(
+            {field["id"]: field["value"] for field in before["filters"]},
+            {field["id"]: field["value"] for field in after["filters"]},
+        )
+
+    def test_failed_selection_render_restores_previous_nvda_cursor(self) -> None:
+        _service, presenter, projection, bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+        self.assertEqual(1, before["selected_game_id"])
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate selection render rejected"),
+        ):
+            failed = bridge.dispatch("library.select", {"game_id": 2})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(1, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(1, after["selected_game_id"])
+        self.assertEqual(before["focus_target"], after["focus_target"])
+
+    def test_failed_next_page_render_discards_unpublished_page_cache(self) -> None:
+        service, presenter, projection, bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+        self.assertEqual([None], [call.after_game_id for call in service.calls])
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate page render rejected"),
+        ):
+            failed = bridge.dispatch("library.next_page", {})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual([None, 2], [call.after_game_id for call in service.calls])
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(1, presenter.selected_game_id)
+
+        committed = bridge.dispatch("library.next_page", {})
+        self.assertEqual("render", committed.kind)
+        self.assertEqual(3, committed.payload["snapshot"]["selected_game_id"])
+        self.assertEqual([None, 2, 2], [call.after_game_id for call in service.calls])
+
     def test_open_selected_delegates_only_neutral_identifiers_and_hides_return_value(self) -> None:
         _service, _presenter, projection, bridge, calls = self.build()
         projection.search(GameSearchQuery(limit=2))
