@@ -146,6 +146,12 @@ class KeymapService:
                     if self._profile_write_blocked
                     else "invalid keymap profile"
                 )
+                # Any existing profile that cannot be validated remains the
+                # persisted authority until the user explicitly chooses Reset all
+                # or imports a replacement. Defaults may be used in memory for
+                # recovery, but an ordinary incremental edit must not destroy the
+                # malformed/newer source bytes.
+                self._profile_write_blocked = True
         else:
             registry = ActionRegistry()
         self.editor = KeymapEditorModel(registry, lang=lang)
@@ -192,7 +198,12 @@ class KeymapService:
                 self._profile_write_blocked = True
                 self.recovery_message = "unreadable keymap profile"
             except Exception:
+                # The file changed into malformed/unsupported content between
+                # initial boot and wider Product adoption. Keep the already-loaded
+                # values usable in memory but protect the changed file from later
+                # incremental overwrite until explicit recovery.
                 profile = source_profile
+                self._profile_write_blocked = True
                 self.recovery_message = "invalid keymap profile"
 
         merged = registry.to_profile()
@@ -221,6 +232,7 @@ class KeymapService:
             # becomes invalid under the wider Product definition set leaves the
             # application's existing wider registry untouched. Preserve the file
             # for explicit recovery instead of silently rewriting it at startup.
+            self._profile_write_blocked = True
             self.recovery_message = "invalid keymap profile"
 
         self.editor.registry = registry
@@ -483,6 +495,14 @@ class KeymapService:
                 if self.editor.lang == "en"
                 else "Наявний профіль клавіш не вдалося прочитати, тому його збережено без змін. "
                 "Відновіть доступ і перезапустіть Accessible Chess або явно замініть профіль через скидання всіх налаштувань чи імпорт сумісного профілю."
+            )
+        elif self.recovery_message == "invalid keymap profile":
+            message = (
+                "The existing keyboard profile is invalid and was preserved unchanged. "
+                "Use Reset all defaults or import a compatible profile to replace it explicitly."
+                if self.editor.lang == "en"
+                else "Наявний профіль клавіш некоректний і збережений без змін. "
+                "Явно замініть його через скидання всіх налаштувань або імпорт сумісного профілю."
             )
         else:
             message = (
