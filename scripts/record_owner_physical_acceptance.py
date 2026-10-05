@@ -362,6 +362,28 @@ def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
     )
 
 
+def _remove_owned_publication(
+    path: Path,
+    expected_identity: os.stat_result,
+) -> None:
+    """Remove a rejected canonical link only while it still identifies our object."""
+
+    try:
+        current = path.lstat()
+    except (FileNotFoundError, OSError):
+        return
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or _is_reparse(current)
+        or not _same_file_identity(expected_identity, current)
+    ):
+        return
+    try:
+        path.unlink()
+    except (FileNotFoundError, OSError):
+        return
+
+
 def _publish_exclusive(path: Path, payload: bytes) -> None:
     """Publish exact fsynced acceptance bytes without a close-before-link race."""
 
@@ -369,8 +391,11 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
         _fail("physical acceptance record already exists")
 
     temporary: Path | None = None
+    published_identity: os.stat_result | None = None
     fd: int | None = None
     cleanup_temporary = True
+    canonical_link_created = False
+    publication_accepted = False
     try:
         try:
             fd, temporary_name = tempfile.mkstemp(
@@ -398,6 +423,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                 os.fsync(stream.fileno())
 
                 staged = os.fstat(stream.fileno())
+                published_identity = staged
                 if (
                     not _same_file_identity(created, staged)
                     or int(staged.st_size) != len(payload)
@@ -421,6 +447,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
 
                 try:
                     os.link(temporary, path, follow_symlinks=False)
+                    canonical_link_created = True
                 except FileExistsError as exc:
                     raise OwnerPhysicalAcceptanceError(
                         "physical acceptance record already exists"
@@ -470,6 +497,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                     ) from exc
                 if readback != payload:
                     _fail("physical acceptance published bytes do not match staged bytes")
+                publication_accepted = True
         except OwnerPhysicalAcceptanceError:
             raise
         except OSError as exc:
@@ -482,6 +510,17 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                 os.close(fd)
             except OSError:
                 pass
+        if (
+            canonical_link_created
+            and not publication_accepted
+            and published_identity is not None
+        ):
+            # The hard-link syscall returned success, so this invocation created
+            # the canonical pathname. A later identity/readback rejection must
+            # not poison an exact safe retry with our own rejected evidence.
+            # Remove it only while it still resolves to the fsynced staging
+            # object; a raced-in replacement is foreign evidence and is kept.
+            _remove_owned_publication(path, published_identity)
         if temporary is not None and cleanup_temporary:
             try:
                 temporary.unlink(missing_ok=True)
