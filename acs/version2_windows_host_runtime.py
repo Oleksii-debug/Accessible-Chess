@@ -2,23 +2,27 @@ from __future__ import annotations
 
 """Lifecycle-safe composition of Version 2 trusted Windows file-workflow ports.
 
-This module does not register actions and does not own PGN, Library, ChessBase or
-projection semantics.  It assembles the already-owned #300 host primitives into
-one object that a production Windows composition root can inject behind the
-canonical action router without reimplementing dialog, threading or shutdown
-rules.
+This module owns host threading/lifecycle only. PGN, Library and chess semantics
+remain in their existing services. Native dialogs stay on the exact WinForms owner
+thread; long Library import and Library export work use worker-local database state.
 """
 
 from collections.abc import Callable, Mapping
 import threading
 from typing import Any
 
+from .acsdb import AcsDatabase
+from .library_export_service import LibraryExportService
 from .pgn_document import PgnDocumentSession
 from .version2_windows_file_workflows import Version2ImportWorkerServices
 from .version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 from .version2_windows_import_ui_pump import (
     Version2ImportUiWakeupPump,
     Version2WinFormsUiPoster,
+)
+from .version2_windows_library_export import (
+    LibraryExportWorkerServices,
+    Version2WindowsLibraryExportDelegate,
 )
 from .version2_windows_native_dialog_ownership import (
     Version2OwnedWindowsFileDialogs,
@@ -31,15 +35,15 @@ from .version2_windows_pgn_streaming_host import Version2WindowsStreamingFileAct
 class Version2WindowsFileWorkflowRuntime:
     """Compose trusted file actions, async UI handoff and orderly shutdown.
 
-    The runtime is created on the WinForms UI thread.  ``owner_control`` is the
+    The runtime is created on the WinForms UI thread. ``owner_control`` is the
     exact application Form/Control used both for native dialog ownership and
-    ``BeginInvoke`` marshalling.  ``import_ui_ready`` receives the bounded mailbox
-    on that same UI thread; the Library presentation owner remains responsible for
-    interpreting/draining its path-free canonical events.
+    ``BeginInvoke`` marshalling.
 
-    ``dialog_language_provider`` is presentation-only and resolved lazily by each
-    native dialog.  It may therefore follow the live V2 shell language without
-    rebuilding this runtime or creating a second language state.
+    Library export reuses the existing worker-service factory to acquire a fresh
+    ACSDB connection *inside* its worker. Production's factory exposes that exact
+    connection through its bound cleanup method; no UI-thread SQLite connection is
+    transferred across threads. Focused embedders may inject a compatibility
+    ``library_export_delegate`` instead.
     """
 
     def __init__(
@@ -53,6 +57,12 @@ class Version2WindowsFileWorkflowRuntime:
         import_ui_ready: Callable[[Version2ImportUiEventMailbox], Any],
         pgn_export_event_sink: Callable[[object], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
+        library_export_event_sink: Callable[[object], Any] | None = None,
+        library_export_delegate: Version2WindowsLibraryExportDelegate | None = None,
+        library_export_worker_services_factory: Callable[
+            [], LibraryExportWorkerServices
+        ]
+        | None = None,
         current_focus_provider: Callable[[], str] | None = None,
         dialog_language_provider: Callable[[], object] | None = None,
         mailbox_max_events: int = 64,
@@ -73,9 +83,32 @@ class Version2WindowsFileWorkflowRuntime:
         ):
             if not callable(callback):
                 raise TypeError(f"{name} must be callable")
+        if library_export_event_sink is not None and not callable(
+            library_export_event_sink
+        ):
+            raise TypeError("library_export_event_sink must be callable")
+        if library_export_delegate is not None and not isinstance(
+            library_export_delegate, Version2WindowsLibraryExportDelegate
+        ):
+            raise TypeError(
+                "library_export_delegate must be Version2WindowsLibraryExportDelegate"
+            )
+        if library_export_worker_services_factory is not None and not callable(
+            library_export_worker_services_factory
+        ):
+            raise TypeError("library_export_worker_services_factory must be callable")
+        if (
+            library_export_delegate is not None
+            and library_export_worker_services_factory is not None
+        ):
+            raise ValueError(
+                "inject either library_export_delegate or worker services factory, not both"
+            )
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
-        if dialog_language_provider is not None and not callable(dialog_language_provider):
+        if dialog_language_provider is not None and not callable(
+            dialog_language_provider
+        ):
             raise TypeError("dialog_language_provider must be callable")
 
         self._ui_thread_id = threading.get_ident()
@@ -106,11 +139,31 @@ class Version2WindowsFileWorkflowRuntime:
             forms_loader=export_forms_loader,
             language_provider=dialog_language_provider,
         )
+
+        if library_export_delegate is None:
+            worker_factory = (
+                library_export_worker_services_factory
+                or self._library_export_worker_factory(import_services_factory)
+            )
+            library_export_delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=self._export_dialogs,
+                worker_services_factory=worker_factory,
+                post_to_ui=self._poster,
+                event_sink=(
+                    pgn_export_event_sink
+                    if library_export_event_sink is None
+                    else library_export_event_sink
+                ),
+                next_delegate=next_delegate,
+                current_focus_provider=current_focus_provider,
+            )
+        self._library_export_delegate = library_export_delegate
+
         self._export_delegate = Version2WindowsPgnExportDelegate(
             dialogs=self._export_dialogs,
             export_selected=export_selected,
             event_sink=pgn_export_event_sink,
-            next_delegate=next_delegate,
+            next_delegate=self._library_export_delegate,
             current_focus_provider=current_focus_provider,
         )
         self._file_delegate = Version2WindowsStreamingFileActionDelegate(
@@ -122,6 +175,40 @@ class Version2WindowsFileWorkflowRuntime:
             next_delegate=self._export_delegate,
             current_focus_provider=current_focus_provider,
         )
+
+    @staticmethod
+    def _library_export_worker_factory(
+        import_services_factory: Callable[[], Version2ImportWorkerServices],
+    ) -> Callable[[], LibraryExportWorkerServices]:
+        """Derive the worker-local ACSDB owner from the existing worker factory.
+
+        ``Version2Application.worker_factory`` constructs AcsDatabase in the worker
+        and returns its bound ``close`` method unchanged through the observer
+        wrapper. Recovering that exact owner here avoids opening a second connection
+        topology or smuggling the UI-thread database into the export worker.
+        """
+
+        def create() -> LibraryExportWorkerServices:
+            services = import_services_factory()
+            if not isinstance(services, Version2ImportWorkerServices):
+                raise TypeError("import services factory returned an invalid bundle")
+            close = services.close
+            database = getattr(close, "__self__", None)
+            if not isinstance(database, AcsDatabase):
+                try:
+                    close()
+                finally:
+                    raise TypeError(
+                        "worker services do not expose their canonical AcsDatabase owner"
+                    )
+            try:
+                library = LibraryExportService(database)
+                return LibraryExportWorkerServices(library, close)
+            except Exception:
+                close()
+                raise
+
+        return create
 
     @property
     def ui_thread_id(self) -> int:
@@ -135,6 +222,10 @@ class Version2WindowsFileWorkflowRuntime:
     @property
     def import_running(self) -> bool:
         return self._file_delegate.import_running
+
+    @property
+    def export_running(self) -> bool:
+        return self._library_export_delegate.export_running
 
     @property
     def import_mailbox(self) -> Version2ImportUiEventMailbox:
@@ -154,10 +245,18 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+
+        if action_id == "library.cancel_import" and self.export_running:
+            if payload:
+                raise ValueError("Library cancellation accepts no payload")
+            return self._library_export_delegate.cancel_export()
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_import(timeout)
+
+    def wait_for_export(self, timeout: float | None = None) -> bool:
+        return self._library_export_delegate.wait_for_export(timeout)
 
     def request_pending_import_wakeup(self) -> bool:
         with self._lock:
@@ -166,7 +265,7 @@ class Version2WindowsFileWorkflowRuntime:
         return self._pump.request_pending_wakeup()
 
     def shutdown(self, timeout: float | None = None) -> bool:
-        """Cancel/join import before closing the UI pump; retryable on timeout."""
+        """Cancel/join all workers before closing the UI pump; retryable on timeout."""
 
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow shutdown requires UI thread")
@@ -174,10 +273,9 @@ class Version2WindowsFileWorkflowRuntime:
             if self._closed:
                 return True
 
-        stopped = self._file_delegate.shutdown(timeout)
-        if not stopped:
-            # Keep the pump/runtime live so the still-running worker can finish and
-            # its terminal event can be observed; caller may retry shutdown.
+        export_stopped = self._library_export_delegate.shutdown(timeout)
+        import_stopped = self._file_delegate.shutdown(timeout)
+        if not export_stopped or not import_stopped:
             return False
 
         self._pump.close()

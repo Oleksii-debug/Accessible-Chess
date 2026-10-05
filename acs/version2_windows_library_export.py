@@ -2,14 +2,13 @@ from __future__ import annotations
 
 """Trusted Windows host seam for canonical D07 Library PGN export.
 
-The browser supplies only a selection/filter identity. This module validates that
-identity before opening a native Save dialog, then gives the host-selected path
-to :class:`LibraryExportService`. It deliberately reuses #300's owner-bound PGN
-Save-dialog implementation and D06's writer through the D07 service.
+The browser supplies only a selection/filter identity. Native Save selection remains
+on the owning UI thread. Production may then hand destination binding plus canonical
+Library export to one cancellable worker; the worker owns no Library/PGN semantics.
 
-Language remains presentation-only: callers may pass the live Version 2 language
-provider through this builder so both the D07 Save dialog and the surrounding
-file runtime resolve the same canonical shell language without another state.
+The legacy synchronous service injection remains supported for focused tests and
+non-Windows embedders. The real Windows composition uses worker-local ACSDB state
+and marshals only path-free terminal events back to the owner thread.
 """
 
 from collections.abc import Callable, Mapping
@@ -17,22 +16,26 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 from pathlib import Path
+import threading
 from typing import Any
 
 from .library_export_service import (
+    LibraryExportCancelledError,
     LibraryExportRequest,
     LibraryExportResult,
     LibraryExportService,
 )
-from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
 from .version2_windows_native_dialog_ownership import Version2OwnedWindowsPgnExportDialogs
 
 
 _LOG = logging.getLogger(__name__)
 _LIBRARY_EXPORT_ACTION = "library.export"
+_AUTO_RETRY_DELAY_SECONDS = 0.05
 
 
 class LibraryExportHostEventKind(str, Enum):
+    STARTED = "export_started"
+    CANCELLING = "export_cancelling"
     EXPORTED = "exported"
     DIALOG_CANCELLED = "dialog_cancelled"
     FAILED = "failed"
@@ -60,11 +63,31 @@ class LibraryExportHostEvent:
         if self.kind is LibraryExportHostEventKind.EXPORTED and self.game_count < 1:
             raise ValueError("successful Library export requires a positive game count")
         if self.kind is not LibraryExportHostEventKind.EXPORTED and self.game_count != 0:
-            raise ValueError("failed/cancelled Library export cannot claim games")
+            raise ValueError("non-successful Library export cannot claim games")
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryExportWorkerServices:
+    """Worker-local canonical export service and exact resource cleanup."""
+
+    library: LibraryExportService
+    close: Callable[[], Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.library, LibraryExportService):
+            raise TypeError("Library export worker requires LibraryExportService")
+        if not callable(self.close):
+            raise TypeError("Library export worker cleanup must be callable")
 
 
 class Version2WindowsLibraryExportDelegate:
-    """Chainable trusted-host delegate owning only ``library.export``."""
+    """Chainable trusted-host owner of ``library.export``.
+
+    With ``service`` this preserves the historical synchronous embedding seam.
+    With ``worker_services_factory`` plus ``post_to_ui`` it keeps the native Save
+    dialog on the owner thread, then runs all destination hashing/streaming off
+    that thread. Exactly one export remains in flight through terminal UI commit.
+    """
 
     OWNED_ACTIONS = frozenset({_LIBRARY_EXPORT_ACTION})
 
@@ -72,25 +95,68 @@ class Version2WindowsLibraryExportDelegate:
         self,
         *,
         dialogs: object,
-        service: LibraryExportService,
         event_sink: Callable[[LibraryExportHostEvent], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
+        service: LibraryExportService | None = None,
+        worker_services_factory: Callable[[], LibraryExportWorkerServices] | None = None,
+        post_to_ui: Callable[[Callable[[], None]], Any] | None = None,
     ) -> None:
         if not callable(getattr(dialogs, "export_selection", None)):
             raise TypeError("Windows Library export dialogs must expose export_selection")
-        if not isinstance(service, LibraryExportService):
-            raise TypeError("service must be LibraryExportService")
         for name, callback in (("event_sink", event_sink), ("next_delegate", next_delegate)):
             if not callable(callback):
                 raise TypeError(f"{name} must be callable")
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
+
+        synchronous = service is not None
+        asynchronous = worker_services_factory is not None or post_to_ui is not None
+        if synchronous == asynchronous:
+            raise ValueError(
+                "Library export requires exactly one service mode: synchronous service "
+                "or worker_services_factory + post_to_ui"
+            )
+        if synchronous and not isinstance(service, LibraryExportService):
+            raise TypeError("service must be LibraryExportService")
+        if asynchronous:
+            if not callable(worker_services_factory):
+                raise TypeError("worker_services_factory must be callable")
+            if not callable(post_to_ui):
+                raise TypeError("post_to_ui must be callable")
+
         self._dialogs = dialogs
         self._service = service
+        self._worker_services_factory = worker_services_factory
+        self._post_to_ui = post_to_ui
         self._event_sink = event_sink
         self._next_delegate = next_delegate
         self._focus_provider = current_focus_provider or (lambda: "")
+        self._ui_thread_id = threading.get_ident()
+        self._lock = threading.RLock()
+        self._thread: threading.Thread | None = None
+        self._cancel: threading.Event | None = None
+        self._terminal_pending: tuple[int, LibraryExportHostEvent] | None = None
+        self._retry_timer: threading.Timer | None = None
+        self._generation = 0
+        self._closed = False
+
+    @property
+    def asynchronous(self) -> bool:
+        return self._worker_services_factory is not None
+
+    def _assert_ui_thread(self) -> None:
+        if self.asynchronous and threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("Library export control requires the UI thread")
+
+    @property
+    def export_running(self) -> bool:
+        with self._lock:
+            return (
+                self.asynchronous
+                and not self._closed
+                and (self._cancel is not None or self._terminal_pending is not None)
+            )
 
     def _focus(self) -> str:
         try:
@@ -119,12 +185,19 @@ class Version2WindowsLibraryExportDelegate:
         if action_id != _LIBRARY_EXPORT_ACTION:
             return self._next_delegate(action_id, payload)
 
+        self._assert_ui_thread()
         previous_focus = self._focus()
         try:
             request = LibraryExportRequest.from_payload(payload)
         except Exception:
-            # Path/destination authority supplied by WebView fails before any dialog.
             return self._failed("invalid_export_request", previous_focus)
+
+        if self.asynchronous:
+            with self._lock:
+                if self._closed:
+                    return self._failed("library_export_unavailable", previous_focus)
+                if self._cancel is not None or self._terminal_pending is not None:
+                    return self._failed("library_export_busy", previous_focus)
 
         try:
             destination = self._dialogs.export_selection("library-export.pgn")
@@ -140,6 +213,17 @@ class Version2WindowsLibraryExportDelegate:
         if not isinstance(destination, Path):
             return self._failed("file_dialog_failed", previous_focus)
 
+        if not self.asynchronous:
+            return self._export_synchronously(destination, request, previous_focus)
+        return self._start_export(destination, request, previous_focus)
+
+    def _export_synchronously(
+        self,
+        destination: Path,
+        request: LibraryExportRequest,
+        previous_focus: str,
+    ) -> LibraryExportHostEvent:
+        assert self._service is not None
         try:
             expected_sha256 = self._service.expected_destination_sha256(destination)
             result = self._service.export_to(
@@ -148,11 +232,9 @@ class Version2WindowsLibraryExportDelegate:
                 expected_sha256=expected_sha256,
             )
         except Exception:
-            # Never surface destination/backend/local-path text through this event.
             return self._failed("library_export_failed", previous_focus)
         if not isinstance(result, LibraryExportResult):
             return self._failed("library_export_failed", previous_focus)
-
         return self._emit(
             LibraryExportHostEvent(
                 LibraryExportHostEventKind.EXPORTED,
@@ -160,6 +242,278 @@ class Version2WindowsLibraryExportDelegate:
                 game_count=result.game_count,
             )
         )
+
+    def _start_export(
+        self,
+        destination: Path,
+        request: LibraryExportRequest,
+        previous_focus: str,
+    ) -> LibraryExportHostEvent:
+        self._assert_ui_thread()
+        with self._lock:
+            if self._closed:
+                return self._failed("library_export_unavailable", previous_focus)
+            if self._cancel is not None or self._terminal_pending is not None:
+                return self._failed("library_export_busy", previous_focus)
+            self._generation += 1
+            generation = self._generation
+            cancel = threading.Event()
+            thread = threading.Thread(
+                target=self._run_export,
+                args=(generation, destination, request, previous_focus, cancel),
+                name="AccessibleChessLibraryExport",
+                daemon=False,
+            )
+            self._cancel = cancel
+            self._thread = thread
+
+        started = self._emit(
+            LibraryExportHostEvent(
+                LibraryExportHostEventKind.STARTED,
+                focus_target=previous_focus,
+            )
+        )
+        try:
+            thread.start()
+        except BaseException:
+            with self._lock:
+                if generation == self._generation and self._thread is thread:
+                    self._cancel = None
+                    self._thread = None
+            return self._failed("library_export_worker_failed", previous_focus)
+        return started
+
+    def _run_export(
+        self,
+        generation: int,
+        destination: Path,
+        request: LibraryExportRequest,
+        previous_focus: str,
+        cancel: threading.Event,
+    ) -> None:
+        services: LibraryExportWorkerServices | None = None
+        terminal: LibraryExportHostEvent
+        try:
+            assert self._worker_services_factory is not None
+            services = self._worker_services_factory()
+            if not isinstance(services, LibraryExportWorkerServices):
+                raise TypeError("Library export worker factory returned invalid services")
+            expected_sha256 = services.library.expected_destination_sha256(
+                destination,
+                cancel_check=cancel.is_set,
+            )
+            result = services.library.export_to(
+                destination,
+                request,
+                expected_sha256=expected_sha256,
+                cancel_check=cancel.is_set,
+            )
+            if not isinstance(result, LibraryExportResult):
+                raise TypeError("Library export worker returned an invalid result")
+        except LibraryExportCancelledError:
+            terminal = LibraryExportHostEvent(
+                LibraryExportHostEventKind.DIALOG_CANCELLED,
+                focus_target=previous_focus,
+            )
+        except BaseException:
+            terminal = LibraryExportHostEvent(
+                LibraryExportHostEventKind.FAILED,
+                focus_target=previous_focus,
+                error_code="library_export_failed",
+            )
+        else:
+            terminal = LibraryExportHostEvent(
+                LibraryExportHostEventKind.EXPORTED,
+                focus_target=previous_focus,
+                game_count=result.game_count,
+            )
+        finally:
+            if services is not None:
+                try:
+                    services.close()
+                except Exception:
+                    _LOG.warning("Library export worker cleanup failed", exc_info=True)
+
+        with self._lock:
+            if generation != self._generation or self._closed:
+                return
+            self._terminal_pending = (generation, terminal)
+
+        self._post_terminal(generation, terminal)
+
+    def _post_terminal(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+        *,
+        schedule_retry: bool = True,
+    ) -> None:
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+            ):
+                return
+
+        def finish() -> None:
+            self._finish_export(generation, terminal)
+
+        try:
+            assert self._post_to_ui is not None
+            self._post_to_ui(finish)
+        except BaseException:
+            if schedule_retry:
+                self._schedule_terminal_retry(generation, terminal)
+            else:
+                # Keep the exact terminal event pending. The existing
+                # Ctrl+Shift+X Library cancel authority can consume it on the
+                # UI thread without changing the already chosen durable result.
+                _LOG.warning(
+                    "Version 2 Library export terminal UI retry failed",
+                    exc_info=True,
+                )
+
+    def _schedule_terminal_retry(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+    ) -> None:
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+                or self._retry_timer is not None
+            ):
+                return
+            timer = threading.Timer(
+                _AUTO_RETRY_DELAY_SECONDS,
+                self._retry_terminal,
+                args=(generation, terminal),
+            )
+            timer.daemon = True
+            self._retry_timer = timer
+        try:
+            timer.start()
+        except BaseException:
+            with self._lock:
+                if self._retry_timer is timer:
+                    self._retry_timer = None
+            _LOG.warning(
+                "Version 2 Library export terminal UI retry could not start",
+                exc_info=True,
+            )
+
+    def _retry_terminal(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+    ) -> None:
+        with self._lock:
+            self._retry_timer = None
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+            ):
+                return
+        self._post_terminal(generation, terminal, schedule_retry=False)
+
+    def _finish_export(
+        self,
+        generation: int,
+        terminal: LibraryExportHostEvent,
+    ) -> None:
+        self._assert_ui_thread()
+        with self._lock:
+            if generation != self._generation or self._closed:
+                return
+            pending = self._terminal_pending
+            if pending != (generation, terminal):
+                return
+            retry_timer = self._retry_timer
+            self._retry_timer = None
+            self._terminal_pending = None
+            self._cancel = None
+            self._thread = None
+        if retry_timer is not None:
+            retry_timer.cancel()
+        self._emit(terminal)
+
+    def cancel_export(self) -> LibraryExportHostEvent:
+        """Request cooperative cancellation without racing a chosen terminal result."""
+
+        self._assert_ui_thread()
+        focus = self._focus()
+        with self._lock:
+            if self._closed:
+                return self._failed("library_export_unavailable", focus)
+            pending = self._terminal_pending
+            if pending is not None:
+                generation, terminal = pending
+            else:
+                generation = 0
+                terminal = None
+                cancel = self._cancel
+                if cancel is None:
+                    return self._failed("no_library_export_running", focus)
+                cancel.set()
+        if terminal is not None:
+            # The worker already chose a durable terminal result. Consume that
+            # exact result on the owner thread; never overwrite it with a late
+            # cancellation and never emit it twice if a queued callback follows.
+            self._finish_export(generation, terminal)
+            return terminal
+        return self._emit(
+            LibraryExportHostEvent(
+                LibraryExportHostEventKind.CANCELLING,
+                focus_target=focus,
+            )
+        )
+
+    def wait_for_export(self, timeout: float | None = None) -> bool:
+        if timeout is not None and (
+            type(timeout) not in {int, float} or timeout < 0
+        ):
+            raise ValueError("Library export wait timeout must be non-negative or None")
+        with self._lock:
+            thread = self._thread
+        if thread is None:
+            return True
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
+
+    def shutdown(self, timeout: float | None = None) -> bool:
+        """Cancel/join worker; queued owner callbacks become stale after success."""
+
+        self._assert_ui_thread()
+        if timeout is not None and (
+            type(timeout) not in {int, float} or timeout < 0
+        ):
+            raise ValueError("Library export shutdown timeout must be non-negative or None")
+        with self._lock:
+            if self._closed:
+                return True
+            cancel = self._cancel
+            thread = self._thread
+            if cancel is not None:
+                cancel.set()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout)
+            if thread.is_alive():
+                return False
+        with self._lock:
+            retry_timer = self._retry_timer
+            self._retry_timer = None
+            self._closed = True
+            self._generation += 1
+            self._terminal_pending = None
+            self._cancel = None
+            self._thread = None
+        if retry_timer is not None:
+            retry_timer.cancel()
+        return True
 
 
 def build_version2_windows_library_file_runtime(
@@ -180,8 +534,13 @@ def build_version2_windows_library_file_runtime(
     ui_delegate_factory: Callable[[Callable[[], None]], object] | None = None,
     file_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]] | None = None,
     export_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]] | None = None,
-) -> Version2WindowsFileWorkflowRuntime:
-    """Stack Library export behind the unchanged #300 file/PGN host runtime."""
+):
+    """Compatibility builder retaining the historical injected-service seam.
+
+    Production ``Version2WindowsFileWorkflowRuntime`` now composes its own
+    worker-local Library export. This builder deliberately injects the supplied
+    synchronous delegate so existing focused embedders keep their exact contract.
+    """
 
     if not isinstance(library_service, LibraryExportService):
         raise TypeError("library_service must be LibraryExportService")
@@ -199,8 +558,9 @@ def build_version2_windows_library_file_runtime(
         next_delegate=next_delegate,
         current_focus_provider=current_focus_provider,
     )
-    # Existing #300 runtime owns pgn.*, library.import/cancel and dialog/UI-thread
-    # mechanics. Its terminal next_delegate is the export-specific D07 seam above.
+
+    from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+
     return Version2WindowsFileWorkflowRuntime(
         owner_control=owner_control,
         get_pgn_session=get_pgn_session,  # type: ignore[arg-type]
@@ -209,7 +569,8 @@ def build_version2_windows_library_file_runtime(
         export_selected=export_selected,
         import_ui_ready=import_ui_ready,  # type: ignore[arg-type]
         pgn_export_event_sink=pgn_export_event_sink,
-        next_delegate=library_delegate,
+        next_delegate=next_delegate,
+        library_export_delegate=library_delegate,
         current_focus_provider=current_focus_provider,
         dialog_language_provider=dialog_language_provider,
         mailbox_max_events=mailbox_max_events,
@@ -222,6 +583,7 @@ def build_version2_windows_library_file_runtime(
 __all__ = [
     "LibraryExportHostEvent",
     "LibraryExportHostEventKind",
+    "LibraryExportWorkerServices",
     "Version2WindowsLibraryExportDelegate",
     "build_version2_windows_library_file_runtime",
 ]
