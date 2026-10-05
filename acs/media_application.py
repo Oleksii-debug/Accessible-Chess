@@ -99,6 +99,7 @@ class MediaApplicationService:
         self._session = session
         self._restore_chess_ref = restore_chess_ref
         self._revision = 0
+        self._restore_in_progress = False
 
     @property
     def source(self) -> MediaSource:
@@ -183,7 +184,15 @@ class MediaApplicationService:
         )
         return self._snapshot_for(candidate)
 
+    def _require_mutation_available(self) -> None:
+        if self._restore_in_progress:
+            raise MediaApplicationError(
+                "media application restore is already in progress",
+                code=MediaApplicationCode.INVALID_STATE,
+            )
+
     def seek_media(self, position_ms: int) -> MediaApplicationSnapshot:
+        self._require_mutation_available()
         candidate = self._session.seek_media(
             position_ms,
             duration_ms=self._source.duration_ms,
@@ -196,6 +205,7 @@ class MediaApplicationService:
     def select_analysis_chess_ref(
         self, chess_ref: str | None
     ) -> MediaApplicationSnapshot:
+        self._require_mutation_available()
         candidate = self._session.select_chess(chess_ref)
         if candidate != self._session:
             self._session = candidate
@@ -203,6 +213,7 @@ class MediaApplicationService:
         return self.snapshot()
 
     def align_media_to_analysis(self) -> MediaApplicationSnapshot:
+        self._require_mutation_available()
         candidate = self._session.sync_media_from_chess(self._timeline)
         if candidate != self._session:
             if (
@@ -220,6 +231,7 @@ class MediaApplicationService:
     def restore_media_position(
         self, position_ms: int | None = None
     ) -> RestoreMediaPositionResult:
+        self._require_mutation_available()
         working_session = self._session
         if position_ms is not None:
             working_session = working_session.seek_media(
@@ -246,7 +258,11 @@ class MediaApplicationService:
 
         previous = self._session.chess_ref
         chess_ref = resolution.chess_ref
-        self._restore_chess_ref(chess_ref)
+        self._restore_in_progress = True
+        try:
+            self._restore_chess_ref(chess_ref)
+        finally:
+            self._restore_in_progress = False
         self._session = candidate
         self._revision += 1
 
