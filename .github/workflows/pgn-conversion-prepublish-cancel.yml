@@ -42,7 +42,7 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
-          PRODUCT_SHA: 6ff1440f314deef4fdba4291db70a912bda3363a
+          SOURCE_BASE_SHA: 6ff1440f314deef4fdba4291db70a912bda3363a
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -56,17 +56,14 @@ jobs:
 
           git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/$PRODUCT_REF"
           live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_REF")"
-          test "$live_product" = "$PRODUCT_SHA" || {
-            printf 'PGN_CONVERSION_CANCEL_PRODUCT_MOVED expected=%s live=%s\n' "$PRODUCT_SHA" "$live_product" >&2
-            exit 1
-          }
+          git merge-base --is-ancestor "$SOURCE_BASE_SHA" "$live_product"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
             test "$EVENT_BASE_SHA" = "$live_product"
           fi
 
-          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
-          git diff --check "$live_product"...HEAD
-          changed="$(git diff --name-only "$live_product"...HEAD | sort)"
+          test "$(git merge-base "$SOURCE_BASE_SHA" HEAD)" = "$SOURCE_BASE_SHA"
+          git diff --check "$SOURCE_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$SOURCE_BASE_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/pgn-conversion-prepublish-cancel.yml' \
             'acs/pgn_conversion.py' \
@@ -77,6 +74,16 @@ jobs:
             printf 'Unexpected PGN conversion cancellation scope:\n%s\n' "$changed" >&2
             exit 1
           }
+
+          live_delta="$(git diff --name-only "$SOURCE_BASE_SHA"..."$live_product" | sort)"
+          while IFS= read -r path; do
+            if printf '%s\n' "$live_delta" | grep -Fxq -- "$path"; then
+              printf 'PGN_CONVERSION_CANCEL_LIVE_OVERLAP path=%s live=%s\n' "$path" "$live_product" >&2
+              exit 1
+            fi
+          done <<< "$expected"
+          echo "PGN_CONVERSION_CANCEL_LIVE_PRODUCT=$live_product"
+          echo 'PGN_CONVERSION_CANCEL_SCOPE=PASS'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
