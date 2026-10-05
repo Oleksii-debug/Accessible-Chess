@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
+from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.library_webview_bridge import LibraryWebViewBridge
 from acs.library_webview_projection import LibraryWebViewProjection
 from acs.search_service import GameSearchItem, GameSearchPage, GameSearchQuery
@@ -539,6 +540,94 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             projection.search(GameSearchQuery(limit=25))
         with self.assertRaisesRegex(ValueError, "browser-safe"):
             projection.select(maximum + 1)
+
+    def test_import_projection_rejects_derived_progress_before_field_hooks(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection.import_projection.begin(2)
+        touched = []
+
+        class ActiveProgress(LibraryImportProgress):
+            def __getattribute__(self, name):
+                if name in {"attempt_id", "processed_games", "total_games"}:
+                    touched.append(name)
+                    raise AssertionError("derived progress field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveProgress.__new__(ActiveProgress)
+        object.__setattr__(hostile, "attempt_id", 1)
+        object.__setattr__(hostile, "processed_games", 1)
+        object.__setattr__(hostile, "total_games", 2)
+
+        with self.assertRaisesRegex(TypeError, "exact LibraryImportProgress"):
+            projection.import_projection.progress(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(projection.import_projection.snapshot()["processed_games"], 0)
+
+    def test_import_projection_revalidates_exact_progress_scalars_before_comparison(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection.import_projection.begin(2)
+        touched = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active scalar comparison executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active scalar comparison executed")
+
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active scalar equality executed")
+
+        hostile = LibraryImportProgress(1, 1, 2)
+        object.__setattr__(hostile, "processed_games", ActiveInt(1))
+
+        with self.assertRaises(TypeError):
+            projection.import_projection.progress(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(projection.import_projection.snapshot()["processed_games"], 0)
+
+    def test_import_projection_rejects_derived_result_before_field_hooks(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection.import_projection.begin(2)
+        touched = []
+
+        class ActiveResult(LibraryImportResult):
+            def __getattribute__(self, name):
+                if name in {
+                    "attempt_id",
+                    "source_id",
+                    "game_count",
+                    "warning_count",
+                    "first_game_id",
+                    "last_game_id",
+                    "reused",
+                }:
+                    touched.append(name)
+                    raise AssertionError("derived result field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveResult.__new__(ActiveResult)
+        for name, value in (
+            ("attempt_id", 1),
+            ("source_id", 1),
+            ("game_count", 2),
+            ("warning_count", 0),
+            ("first_game_id", 1),
+            ("last_game_id", 2),
+            ("reused", False),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        with self.assertRaisesRegex(TypeError, "exact LibraryImportResult"):
+            projection.import_projection.complete(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(projection.import_projection.phase.value, "running")
 
     def test_import_count_boundary_matches_javascript_number_contract(self) -> None:
         maximum = (1 << 53) - 1

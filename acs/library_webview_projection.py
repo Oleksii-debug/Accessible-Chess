@@ -406,23 +406,28 @@ class LibraryImportWebViewProjection:
         return self._render(announce=True, focus_target="library-import-file")
 
     def progress(self, progress: LibraryImportProgress) -> LibraryWebViewEvent:
-        if not isinstance(progress, LibraryImportProgress):
-            raise TypeError("progress must be LibraryImportProgress")
+        if type(progress) is not LibraryImportProgress:
+            raise TypeError("progress must be exact LibraryImportProgress")
+        canonical = LibraryImportProgress(
+            progress.attempt_id,
+            progress.processed_games,
+            progress.total_games,
+        )
         if self._phase not in {
             LibraryImportPhase.RUNNING,
             LibraryImportPhase.CANCELLING,
         }:
             raise RuntimeError("library import is not active")
-        if progress.total_games != self._total_games:
+        if canonical.total_games != self._total_games:
             raise ValueError("library import total changed")
-        if progress.processed_games < self._processed_games:
+        if canonical.processed_games < self._processed_games:
             raise ValueError("library import progress moved backwards")
-        if progress.processed_games > _JS_MAX_SAFE_INTEGER:
+        if canonical.processed_games > _JS_MAX_SAFE_INTEGER:
             raise ValueError("library import progress exceeds browser-safe integer range")
-        if self._attempt_id is not None and progress.attempt_id != self._attempt_id:
+        if self._attempt_id is not None and canonical.attempt_id != self._attempt_id:
             raise ValueError("library import attempt changed")
-        self._attempt_id = progress.attempt_id
-        self._processed_games = progress.processed_games
+        self._attempt_id = canonical.attempt_id
+        self._processed_games = canonical.processed_games
         return self._render(announce=False)
 
     def request_cancel(self) -> LibraryWebViewEvent:
@@ -433,21 +438,30 @@ class LibraryImportWebViewProjection:
         return self._render(announce=True, focus_target="library-import-cancel")
 
     def complete(self, result: LibraryImportResult) -> LibraryWebViewEvent:
-        if not isinstance(result, LibraryImportResult):
-            raise TypeError("result must be LibraryImportResult")
+        if type(result) is not LibraryImportResult:
+            raise TypeError("result must be exact LibraryImportResult")
+        canonical = LibraryImportResult(
+            result.attempt_id,
+            result.source_id,
+            result.game_count,
+            result.warning_count,
+            result.first_game_id,
+            result.last_game_id,
+            result.reused,
+        )
         if self._phase not in {
             LibraryImportPhase.RUNNING,
             LibraryImportPhase.CANCELLING,
         }:
             raise RuntimeError("library import is not active")
-        if result.game_count != self._total_games:
+        if canonical.game_count != self._total_games:
             raise ValueError("library import result count changed")
-        if self._attempt_id is not None and result.attempt_id != self._attempt_id:
+        if self._attempt_id is not None and canonical.attempt_id != self._attempt_id:
             raise ValueError("library import result attempt changed")
         self._phase = LibraryImportPhase.COMPLETED
-        self._processed_games = result.game_count
-        self._warning_count = result.warning_count
-        self._attempt_id = result.attempt_id
+        self._processed_games = canonical.game_count
+        self._warning_count = canonical.warning_count
+        self._attempt_id = canonical.attempt_id
         self._message = ""
         return self._render(announce=True, focus_target="library-import-file")
 
