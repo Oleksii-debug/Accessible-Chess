@@ -25,6 +25,8 @@ on:
       - 'acs/chessbase_library_import.py'
       - 'acs/cbv_extractor.py'
       - 'web/full_product_teacher.js'
+      - 'web/full_product_education.js'
+      - 'tests/js/education_surface_dom_test.js'
       - 'acs/version2_final_product_application.py'
       - 'acs/version2_education_mutation_application.py'
       - 'web/full_product_books_training.js'
@@ -144,5 +146,7 @@ jobs:
         run: node tests/js/teacher_surface_dom_test.js
       - name: Actual Library DOM date filters and keyboard behavior
         run: node tests/js/library_surface_dom_test.js
+      - name: Actual Education DOM paging and transport feedback
+        run: node tests/js/education_surface_dom_test.js
       - name: Canonical chess selftest
         run: python -m acs.selftest
