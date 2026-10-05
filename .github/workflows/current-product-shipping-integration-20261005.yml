@@ -41,11 +41,11 @@ jobs:
           SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
-          PINNED_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62
+          PINNED_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc
           WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
-          WINDOWS_EVIDENCE_SHA: 4326c3621fcfa95c32adb9bad2ac4d304f9c52a5
+          WINDOWS_EVIDENCE_SHA: 8a9583c366a18fa7e4b65418efe1a77667ac4abd
           TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo
-          TRAINING_DURABILITY_SHA: 305726025e62f2acaa41e83ebed1ccc3e18df04b
+          TRAINING_DURABILITY_SHA: d93d8e93c6e92eb9f1d64e29bf026b50828ee51c
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
@@ -94,7 +94,7 @@ jobs:
           product_paths="$(git diff --name-only "$live_shipping"..."$live_product" | sort)"
           test -n "$product_paths"
           product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$product_count" -eq 217
+          test "$product_count" -eq 222
 
           extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected_extra="$(printf '%s\n' \
@@ -145,7 +145,7 @@ jobs:
             exit 1
           }
           candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-          test "$candidate_count" -eq 228
+          test "$candidate_count" -eq 233
 
           echo "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS"
           echo "SHIPPING_BASE=$live_shipping"
