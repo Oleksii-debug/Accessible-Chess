@@ -18,6 +18,7 @@ from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
+from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
@@ -76,6 +77,41 @@ class Version2ApplicationTests(unittest.TestCase):
                     self.app.record_focus(token)
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
+    def test_import_observers_reject_derived_dtos_before_storage(self):
+        touched = []
+
+        class ActiveProgress(LibraryImportProgress):
+            def __getattribute__(self, name):
+                if name in {"attempt_id", "processed_games", "total_games"}:
+                    touched.append(name)
+                    raise AssertionError("derived import progress field must not execute")
+                return super().__getattribute__(name)
+
+        class ActiveResult(LibraryImportResult):
+            def __getattribute__(self, name):
+                if name in {
+                    "attempt_id",
+                    "source_id",
+                    "game_count",
+                    "warning_count",
+                    "first_game_id",
+                    "last_game_id",
+                    "reused",
+                }:
+                    touched.append(name)
+                    raise AssertionError("derived import result field must not execute")
+                return super().__getattribute__(name)
+
+        with self.assertRaises(TypeError):
+            self.app.observe_progress(object.__new__(ActiveProgress))
+        with self.assertRaises(TypeError):
+            self.app.observe_result(object.__new__(ActiveResult))
+
+        self.assertEqual(touched, [])
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
 
     def test_set_document_rejects_active_session_subclass_before_hooks(self):
         touched = []
