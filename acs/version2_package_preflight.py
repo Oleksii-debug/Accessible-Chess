@@ -574,37 +574,73 @@ def _require_package_file(
     return path
 
 
+def _inspect_windows_pe_identity(
+    path: Path,
+    *,
+    label: str,
+) -> tuple[int, int] | None:
+    """Read PE machine and optional-header magic from one stable file identity."""
+    before = _safe_lstat(path, label=label)
+    if not stat.S_ISREG(before.st_mode):
+        return None
+
+    source = None
+    identity: tuple[int, int] | None = None
+    try:
+        source = path.open("rb")
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+            _fail(f"{label} must remain a regular non-reparse file")
+        if not _same_file_snapshot(before, opened):
+            _fail(f"{label} changed while being opened")
+
+        dos_header = source.read(64)
+        if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
+            pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+            source.seek(0, os.SEEK_END)
+            file_size = source.tell()
+            if 0x40 <= pe_offset <= file_size - 24:
+                source.seek(pe_offset)
+                pe_header = source.read(24)
+                if len(pe_header) == 24 and pe_header[:4] == b"PE\x00\x00":
+                    machine = int.from_bytes(pe_header[4:6], "little")
+                    section_count = int.from_bytes(pe_header[6:8], "little")
+                    optional_header_size = int.from_bytes(pe_header[20:22], "little")
+                    characteristics = int.from_bytes(pe_header[22:24], "little")
+                    if (
+                        machine != 0
+                        and section_count != 0
+                        and optional_header_size >= 2
+                        and characteristics & 0x0002
+                        and pe_offset + 24 + optional_header_size <= file_size
+                    ):
+                        optional_magic_bytes = source.read(2)
+                        if optional_magic_bytes in {b"\x0b\x01", b"\x0b\x02"}:
+                            identity = (
+                                machine,
+                                int.from_bytes(optional_magic_bytes, "little"),
+                            )
+
+        after_read = os.fstat(source.fileno())
+        after_path = _safe_lstat(path, label=label)
+        if (
+            not _same_file_snapshot(opened, after_read)
+            or not _same_file_snapshot(after_read, after_path)
+        ):
+            _fail(f"{label} changed while being read")
+        return identity
+    except Version2PackagePreflightError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read: {type(exc).__name__}")
+    finally:
+        if source is not None:
+            source.close()
+
+
 def _has_windows_pe_structure(path: Path) -> bool:
     """Recognize the bounded PE structure used by package validation and hygiene."""
-    with path.open("rb") as handle:
-        dos_header = handle.read(64)
-        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
-            return False
-        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-        handle.seek(0, os.SEEK_END)
-        file_size = handle.tell()
-        if pe_offset < 0x40 or pe_offset > file_size - 24:
-            return False
-        handle.seek(pe_offset)
-        pe_header = handle.read(24)
-        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
-            return False
-
-        machine = int.from_bytes(pe_header[4:6], "little")
-        section_count = int.from_bytes(pe_header[6:8], "little")
-        optional_header_size = int.from_bytes(pe_header[20:22], "little")
-        characteristics = int.from_bytes(pe_header[22:24], "little")
-        if (
-            machine == 0
-            or section_count == 0
-            or optional_header_size < 2
-            or not characteristics & 0x0002
-            or pe_offset + 24 + optional_header_size > file_size
-        ):
-            return False
-
-        optional_magic = handle.read(2)
-        return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
+    return _inspect_windows_pe_identity(path, label="package PE image") is not None
 
 
 def _validate_windows_pe_executable(
@@ -613,30 +649,26 @@ def _validate_windows_pe_executable(
     label: str,
     expected_machine: int | None = None,
 ) -> None:
-    """Require a bounded PE image and, when requested, one exact CPU machine."""
-    try:
-        if not _has_windows_pe_structure(path):
-            _fail(f"{label} is not a valid Windows PE executable")
-        if expected_machine is not None:
-            if type(expected_machine) is not int or not 0 < expected_machine <= 0xFFFF:
-                raise TypeError("expected_machine must be a positive 16-bit integer or null")
-            with path.open("rb") as handle:
-                dos_header = handle.read(64)
-                pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-                handle.seek(pe_offset + 4)
-                machine_bytes = handle.read(2)
-            if len(machine_bytes) != 2:
-                _fail(f"{label} machine header is truncated")
-            actual_machine = int.from_bytes(machine_bytes, "little")
-            if actual_machine != expected_machine:
-                _fail(
-                    f"{label} has unexpected Windows PE machine "
-                    f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
-                )
-    except Version2PackagePreflightError:
-        raise
-    except OSError as exc:
-        _fail(f"{label} cannot be read: {type(exc).__name__}")
+    """Require one stable PE identity and, when requested, exact native ABI."""
+    if expected_machine is not None and (
+        type(expected_machine) is not int or not 0 < expected_machine <= 0xFFFF
+    ):
+        raise TypeError("expected_machine must be a positive 16-bit integer or null")
+
+    identity = _inspect_windows_pe_identity(path, label=label)
+    if identity is None:
+        _fail(f"{label} is not a valid Windows PE executable")
+    actual_machine, optional_magic = identity
+    if expected_machine is not None and actual_machine != expected_machine:
+        _fail(
+            f"{label} has unexpected Windows PE machine "
+            f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
+        )
+    if expected_machine == 0x8664 and optional_magic != 0x020B:
+        _fail(
+            f"{label} has unexpected Windows PE optional-header magic "
+            f"0x{optional_magic:04x}; expected PE32+ 0x020b for AMD64"
+        )
 
 
 def _provenance_text(value: object, *, label: str, max_length: int) -> str:
@@ -1113,6 +1145,7 @@ def _validate_stockfish_source_archive(
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
 
+
 def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
@@ -1127,11 +1160,6 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     except UnicodeError as exc:
         _fail(f"WinForms accessibility app-config must be UTF-8: {type(exc).__name__}")
 
-    # ElementTree receives decoded text below, so it does not enforce that an
-    # XML encoding declaration agrees with the actual packaged bytes.  A .NET
-    # config loader reads the file as bytes and does honor that declaration.
-    # Reject contradictory declarations here so preflight cannot approve UTF-8
-    # bytes that claim to be UTF-16 (or another encoding) at runtime.
     declaration = re.match(r"\A<\?xml\s+[^?]*\?>", text, flags=re.IGNORECASE)
     if declaration is not None:
         declared_encoding = re.search(
@@ -1298,9 +1326,6 @@ def _validate_required_runtime_resources(
         if not isinstance(value, str) or not value:
             _fail(f"packaged sound manifest entry is invalid: {event.value}")
         token = _relative_token(value, label="sound asset path")
-        # Multiple semantic outcomes may intentionally share one neutral WAV.
-        # Provenance remains event-specific and is verified below against the
-        # selected manifest path and bytes, so aliases cannot bypass integrity.
         if PurePosixPath(token).suffix.casefold() != ".wav":
             _fail(f"packaged sound asset is not WAV: {event.value}")
         relative = (_REQUIRED_SOUND_ROOT / PurePosixPath(token)).as_posix()
@@ -1447,19 +1472,12 @@ def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
 
 
 def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:
-    # max_text_scan_bytes is the streaming read bound, never an exemption.
     chunk_size = min(limits.max_text_scan_bytes, 1024 * 1024)
     overlap_bytes = 512
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
         try:
-            # A PE image can legitimately contain compiler/debug build paths.  Do
-            # not classify those embedded binary strings as package text merely
-            # because UTF-8 error-ignoring happens to expose them.  This is
-            # structure-based, not suffix-only: text renamed to .dll/.exe still
-            # follows the normal path-leak gate.  Credential signatures remain
-            # scanned even inside recognized PE images.
             is_pe_binary = (
                 PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
                 and _has_windows_pe_structure(path)
@@ -1470,8 +1488,6 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
                     if not block:
                         break
                     window = tail + block
-                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large file as a scan exemption.
                     text = window.decode("utf-8", errors="ignore")
                     if (
                         not is_pe_binary
@@ -1573,6 +1589,7 @@ def _validate_zip_entries(
                     _fail("ZIP member exceeds compression-ratio limit")
         validated.append((info, token))
     return tuple(validated)
+
 
 def validate_version2_package_zip(
     zip_path: str | Path,
