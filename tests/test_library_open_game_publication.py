@@ -153,6 +153,105 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIs(self.app.session, prior_session)
         self.assertIs(self.app.pgn, prior_pgn)
 
+    def test_library_open_rollback_failure_retains_exact_retry_authority(self) -> None:
+        prior_session, prior_pgn, prior_focus = self._prior_library_state()
+        replacement = self._session("rollback-retry.pgn", "Rollback Retry")
+        calls: list[tuple[object, object]] = []
+
+        with patch.object(
+            self.app.library,
+            "dispatch",
+            side_effect=self._staged_dispatch(replacement, calls),
+        ):
+            started = self.app.browser_command(
+                "library",
+                "library.open_game",
+                {"publication_protocol": "ack-v1", "request_id": 711},
+            )
+
+        token = started["payload"]["publication_token"]
+        with patch.object(
+            self.app.shell,
+            "_restore_presentation_state",
+            side_effect=RuntimeError("simulated rollback restore failure"),
+        ):
+            failed = self.app.browser_command(
+                "shell",
+                "shell.presentation_rollback",
+                {"token": token},
+            )
+
+        self.assertEqual(failed["kind"], "error")
+        self.assertIsNotNone(self.app._pending_shell_publication)
+        self.assertIsNotNone(self.app._pending_shell_publication_restore)
+        self.assertEqual(self.app.snapshot()["shell_publication_token"], token)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        recovered = self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+        self.assertEqual(recovered["kind"], "presentation-rollback")
+        self.assertEqual(recovered["payload"]["route_id"], "library")
+        self.assertEqual(recovered["payload"]["focus_target"], prior_focus)
+        self.assertIs(self.app.session, prior_session)
+        self.assertIs(self.app.pgn, prior_pgn)
+        self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertIsNone(self.app._pending_shell_publication_restore)
+
+    def test_library_open_commit_release_failure_retains_exact_retry_authority(self) -> None:
+        self._prior_library_state()
+        replacement = self._session("commit-retry.pgn", "Commit Retry")
+        calls: list[tuple[object, object]] = []
+
+        with patch.object(
+            self.app.library,
+            "dispatch",
+            side_effect=self._staged_dispatch(replacement, calls),
+        ):
+            started = self.app.browser_command(
+                "library",
+                "library.open_game",
+                {"publication_protocol": "ack-v1", "request_id": 712},
+            )
+
+        token = started["payload"]["publication_token"]
+        original_end = self.app.shell._end_publication_hold
+        attempts = 0
+
+        def fail_once() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("simulated publication release failure")
+            original_end()
+
+        with patch.object(self.app.shell, "_end_publication_hold", side_effect=fail_once):
+            failed = self.app.browser_command(
+                "shell",
+                "shell.presentation_commit",
+                {"token": token},
+            )
+            self.assertEqual(failed["kind"], "error")
+            self.assertEqual(self.app.snapshot()["shell_publication_token"], token)
+            self.assertIsNotNone(self.app._pending_shell_publication)
+            self.assertTrue(self.app.shell._publication_hold_active)
+
+            committed = self.app.browser_command(
+                "shell",
+                "shell.presentation_commit",
+                {"token": token},
+            )
+
+        self.assertEqual(committed["kind"], "presentation-commit")
+        self.assertEqual(attempts, 2)
+        self.assertIs(self.app.session, replacement)
+        self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertIsNone(self.app._pending_shell_publication_restore)
+
     def test_commit_keeps_replacement_owner_and_is_idempotent(self) -> None:
         prior_session, _prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("committed.pgn", "Committed")
