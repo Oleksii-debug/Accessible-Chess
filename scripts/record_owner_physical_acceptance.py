@@ -116,10 +116,14 @@ def _canonical_object_from_bytes(
             result[key] = value
         return result
 
+    def reject_nonfinite(value: str) -> object:
+        _fail(f"{label} contains non-finite JSON number: {value}")
+
     try:
         value = json.loads(
             payload.decode("utf-8", errors="strict"),
             object_pairs_hook=unique_pairs,
+            parse_constant=reject_nonfinite,
         )
     except OwnerPhysicalAcceptanceError:
         raise
