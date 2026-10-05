@@ -1759,7 +1759,9 @@ class Version2WindowsFileActionDelegate:
             if services is not None:
                 try:
                     services.close()
-                except Exception:
+                except BaseException:
+                    # Cleanup is secondary to the already selected terminal and
+                    # must never strand shared file-worker ownership.
                     _LOG.warning(
                         "Version 2 import worker cleanup failed", exc_info=True
                     )
