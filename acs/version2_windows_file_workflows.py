@@ -618,7 +618,7 @@ class Version2WindowsFileActionDelegate:
                     worker.start()
                     if self._worker is worker:
                         self._worker_started = True
-        except Exception:
+        except BaseException:
             with self._lock:
                 if generation == self._generation and self._worker is worker:
                     self._clear_worker_locked()
@@ -1187,7 +1187,7 @@ class Version2WindowsFileActionDelegate:
                     worker.start()
                     if self._worker is worker:
                         self._worker_started = True
-        except Exception:
+        except BaseException:
             with self._lock:
                 if generation == self._generation and self._worker is worker:
                     self._clear_worker_locked()
@@ -1529,7 +1529,7 @@ class Version2WindowsFileActionDelegate:
                     worker.start()
                     if self._worker is worker:
                         self._worker_started = True
-        except Exception:
+        except BaseException:
             with self._lock:
                 if generation == self._generation and self._worker is worker:
                     self._clear_worker_locked()
