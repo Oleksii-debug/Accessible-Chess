@@ -161,6 +161,37 @@ class PgnConversionTests(unittest.TestCase):
         self.assertFalse(self.destination.exists())
         self.assertEqual(list(self.root.glob("*.tmp")), [])
 
+    def test_cancellation_after_fsync_still_prevents_publication(self):
+        self.write()
+        plan = preview_conversion(self.source)
+        from acs.pgn_service import save_pgn_atomic as real_save
+        cancelled = False
+
+        def cancel_at_pre_publish(*args, **kwargs):
+            original_check = kwargs.get("pre_publish_check")
+            self.assertIsNotNone(original_check)
+
+            def force_cancel_now():
+                nonlocal cancelled
+                cancelled = True
+                original_check()
+
+            kwargs["pre_publish_check"] = force_cancel_now
+            return real_save(*args, **kwargs)
+
+        with patch("acs.pgn_conversion.save_pgn_atomic", side_effect=cancel_at_pre_publish):
+            with self.assertRaises(PgnConversionError) as raised:
+                convert_pgn(
+                    self.source,
+                    self.destination,
+                    reviewed_plan=plan,
+                    cancel_check=lambda: cancelled,
+                )
+
+        self.assertEqual(raised.exception.code, "cancelled")
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(self.root.glob("*.tmp")), [])
+
     def test_review_digest_cannot_be_changed(self):
         self.write()
         plan = preview_conversion(self.source)
