@@ -815,7 +815,11 @@ def save_pgn_atomic(
         if tmp_path is not None:
             try:
                 tmp_path.unlink()
-            except FileNotFoundError:
+            except BaseException:
+                # Temporary-file cleanup is secondary to the already selected
+                # pre-publication failure/cancellation. Never replace that
+                # terminal truth with a cleanup abort; a residual temp file is
+                # safer than inviting a blind retry or hiding the real cause.
                 pass
 
     # Publication has crossed the commit boundary. Bind the returned
