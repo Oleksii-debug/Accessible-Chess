@@ -5,6 +5,7 @@ import tempfile
 import threading
 from pathlib import Path
 import unittest
+from unittest import mock
 
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
@@ -30,10 +31,13 @@ class _Dialogs:
     def __init__(self, source: Path) -> None:
         self.source = source
         self.open_calls = 0
+        self.save_calls = 0
         self.import_calls = 0
         self.confirm_calls = 0
         self.open_hook = None
+        self.save_hook = None
         self.import_hook = None
+        self.save_path: Path | None = None
 
     def confirm_discard_unsaved_pgn(self):
         self.confirm_calls += 1
@@ -46,7 +50,10 @@ class _Dialogs:
         return self.source
 
     def save_pgn_as(self, suggested_filename: str = "game.pgn"):
-        return None
+        self.save_calls += 1
+        if self.save_hook is not None:
+            self.save_hook()
+        return self.save_path
 
     def select_library_import(self):
         self.import_calls += 1
@@ -178,6 +185,62 @@ class Version2WindowsFileWorkerPreflightTests(unittest.TestCase):
             self.assertEqual(result.error_code, "file_worker_busy")
             self.assertEqual(result.focus_target, "library-import-cancel")
             self.assertEqual(dialogs.open_calls, 1)
+            self.assertTrue(delegate.import_running)
+
+            release.set()
+            self.assertTrue(delegate.wait_for_import(2.0))
+
+    def test_save_as_picker_reentrant_import_skips_snapshot_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "save-as-reentrant-source.pgn"
+            destination = Path(tmp) / "save-as-reentrant-target.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            entered = threading.Event()
+            release = threading.Event()
+            dialogs = _Dialogs(source)
+            dialogs.save_path = destination
+            current = PgnDocumentSession.open(source)
+            current.edit_tag("Event", "Edited before Save As")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=lambda: current,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _BlockingLibrary(entered, release), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: None,
+            )
+
+            started_import = []
+
+            def start_import_during_picker() -> None:
+                started_import.append(delegate("library.import", {}))
+                self.assertTrue(entered.wait(1.0))
+
+            dialogs.save_hook = start_import_during_picker
+            with mock.patch(
+                "acs.version2_windows_file_workflows.capture_pgn_save_snapshot",
+                side_effect=AssertionError(
+                    "busy Save As must not capture a detached snapshot"
+                ),
+            ) as capture:
+                result = delegate("pgn.save_as", {})
+
+            self.assertEqual(len(started_import), 1)
+            self.assertEqual(
+                started_import[0].kind,
+                FileWorkflowEventKind.IMPORT_STARTED,
+            )
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "file_worker_busy")
+            self.assertEqual(result.focus_target, "library-import-cancel")
+            self.assertEqual(dialogs.save_calls, 1)
+            capture.assert_not_called()
+            self.assertFalse(destination.exists())
             self.assertTrue(delegate.import_running)
 
             release.set()

@@ -1005,6 +1005,24 @@ class Version2WindowsFileActionDelegate:
                 "pgn.save_as", "pgn_save_preflight_stale", focus_target=previous_focus
             )
 
+        # The modal picker can pump a re-entrant file action or shutdown just as
+        # PGN Open can. Revalidate the shared worker before detached snapshot
+        # capture so a losing Save As does not spend owner-thread time freezing
+        # a document that it is no longer allowed to publish.
+        with self._lock:
+            shutdown_requested = self._shutdown_requested
+            active_kind = self._worker_kind if self._worker is not None else ""
+        if shutdown_requested:
+            return self._failed(
+                "pgn.save_as", "file_workflow_closed", focus_target=previous_focus
+            )
+        if active_kind:
+            return self._failed(
+                "pgn.save_as",
+                "file_worker_busy",
+                focus_target=self._worker_focus_target(active_kind),
+            )
+
         if self._post_to_ui is None:
             try:
                 expected = current.expected_destination_sha256(destination)
