@@ -51,6 +51,7 @@ from .version2_windows_book_open_worker import (
     Version2BookOpenWorker,
 )
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
+from .version2_windows_library_export import LibraryExportHostEvent
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
 
@@ -2378,9 +2379,13 @@ class Version2Application:
             self.library.projection.search(self.library.projection.query)
 
     def _native_file_error_message(self, event):
-        if not isinstance(event, FileWorkflowEvent):
+        if not isinstance(event, (FileWorkflowEvent, LibraryExportHostEvent)):
             return concise_user_error("", language=self.shell.language)
-        language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
+        language = (
+            self.library.projection.language
+            if event.action_id in {"library.import", "library.cancel_import", "library.export"}
+            else self.shell.language
+        )
         messages = {
             "unsupported_import_source": (
                 "Імпорт підтримує PGN, EPUB, HTML, Markdown та CBH/CBV з підтримуваним декодером. Інші формати не можна імпортувати.",
@@ -2409,6 +2414,34 @@ class Version2Application:
             "no_import_running": (
                 "Імпорт уже завершився або не був розпочатий.",
                 "The import has finished or has not started.",
+            ),
+            "invalid_export_request": (
+                "Не вдалося почати експорт: вибір ігор або фільтр більше не є чинними. Оновіть Бібліотеку та повторіть експорт.",
+                "Export could not start because the game selection or filter is no longer valid. Refresh the Library and retry the export.",
+            ),
+            "library_export_busy": (
+                "Інша операція експорту Бібліотеки ще завершується. Дочекайтеся завершення або скасуйте її та повторіть дію.",
+                "Another Library export operation is still finishing. Let it finish or cancel it, then retry.",
+            ),
+            "library_export_unavailable": (
+                "Експорт Бібліотеки зараз недоступний. Файл не створено. Повторіть дію після завершення поточної файлової операції.",
+                "Library export is currently unavailable. No file was created. Retry after the current file operation finishes.",
+            ),
+            "file_dialog_failed": (
+                "Не вдалося відкрити системне вікно вибору файла для експорту. Експорт не розпочато.",
+                "The system file picker for export could not be opened. Export was not started.",
+            ),
+            "library_export_worker_failed": (
+                "Не вдалося запустити фоновий експорт Бібліотеки. Файл не опубліковано. Повторіть експорт.",
+                "Background Library export could not be started. No file was published. Retry the export.",
+            ),
+            "library_export_failed": (
+                "Не вдалося завершити експорт Бібліотеки. Перевірте поточний вибір або фільтр і повторіть дію.",
+                "Library export could not be completed. Check the current selection or filter and retry.",
+            ),
+            "no_library_export_running": (
+                "Експорт Бібліотеки вже завершився або не був розпочатий.",
+                "Library export has already finished or was not started.",
             ),
         }
         code = event.error_code
