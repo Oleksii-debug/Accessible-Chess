@@ -12,6 +12,7 @@ from unittest import mock
 
 from acs.local_profile import (
     LocalProfileConflict,
+    LocalProfileDurabilityUnknownError,
     LocalProfileError,
     LocalProfileStore,
     MAX_DISPLAY_NAME_CHARS,
@@ -390,7 +391,10 @@ class LocalProfileStoreTests(unittest.TestCase):
                 raise OSError("injected write failure")
             real_replace(source, target)
 
-        with mock.patch("acs.local_profile.os.replace", side_effect=fail_primary_replace):
+        with mock.patch(
+            "acs.local_profile._replace_profile_path",
+            side_effect=fail_primary_replace,
+        ):
             with self.assertRaisesRegex(LocalProfileError, "could not be saved") as caught:
                 self.store.rename(original, "Alice Two")
         self.assertIsNone(caught.exception.__cause__)
@@ -398,6 +402,64 @@ class LocalProfileStoreTests(unittest.TestCase):
         self.assertNotIn("injected write failure", rendered)
         self.assertEqual(self.store.load(), original)
         self.assertEqual(parse_local_profile_bytes(self.store.backup_path.read_bytes()), original)
+
+    def test_create_durability_barrier_failure_exposes_visible_profile_as_uncertain(self) -> None:
+        with mock.patch(
+            "acs.local_profile._sync_profile_publication",
+            side_effect=OSError("simulated profile durability failure"),
+        ):
+            with self.assertRaises(LocalProfileDurabilityUnknownError) as caught:
+                self.store.create("Alice")
+
+        self.assertIsNone(caught.exception.__cause__.__cause__ if caught.exception.__cause__ else None)
+        visible = self.store.load()
+        self.assertIsNotNone(visible)
+        self.assertEqual(visible.display_name, "Alice")
+        self.assertEqual(visible.revision, 1)
+
+    def test_rename_primary_durability_failure_keeps_new_revision_visible_and_backup_old(self) -> None:
+        original = self.store.create("Alice")
+        original_bytes = self.store.path.read_bytes()
+        real_sync = __import__(
+            "acs.local_profile",
+            fromlist=["_sync_profile_publication"],
+        )._sync_profile_publication
+
+        def fail_primary_sync(path: Path) -> None:
+            if Path(path) == self.store.path:
+                raise OSError("simulated primary durability failure")
+            real_sync(Path(path))
+
+        with mock.patch(
+            "acs.local_profile._sync_profile_publication",
+            side_effect=fail_primary_sync,
+        ):
+            with self.assertRaises(LocalProfileDurabilityUnknownError):
+                self.store.rename(original, "Alice Two")
+
+        visible = self.store.load()
+        self.assertEqual(visible.display_name, "Alice Two")
+        self.assertEqual(visible.revision, original.revision + 1)
+        self.assertEqual(self.store.backup_path.read_bytes(), original_bytes)
+
+    def test_rename_backup_durability_failure_stops_before_primary_publication(self) -> None:
+        original = self.store.create("Alice")
+        original_bytes = self.store.path.read_bytes()
+
+        def fail_backup_sync(path: Path) -> None:
+            if Path(path) == self.store.backup_path:
+                raise OSError("simulated backup durability failure")
+            raise AssertionError("primary publication must not run after uncertain backup")
+
+        with mock.patch(
+            "acs.local_profile._sync_profile_publication",
+            side_effect=fail_backup_sync,
+        ):
+            with self.assertRaises(LocalProfileDurabilityUnknownError):
+                self.store.rename(original, "Alice Two")
+
+        self.assertEqual(self.store.path.read_bytes(), original_bytes)
+        self.assertEqual(self.store.load(), original)
 
     def test_lock_open_failure_is_sanitized_before_any_profile_publication(self) -> None:
         with mock.patch(
