@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
     FileWorkflowEventKind,
@@ -60,6 +61,84 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             current_focus_provider=lambda: "pgn-tree",
             post_to_ui=post_to_ui,
         )
+
+    def test_open_and_save_contain_session_provider_base_exception(self) -> None:
+        class SessionAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "session-provider-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: (_ for _ in ()).throw(
+                    SessionAbort("session provider aborted")
+                ),
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            opened = delegate("pgn.open", {})
+            saved = delegate("pgn.save", {})
+
+            for event, action in ((opened, "pgn.open"), (saved, "pgn.save")):
+                self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(event.action_id, action)
+                self.assertEqual(event.error_code, "pgn_session_unavailable")
+                self.assertEqual(event.focus_target, "pgn-tree")
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertFalse(delegate.pgn_save_running)
+
+    def test_save_as_contains_post_dialog_session_provider_base_exception(self) -> None:
+        class SessionAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "save-as-source.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            destination = Path(tmp) / "save-as-destination.pgn"
+            session = PgnDocumentSession.open(source)
+            calls = 0
+
+            def provider():
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return session
+                raise SessionAbort("post-dialog session provider aborted")
+
+            class SaveAsDialogs(_Dialogs):
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return destination
+
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=SaveAsDialogs(source),
+                get_pgn_session=provider,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: self.fail("worker must not start"),
+            )
+
+            result = delegate("pgn.save_as", {})
+
+            self.assertEqual(calls, 2)
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_session_unavailable")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertFalse(destination.exists())
+            self.assertFalse(delegate.pgn_save_running)
 
     def test_file_workflow_event_rejects_derived_root_before_field_hooks(self) -> None:
         touched = []
