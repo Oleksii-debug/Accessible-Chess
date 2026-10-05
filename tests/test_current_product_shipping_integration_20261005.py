@@ -72,9 +72,9 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
     def test_gate_pins_evidence_stack_and_rejects_late_mutation(self) -> None:
         required = (
             "WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo",
-            "WINDOWS_EVIDENCE_SHA: 1728432f216d4f6cdda9d2283bea89c242c89337",
+            "WINDOWS_EVIDENCE_SHA: 4326c3621fcfa95c32adb9bad2ac4d304f9c52a5",
             "TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo",
-            "TRAINING_DURABILITY_SHA: 5a22b18285fcc827f68f1aefaa7d19368654424a",
+            "TRAINING_DURABILITY_SHA: 305726025e62f2acaa41e83ebed1ccc3e18df04b",
             "SHIPPING_WINDOWS_EVIDENCE_MOVED",
             "SHIPPING_TRAINING_DURABILITY_MOVED",
             "EVIDENCE_STACK_LIVE_HEADS=PASS",
