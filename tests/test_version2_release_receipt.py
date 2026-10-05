@@ -62,6 +62,15 @@ def _build(archive: Path, **kwargs):
     return build_version2_release_receipt(archive, **arguments)
 
 
+def _canonical_json(payload: dict[str, object]) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ) + "\n"
+
+
 class Version2ReleaseReceiptTests(unittest.TestCase):
     def test_receipt_binds_validated_zip_and_attributable_action_identity(self):
         with tempfile.TemporaryDirectory() as td:
@@ -149,7 +158,7 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 write_version2_release_receipt(output, receipt)
             self.assertEqual(output.read_text(encoding="utf-8"), raw)
 
-    def test_readback_rejects_duplicate_unknown_and_wrong_authority_fields(self):
+    def test_readback_rejects_duplicate_unknown_wrong_authority_and_reformatting(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
             receipt = _build(archive)
@@ -182,6 +191,21 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 read_version2_release_receipt(output)
 
+            pretty = json.dumps(json.loads(receipt.to_json()), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+            output.write_text(pretty, encoding="utf-8")
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "not in canonical serialization",
+            ):
+                read_version2_release_receipt(output)
+
+            output.write_text(receipt.to_json().rstrip("\n"), encoding="utf-8")
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "not in canonical serialization",
+            ):
+                read_version2_release_receipt(output)
+
     def test_readback_rejects_semantically_valid_but_different_zip_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             root, archive = _fixture(td)
@@ -207,7 +231,7 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             output = Path(td) / "receipt.json"
             payload = json.loads(receipt.to_json())
             payload["package_sha256"] = "0" * 64
-            output.write_text(json.dumps(payload), encoding="utf-8")
+            output.write_text(_canonical_json(payload), encoding="utf-8")
 
             with self.assertRaisesRegex(
                 Version2ReleaseReceiptError,
