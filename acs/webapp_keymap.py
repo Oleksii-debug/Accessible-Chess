@@ -53,6 +53,30 @@ def _canonical_controllers(board: Board, target: int) -> tuple[int, ...]:
 class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
     """Complete the central board action surface declared by ActionRegistry."""
 
+    def keymap_resolve_binding(self, context: str, binding: str) -> dict[str, Any] | None:
+        """Resolve the WebView board focus hierarchy without duplicating rules in JS.
+
+        Board focus intentionally exposes board commands, Analysis commands, and
+        Global commands in that order. ``ActionRegistry`` keeps its presentation-
+        neutral ``context -> global`` fallback, so the WebView bridge composes the
+        additional Analysis layer here and remains the single authoritative
+        resolver for persisted remaps.
+        """
+
+        if context != "board":
+            return super().keymap_resolve_binding(context, binding)
+        try:
+            board_or_global = self.keymap_service.resolve_binding("board", binding)
+            if board_or_global is not None and board_or_global.get("context") == "board":
+                return board_or_global
+
+            analysis_or_global = self.keymap_service.resolve_binding("analysis", binding)
+            if analysis_or_global is not None and analysis_or_global.get("context") == "analysis":
+                return analysis_or_global
+            return board_or_global
+        except Exception:
+            return None
+
     def make_move(self, text: str) -> dict[str, Any]:
         # Canonical null moves are a notation/import pseudo-move, not a legal
         # end-user gameplay action. Keep the frozen Stage1 core and canonical
