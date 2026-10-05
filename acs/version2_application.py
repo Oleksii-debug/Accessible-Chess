@@ -1383,7 +1383,7 @@ class Version2Application:
                     self.pgn_board_active = False
                 raise
             return None
-        if action.startswith("pgn.") and action not in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
+        if action.startswith("pgn.") and action not in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.cancel_save", "pgn.export_selection"}:
             # All Board-owned PGN actions returned above. The remaining PGN
             # document/navigation commands belong to the visible PGN workspace;
             # central native/menu dispatch must not bypass the same route/modal
@@ -1607,7 +1607,7 @@ class Version2Application:
                     message = ""
                 raise ValueError(message) from None
             return result
-        if self._files is not None and action in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
+        if self._files is not None and action in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.cancel_save", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
             result = self._files(action, payload)
             if isinstance(result, FileWorkflowEvent):
                 ui = self.library.projection.import_projection
@@ -2137,6 +2137,26 @@ class Version2Application:
                 "PGN підготовлено, але передати результат у вікно програми не вдалося. Поточний документ не змінено.",
                 "The PGN was prepared but its result could not be delivered to the application window. The current document was not changed.",
             ),
+            "no_pgn_save_running": (
+                "Фонове збереження PGN уже завершилося або не було розпочате.",
+                "Background PGN saving has finished or has not started.",
+            ),
+            "pgn_save_stale": (
+                "Файл не прив’язано до поточного документа, бо документ змінився під час збереження.",
+                "The saved file was not committed to the current document because the document changed while saving.",
+            ),
+            "pgn_save_worker_unavailable": (
+                "Не вдалося запустити фонове збереження PGN.",
+                "Background PGN saving could not be started.",
+            ),
+            "pgn_save_commit_failed": (
+                "Файл було підготовлено, але стан документа не вдалося безпечно оновити. Перевідкрийте PGN перед наступним збереженням.",
+                "The file was prepared but document state could not be updated safely. Reopen the PGN before saving again.",
+            ),
+            "pgn_save_ui_post_failed": (
+                "Не вдалося передати результат фонового збереження у вікно програми.",
+                "The background save result could not be delivered to the application window.",
+            ),
         }
         code = event.error_code
         if type(code) is str and len(code) <= 64:
@@ -2165,6 +2185,18 @@ class Version2Application:
                 "PGN open cancelled. The current document was not changed.",
             ),
             "pgn_opened": ("PGN відкрито.", "PGN opened."),
+            "pgn_save_started": (
+                "PGN зберігається у фоновому режимі. За потреби скористайтеся командою скасування збереження PGN.",
+                "PGN is saving in the background. Use Cancel PGN Save if needed.",
+            ),
+            "pgn_save_cancelling": (
+                "Скасовую збереження PGN.",
+                "Cancelling PGN save.",
+            ),
+            "pgn_save_cancelled": (
+                "Збереження PGN скасовано до публікації файла.",
+                "PGN save cancelled before file publication.",
+            ),
             "pgn_saved": ("PGN збережено.", "PGN saved."),
             "pgn_saved_as": ("PGN збережено.", "PGN saved."),
             "exported": ("Експорт завершено.", "Export completed."),
