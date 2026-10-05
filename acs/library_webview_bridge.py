@@ -195,6 +195,11 @@ class LibraryWebViewBridge:
                 return self._projection.import_projection.request_import()
             if command_id == "library.cancel_import":
                 self._exact(data, set())
+                cancel_operation = getattr(
+                    self._projection, "request_cancel_operation", None
+                )
+                if callable(cancel_operation):
+                    return cancel_operation()
                 return self._projection.import_projection.request_cancel()
             if command_id == "library.language":
                 self._exact(data, {"language"})
