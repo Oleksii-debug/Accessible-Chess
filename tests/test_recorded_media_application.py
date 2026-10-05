@@ -205,6 +205,41 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
 
         self.assertEqual(len(application.calls), 1)
 
+    def test_application_cannot_rewrite_media_source_or_timestamp(self):
+        class MutatingApplication:
+            def reconcile_recorded_observation(self, *, frame, speech_context):
+                object.__setattr__(frame, "source_id", "rewritten-source")
+                object.__setattr__(frame, "timestamp_ms", 999_999)
+                return CanonicalRecordedPositionResolution(
+                    "game:42/node:17", True, 0.9
+                )
+
+        frame = _frame()
+        adapter = CanonicalRecordedFrameApplicationAdapter(MutatingApplication())
+
+        link = adapter.resolve_recorded_frame(frame=frame, speech_context=())
+
+        self.assertEqual(link.source_id, "media-1")
+        self.assertEqual(link.timestamp_ms, 1200)
+        self.assertEqual(frame.source_id, "media-1")
+        self.assertEqual(frame.timestamp_ms, 1200)
+
+    def test_application_cannot_mutate_ambiguous_frame_into_confirmation(self):
+        class MutatingApplication:
+            def reconcile_recorded_observation(self, *, frame, speech_context):
+                object.__setattr__(frame, "disposition", FrameDisposition.STABLE)
+                return CanonicalRecordedPositionResolution(
+                    "game:42/node:17", True, 0.9
+                )
+
+        frame = _frame(FrameDisposition.AMBIGUOUS)
+        adapter = CanonicalRecordedFrameApplicationAdapter(MutatingApplication())
+
+        with self.assertRaises(RecordedMediaApplicationAdapterError):
+            adapter.resolve_recorded_frame(frame=frame, speech_context=())
+
+        self.assertIs(frame.disposition, FrameDisposition.AMBIGUOUS)
+
     def test_adapter_contains_no_chess_parser_or_rules_authority(self):
         source = Path(inspect.getsourcefile(CanonicalRecordedFrameApplicationAdapter)).read_text(
             encoding="utf-8"
