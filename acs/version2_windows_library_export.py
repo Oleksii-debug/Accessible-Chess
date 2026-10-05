@@ -161,14 +161,14 @@ class Version2WindowsLibraryExportDelegate:
     def _focus(self) -> str:
         try:
             value = self._focus_provider()
-        except Exception:
+        except BaseException:
             return ""
         return value if type(value) is str else ""
 
     def _emit(self, event: LibraryExportHostEvent) -> LibraryExportHostEvent:
         try:
             self._event_sink(event)
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 Library export event sink failed", exc_info=True)
         return event
 
@@ -193,7 +193,7 @@ class Version2WindowsLibraryExportDelegate:
         previous_focus = self._focus()
         try:
             request = LibraryExportRequest.from_payload(payload)
-        except Exception:
+        except BaseException:
             return self._failed("invalid_export_request", previous_focus)
 
         if self.asynchronous:
@@ -205,7 +205,7 @@ class Version2WindowsLibraryExportDelegate:
 
         try:
             destination = self._dialogs.export_selection("library-export.pgn")
-        except Exception:
+        except BaseException:
             return self._failed("file_dialog_failed", previous_focus)
         if destination is None:
             return self._emit(
@@ -242,7 +242,7 @@ class Version2WindowsLibraryExportDelegate:
                 focus_target=previous_focus,
                 game_count=result.game_count,
             )
-        except Exception:
+        except BaseException:
             return self._failed("library_export_failed", previous_focus)
         return self._emit(terminal)
 
