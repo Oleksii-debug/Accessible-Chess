@@ -3,8 +3,8 @@ from __future__ import annotations
 """Lifecycle-safe composition of Version 2 trusted Windows file-workflow ports.
 
 This module does not register actions and does not own PGN, Library, ChessBase or
-projection semantics.  It assembles the already-owned #300 host primitives into
-one object that a production Windows composition root can inject behind the
+projection semantics. It assembles the already-owned host primitives into one
+object that a production Windows composition root can inject behind the
 canonical action router without reimplementing dialog, threading or shutdown
 rules.
 """
@@ -31,14 +31,14 @@ from .version2_windows_pgn_streaming_host import Version2WindowsStreamingFileAct
 class Version2WindowsFileWorkflowRuntime:
     """Compose trusted file actions, async UI handoff and orderly shutdown.
 
-    The runtime is created on the WinForms UI thread.  ``owner_control`` is the
+    The runtime is created on the WinForms UI thread. ``owner_control`` is the
     exact application Form/Control used both for native dialog ownership and
-    ``BeginInvoke`` marshalling.  ``import_ui_ready`` receives the bounded mailbox
+    ``BeginInvoke`` marshalling. ``import_ui_ready`` receives the bounded mailbox
     on that same UI thread; the Library presentation owner remains responsible for
     interpreting/draining its path-free canonical events.
 
     ``dialog_language_provider`` is presentation-only and resolved lazily by each
-    native dialog.  It may therefore follow the live V2 shell language without
+    native dialog. It may therefore follow the live V2 shell language without
     rebuilding this runtime or creating a second language state.
     """
 
@@ -57,9 +57,13 @@ class Version2WindowsFileWorkflowRuntime:
         dialog_language_provider: Callable[[], object] | None = None,
         mailbox_max_events: int = 64,
         ui_delegate_factory: Callable[[Callable[[], None]], object] | None = None,
-        file_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]]
+        file_forms_loader: Callable[
+            [], tuple[object, Callable[[], object], Callable[[], object]]
+        ]
         | None = None,
-        export_forms_loader: Callable[[], tuple[object, Callable[[], object], Callable[[], object]]]
+        export_forms_loader: Callable[
+            [], tuple[object, Callable[[], object], Callable[[], object]]
+        ]
         | None = None,
     ) -> None:
         for name, callback in (
@@ -121,6 +125,7 @@ class Version2WindowsFileWorkflowRuntime:
             event_sink=self._pump,
             next_delegate=self._export_delegate,
             current_focus_provider=current_focus_provider,
+            post_to_ui=self._poster,
         )
 
     @property
@@ -135,6 +140,10 @@ class Version2WindowsFileWorkflowRuntime:
     @property
     def import_running(self) -> bool:
         return self._file_delegate.import_running
+
+    @property
+    def pgn_open_running(self) -> bool:
+        return self._file_delegate.pgn_open_running
 
     @property
     def import_mailbox(self) -> Version2ImportUiEventMailbox:
@@ -159,6 +168,9 @@ class Version2WindowsFileWorkflowRuntime:
     def wait_for_import(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_import(timeout)
 
+    def wait_for_pgn_open(self, timeout: float | None = None) -> bool:
+        return self._file_delegate.wait_for_pgn_open(timeout)
+
     def request_pending_import_wakeup(self) -> bool:
         with self._lock:
             if self._closed:
@@ -166,7 +178,7 @@ class Version2WindowsFileWorkflowRuntime:
         return self._pump.request_pending_wakeup()
 
     def shutdown(self, timeout: float | None = None) -> bool:
-        """Cancel/join import before closing the UI pump; retryable on timeout."""
+        """Cancel/join active file worker before closing the UI pump."""
 
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow shutdown requires UI thread")
@@ -176,8 +188,8 @@ class Version2WindowsFileWorkflowRuntime:
 
         stopped = self._file_delegate.shutdown(timeout)
         if not stopped:
-            # Keep the pump/runtime live so the still-running worker can finish and
-            # its terminal event can be observed; caller may retry shutdown.
+            # Keep the pump/runtime live so a still-running worker can terminate;
+            # caller may retry shutdown. PGN Open publication is already fenced.
             return False
 
         self._pump.close()
