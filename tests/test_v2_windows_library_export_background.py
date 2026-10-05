@@ -173,6 +173,44 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_export_request_rejects_provider_containers_without_running_hooks(self) -> None:
+        touched: list[str] = []
+
+        class HostileDict(dict):
+            def __len__(self):
+                touched.append("dict-len")
+                raise AssertionError("hostile dict hook executed")
+
+            def __iter__(self):
+                touched.append("dict-iter")
+                raise AssertionError("hostile dict hook executed")
+
+            def get(self, *_args, **_kwargs):
+                touched.append("dict-get")
+                raise AssertionError("hostile dict hook executed")
+
+        class HostileList(list):
+            def __len__(self):
+                touched.append("list-len")
+                raise AssertionError("hostile list hook executed")
+
+            def __iter__(self):
+                touched.append("list-iter")
+                raise AssertionError("hostile list hook executed")
+
+        with self.assertRaisesRegex(ValueError, "invalid Library export request"):
+            LibraryExportRequest.from_payload(
+                HostileDict({"scope": "selected", "game_ids": [1]})
+            )
+        with self.assertRaisesRegex(ValueError, "invalid Library export filters"):
+            LibraryExportRequest.from_payload(
+                {"scope": "filtered", "filters": HostileDict({"player": "A"})}
+            )
+        with self.assertRaisesRegex(TypeError, "selected game ids"):
+            LibraryExportRequest.selected(HostileList([1]))
+
+        self.assertEqual(touched, [])
+
     def test_direct_empty_selected_request_fails_before_any_file_write(self) -> None:
         database = AcsDatabase()
         try:
