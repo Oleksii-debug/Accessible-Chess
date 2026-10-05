@@ -153,6 +153,17 @@ _REQUIRED_DESKTOP_RUNTIME_FILES = (
     "AccessibleChess/webview/lib/Microsoft.Web.WebView2.WinForms.dll",
     "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll",
 )
+_REQUIRED_AMD64_DESKTOP_RUNTIME_FILES = frozenset(
+    {
+        "AccessibleChess/python312.dll",
+        "AccessibleChess/_cffi_backend.pyd",
+        "AccessibleChess/libffi-8.dll",
+        "AccessibleChess/vcruntime140.dll",
+        "AccessibleChess/vcruntime140_1.dll",
+        "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
+        "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll",
+    }
+)
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -1229,6 +1240,11 @@ def _validate_required_runtime_resources(
         _validate_windows_pe_executable(
             runtime_binary,
             label=f"packaged desktop runtime {relative}",
+            expected_machine=(
+                0x8664
+                if relative in _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES
+                else None
+            ),
         )
 
     for relative in _REQUIRED_WEB_FILES:
@@ -1249,6 +1265,7 @@ def _validate_required_runtime_resources(
     _validate_windows_pe_executable(
         stockfish,
         label="packaged Stockfish 18 executable",
+        expected_machine=0x8664,
     )
 
     manifest_path = _require_package_file(
