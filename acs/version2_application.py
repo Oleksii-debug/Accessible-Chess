@@ -78,6 +78,7 @@ class Version2Application:
     training_workspace = None
     training = None
     _pgn_browser_lease_required = False
+    _pending_shell_publication_restore = None
     _book_browser_lease_required = False
     _book_browser_dispatch_token = None
 
