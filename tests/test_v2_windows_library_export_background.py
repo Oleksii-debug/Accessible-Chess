@@ -7,12 +7,15 @@ import threading
 import unittest
 
 from acs.acsdb import AcsDatabase
+from acs.full_product_actions import build_full_product_action_registry
 from acs.full_product_ui_shell import UILanguage
+from acs.keybindings import BindingContext
 from acs.library_export_service import (
     LibraryExportCancelledError,
     LibraryExportRequest,
     LibraryExportService,
 )
+from acs.library_export_workspace import build_library_export_webview
 from acs.pgn_service import open_pgn
 from acs.search_service import GameSearchQuery
 from acs.version2_application import Version2Application
@@ -363,6 +366,108 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertFalse(delegate.export_running)
             self.assertEqual(post_attempts, 2)
             self.assertEqual(len(open_pgn(destination).games), 1)
+
+    def test_export_activity_enables_one_shared_cancel_action_and_blocks_competing_ui_work(self) -> None:
+        database = AcsDatabase()
+        dispatched: list[tuple[str, dict[str, object]]] = []
+        try:
+            database.import_pgn_text(_PGN, source_name="projection.pgn")
+            bridge = build_library_export_webview(
+                database,
+                lambda action, payload: dispatched.append((action, dict(payload))),
+                language=UILanguage.EN,
+            )
+            bridge.dispatch("library.search", {})
+            baseline = bridge.projection.snapshot()
+            baseline_import = baseline["import"]
+            self.assertTrue(baseline_import["actions"][0]["enabled"])
+            self.assertFalse(baseline_import["actions"][1]["enabled"])
+
+            started = bridge.projection.host_export_started()
+            self.assertEqual(started.kind, "render-import")
+            started_actions = started.payload["import"]["actions"]
+            self.assertFalse(started_actions[0]["enabled"])
+            self.assertTrue(started_actions[1]["enabled"])
+            self.assertEqual(started_actions[1]["label"], "Cancel export")
+
+            busy_snapshot = bridge.projection.snapshot()
+            export_actions = {
+                action["action"]: action
+                for action in busy_snapshot["actions"]
+                if action["action"].startswith("library.export_")
+            }
+            self.assertFalse(export_actions["library.export_selected"]["enabled"])
+            self.assertFalse(export_actions["library.export_filtered"]["enabled"])
+
+            cancelling = bridge.dispatch("library.cancel_import", {})
+            self.assertEqual(dispatched[-1], ("library.cancel_import", {}))
+            self.assertEqual(cancelling.kind, "render-import")
+            self.assertFalse(cancelling.payload["import"]["actions"][1]["enabled"])
+
+            finished = bridge.projection.host_export_finished()
+            self.assertEqual(finished.kind, "render-import")
+            finished_actions = finished.payload["import"]["actions"]
+            self.assertTrue(finished_actions[0]["enabled"])
+            self.assertFalse(finished_actions[1]["enabled"])
+            self.assertFalse(bridge.projection.export_running)
+        finally:
+            database.close()
+
+    def test_cancel_library_operation_hotkey_resolves_from_library_and_document_contexts(self) -> None:
+        registry = build_full_product_action_registry()
+        definition = registry.definition("library.cancel_import")
+        self.assertEqual(definition.context, BindingContext.GLOBAL)
+        self.assertEqual(registry.get_binding("library.cancel_import"), "Ctrl+Shift+X")
+        for context in (
+            BindingContext.DOCUMENT,
+            BindingContext.DATABASE,
+            BindingContext.LIBRARY_RESULTS,
+        ):
+            with self.subTest(context=context):
+                resolved = registry.resolve_binding(context, "Ctrl+Shift+X")
+                self.assertIsNotNone(resolved)
+                self.assertEqual(resolved.action_id, "library.cancel_import")
+
+    def test_application_publishes_export_cancel_availability_as_partial_library_event(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="app-projection.pgn")
+            bridge = build_library_export_webview(
+                database,
+                lambda action, payload: None,
+                language=UILanguage.EN,
+            )
+            fake = SimpleNamespace(
+                shell=SimpleNamespace(language=UILanguage.EN),
+                library=bridge,
+                _events=[],
+                _native_file_error_message=lambda event: "The action could not be completed.",
+            )
+            started = LibraryExportHostEvent(
+                LibraryExportHostEventKind.STARTED,
+                focus_target="library-export-selected",
+            )
+            Version2Application._file_event(fake, started)
+            self.assertEqual(fake._events[0]["kind"], "render-import")
+            self.assertTrue(fake._events[0]["payload"]["import"]["actions"][1]["enabled"])
+            self.assertEqual(fake._events[1]["kind"], "status")
+
+            fake._events.clear()
+            terminal = LibraryExportHostEvent(
+                LibraryExportHostEventKind.EXPORTED,
+                focus_target="library-export-selected",
+                game_count=1,
+            )
+            Version2Application._file_event(fake, terminal)
+            self.assertEqual(fake._events[0]["kind"], "render-import")
+            self.assertFalse(fake._events[0]["payload"]["import"]["actions"][1]["enabled"])
+            self.assertEqual(
+                fake._events[1]["payload"]["focus_target"],
+                "library-export-selected",
+            )
+            self.assertFalse(bridge.projection.export_running)
+        finally:
+            database.close()
 
     def test_application_projects_worker_lifecycle_and_terminal_focus(self) -> None:
         fake = SimpleNamespace(
