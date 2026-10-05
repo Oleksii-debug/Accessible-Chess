@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Thread-safe host handoff for asynchronous Version 2 Library import events.
+"""Thread-safe host handoff for asynchronous Version 2 file-workflow events.
 
 ``Version2WindowsFileActionDelegate`` returns user-invoked file-action status on
 the UI thread, but long Library imports also emit progress/terminal events from a
@@ -32,10 +32,31 @@ _ASYNC_IMPORT_KINDS = frozenset(
     }
 )
 _IMPORT_ACTION_IDS = frozenset({"library.import", "library.cancel_import"})
+_ASYNC_PGN_OPEN_KINDS = frozenset(
+    {
+        FileWorkflowEventKind.PGN_OPENED,
+        FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+        FileWorkflowEventKind.FAILED,
+    }
+)
+
+
+def _validate_async_file_event(event: FileWorkflowEvent) -> None:
+    if not isinstance(event, FileWorkflowEvent):
+        raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
+    if event.action_id in _IMPORT_ACTION_IDS:
+        if event.kind not in _ASYNC_IMPORT_KINDS:
+            raise ValueError("worker UI mailbox received an invalid Library import event")
+        return
+    if event.action_id == "pgn.open":
+        if event.kind not in _ASYNC_PGN_OPEN_KINDS:
+            raise ValueError("worker UI mailbox received an invalid PGN Open event")
+        return
+    raise ValueError("worker UI mailbox received an invalid file action")
 
 
 class Version2ImportUiEventMailbox:
-    """Bounded worker->UI mailbox for path-free Library import host events.
+    """Bounded asynchronous file-workflow mailbox for path-free host events.
 
     Construct this object on the Windows UI thread and use it as the file-action
     delegate's ``event_sink``.  Events emitted on that same UI thread are not
@@ -80,15 +101,6 @@ class Version2ImportUiEventMailbox:
         with self._lock:
             return self._coalesced_progress
 
-    @staticmethod
-    def _validate_async_import_event(event: FileWorkflowEvent) -> None:
-        if not isinstance(event, FileWorkflowEvent):
-            raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
-        if event.kind not in _ASYNC_IMPORT_KINDS:
-            raise ValueError("worker UI mailbox accepts Library import events only")
-        if event.action_id not in _IMPORT_ACTION_IDS:
-            raise ValueError("worker UI mailbox received an invalid import action")
-
     def __call__(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
         return self.put(event)
 
@@ -97,11 +109,20 @@ class Version2ImportUiEventMailbox:
             raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
 
         # User-invoked actions already return this event synchronously to the UI
-        # caller.  Re-queueing it would create duplicate announcements/focus work.
+        # caller. Re-queueing them would duplicate announcements/focus work.
         if threading.get_ident() == self._ui_thread_id:
             return event
+        return self._put_async(event)
 
-        self._validate_async_import_event(event)
+    def put_async_owner(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        """Queue one asynchronous completion that already reached the UI thread."""
+
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("owner asynchronous file events require the UI thread")
+        return self._put_async(event)
+
+    def _put_async(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        _validate_async_file_event(event)
         with self._lock:
             if self._overflowed:
                 return event
@@ -115,11 +136,19 @@ class Version2ImportUiEventMailbox:
 
             if len(self._events) >= self._max_events:
                 self._events.clear()
+                overflow_action = (
+                    "pgn.open" if event.action_id == "pgn.open" else "library.import"
+                )
+                overflow_focus = (
+                    event.focus_target
+                    if overflow_action == "pgn.open" and event.focus_target
+                    else "library-import-file"
+                )
                 self._events.append(
                     FileWorkflowEvent(
                         FileWorkflowEventKind.FAILED,
-                        "library.import",
-                        focus_target="library-import-file",
+                        overflow_action,
+                        focus_target=overflow_focus,
                         error_code="ui_event_queue_overflow",
                     )
                 )
