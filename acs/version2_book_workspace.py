@@ -678,9 +678,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         snapshot = super()._snapshot_from_block(block)
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
-        semantic = self._reader.block_snapshot(block.index)
-        book_title, book_author = self._reader.document_title_author_snapshot()
-        source_language = self._reader.document_language_snapshot()
+        semantic, book_title, book_author, source_language = self._reader.block_reading_snapshot(block.index)
         valid_source_language = (type(source_language) is str and len(source_language) <= 63
                                  and re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", source_language))
         def reading_metadata(value):

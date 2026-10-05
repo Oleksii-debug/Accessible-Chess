@@ -39,6 +39,17 @@ class BookSemanticGameMetadataTests(unittest.TestCase):
         self.assertNotIn('C:/private', metadata['author'])
         self.assertEqual(len(reader.document_title_author_snapshot()[0]), 1000)
 
+    def test_block_reading_snapshot_is_detached_and_fails_on_changed_source_blocks(self):
+        document = BookDocument('Study', author='Author', language='en', blocks=[Paragraph(text='Original')])
+        reader = BookReader(document)
+        block, title, author, language = reader.block_reading_snapshot(0)
+        self.assertEqual((title, author, language), ('Study', 'Author', 'en'))
+        block.text = 'Detached mutation'
+        self.assertEqual(reader.block_snapshot(0).text, 'Original')
+        document.blocks[0].text = 'Changed live source'
+        with self.assertRaises(RuntimeError):
+            reader.block_reading_snapshot(0)
+
     def test_invalid_source_language_is_not_a_browser_attribute(self):
         for language in ('x' * 64, 'en\" onclick=\"attack', 'C:/private/book'):
             reader = BookReader(BookDocument('Study', language=language, blocks=[Paragraph(text='Prose')]))
