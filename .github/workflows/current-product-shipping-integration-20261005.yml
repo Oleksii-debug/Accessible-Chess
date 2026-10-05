@@ -42,6 +42,7 @@ jobs:
           PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
           PINNED_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           INTEGRATION_WORKFLOW: .github/workflows/current-product-shipping-integration-20261005.yml
@@ -77,6 +78,7 @@ jobs:
 
           extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected_extra="$(printf '%s\n' \
+            "$MANIFEST_SOURCE_GATE" \
             "$ACCESSIBILITY_GATE" \
             "$PORTABLE_GATE" \
             "$INTEGRATION_WORKFLOW" \
@@ -99,7 +101,7 @@ jobs:
           echo "SHIPPING_BASE=$live_shipping"
           echo "PRODUCT_SOURCE=$live_product"
           echo "PRODUCT_PATHS=$product_count"
-          echo "QUALIFICATION_DELTA_PATHS=4"
+          echo "QUALIFICATION_DELTA_PATHS=5"
           echo "CANDIDATE_PATHS=$candidate_count"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
