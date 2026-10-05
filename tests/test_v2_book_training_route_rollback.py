@@ -296,6 +296,23 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIs(prior_workspace, self.app.training_workspace)
         self.assertIs(prior_training, self.app.training)
         self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
+
+        duplicate_rollback = self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+        self.assertEqual("presentation-rollback", duplicate_rollback["kind"])
+        self.assertEqual(prior_route, self.app.shell.current_route.route_id)
+
+        opposite_commit = self.app.browser_command(
+            "shell",
+            "shell.presentation_commit",
+            {"token": token},
+        )
+        self.assertEqual("error", opposite_commit["kind"])
+        self.assertEqual(prior_route, self.app.shell.current_route.route_id)
 
     def test_acknowledged_route_commit_is_single_pending_one_shot(self):
         self._open_exercise_book()
@@ -315,6 +332,15 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         )
         self.assertEqual("error", blocked["kind"])
         self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        native_style = self.app.adapter.activate_action(
+            "screen.settings",
+            current_focus_id=self.app._focus,
+        )
+        self.assertEqual("error", native_style.kind)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertTrue(self.app.shell._publication_hold_active)
 
         committed = self.app.browser_command(
             "shell",
@@ -324,6 +350,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("presentation-commit", committed["kind"])
         self.assertEqual(token, committed["payload"]["token"])
         self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
         self.assertEqual("library", self.app.shell.current_route.route_id)
 
         duplicate_commit = self.app.browser_command(
