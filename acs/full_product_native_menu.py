@@ -246,6 +246,7 @@ class FullProductNativeMenuController:
         *,
         exit_callback: Callable[[], Any],
         current_focus_provider: Callable[[], str] | None = None,
+        focus_restore: Callable[[str], Any] | None = None,
         conversion_callback: Callable[[str], Any] | None = None,
     ) -> None:
         if not isinstance(adapter, FullProductWebViewAdapter):
@@ -254,12 +255,15 @@ class FullProductNativeMenuController:
             raise TypeError("native menu callbacks must be callable")
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("native menu focus provider must be callable")
+        if focus_restore is not None and not callable(focus_restore):
+            raise TypeError("native menu focus restore must be callable")
         if conversion_callback is not None and not callable(conversion_callback):
             raise TypeError("native conversion callback must be callable")
         self._adapter = adapter
         self._command_sink = command_sink
         self._exit_callback = exit_callback
         self._focus_provider = current_focus_provider or (lambda: "")
+        self._focus_restore = focus_restore
         self._conversion_callback = conversion_callback
         self._conversion_owner = None
 
@@ -284,13 +288,25 @@ class FullProductNativeMenuController:
                 show_pgn_conversion_dialog(language=self._adapter.shell.language.value, owner=self._conversion_owner)
             return None
         focus = self._focus_provider()
-        if not isinstance(focus, str):
+        if type(focus) is not str:
             raise TypeError("native menu focus provider must return text")
+        previous_shell = self._adapter.shell._capture_presentation_state()
         command = self._adapter.activate_action(
             item.action_id,
             current_focus_id=focus,
         )
-        self._command_sink(command)
+        try:
+            self._command_sink(command)
+        except Exception:
+            # The production sink publishes only after its fallible route/focus
+            # preparation succeeds. If delivery raises, the native host did not
+            # receive the command; restore both shell presentation state and the
+            # native application's external focus token captured at ingress.
+            # Domain effects remain intentionally outside this rollback.
+            self._adapter.shell._restore_presentation_state(previous_shell)
+            if self._focus_restore is not None:
+                self._focus_restore(focus)
+            raise
         return command
 
 

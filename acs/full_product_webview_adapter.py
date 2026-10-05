@@ -93,7 +93,10 @@ class FullProductWebViewAdapter:
 
     def record_focus(self, element_id: str) -> WebViewCommand:
         self._shell.record_focus(element_id)
-        return WebViewCommand("focus-recorded", {"element_id": element_id.strip()})
+        # _clean_focus_id rejects surrounding whitespace and active str
+        # subclasses, so the exact validated built-in string is already the
+        # canonical browser identity. Do not invoke it again after mutation.
+        return WebViewCommand("focus-recorded", {"element_id": element_id})
 
     def _safe_error(self, exc: Exception) -> WebViewCommand:
         # Registry misses and non-domain exceptions are implementation details,
@@ -113,6 +116,7 @@ class FullProductWebViewAdapter:
         *,
         current_focus_id: str = "",
     ) -> WebViewCommand:
+        previous_shell = self._shell._capture_presentation_state()
         try:
             result = self._router.dispatch(
                 action_id,
@@ -120,14 +124,24 @@ class FullProductWebViewAdapter:
                 current_focus_id=current_focus_id,
             )
         except Exception as exc:  # UI boundary: sanitize before user projection.
+            # Dispatch may already have recorded focus or a delegate may have
+            # changed routes before failing.  Domain effects are not reversible
+            # here, but unpublished presentation state must stay aligned with
+            # the WebView/NVDA document the user actually has.
+            self._shell._restore_presentation_state(previous_shell)
             return self._safe_error(exc)
         if result.handled_by_shell:
+            try:
+                snapshot = self.snapshot()
+            except Exception as exc:
+                self._shell._restore_presentation_state(previous_shell)
+                return self._safe_error(exc)
             return WebViewCommand(
                 "route",
                 {
                     "route_id": result.route_id or "",
                     "focus_target": result.focus_target or "",
-                    "snapshot": self.snapshot(),
+                    "snapshot": snapshot,
                 },
             )
         return WebViewCommand(
@@ -155,7 +169,9 @@ class FullProductWebViewAdapter:
             return self._safe_error(exc)
         return WebViewCommand(
             "dialog-open",
-            {"dialog_id": dialog_id.strip(), "focus_target": target},
+            # The shell accepted only an exact, regex-valid built-in string.
+            # Reuse it directly so no post-mutation string hook can run.
+            {"dialog_id": dialog_id, "focus_target": target},
         )
 
     def close_dialog(self, dialog_id: str | None = None) -> WebViewCommand:

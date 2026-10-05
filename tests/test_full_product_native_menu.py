@@ -301,6 +301,92 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
 
+    def test_native_sink_failure_restores_unpublished_route_and_focus(self) -> None:
+        controller, _calls, commands, _exits = make_controller()
+        shell = controller._adapter.shell
+        library = next(
+            item
+            for item in controller.spec()[4].items
+            if item.action_id == "screen.library"
+        )
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("move-input", shell.restore_focus_target())
+
+        def rejecting_sink(_command):
+            raise RuntimeError("native host rejected command before publication")
+
+        controller._command_sink = rejecting_sink
+        with self.assertRaisesRegex(RuntimeError, "native host rejected"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("move-input", shell.restore_focus_target())
+        self.assertEqual([], commands)
+
+        controller._command_sink = commands.append
+        committed = controller.activate(library)
+        self.assertEqual("route", committed.kind)
+        self.assertEqual("library", shell.current_route.route_id)
+        self.assertEqual([committed], commands)
+
+    def test_active_native_focus_subclass_is_rejected_before_adapter_dispatch(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active native focus hook must not execute")
+
+        controller._focus_provider = lambda: HostileText("board-square-e4")
+        library = next(
+            item
+            for item in controller.spec()[4].items
+            if item.action_id == "screen.library"
+        )
+
+        with self.assertRaisesRegex(TypeError, "focus provider"):
+            controller.activate(library)
+
+        self.assertFalse(HostileText.touched)
+        self.assertEqual("board", controller._adapter.shell.current_route.route_id)
+        self.assertEqual([], calls)
+        self.assertEqual([], commands)
+
+    def test_native_sink_failure_restores_external_focus_token_when_callback_is_bound(self) -> None:
+        shell = AccessibleShellState(language=UILanguage.EN)
+        registry = build_full_product_action_registry()
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, lambda _action, _payload: {"ok": True}, registry=registry),
+        )
+        host_focus = {"value": "board-launcher"}
+        library = next(
+            item
+            for menu in build_full_product_menu_spec(registry, language=UILanguage.EN)
+            for item in menu.items
+            if item.action_id == "screen.library"
+        )
+
+        def rejecting_sink(_command):
+            host_focus["value"] = "library-search-player"
+            raise RuntimeError("native publication failed")
+
+        controller = FullProductNativeMenuController(
+            adapter,
+            rejecting_sink,
+            exit_callback=lambda: None,
+            current_focus_provider=lambda: host_focus["value"],
+            focus_restore=lambda token: host_focus.__setitem__("value", token),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "native publication failed"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", host_focus["value"])
+
     def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
         controller, _calls, _commands, _exits = make_controller()
         form = FakeForm()
