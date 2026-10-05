@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import PropertyMock, patch
 
 from acs.analysis_service import AnalysisService
-from acs.book_board_workflow import BookBoardWorkflow
+from acs.book_board_workflow import (
+    BookBoardWorkflow,
+    BookBoardWorkflowCode,
+    BookBoardWorkflowError,
+)
 from acs.bookdocument import BookDocument, Diagram, Exercise, Position, VariationTree
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.engine_ports import EngineContractError, EngineContractErrorCode
+from acs.full_product_actions import ActionDispatchResult
+from acs.version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
+from acs.version2_book_workspace import Version2BookWebViewProjection
 
 
 class _IdleEngine:
@@ -51,6 +59,617 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
             "^engine_assistance must be EngineAssistedWorkflowService$",
         ):
             BookBoardWorkflow(self._reader(), hostile)
+
+    def test_book_workspace_rejects_workflow_subclass_before_authority_hooks(self) -> None:
+        class HostileBookBoardWorkflow(BookBoardWorkflow):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"active", "revision", "semantic_game_snapshot"}:
+                    type(self).touched = True
+                    raise AssertionError("BookBoardWorkflow subclass hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostileBookBoardWorkflow.__new__(HostileBookBoardWorkflow)
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^V2 Books requires the canonical reader and workflow$",
+        ):
+            Version2BookWebViewProjection(
+                self._reader(),
+                hostile,
+                lambda *_args: None,
+            )
+
+        self.assertFalse(HostileBookBoardWorkflow.touched)
+
+    def test_book_workspace_rejects_mismatched_exact_reader_authorities(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        visible_reader = self._reader()
+        workflow_reader = BookReader(
+            BookDocument(
+                "Different semantic authority",
+                blocks=[Position(fen=Board.START, block_id="other")],
+            )
+        )
+        workflow = BookBoardWorkflow(
+            workflow_reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^V2 Books reader and workflow must share one authority$",
+        ):
+            Version2BookWebViewProjection(
+                visible_reader,
+                workflow,
+                lambda *_args: None,
+            )
+
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(visible_reader.index, 0)
+        self.assertEqual(workflow_reader.index, 0)
+
+    def test_book_workspace_rejects_active_detached_metadata_before_hooks(self) -> None:
+        class ActiveMetadata(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active Book metadata length hook must not execute")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("active Book metadata slice hook must not execute")
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+        block = projection._presenter.current()
+        reader._indexed_document.title = ActiveMetadata("forged title")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^book reading metadata is invalid$",
+        ):
+            projection._snapshot_from_block(block)
+
+        self.assertFalse(ActiveMetadata.touched)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_book_workspace_rejects_non_text_detached_author(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+        block = projection._presenter.current()
+        reader._indexed_document.author = 7
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "^book reading metadata is invalid$",
+        ):
+            projection._snapshot_from_block(block)
+
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_book_workspace_rejects_semantic_subclass_for_board_enablement(self) -> None:
+        class HostilePosition(Position):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name == "fen":
+                    type(self).touched = True
+                    raise AssertionError("semantic subclass field hook must not execute")
+                return super().__getattribute__(name)
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+        block = projection._presenter.current()
+        hostile = HostilePosition(fen=Board.START, block_id="hostile")
+        HostilePosition.armed = True
+
+        with patch.object(
+            BookReader,
+            "block_reading_snapshot",
+            return_value=(hostile, "Engine authority", None, None),
+        ):
+            snapshot = projection._snapshot_from_block(block)
+
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertFalse(open_action["enabled"])
+        self.assertFalse(HostilePosition.touched)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_book_workspace_contains_semantic_dispatch_base_exception(self) -> None:
+        class DispatchAbort(BaseException):
+            pass
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: (_ for _ in ()).throw(DispatchAbort("host aborted")),
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
+    def test_book_workspace_rejects_active_action_result_before_value_probe(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveResult:
+            touched = False
+
+            def __getattribute__(self, name):
+                if name == "value":
+                    type(self).touched = True
+                    raise AssertionError("active result value hook must not execute")
+                return super().__getattribute__(name)
+
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: ActiveResult(),
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveResult.touched)
+
+    def test_book_workspace_rejects_active_ui_event_subclass_before_field_access(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveBookBoardUiEvent(BookBoardUiEvent):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"kind", "action_id", "revision"}:
+                    type(self).touched = True
+                    raise AssertionError("active UI event field hook must not execute")
+                return super().__getattribute__(name)
+
+        active = ActiveBookBoardUiEvent.__new__(ActiveBookBoardUiEvent)
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: active,
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveBookBoardUiEvent.touched)
+
+    def test_book_workspace_rejects_active_wrapper_action_id_before_comparison(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveActionId(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("active wrapper action comparison must not execute")
+
+            def __ne__(self, other):
+                type(self).touched = True
+                raise AssertionError("active wrapper action comparison must not execute")
+
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=workflow.revision,
+        )
+        wrapped = ActionDispatchResult(
+            action_id=ActiveActionId("book.open_position"),
+            handled_by_shell=False,
+            value=event,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: wrapped,
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveActionId.touched)
+
+    def test_book_workspace_rejects_mutated_active_event_scalar_before_comparison(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveActionId(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("active event action comparison must not execute")
+
+            def __ne__(self, other):
+                type(self).touched = True
+                raise AssertionError("active event action comparison must not execute")
+
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=workflow.revision,
+        )
+        object.__setattr__(event, "action_id", ActiveActionId("book.open_position"))
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveActionId.touched)
+
+    def test_book_workspace_rejects_event_when_workflow_revision_drifts_during_validation(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=7,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(7, 8),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=True,
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+    def test_book_workspace_normalizes_direct_workflow_state_abort(self) -> None:
+        class WorkflowStateAbort(BaseException):
+            pass
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=WorkflowStateAbort("corrupted workflow state"),
+        ):
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                projection._workflow_presentation_state()
+
+        self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
+        self.assertFalse(workflow.active)
+
+    def test_book_workspace_contains_workflow_state_abort_after_dispatch(self) -> None:
+        class WorkflowStateAbort(BaseException):
+            pass
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=0,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=WorkflowStateAbort("corrupted workflow state"),
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+        self.assertFalse(workflow.active)
+
+    def test_book_workspace_rejects_active_workflow_revision_scalar_before_comparison(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=0,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        class ActiveRevision(int):
+            touched = False
+
+            def __ne__(self, other):
+                type(self).touched = True
+                raise AssertionError("active workflow revision comparison must not execute")
+
+            def __lt__(self, other):
+                type(self).touched = True
+                raise AssertionError("active workflow revision ordering must not execute")
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(ActiveRevision(0), ActiveRevision(0)),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=True,
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+        self.assertFalse(ActiveRevision.touched)
+
+    def test_book_workspace_rejects_active_workflow_active_scalar_before_truthiness(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=0,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        class ActiveState:
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("active workflow truthiness must not execute")
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(0, 0),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=ActiveState(),
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+        self.assertFalse(ActiveState.touched)
+
+    def test_book_workspace_rejects_negative_workflow_revision(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=-1,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(-1, -1),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=True,
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+    def test_book_workspace_accepts_exact_router_result_with_exact_ui_event(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        workflow.open_current()
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=workflow.revision,
+        )
+        wrapped = ActionDispatchResult(
+            action_id="book.open_position",
+            handled_by_shell=False,
+            value=event,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: wrapped,
+        )
+
+        self.assertTrue(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
 
     def test_book_block_analysis_rejects_semantic_subclass_before_attribute_hooks(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
