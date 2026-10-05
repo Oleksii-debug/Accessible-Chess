@@ -44,8 +44,8 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
-          PINNED_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50
-          PREDECESSOR_PGN_HEAD: ab2cb5b9e9872a5c53598cf82c9699fe02155f16
+          PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152
+          PREDECESSOR_PGN_HEAD: 8ac3756564b4a2331df5af1062ebf5adc12e4499
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
