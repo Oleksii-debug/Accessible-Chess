@@ -22,6 +22,7 @@ from acs.version2_package_preflight import (
     MANIFEST_NAME,
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
+    _REQUIRED_DESKTOP_RUNTIME_FILES,
     validate_version2_package_tree,
     validate_version2_package_zip,
 )
@@ -90,6 +91,10 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         (product / "runtime.dll").write_bytes(b"runtime")
+        for relative in _REQUIRED_DESKTOP_RUNTIME_FILES:
+            runtime = product.joinpath(*relative.split("/")[1:])
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            runtime.write_bytes(_minimal_windows_pe())
         for name in _REQUIRED_WEB:
             path = web / name
             path.parent.mkdir(parents=True, exist_ok=True)
