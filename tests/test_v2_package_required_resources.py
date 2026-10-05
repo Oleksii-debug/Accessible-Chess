@@ -206,6 +206,27 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_preflight_rejects_corrupt_file_backed_clr_metadata(self):
+        relative = "AccessibleChess/pythonnet/runtime/Python.Runtime.dll"
+        cases = (
+            ("clr-header-size", 0x200, (0x47).to_bytes(4, "little")),
+            ("metadata-signature", 0x280, b"NOPE"),
+        )
+        for label, offset, replacement in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = self._package(td)
+                binary = bytearray(
+                    _minimal_windows_pe(machine=0x014C, managed=True)
+                )
+                binary[offset:offset + len(replacement)] = replacement
+                root.joinpath(*relative.split("/")).write_bytes(binary)
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "managed CLR assembly",
+                ):
+                    _validate_tree(root)
+
     def test_preflight_rejects_wrong_machine_for_managed_runtime(self):
         for relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES:
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
