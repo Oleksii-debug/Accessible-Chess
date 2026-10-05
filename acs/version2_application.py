@@ -423,12 +423,30 @@ class Version2Application:
         return event
 
     def observe_progress(self, value: LibraryImportProgress):
-        if type(value) is not LibraryImportProgress: raise TypeError("invalid import progress")
-        with self._observation_lock: self._progress = value
+        if type(value) is not LibraryImportProgress:
+            raise TypeError("invalid import progress")
+        canonical = LibraryImportProgress(
+            value.attempt_id,
+            value.processed_games,
+            value.total_games,
+        )
+        with self._observation_lock:
+            self._progress = canonical
 
     def observe_result(self, value: LibraryImportResult):
-        if type(value) is not LibraryImportResult: raise TypeError("invalid import result")
-        with self._observation_lock: self._result = value
+        if type(value) is not LibraryImportResult:
+            raise TypeError("invalid import result")
+        canonical = LibraryImportResult(
+            value.attempt_id,
+            value.source_id,
+            value.game_count,
+            value.warning_count,
+            value.first_game_id,
+            value.last_game_id,
+            value.reused,
+        )
+        with self._observation_lock:
+            self._result = canonical
 
     def worker_factory(self, database_path, *, chessbase_factory=None):
         def create():
