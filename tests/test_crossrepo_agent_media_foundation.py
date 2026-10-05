@@ -502,6 +502,29 @@ class MediaTimelinePersistenceTests(unittest.TestCase):
             target.write_text(raw, encoding="utf-8")
             self.assertIsNone(store.load("media-1"))
 
+    def test_playback_sync_preserves_detached_analysis(self):
+        published: list[str] = []
+        service = MediaApplicationService(
+            MediaSession(
+                "media-1",
+                "fixture",
+                "recorded-1",
+                state=MediaPlaybackState.PLAYING,
+                current_ms=100,
+            ),
+            ProductCompositionTests._timeline(),
+            publish_position=published.append,
+        )
+        service.detach_for_analysis()
+        entry = asyncio.run(service.sync_playback_timestamp(1200))
+        self.assertEqual(entry.position_id, "position-1")
+        self.assertTrue(service.analysis_detached)
+        self.assertEqual(published, [])
+        restored = asyncio.run(service.restore_media_position())
+        self.assertEqual(restored.position_id, "position-1")
+        self.assertEqual(published, ["position-1"])
+        self.assertFalse(service.analysis_detached)
+
 
 if __name__ == "__main__":
     unittest.main()
