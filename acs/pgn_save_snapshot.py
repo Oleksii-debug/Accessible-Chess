@@ -34,6 +34,19 @@ from .pgn_service import (
 from .pgn_workspace import PgnWorkspace, PgnWorkspaceError
 
 
+_PLATFORM_PATH_TYPE = type(Path())
+
+
+def _passive_platform_path(value: object, *, field_name: str) -> Path:
+    """Accept only inert built-in text or the exact platform Path implementation."""
+
+    if type(value) is str:
+        return Path(value)
+    if type(value) is _PLATFORM_PATH_TYPE:
+        return value
+    raise TypeError(f"{field_name} must be plain text or an exact platform Path")
+
+
 class PgnSaveMode(str, Enum):
     SAVE = "save"
     SAVE_AS = "save_as"
@@ -483,7 +496,10 @@ def expected_pgn_destination_sha256(
 
     check = _validated_cancel_check(cancel_check)
     _raise_if_cancelled(check)
-    destination = Path(path)
+    destination = _passive_platform_path(
+        path,
+        field_name="PGN save destination",
+    )
     if not destination.exists():
         return None
     try:
@@ -562,7 +578,10 @@ def publish_pgn_save_snapshot(
     elif metadata.mode is PgnSaveMode.SAVE_AS:
         if path is None:
             raise TypeError("Save As snapshot requires a destination path")
-        destination = Path(path)
+        destination = _passive_platform_path(
+            path,
+            field_name="PGN Save As destination",
+        )
         expected_sha256 = _validated_expected_sha256(expected_sha256)
         if overwrite and expected_sha256 is None:
             raise PgnDocumentError(
