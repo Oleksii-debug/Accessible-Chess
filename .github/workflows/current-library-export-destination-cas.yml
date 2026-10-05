@@ -112,8 +112,12 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_windows_library_export_background
+          tests.test_v2_windows_host_runtime
+          tests.test_d07_library_export_reachability
           tests.test_d07_library_export_service
           tests.test_v2_windows_library_export
+          tests.test_full_product_library_keybindings
+          tests.test_version2_windows_composition_profile
           tests.test_pgn_service
           tests.test_pgn_concurrent_save
           tests.test_v2_windows_pgn_export
