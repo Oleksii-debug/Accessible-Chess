@@ -1,0 +1,93 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import acs.ui_keymap_service as keymap_module
+from acs.keybindings import ActionRegistry
+from acs.ui_keymap_service import KeymapService
+from acs.version2_final_product_profile import build_final_product_action_registry
+
+
+class KeymapPersistedReadIORecoveryTests(unittest.TestCase):
+    def test_initial_read_io_failure_blocks_incremental_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            profile = ActionRegistry().to_profile()
+            profile["bindings"]["history.go_to_move"] = "Alt+J"
+            original = (json.dumps(profile, sort_keys=True) + "\n").encode("utf-8")
+            path.write_bytes(original)
+
+            with patch.object(
+                keymap_module,
+                "_read_user_keymap_profile",
+                side_effect=PermissionError("sharing violation"),
+            ):
+                service = KeymapService(path, lang="en")
+
+            snapshot = service.snapshot()
+            self.assertTrue(snapshot["writeBlocked"])
+            self.assertEqual(snapshot["recoveryMessage"], "unreadable keymap profile")
+
+            blocked = service.save("history.go_to_move", "Alt+K")
+            self.assertFalse(blocked["ok"])
+            self.assertIn("could not be read", blocked["message"])
+            self.assertEqual(path.read_bytes(), original)
+
+            # The documented explicit replacement path remains available once the
+            # filesystem itself is writable; this is intentionally not an
+            # incremental mutation of an unreadable authority file.
+            replaced = service.reset_all()
+            self.assertTrue(replaced["ok"])
+            self.assertFalse(service.snapshot()["writeBlocked"])
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["bindings"]["history.go_to_move"], "Ctrl+G")
+
+    def test_product_registry_adoption_read_failure_blocks_later_save(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            profile = ActionRegistry().to_profile()
+            profile["bindings"]["history.go_to_move"] = "Alt+J"
+            path.write_text(json.dumps(profile), encoding="utf-8")
+            original = path.read_bytes()
+
+            service = KeymapService(path, lang="en")
+            self.assertFalse(service.snapshot()["writeBlocked"])
+            self.assertEqual(
+                service.editor.registry.get_binding("history.go_to_move"),
+                "Alt+J",
+            )
+
+            with patch.object(
+                keymap_module,
+                "_read_user_keymap_profile",
+                side_effect=OSError("device unavailable"),
+            ):
+                shared = service.adopt_registry(build_final_product_action_registry())
+
+            snapshot = service.snapshot()
+            self.assertTrue(snapshot["writeBlocked"])
+            self.assertEqual(snapshot["recoveryMessage"], "unreadable keymap profile")
+            # The already loaded narrow values remain usable in memory, while the
+            # wider registry is still adopted for application dispatch.
+            self.assertEqual(shared.get_binding("history.go_to_move"), "Alt+J")
+
+            blocked = service.save("library.open_game", "F8")
+            self.assertFalse(blocked["ok"])
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_structurally_invalid_profile_keeps_existing_recovery_classification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keymap.json"
+            path.write_text('{"schema_version": 1, "bindings": [}', encoding="utf-8")
+
+            service = KeymapService(path, lang="en")
+
+            snapshot = service.snapshot()
+            self.assertEqual(snapshot["recoveryMessage"], "invalid keymap profile")
+            self.assertFalse(snapshot["writeBlocked"])
+
+
+if __name__ == "__main__":
+    unittest.main()
