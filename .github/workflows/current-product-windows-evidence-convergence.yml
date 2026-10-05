@@ -39,7 +39,8 @@ jobs:
           INITIAL_PRODUCT_HEAD: 08e7641854a45b1435ea87eb461d10472058dc20
           CAS_PRODUCT_HEAD: ee3fe93aa379284d8af0672ae0cafb9961e88152
           PARENT_PRODUCT_HEAD: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
-          PRODUCT_HEAD: b3ccef128ff2f885d9c71cc036ab630533158f62
+          PRESENTATION_PRODUCT_HEAD: b3ccef128ff2f885d9c71cc036ab630533158f62
+          PRODUCT_HEAD: 1ff26020e22008bfd93762b436d4f58bffb0b08f
           ONECLICK_REF: fix/p0-oneclick-exact-head-concurrency-20261005-sol56r9k2
           ONECLICK_HEAD: 53123231abc76265e52b7d62832c9fb94adc0012
           LAUNCH_REPORT_REF: fix/portable-launch-report-ci-head-20261005-sol56h4q8
@@ -51,6 +52,8 @@ jobs:
           PARENT_RECONVERGENCE_MERGE: 4808f82eaecfea1b0b9689b4beb4facee446d32a
           PRE_PRESENTATION_RECONVERGENCE: 4c8be3939271b60fe242ac187401286140a5d78f
           PRESENTATION_RECONVERGENCE_MERGE: 9195b8b2ebea1ff68285896e4e4a5872eea89623
+          PRE_LIBRARY_RECONVERGENCE: 4326c3621fcfa95c32adb9bad2ac4d304f9c52a5
+          LIBRARY_RECONVERGENCE_MERGE: 412f61c833042f4ac741f853a03f1eaab000e1cb
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -83,8 +86,10 @@ jobs:
           git merge-base --is-ancestor "$PRODUCT_RECONVERGENCE_MERGE" HEAD
           test "$(git show -s --format=%P "$PARENT_RECONVERGENCE_MERGE")" = "$PRE_PARENT_RECONVERGENCE $PARENT_PRODUCT_HEAD"
           git merge-base --is-ancestor "$PARENT_RECONVERGENCE_MERGE" HEAD
-          test "$(git show -s --format=%P "$PRESENTATION_RECONVERGENCE_MERGE")" = "$PRE_PRESENTATION_RECONVERGENCE $PRODUCT_HEAD"
+          test "$(git show -s --format=%P "$PRESENTATION_RECONVERGENCE_MERGE")" = "$PRE_PRESENTATION_RECONVERGENCE $PRESENTATION_PRODUCT_HEAD"
           git merge-base --is-ancestor "$PRESENTATION_RECONVERGENCE_MERGE" HEAD
+          test "$(git show -s --format=%P "$LIBRARY_RECONVERGENCE_MERGE")" = "$PRE_LIBRARY_RECONVERGENCE $PRODUCT_HEAD"
+          git merge-base --is-ancestor "$LIBRARY_RECONVERGENCE_MERGE" HEAD
           for source in "$PRODUCT_HEAD" "$ONECLICK_HEAD" "$LAUNCH_REPORT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
@@ -112,6 +117,14 @@ jobs:
           tests/test_p0_oneclick_exact_head_concurrency.py
           tests/test_portable_launch_report_reparse_concurrency.py
           tests/test_current_product_windows_evidence_convergence_20261005.py
+          acs/library_export_service.py
+          acs/version2_windows_library_export.py
+          acs/library_webview_projection.py
+          acs/full_product_webview_adapter.py
+          tests/test_d07_library_export_service.py
+          tests/test_v2_windows_library_export.py
+          tests/test_dev1_library_webview_projection.py
+          tests/test_dev1_full_product_webview_adapter.py
           acs/pgn_conversion.py
           acs/pgn_conversion_windows.py
           acs/pgn_service.py
@@ -131,6 +144,10 @@ jobs:
           tests.test_portable_launcher_window_readiness
           tests.test_portable_localappdata_persistence_binding
           tests.test_version2_portable_package
+          tests.test_d07_library_export_service
+          tests.test_v2_windows_library_export
+          tests.test_dev1_library_webview_projection
+          tests.test_dev1_full_product_webview_adapter
           tests.test_pgn_service
           tests.test_pgn_conversion
           tests.test_pgn_conversion_windows
