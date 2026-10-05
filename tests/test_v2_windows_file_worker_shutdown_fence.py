@@ -797,6 +797,53 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             )
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_pgn_snapshot_preflight_base_exception_is_terminal_before_worker_start(self) -> None:
+        class SnapshotAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "snapshot-preflight-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            destination = Path(tmp) / "snapshot-preflight-destination.pgn"
+            session = PgnDocumentSession.open(source)
+
+            class SaveAsDialogs(_Dialogs):
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return destination
+
+            for action_id, expected_error in (
+                ("pgn.save", "pgn_save_failed"),
+                ("pgn.save_as", "pgn_save_as_failed"),
+            ):
+                with self.subTest(action_id=action_id):
+                    events = []
+                    delegate = Version2WindowsFileActionDelegate(
+                        dialogs=SaveAsDialogs(source),
+                        get_pgn_session=lambda: session,
+                        set_pgn_session=lambda value: None,
+                        import_services_factory=lambda: Version2ImportWorkerServices(
+                            _UnusedLibrary(), None, lambda: None
+                        ),
+                        event_sink=events.append,
+                        next_delegate=lambda action, payload: None,
+                        current_focus_provider=lambda: "pgn-tree",
+                        post_to_ui=lambda callback: self.fail("worker must not start"),
+                    )
+
+                    with mock.patch(
+                        "acs.version2_windows_file_workflows.capture_pgn_save_snapshot",
+                        side_effect=SnapshotAbort("snapshot preflight aborted"),
+                    ):
+                        result = delegate(action_id, {})
+
+                    self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+                    self.assertEqual(result.action_id, action_id)
+                    self.assertEqual(result.error_code, expected_error)
+                    self.assertEqual(result.focus_target, "pgn-tree")
+                    self.assertFalse(delegate.pgn_save_running)
+                    self.assertFalse(destination.exists())
+                    self.assertEqual(events[-1], result)
+
     def test_worker_start_base_exception_releases_reserved_slot_for_all_file_workers(self) -> None:
         class StartAbort(BaseException):
             pass
