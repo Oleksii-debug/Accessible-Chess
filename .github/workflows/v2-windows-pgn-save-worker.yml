@@ -59,7 +59,9 @@ jobs:
             "acs/full_product_actions.py"
             "acs/full_product_native_menu.py"
             "acs/import_contract.py"
+            "acs/pgn_document.py"
             "acs/pgn_save_snapshot.py"
+            "acs/pgn_service.py"
             "acs/version2_application.py"
             "acs/version2_windows_file_workflows.py"
             "acs/version2_windows_host_runtime.py"
@@ -68,8 +70,10 @@ jobs:
             "acs/version2_windows_pgn_streaming_host.py"
             "tests/test_full_product_native_menu.py"
             "tests/test_import_contract.py"
+            "tests/test_pgn_document_passive_ingress.py"
             "tests/test_pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot_cancel.py"
+            "tests/test_pgn_service_passive_overwrite.py"
             "tests/test_v2_windows_file_worker_preflight.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_import_event_mailbox.py"
@@ -98,15 +102,23 @@ jobs:
         run: >-
           python -m compileall -q
           acs/import_contract.py
+          acs/pgn_document.py
           acs/pgn_save_snapshot.py
+          acs/pgn_service.py
           acs/version2_windows_file_workflows.py
           acs/version2_windows_host_runtime.py
           acs/version2_windows_import_event_mailbox.py
           acs/version2_application.py
           acs/full_product_actions.py
           acs/full_product_native_menu.py
+          tests/test_pgn_document.py
+          tests/test_pgn_document_context_atomicity.py
+          tests/test_pgn_document_setup_fen_integrity.py
+          tests/test_pgn_document_passive_ingress.py
           tests/test_pgn_save_snapshot.py
           tests/test_pgn_save_snapshot_cancel.py
+          tests/test_pgn_service.py
+          tests/test_pgn_service_passive_overwrite.py
           tests/test_v2_windows_pgn_save_terminal_truth.py
           tests/test_v2_windows_pgn_save_worker.py
           tests/test_v2_windows_pgn_open_worker.py
@@ -119,8 +131,14 @@ jobs:
       - name: Execute PGN save worker qualification
         run: >-
           python -m unittest -v
+          tests.test_pgn_document_passive_ingress
+          tests.test_pgn_document
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document_setup_fen_integrity
           tests.test_pgn_save_snapshot
           tests.test_pgn_save_snapshot_cancel
+          tests.test_pgn_service_passive_overwrite
+          tests.test_pgn_service
           tests.test_v2_windows_pgn_save_terminal_truth
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_pgn_open_worker
@@ -137,8 +155,10 @@ jobs:
       - name: Pytest focused background-save boundary
         run: >-
           pytest -q
+          tests/test_pgn_document_passive_ingress.py
           tests/test_pgn_save_snapshot.py
           tests/test_pgn_save_snapshot_cancel.py
+          tests/test_pgn_service_passive_overwrite.py
           tests/test_v2_windows_pgn_save_terminal_truth.py
           tests/test_v2_windows_pgn_save_worker.py
           tests/test_v2_windows_import_event_mailbox.py
