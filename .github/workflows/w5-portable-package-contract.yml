@@ -9,9 +9,12 @@ on:
       - work/post-freeze-v2-windows-package-qualification-20260911
     paths:
       - acs/version2_package_assembler.py
+      - acs/version2_package_preflight.py
       - acs/version2_portable_package.py
       - packaging/portable_launcher.c
       - tests/test_version2_package_assembler.py
+      - tests/test_version2_package_preflight.py
+      - tests/test_v2_package_required_resources.py
       - tests/test_version2_portable_package.py
       - tests/test_portable_launcher_contract.py
       - tests/test_portable_launcher_window_readiness.py
@@ -82,12 +85,21 @@ jobs:
         run: >-
           python -m py_compile
           acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
           acs/version2_portable_package.py
           tests/test_version2_package_assembler.py
+          tests/test_version2_package_preflight.py
+          tests/test_v2_package_required_resources.py
           tests/test_version2_portable_package.py
           tests/test_portable_launcher_contract.py
           tests/test_portable_launcher_window_readiness.py
           tests/test_portable_localappdata_persistence_binding.py
+
+      - name: Run canonical package preflight and required-resource contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_v2_package_required_resources
 
       - name: Run canonical inner-package assembly contract
         run: python -m unittest -v tests.test_version2_package_assembler
