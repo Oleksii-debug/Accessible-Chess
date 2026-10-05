@@ -2110,6 +2110,15 @@ class Version2Application:
             return False
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
+        if self._pending_shell_publication is not None:
+            # Native close/Alt+F4 can race a browser route render. An
+            # unacknowledged candidate route is not user-visible authority and
+            # must never become durable merely because shutdown began. Retire
+            # workers first so a refused close can keep the pending browser
+            # transaction alive; once shutdown may proceed, roll it back before
+            # any Training or Book progress publication.
+            token = self._pending_shell_publication[0]
+            self._finish_shell_publication(token, commit=False)
         self.save_training_progress()
         try:
             self.save_book_progress()
