@@ -296,7 +296,10 @@
       allowed.add(row.dom_id);
       if (row.export_dom_id) allowed.add(row.export_dom_id);
     });
-    LIBRARY_ACTION_DOM_IDS.forEach(function (domId) { allowed.add(domId); });
+    snapshot.actions.forEach(function (action) {
+      const domId = LIBRARY_ACTION_DOM_IDS.get(action.action);
+      if (domId) allowed.add(domId);
+    });
     if (!allowed.has(target)) throw new TypeError("Library focus target is invalid");
     return target;
   }
