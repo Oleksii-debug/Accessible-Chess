@@ -626,6 +626,9 @@ def commit_pgn_save_publication(
     # publication. Fail closed instead so the host can report commit failure
     # without rebinding in-memory provenance.
     live_source = _detached_source_fingerprint(current.source, allow_none=True)
+    live_source_overwrite_safe = current._source_overwrite_safe
+    if type(live_source_overwrite_safe) is not bool:
+        raise TypeError("PGN live source safety flag is invalid")
     live_saved_digest = current._saved_digest
     if live_saved_digest is not None and (
         type(live_saved_digest) is not str
@@ -663,6 +666,8 @@ def commit_pgn_save_publication(
     if (
         live_source != source_before
         or live_saved_digest != binding.saved_digest_before
+        or live_source_overwrite_safe
+        is not binding.source_overwrite_safe_before
     ):
         raise _stale("PGN source changed before the save publication could commit")
 
