@@ -106,6 +106,7 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let nextSnapshotOverride = null;
 let libraryApplyCalls = 0;
+let libraryDeactivateCalls = 0;
 let libraryInvoke = null;
 let libraryOpenEffects = 0;
 let failNextBookRender = false;
@@ -371,6 +372,9 @@ const windowObject = {
     apply: (_root, event) => {
       if (!event || event.kind !== "render-import") throw new Error("unexpected Library event");
       libraryApplyCalls += 1;
+    },
+    deactivate: (_root) => {
+      libraryDeactivateCalls += 1;
     }
   },
   AccessibleChessBookSurface: {
@@ -885,6 +889,7 @@ async function clickRoute(routeId) {
   nextSnapshotOverride = malformedLibraryOpen;
   const libraryEffectsBeforeRenderFailure = libraryOpenEffects;
   const rollbacksBeforeLibraryRenderFailure = shellPublicationRollbacks;
+  const deactivationsBeforeLibraryRenderFailure = libraryDeactivateCalls;
   const failedLibraryOpen = await libraryInvoke("library.open_game", {});
   for (let index = 0; index < 8; index += 1) await flush();
   check(failedLibraryOpen === null, "failed Library open leaked a delegated success");
@@ -897,6 +902,10 @@ async function clickRoute(routeId) {
     "failed Library open did not roll back its staged PGN owner"
   );
   check(currentRoute === "library", "failed Library open did not restore the Library route");
+  check(
+    libraryDeactivateCalls === deactivationsBeforeLibraryRenderFailure,
+    "failed candidate render retired the still-authoritative Library surface"
+  );
   check(pendingShellPublication === null, "failed Library open left host publication pending");
   check(
     documentRef.getElementById("library-search-player") !== null,
@@ -912,6 +921,7 @@ async function clickRoute(routeId) {
   // opening the selected game twice. A lost commit response is idempotent too.
   const libraryEffectsBeforeLostResponse = libraryOpenEffects;
   const commitsBeforeLibraryLostResponse = shellPublicationCommits;
+  const deactivationsBeforeCommittedLibraryOpen = libraryDeactivateCalls;
   dropRouteResponsesAfterEffect = 1;
   dropNextCommitResponseAfterEffect = true;
   const committedLibraryOpen = await libraryInvoke("library.open_game", {});
@@ -927,6 +937,10 @@ async function clickRoute(routeId) {
     "Library open leaked publication transport authority into delegated event schema"
   );
   check(currentRoute === "pgn", "Library open did not commit the PGN route");
+  check(
+    libraryDeactivateCalls === deactivationsBeforeCommittedLibraryOpen + 1,
+    "committed Library -> PGN transition did not retire stale Library commands"
+  );
   check(
     libraryOpenEffects === libraryEffectsBeforeLostResponse + 1,
     "lost Library start response duplicated the canonical open effect"
