@@ -97,6 +97,24 @@ class _FlakyOwner(_Owner):
         return super().BeginInvoke(delegate)
 
 
+class _OwnerPostAbort(BaseException):
+    pass
+
+
+class _AbortFlakyOwner(_Owner):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.begin_invoke_calls = 0
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        self.begin_invoke_calls += 1
+        if self.failures:
+            self.failures -= 1
+            raise _OwnerPostAbort("abort-class BeginInvoke failure")
+        return super().BeginInvoke(delegate)
+
+
 class _Library:
     def __init__(self) -> None:
         self.calls = 0
@@ -444,6 +462,81 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(imported_events[-1].game_count, 1)
             self.assertEqual(_OpenDialog.owners, [owner])
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_recovers_after_abort_class_begininvoke_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "abort-post-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _AbortFlakyOwner(1)
+            library = _Library()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertGreaterEqual(owner.begin_invoke_calls, 2)
+            self.assertTrue(owner.posted)
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertFalse(runtime.import_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_pgn_save_owner_commit_recovers_after_abort_class_begininvoke_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "abort-post-save.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Abort post recovery")
+            owner = _AbortFlakyOwner(1)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertGreaterEqual(owner.begin_invoke_calls, 2)
+            self.assertTrue(owner.posted)
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertIn("Abort post recovery", source.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
             self.assertTrue(runtime.shutdown())
 
     def test_shutdown_cancels_and_joins_worker_before_runtime_closes(self) -> None:
