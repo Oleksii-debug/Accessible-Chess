@@ -395,6 +395,9 @@ class Version2WindowsFileActionDelegate:
             return None, self._failed(
                 "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
             ), previous_focus, None, None
+        current_revision = (
+            None if current is None else current.document_revision
+        )
         if current is not None:
             if not isinstance(current, PgnDocumentSession):
                 return None, self._failed(
@@ -407,7 +410,7 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open",
                         "unsaved_confirmation_unavailable",
                         focus_target=previous_focus,
-                    ), previous_focus, current, current.document_revision
+                    ), previous_focus, current, current_revision
                 try:
                     discard = confirmation()
                 except Exception:
@@ -415,28 +418,22 @@ class Version2WindowsFileActionDelegate:
                         "pgn.open",
                         "unsaved_confirmation_failed",
                         focus_target=previous_focus,
-                    ), previous_focus, current, current.document_revision
+                    ), previous_focus, current, current_revision
                 if not discard:
                     return None, self._dialog_cancelled(
                         "pgn.open", previous_focus
-                    ), previous_focus, current, current.document_revision
+                    ), previous_focus, current, current_revision
         try:
             path = self._dialogs.open_pgn()
         except Exception:
             return None, self._failed(
                 "pgn.open", "file_dialog_failed", focus_target=previous_focus
-            ), previous_focus, current, (
-                None if current is None else current.document_revision
-            )
+            ), previous_focus, current, current_revision
         if path is None:
             return None, self._dialog_cancelled(
                 "pgn.open", previous_focus
-            ), previous_focus, current, (
-                None if current is None else current.document_revision
-            )
-        return Path(path), None, previous_focus, current, (
-            None if current is None else current.document_revision
-        )
+            ), previous_focus, current, current_revision
+        return Path(path), None, previous_focus, current, current_revision
 
     def _open_pgn(self) -> FileWorkflowEvent:
         (
