@@ -38,6 +38,9 @@ from .pgn_workspace import PgnWorkspace, PgnWorkspaceError, PgnWorkspaceView
 class PgnDocumentErrorCode(str, Enum):
     NO_SOURCE = "no_source"
     SOURCE_REQUIRES_SAVE_AS = "source_requires_save_as"
+    RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION = (
+        "recovery_source_requires_different_destination"
+    )
     DESTINATION_VERSION_REQUIRED = "destination_version_required"
     INVALID_TAG = "invalid_tag"
     INVALID_RESULT = "invalid_result"
@@ -691,6 +694,15 @@ class PgnDocumentSession:
         expected_sha256: str | None = None,
     ) -> SourceFingerprint:
         destination = Path(path)
+        if (
+            self._source is not None
+            and not self._source_overwrite_safe
+            and _same_direct_path(destination, self._source.path)
+        ):
+            raise _error(
+                "recovery source must be preserved; choose a different Save As destination",
+                PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION,
+            )
         expected = self._destination_expectation(
             destination,
             overwrite=overwrite,

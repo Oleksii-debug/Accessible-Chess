@@ -685,6 +685,33 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(terminal.error_code, "pgn_save_conflict")
             self.assertNotIn(str(source), repr(terminal))
 
+    def test_recovery_source_save_as_same_path_preserves_original_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "recovery-source.pgn"
+            original = PGN_TEXT.encode("utf-8") + b"\n{broken byte: \xff}\n"
+            source.write_bytes(original)
+            session = PgnDocumentSession.open(source)
+            self.assertFalse(session.view().source_overwrite_safe)
+            source_before = session.source
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = source
+
+            started = controller("pgn.save_as", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            poster.drain()
+
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(session.source, source_before)
+            self.assertTrue(session.dirty)
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(
+                terminal.error_code,
+                "pgn_save_as_preserve_original",
+            )
+            self.assertNotIn(str(source), repr(terminal))
+
     def test_worker_failure_preserves_dirty_state_and_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"

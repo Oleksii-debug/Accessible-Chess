@@ -169,6 +169,23 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("не перезаписано", message)
         self.assertNotIn(str(self.root), message)
 
+    def test_recovery_save_as_error_tells_user_to_preserve_original(self):
+        event = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save_as",
+            focus_target="pgn-game-list",
+            error_code="pgn_save_as_preserve_original",
+        )
+
+        self.app._file_event(event)
+
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "error")
+        message = events[-1]["payload"]["message"]
+        self.assertIn("інше ім’я або папку", message)
+        self.assertIn("оригінальний файл", message)
+        self.assertNotIn(str(self.root), message)
+
     def test_async_pgn_save_completion_announces_without_route_replacement(self):
         saved = FileWorkflowEvent(
             kind=FileWorkflowEventKind.PGN_SAVED,

@@ -1027,6 +1027,18 @@ class Version2WindowsFileActionDelegate:
                     overwrite=expected is not None,
                     expected_sha256=expected,
                 )
+            except PgnDocumentError as exc:
+                error_code = (
+                    "pgn_save_as_preserve_original"
+                    if exc.code
+                    is PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION
+                    else "pgn_save_as_failed"
+                )
+                return self._failed(
+                    "pgn.save_as",
+                    error_code,
+                    focus_target=previous_focus,
+                )
             except Exception:
                 return self._failed(
                     "pgn.save_as",
@@ -1191,6 +1203,15 @@ class Version2WindowsFileActionDelegate:
             error_code = "pgn_save_cancelled"
         except PgnConcurrentWriteError:
             error_code = "pgn_save_conflict"
+        except PgnDocumentError as exc:
+            if (
+                exc.code
+                is PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION
+            ):
+                error_code = "pgn_save_as_preserve_original"
+            else:
+                _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
+                error_code = "pgn_save_failed"
         except Exception:
             _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
             error_code = "pgn_save_failed"

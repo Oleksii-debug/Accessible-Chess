@@ -483,15 +483,26 @@ def publish_pgn_save_snapshot(
         if path is None:
             raise TypeError("Save As snapshot requires a destination path")
         destination = Path(path)
+        source = _detached_source_fingerprint(
+            metadata.source_before,
+            allow_none=True,
+        )
+        if (
+            source is not None
+            and not metadata.source_overwrite_safe_before
+            and _same_direct_path(destination, source.path)
+        ):
+            raise PgnDocumentError(
+                "recovery source must be preserved; choose a different Save As destination",
+                code=(
+                    PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION
+                ),
+            )
         if overwrite and expected_sha256 is None:
             raise PgnDocumentError(
                 "Save As overwrite requires its expected destination fingerprint",
                 code=PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
             )
-        source = _detached_source_fingerprint(
-            metadata.source_before,
-            allow_none=True,
-        )
         # If Save As points back to the captured source, a worker-time target
         # fingerprint may describe a newer external edit. Preserve the captured
         # source CAS generation instead of adopting that edit as write authority.

@@ -2165,6 +2165,10 @@ class Version2Application:
                 "Не вдалося зберегти PGN. Поточні незбережені зміни залишилися в документі.",
                 "PGN could not be saved. The current unsaved edits remain in the document.",
             ),
+            "pgn_save_as_preserve_original": (
+                "Цей PGN відкрито з відновленням. У «Зберегти як» виберіть інше ім’я або папку, щоб не перезаписати оригінальний файл.",
+                "This PGN was opened with recovery. In Save As, choose a different filename or folder so the original file is not overwritten.",
+            ),
             "pgn_save_as_failed": (
                 "Не вдалося зберегти PGN у вибраний файл. Поточні незбережені зміни залишилися в документі.",
                 "PGN could not be saved to the selected file. The current unsaved edits remain in the document.",

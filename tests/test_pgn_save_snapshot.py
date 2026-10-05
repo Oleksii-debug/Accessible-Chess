@@ -564,6 +564,54 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIn("Session External Save As", disk_text)
         self.assertNotIn("Session Local Save As", disk_text)
 
+    def test_session_recovery_source_requires_different_save_as_path(self) -> None:
+        source = self.root / "recovery-session-source.pgn"
+        raw = DOCUMENT.encode("utf-8") + b"\n{broken byte: \xff}\n"
+        source.write_bytes(raw)
+        session = PgnDocumentSession.open(source)
+        self.assertFalse(session.view().source_overwrite_safe)
+        expected = expected_pgn_destination_sha256(source)
+        self.assertIsNotNone(expected)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            session.save_as(
+                source,
+                overwrite=True,
+                expected_sha256=expected,
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION,
+        )
+        self.assertEqual(source.read_bytes(), raw)
+        self.assertTrue(session.dirty)
+
+    def test_snapshot_recovery_source_requires_different_save_as_path(self) -> None:
+        source = self.root / "recovery-snapshot-source.pgn"
+        raw = DOCUMENT.encode("utf-8") + b"\n{broken byte: \xff}\n"
+        source.write_bytes(raw)
+        session = PgnDocumentSession.open(source)
+        self.assertFalse(session.view().source_overwrite_safe)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        expected = expected_pgn_destination_sha256(source)
+        self.assertIsNotNone(expected)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            publish_pgn_save_snapshot(
+                snapshot,
+                path=source,
+                overwrite=True,
+                expected_sha256=expected,
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION,
+        )
+        self.assertEqual(source.read_bytes(), raw)
+        self.assertTrue(session.dirty)
+
     def test_save_as_of_older_snapshot_keeps_newer_edit_dirty(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
