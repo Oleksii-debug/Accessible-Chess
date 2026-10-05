@@ -176,7 +176,12 @@ def convert_pgn(source_path: str | Path, destination: str | Path, *, reviewed_pl
         _poll(cancel_check)
 
     try:
-        return save_pgn_atomic(destination, checked_games(), overwrite=False)
+        return save_pgn_atomic(
+            destination,
+            checked_games(),
+            overwrite=False,
+            pre_publish_check=lambda: _poll(cancel_check),
+        )
     except FileExistsError:
         raise PgnConversionError("destination_exists", "Файл призначення вже існує. Виберіть нове ім’я.") from None
     except (OSError, PgnFileError):
