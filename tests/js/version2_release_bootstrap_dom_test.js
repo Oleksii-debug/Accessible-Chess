@@ -115,6 +115,11 @@ let heldDrainResolve = null;
 let holdNextStage1Refresh = false;
 let heldStage1RefreshResolve = null;
 const recordedFocus = [];
+let pendingShellPublication = null;
+let lastShellPublicationResolution = null;
+let nextShellPublicationToken = 1;
+let shellPublicationCommits = 0;
+let shellPublicationRollbacks = 0;
 
 function snapshot(route) {
   const focus = {
@@ -195,11 +200,69 @@ const windowObject = {
         return Promise.resolve(value);
       },
       v2_browser_command: (area, command, payload) => {
-        if (area !== "shell" || payload == null || Object.keys(payload).length !== 0) {
+        if (area !== "shell" || payload == null || typeof payload !== "object" ||
+            Array.isArray(payload)) {
           return Promise.reject(new Error("unexpected browser command"));
         }
+
+        if (command === "shell.presentation_commit" ||
+            command === "shell.presentation_rollback") {
+          const keys = Object.keys(payload);
+          if (keys.length !== 1 || keys[0] !== "token" ||
+              !Number.isSafeInteger(payload.token) || payload.token <= 0) {
+            return Promise.reject(new Error("invalid publication acknowledgement"));
+          }
+          const commit = command === "shell.presentation_commit";
+          if (pendingShellPublication === null) {
+            if (lastShellPublicationResolution &&
+                lastShellPublicationResolution.token === payload.token &&
+                lastShellPublicationResolution.commit === commit) {
+              return Promise.resolve({
+                kind: commit ? "presentation-commit" : "presentation-rollback",
+                payload: { token: payload.token }
+              });
+            }
+            return Promise.reject(new Error("stale publication acknowledgement"));
+          }
+          if (pendingShellPublication.token !== payload.token) {
+            return Promise.reject(new Error("wrong publication token"));
+          }
+          const pending = pendingShellPublication;
+          pendingShellPublication = null;
+          lastShellPublicationResolution = { token: payload.token, commit: commit };
+          if (commit) {
+            shellPublicationCommits += 1;
+            return Promise.resolve({
+              kind: "presentation-commit",
+              payload: { token: payload.token }
+            });
+          }
+          currentRoute = pending.previousRoute;
+          shellPublicationRollbacks += 1;
+          return Promise.resolve({
+            kind: "presentation-rollback",
+            payload: { token: payload.token }
+          });
+        }
+
+        const keys = Object.keys(payload);
+        if (keys.length !== 1 || keys[0] !== "publication_protocol" ||
+            payload.publication_protocol !== "ack-v1" ||
+            String(command).indexOf("screen.") !== 0 ||
+            pendingShellPublication !== null) {
+          return Promise.reject(new Error("unexpected browser route command"));
+        }
+        const token = nextShellPublicationToken++;
+        const previousRoute = currentRoute;
         currentRoute = String(command).replace(/^screen\./, "");
-        return Promise.resolve({ kind: "route", payload: {} });
+        pendingShellPublication = {
+          token: token,
+          previousRoute: previousRoute
+        };
+        return Promise.resolve({
+          kind: "route",
+          payload: { publication_token: token }
+        });
       },
       v2_drain_events: () => {
         drainCalls += 1;
@@ -281,8 +344,7 @@ async function clickRoute(routeId) {
   const button = documentRef.getElementById("v2-nav-" + routeId);
   check(button && typeof button.listeners.click === "function", "missing route button: " + routeId);
   button.listeners.click({});
-  await flush();
-  await flush();
+  for (let index = 0; index < 6; index += 1) await flush();
 }
 
 (async () => {
@@ -332,10 +394,10 @@ async function clickRoute(routeId) {
     "malformed Books render did not announce route failure"
   );
 
-  // Recover canonical host route through the still-usable committed navigation.
-  await clickRoute("board");
-  check(originalMain.hidden === false, "Board recovery after malformed Books failed");
-  check(documentRef.activeElement === moveInput, "Board recovery focus after malformed Books failed");
+  check(currentRoute === "board", "malformed Books render did not roll host route back to Board");
+  check(shellPublicationRollbacks === 1, "malformed Books render did not execute one rollback");
+  check(shellPublicationCommits === 0, "malformed Books render incorrectly committed the route");
+  check(pendingShellPublication === null, "malformed Books render left a pending publication");
 
   await clickRoute("books");
   const committedBookBlock = documentRef.getElementById("book-block-1");
@@ -350,6 +412,9 @@ async function clickRoute(routeId) {
       committedBooksNav.attributes["aria-current"] === "page",
     "valid Books route did not commit Books navigation"
   );
+  check(currentRoute === "books", "valid Books route did not commit host route");
+  check(shellPublicationCommits === 1, "valid Books route did not execute one publication commit");
+  check(pendingShellPublication === null, "valid Books route left a pending publication");
 
   trainingAvailable = true;
   failNextTrainingRender = true;
@@ -371,6 +436,10 @@ async function clickRoute(routeId) {
     documentRef.activeElement === committedBookBlock,
     "malformed Training render stranded keyboard focus away from the Book block"
   );
+  check(currentRoute === "books", "malformed Training render did not roll host route back to Books");
+  check(shellPublicationRollbacks === 2, "malformed Training render did not execute rollback");
+  check(shellPublicationCommits === 1, "malformed Training render incorrectly committed the route");
+  check(pendingShellPublication === null, "malformed Training render left a pending publication");
 
   await clickRoute("board");
   booksAvailable = false;
