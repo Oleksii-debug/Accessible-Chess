@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.import_contract import SourceFingerprint
+from acs.gametree_annotations import MoveAnnotationPatch, move_annotation_target
 from acs.pgn_document import (
     PgnConcurrentWriteError,
     PgnDocumentError,
@@ -109,6 +110,45 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(len(snapshot.games), 1)
         self.assertEqual(snapshot.document_revision, session.document_revision)
         self.assertIsNone(snapshot.source_before)
+        self.assertTrue(session.dirty)
+
+    def test_capture_rejects_same_workspace_edit_during_detach(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        workspace = session.workspace
+        real_games = PgnWorkspace.games
+        changed = False
+
+        def racing_games(bound_workspace):
+            nonlocal changed
+            games = real_games(bound_workspace)
+            if bound_workspace is workspace and not changed:
+                changed = True
+                game = workspace.current_game()
+                target = move_annotation_target(game, (), 0)
+                workspace.edit_move_annotations(
+                    target,
+                    MoveAnnotationPatch(nags=("!",)),
+                )
+            return games
+
+        with patch.object(
+            PgnWorkspace,
+            "games",
+            autospec=True,
+            side_effect=racing_games,
+        ):
+            with self.assertRaises(PgnDocumentError) as caught:
+                capture_pgn_save_snapshot(
+                    session,
+                    mode=PgnSaveMode.SAVE_AS,
+                )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.CONTEXT_STALE,
+        )
+        self.assertEqual(workspace.content_revision, 1)
         self.assertTrue(session.dirty)
 
     def test_capture_rejects_document_edit_during_detach(self) -> None:
