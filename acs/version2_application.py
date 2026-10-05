@@ -2079,7 +2079,7 @@ class Version2Application:
             self.library.projection.search(self.library.projection.query)
 
     def _native_file_error_message(self, event):
-        if not isinstance(event, FileWorkflowEvent):
+        if type(event) is not FileWorkflowEvent:
             return concise_user_error("", language=self.shell.language)
         language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
         messages = {
@@ -2224,6 +2224,18 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _file_event(self, event):
+        if type(event) is not FileWorkflowEvent:
+            self._events.append(
+                {
+                    "kind": "error",
+                    "payload": {
+                        "message": concise_user_error(
+                            "", language=self.shell.language
+                        )
+                    },
+                }
+            )
+            return
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
             self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
