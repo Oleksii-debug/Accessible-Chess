@@ -105,9 +105,9 @@ jobs:
           expected="$(printf '%s\n'             '.github/workflows/book-variation-fen-equivalence.yml'             'acs/book_game_content.py'             'tests/test_book_lookup_detached_canonicalization.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/book_game_content.py)" = \
-            '9bc1594f1f5141dfa843f54755e670f392ba926d'
+            'a4b03b3b2fe8660bd857990b47c3e1076baffde9'
           test "$(git rev-parse HEAD:tests/test_book_lookup_detached_canonicalization.py)" = \
-            '64891da339a8f616ebb6cf4bb1c2f0e3c61688d0'
+            '8c22a4afe5af8af8687c00524315b6f37460b516'
           git diff --quiet "$upstream" HEAD --             acs/chesscore.py             acs/gametree.py             acs/pgn_roundtrip.py             acs/bookdocument.py             acs/bookreader.py             acs/book_html_import.py             acs/book_epub_import.py
 
       - name: Compile focused Book game boundary
