@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
+import acs.local_profile as local_profile_module
 from acs.local_profile import LocalProfileStore
 from acs.version2_local_profile_api import Version2ProfileAccessibleChessAPI
 
@@ -190,6 +192,89 @@ class Version2LocalProfileApiTests(unittest.TestCase):
             durable = store.load()
             self.assertEqual(durable.profile_id, original.profile_id)
             self.assertEqual(durable.display_name, "Other Window")
+
+    def test_uncertain_first_profile_publication_reloads_visible_profile_truthfully(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LocalProfileStore(root / "profile.json")
+            api = Version2ProfileAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                profile_store=store,
+            )
+
+            with mock.patch(
+                "acs.local_profile._sync_profile_publication",
+                side_effect=OSError("simulated profile durability failure"),
+            ):
+                result = api.profile_create("Alice", False)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["exists"])
+            self.assertTrue(result["durabilityUncertain"])
+            self.assertTrue(result["stateChanged"])
+            self.assertEqual(result["displayName"], "Alice")
+            self.assertEqual(result["revision"], 1)
+            self.assertNotIn("profileId", result)
+            self.assertNotIn("profile_id", result)
+            self.assertIn("надійне збереження", result["announcement"])
+            self.assertEqual(store.load().display_name, "Alice")
+
+    def test_uncertain_rename_reloads_new_visible_revision_instead_of_false_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LocalProfileStore(root / "profile.json")
+            original = store.create("Alice")
+            api = Version2ProfileAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                profile_store=store,
+            )
+            real_sync = local_profile_module._sync_profile_publication
+
+            def fail_primary_sync(path: Path) -> None:
+                if Path(path) == store.path:
+                    raise OSError("simulated primary durability failure")
+                real_sync(Path(path))
+
+            with mock.patch(
+                "acs.local_profile._sync_profile_publication",
+                side_effect=fail_primary_sync,
+            ):
+                result = api.profile_rename("Alice Two")
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["exists"])
+            self.assertTrue(result["durabilityUncertain"])
+            self.assertTrue(result["stateChanged"])
+            self.assertEqual(result["displayName"], "Alice Two")
+            self.assertEqual(result["revision"], original.revision + 1)
+            self.assertEqual(store.load().display_name, "Alice Two")
+
+    def test_uncertain_backup_publication_reloads_unchanged_primary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LocalProfileStore(root / "profile.json")
+            original = store.create("Alice")
+            api = Version2ProfileAccessibleChessAPI(
+                keymap_path=root / "keymap.json",
+                profile_store=store,
+            )
+
+            def fail_backup_sync(path: Path) -> None:
+                if Path(path) == store.backup_path:
+                    raise OSError("simulated backup durability failure")
+                raise AssertionError("primary publication must not run")
+
+            with mock.patch(
+                "acs.local_profile._sync_profile_publication",
+                side_effect=fail_backup_sync,
+            ):
+                result = api.profile_rename("Alice Two")
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["durabilityUncertain"])
+            self.assertEqual(result["displayName"], "Alice")
+            self.assertEqual(result["revision"], original.revision)
+            self.assertEqual(store.load(), original)
 
     def test_blank_explicit_name_is_rejected_but_skip_is_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
