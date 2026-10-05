@@ -110,9 +110,9 @@ def _validate_pair(plan: RotationPlan, state: RotationState) -> None:
             raise ChildCoachingRotationStoreError(
                 "pair-play reference is attached to a non-pair-play round"
             )
-    elif state.round_index >= len(plan.rounds):
+    elif state.round_index != len(plan.rounds) - 1:
         raise ChildCoachingRotationStoreError(
-            "completed rotation round index is outside plan bounds"
+            "completed rotation must reference the final plan round"
         )
 
 
@@ -257,4 +257,3 @@ class ChildCoachingRotationStore:
             raise ChildCoachingRotationStoreBusyError(
                 "rotation store is busy"
             ) from exc
-
