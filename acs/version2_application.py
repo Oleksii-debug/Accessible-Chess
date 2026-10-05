@@ -2206,8 +2206,8 @@ class Version2Application:
                 "PGN is saving in the background. Use Cancel PGN Save if needed.",
             ),
             "pgn_save_cancelling": (
-                "Скасовую збереження PGN.",
-                "Cancelling PGN save.",
+                "Запит на скасування збереження PGN надіслано. Якщо файл ще не опубліковано, збереження буде зупинено.",
+                "PGN save cancellation requested. If the file has not been published yet, saving will stop.",
             ),
             "pgn_save_cancelled": (
                 "Збереження PGN скасовано до публікації файла.",
