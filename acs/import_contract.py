@@ -287,10 +287,38 @@ def _publish_opened_fingerprint(
     )
 
 
-def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFingerprint:
+class SourceReadCancelledError(RuntimeError):
+    """Cooperative cancellation of a bounded read-only source snapshot."""
+
+
+def fingerprint(
+    path: str | Path,
+    chunk_size: int = 1024 * 1024,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> SourceFingerprint:
+    """Fingerprint one stable source object, optionally with cooperative Cancel.
+
+    The ordinary call remains behavior-compatible. When cancel_check is
+    supplied, both hash passes poll it between finite read chunks and again
+    before provenance publication. Cancellation never publishes a fingerprint
+    for a partial pass and never mutates the source.
+    """
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
+    if cancel_check is not None and not callable(cancel_check):
+        raise TypeError("cancel_check must be callable")
 
+    def poll() -> None:
+        if cancel_check is None:
+            return
+        cancelled = cancel_check()
+        if type(cancelled) is not bool:
+            raise TypeError("cancel_check must return a boolean")
+        if cancelled:
+            raise SourceReadCancelledError("source fingerprint cancelled")
+
+    poll()
     submitted = Path(path)
     absolute, path_before = _validate_source_path(submitted)
     fd = _open_readonly_no_reparse(absolute)
@@ -304,6 +332,7 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
         def digest_open_inode() -> str:
             digest = hashlib.sha256()
             while True:
+                poll()
                 chunk = os.read(fd, chunk_size)
                 if not chunk:
                     return digest.hexdigest()
@@ -323,6 +352,7 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
     finally:
         os.close(fd)
 
+    poll()
     return _publish_opened_fingerprint(
         submitted,
         absolute,
@@ -336,10 +366,6 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
 def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool:
     after = fingerprint(path)
     return before.size == after.size and before.sha256 == after.sha256
-
-
-class SourceReadCancelledError(RuntimeError):
-    """Cooperative cancellation of a bounded read-only source snapshot."""
 
 
 def read_source_snapshot(
