@@ -54,6 +54,8 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
           expected=(
             ".github/workflows/pgn-context-atomicity.yml"
+            ".github/workflows/pgn-conversion-prepublish-cancel.yml"
+            ".github/workflows/pgn-document-new-game-position-integrity.yml"
             ".github/workflows/pgn-save-snapshot-transaction.yml"
             ".github/workflows/v2-windows-pgn-open-worker.yml"
             ".github/workflows/v2-windows-pgn-save-worker.yml"
