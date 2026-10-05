@@ -70,6 +70,62 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.payload["focus_target"], "teacher-pointer-input")
         self.assertEqual(calls, [])
 
+    def test_failed_route_snapshot_restores_route_and_unpublished_focus(self):
+        adapter, calls = self.make_adapter()
+        before = adapter.snapshot()
+        self.assertEqual("board", before["screen"]["route_id"])
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+        with patch.object(
+            adapter,
+            "snapshot",
+            side_effect=RuntimeError("candidate route snapshot rejected"),
+        ):
+            failed = adapter.activate_action(
+                "screen.teacher",
+                current_focus_id="board-launcher",
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", adapter.shell.current_route.route_id)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+        self.assertEqual([], calls)
+
+        committed = adapter.activate_action(
+            "screen.teacher",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual("route", committed.kind)
+        self.assertEqual("teacher", committed.payload["route_id"])
+        self.assertEqual("teacher", adapter.shell.current_route.route_id)
+
+    def test_delegate_failure_restores_shell_route_and_focus_mutated_before_error(self):
+        shell = AccessibleShellState(language=UILanguage.EN)
+
+        def delegate(action_id, payload):
+            self.assertEqual("teacher.highlight", action_id)
+            self.assertEqual({"square": "f3"}, payload)
+            shell.open_route("teacher")
+            raise RuntimeError("provider failed after route mutation")
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+        failed = adapter.activate_action(
+            "teacher.highlight",
+            {"square": "f3"},
+            current_focus_id="board-launcher",
+        )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("move-input", shell.restore_focus_target())
+        self.assertEqual(
+            "The action could not be completed.",
+            failed.payload["message"],
+        )
+
     def test_delegated_route_transition_preserves_invoking_focus(self):
         shell = AccessibleShellState(language=UILanguage.EN)
 
