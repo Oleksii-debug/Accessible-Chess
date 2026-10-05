@@ -142,6 +142,8 @@ class Version2Application:
         self._files = None
         self._book_open_worker: Version2BookOpenWorker | None = None
         self._focus = ""
+        self._shell_publication_sequence = 0
+        self._pending_shell_publication = None
         self.session = None
         self.pgn_board_active = False
         self.pgn = None
@@ -167,6 +169,51 @@ class Version2Application:
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
             raise RuntimeError("V2 application requires the native UI thread")
+
+    @staticmethod
+    def _shell_publication_token(payload):
+        """Validate one browser presentation acknowledgement token."""
+        if type(payload) is not dict or len(payload) != 1:
+            raise ValueError("invalid shell publication acknowledgement")
+        key = next(iter(payload))
+        if type(key) is not str or key != "token":
+            raise ValueError("invalid shell publication acknowledgement")
+        token = payload[key]
+        if type(token) is not int or token <= 0 or token > 9007199254740991:
+            raise ValueError("invalid shell publication acknowledgement")
+        return token
+
+    def _finish_shell_publication(self, token: int, *, commit: bool):
+        """Commit or roll back one browser route only after DOM publication."""
+        pending = self._pending_shell_publication
+        if pending is None or pending[0] != token:
+            raise ValueError("stale shell publication acknowledgement")
+        self._pending_shell_publication = None
+        if commit:
+            return {
+                "kind": "presentation-commit",
+                "payload": {"token": token},
+            }
+
+        (
+            _token,
+            shell_state,
+            prior_focus,
+            prior_training_workspace,
+            prior_training,
+        ) = pending
+        self.shell._restore_presentation_state(shell_state)
+        self._focus = prior_focus
+        self.training_workspace = prior_training_workspace
+        self.training = prior_training
+        return {
+            "kind": "presentation-rollback",
+            "payload": {
+                "token": token,
+                "route_id": self.shell.current_route.route_id,
+                "focus_target": self._focus,
+            },
+        }
 
     @staticmethod
     def _valid_book_browser_token(value):
@@ -1588,7 +1635,32 @@ class Version2Application:
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
             if area_id == "shell":
-                if not empty_authority_payload:
+                is_publication_control = (
+                    type(command) is str
+                    and command in {
+                        "shell.presentation_commit",
+                        "shell.presentation_rollback",
+                    }
+                )
+                if is_publication_control:
+                    token = self._shell_publication_token(payload)
+                    return self._finish_shell_publication(
+                        token,
+                        commit=command == "shell.presentation_commit",
+                    )
+
+                publication_protocol = False
+                if type(payload) is dict and len(payload) == 1:
+                    key = next(iter(payload))
+                    if type(key) is str and key == "publication_protocol":
+                        value = payload[key]
+                        publication_protocol = (
+                            type(value) is str and value == "ack-v1"
+                        )
+                        if not publication_protocol:
+                            raise ValueError("unsupported shell publication protocol")
+
+                if not empty_authority_payload and not publication_protocol:
                     raise ValueError("shell accepts no authority payload")
                 if (
                     type(command) is not str
@@ -1599,6 +1671,25 @@ class Version2Application:
                     )
                 ):
                     raise ValueError("unsupported shell command")
+                if publication_protocol and not command.startswith("screen."):
+                    raise ValueError("shell publication protocol requires a route command")
+                if publication_protocol and self._pending_shell_publication is not None:
+                    raise ValueError("shell publication acknowledgement is pending")
+                if (
+                    publication_protocol
+                    and self._shell_publication_sequence >= 9007199254740990
+                ):
+                    raise RuntimeError("shell publication sequence exhausted")
+
+                publication_before = None
+                if publication_protocol:
+                    publication_before = (
+                        self.shell._capture_presentation_state(),
+                        self._focus,
+                        self.training_workspace,
+                        self.training,
+                    )
+
                 training_transition = None
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
@@ -1653,6 +1744,23 @@ class Version2Application:
                             projected_screen = projected_snapshot.get("screen")
                             if isinstance(projected_screen, dict):
                                 projected_screen["focus_target"] = self._focus
+                        if publication_protocol:
+                            self._shell_publication_sequence += 1
+                            token = self._shell_publication_sequence
+                            (
+                                prior_shell,
+                                prior_focus,
+                                prior_training_workspace,
+                                prior_training,
+                            ) = publication_before
+                            self._pending_shell_publication = (
+                                token,
+                                prior_shell,
+                                prior_focus,
+                                prior_training_workspace,
+                                prior_training,
+                            )
+                            projected_payload["publication_token"] = token
                 return projected
             if area_id == "training":
                 try:
