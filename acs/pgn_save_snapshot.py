@@ -636,6 +636,16 @@ def commit_pgn_save_publication(
         )
     ):
         raise TypeError("PGN live saved digest is invalid")
+    live_content_digest = current.workspace.content_digest
+    if (
+        type(live_content_digest) is not str
+        or len(live_content_digest) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in live_content_digest
+        )
+    ):
+        raise TypeError("PGN live workspace digest is invalid")
 
     # Exact replay after a successful owner-thread commit is harmless.  This is
     # checked before source-staleness because an unchanged Save can legitimately
@@ -678,7 +688,7 @@ def commit_pgn_save_publication(
     # Mark the live workspace clean only when it is still exactly the generation
     # that was written.  If the user edited during the worker run, retain the
     # newer workspace baseline and let ``dirty`` compare it to the saved digest.
-    if current.workspace.content_digest == binding.content_digest:
+    if live_content_digest == binding.content_digest:
         current.workspace.mark_saved()
 
     current._document_revision += 1
