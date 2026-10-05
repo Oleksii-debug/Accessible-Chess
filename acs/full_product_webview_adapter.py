@@ -7,6 +7,7 @@ WebView2 host. Chess/domain work remains delegated through FullProductActionRout
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Iterable, Mapping
 
 from .full_product_actions import FullProductActionRouter
@@ -19,6 +20,12 @@ from .full_product_ui_shell import (
 
 
 _EDITABLE_TAGS = frozenset({"input", "textarea", "select"})
+_MAX_WEBVIEW_ACTION_ID_CHARS = 160
+_MAX_WEBVIEW_PAYLOAD_DEPTH = 12
+_MAX_WEBVIEW_PAYLOAD_ITEMS = 4096
+_MAX_WEBVIEW_COLLECTION_ITEMS = 512
+_MAX_WEBVIEW_PAYLOAD_TEXT_CHARS = 65536
+_MAX_WEBVIEW_PAYLOAD_KEY_CHARS = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,9 +80,16 @@ class FullProductWebViewAdapter:
         }
 
     def set_language(self, language: str) -> WebViewCommand:
+        # Browser locale data must be passive before any string method can run.
+        # Exact text also prevents a str subclass from executing strip/lower hooks
+        # before the shell transaction boundary exists.
+        if type(language) is not str:
+            raise ValueError("unsupported UI language")
+        if len(language) > 16 or "\x00" in language:
+            raise ValueError("unsupported UI language")
         try:
             parsed = UILanguage(language.strip().lower())
-        except (AttributeError, ValueError):
+        except ValueError:
             raise ValueError("unsupported UI language") from None
 
         previous_language = self._shell.language
@@ -109,6 +123,88 @@ class FullProductWebViewAdapter:
             {"message": concise_user_error(source, language=self._shell.language)},
         )
 
+    @staticmethod
+    def _passive_action_payload(payload: object) -> dict[str, object] | None:
+        """Copy browser action payloads into a bounded passive JSON-like value.
+
+        WebView messages are data, not provider objects.  Accepting Mapping,
+        sequence, text or number subclasses here would let Python hooks execute
+        before the central action/router boundary.  The copy also means the
+        delegate never observes a browser-owned mutable container.
+        """
+        if payload is None:
+            return None
+        if type(payload) is not dict:
+            raise TypeError("webview action payload must be an object")
+
+        remaining = [_MAX_WEBVIEW_PAYLOAD_ITEMS]
+
+        def clone(value: object, depth: int) -> object:
+            remaining[0] -= 1
+            if remaining[0] < 0:
+                raise ValueError("webview action payload is too large")
+
+            value_type = type(value)
+            if value is None or value_type is bool or value_type is int:
+                return value
+            if value_type is float:
+                if not math.isfinite(value):
+                    raise ValueError("webview action payload number is invalid")
+                return value
+            if value_type is str:
+                if len(value) > _MAX_WEBVIEW_PAYLOAD_TEXT_CHARS:
+                    raise ValueError("webview action payload text is too large")
+                return value
+
+            if depth >= _MAX_WEBVIEW_PAYLOAD_DEPTH:
+                raise ValueError("webview action payload is too deeply nested")
+
+            if value_type is list:
+                if len(value) > _MAX_WEBVIEW_COLLECTION_ITEMS:
+                    raise ValueError("webview action payload list is too large")
+                return [clone(item, depth + 1) for item in value]
+
+            if value_type is dict:
+                if len(value) > _MAX_WEBVIEW_COLLECTION_ITEMS:
+                    raise ValueError("webview action payload object is too large")
+                copied: dict[str, object] = {}
+                for key, item in value.items():
+                    if type(key) is not str:
+                        raise TypeError("webview action payload keys must be text")
+                    if len(key) > _MAX_WEBVIEW_PAYLOAD_KEY_CHARS:
+                        raise ValueError("webview action payload key is too large")
+                    copied[key] = clone(item, depth + 1)
+                return copied
+
+            raise TypeError("webview action payload contains an active value")
+
+        copied = clone(payload, 0)
+        assert type(copied) is dict
+        return copied
+
+    @staticmethod
+    def _passive_action_ingress(
+        *,
+        action_id: object,
+        payload: object,
+        current_focus_id: object,
+    ) -> tuple[str, dict[str, object] | None, str]:
+        if type(action_id) is not str:
+            raise TypeError("webview action id must be text")
+        if (
+            not action_id
+            or len(action_id) > _MAX_WEBVIEW_ACTION_ID_CHARS
+            or "\x00" in action_id
+        ):
+            raise ValueError("webview action id is invalid")
+        if type(current_focus_id) is not str:
+            raise TypeError("webview focus id must be text")
+        return (
+            action_id,
+            FullProductWebViewAdapter._passive_action_payload(payload),
+            current_focus_id,
+        )
+
     def activate_action(
         self,
         action_id: str,
@@ -116,12 +212,24 @@ class FullProductWebViewAdapter:
         *,
         current_focus_id: str = "",
     ) -> WebViewCommand:
+        try:
+            safe_action_id, safe_payload, safe_focus_id = self._passive_action_ingress(
+                action_id=action_id,
+                payload=payload,
+                current_focus_id=current_focus_id,
+            )
+        except (TypeError, ValueError):
+            # Malformed host data must terminate before route/focus mutation or
+            # domain delegation.  Use a non-ValueError here so private validation
+            # detail is never promoted as intentional user-facing text.
+            return self._safe_error(TypeError("invalid webview action request"))
+
         previous_shell = self._shell._capture_presentation_state()
         try:
             result = self._router.dispatch(
-                action_id,
-                payload,
-                current_focus_id=current_focus_id,
+                safe_action_id,
+                safe_payload,
+                current_focus_id=safe_focus_id,
             )
         except BaseException as exc:  # UI boundary: sanitize before user projection.
             # Dispatch may already have recorded focus or a delegate may have
