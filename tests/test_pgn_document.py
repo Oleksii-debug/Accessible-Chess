@@ -114,33 +114,6 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertTrue(session.dirty)
         self.assertIn("External Edit", path.read_text(encoding="utf-8"))
 
-    def test_save_as_same_source_does_not_adopt_newer_external_generation(self) -> None:
-        path = self.write_document()
-        session = PgnDocumentSession.open(path)
-        source_before = session.source
-        assert source_before is not None
-        session.edit_tag("Event", "Local Save As Edit")
-
-        external = DOCUMENT.replace("Workspace One", "External Save As Edit")
-        path.write_text(external, encoding="utf-8")
-        fresh_destination = session.expected_destination_sha256(path)
-        self.assertIsNotNone(fresh_destination)
-        self.assertNotEqual(fresh_destination, source_before.sha256)
-
-        with self.assertRaises(PgnConcurrentWriteError):
-            session.save_as(
-                path,
-                overwrite=True,
-                expected_sha256=fresh_destination,
-            )
-
-        self.assertEqual(session.source, source_before)
-        self.assertTrue(session.dirty)
-        self.assertIn("Local Save As Edit", session.copy_pgn())
-        disk_text = path.read_text(encoding="utf-8")
-        self.assertIn("External Save As Edit", disk_text)
-        self.assertNotIn("Local Save As Edit", disk_text)
-
     def test_windows_1251_source_is_readable_but_requires_save_as(self) -> None:
         path = self.root / "legacy-windows-1251.pgn"
         source = DOCUMENT.replace("Workspace One", "Русская шахматная книга")

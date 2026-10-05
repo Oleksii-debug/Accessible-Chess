@@ -537,6 +537,33 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIn("External Save As Generation", disk_text)
         self.assertNotIn("Local Save As Snapshot", disk_text)
 
+    def test_session_save_as_same_source_rejects_fresh_external_hash(self) -> None:
+        source = self.write_document("session-same-source-save-as.pgn", DOCUMENT)
+        session = PgnDocumentSession.open(source)
+        source_before = session.source
+        assert source_before is not None
+        session.edit_tag("Event", "Session Local Save As")
+
+        external = DOCUMENT.replace("Snapshot Base", "Session External Save As")
+        source.write_text(external, encoding="utf-8", newline="\n")
+        fresh_destination = expected_pgn_destination_sha256(source)
+        self.assertIsNotNone(fresh_destination)
+        self.assertNotEqual(fresh_destination, source_before.sha256)
+
+        with self.assertRaises(PgnConcurrentWriteError):
+            session.save_as(
+                source,
+                overwrite=True,
+                expected_sha256=fresh_destination,
+            )
+
+        self.assertEqual(session.source, source_before)
+        self.assertTrue(session.dirty)
+        self.assertIn("Session Local Save As", session.copy_pgn())
+        disk_text = source.read_text(encoding="utf-8")
+        self.assertIn("Session External Save As", disk_text)
+        self.assertNotIn("Session Local Save As", disk_text)
+
     def test_save_as_of_older_snapshot_keeps_newer_edit_dirty(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
