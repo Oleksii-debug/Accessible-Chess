@@ -30,10 +30,10 @@ def promote_partial_file(
 ) -> PromotedFile:
     """Validate and atomically publish one media artifact inside a pinned root.
 
-    The original Nika implementation already bounded paths and refused overwrite.
-    Accessible Chess additionally pins the allowed-root directory identity using
-    the 12-6-ai recovery primitive so a pathname swap cannot redirect the final
-    publication after validation.
+    The original Nika implementation bounded paths and checksums. Accessible
+    Chess additionally pins the allowed-root directory identity using the 12-6-ai
+    recovery primitive and applies WordDeck's no-clobber publication principle:
+    publication is an atomic no-replace hard link, never check-then-os.replace().
     """
     root = allowed_root.resolve(strict=True)
     partial_visible = partial_path.resolve(strict=True)
@@ -74,7 +74,39 @@ def promote_partial_file(
             raise FileExistsError(
                 f"media output appeared before publication: {final_path.name}"
             )
-        os.replace(partial, final)
+
+        # WordDeck's recovery work established the important publication rule:
+        # destination creation must be no-replace, not check-then-os.replace().
+        # A hard link is an atomic no-replace publication on the same filesystem
+        # and leaves the validated partial intact until the final path is proven.
+        try:
+            os.link(partial, final, follow_symlinks=False)
+        except FileExistsError:
+            raise FileExistsError(
+                f"media output appeared before publication: {final_path.name}"
+            ) from None
+        except (NotImplementedError, OSError) as exc:
+            # Fail closed instead of falling back to a clobber-capable rename.
+            raise MediaError(
+                MediaErrorCode.PROCESS_FAILED,
+                "filesystem does not support safe no-replace media publication",
+            ) from exc
+
+        pinned.verify_binding()
+        published_checksum = sha256_file(final, max_bytes=max_bytes)
+        published_size = final.stat().st_size
+        if published_checksum != checksum or published_size != size:
+            # Do not unlink through a mutable destination path after a mismatch:
+            # preserving an uncertain object is safer than deleting a concurrent
+            # replacement. The caller receives failure and must reconcile.
+            raise MediaError(
+                MediaErrorCode.CHECKSUM_MISMATCH,
+                "published media output no longer matches the validated partial",
+            )
+
+        # Both names currently reference the same validated inode. Removing the
+        # private partial name leaves the no-replace final publication intact.
+        partial.unlink()
         pinned.verify_binding()
 
     return PromotedFile(
