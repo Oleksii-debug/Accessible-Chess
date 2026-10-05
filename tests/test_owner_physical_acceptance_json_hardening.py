@@ -73,6 +73,55 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
             self.assertTrue(output.exists())
             self.assertEqual(output.read_bytes(), b'{"forged":true}\n')
 
+    def test_post_link_readback_failure_cleans_owned_output_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            payload = b'{"accepted":true}\n'
+
+            with mock.patch.object(
+                acceptance_module,
+                "_stable_bytes",
+                return_value=b'{"accepted":false}\n',
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "published bytes do not match",
+                ):
+                    acceptance_module._publish_exclusive(output, payload)
+
+            self.assertFalse(output.exists())
+
+            acceptance_module._publish_exclusive(output, payload)
+            self.assertEqual(output.read_bytes(), payload)
+
+    def test_post_link_cleanup_preserves_replaced_canonical_path(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            payload = b'{"accepted":true}\n'
+            foreign = b'{"foreign":true}\n'
+
+            def replace_before_readback(path, **_kwargs):
+                current = Path(path)
+                current.unlink()
+                current.write_bytes(foreign)
+                return b'{"accepted":false}\n'
+
+            with mock.patch.object(
+                acceptance_module,
+                "_stable_bytes",
+                side_effect=replace_before_readback,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "published bytes do not match",
+                ):
+                    acceptance_module._publish_exclusive(output, payload)
+
+            self.assertTrue(output.is_file())
+            self.assertEqual(output.read_bytes(), foreign)
+
     def test_record_does_not_reopen_mutable_inputs_after_exclusive_publish(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
