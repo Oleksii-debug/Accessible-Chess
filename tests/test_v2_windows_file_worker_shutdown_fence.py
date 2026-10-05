@@ -797,6 +797,58 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             )
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_direct_file_actions_contain_base_exceptions_without_raw_escape(self) -> None:
+        class DirectAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "direct-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+
+            open_events = []
+            open_delegate = self._delegate(
+                source,
+                event_sink=open_events.append,
+                post_to_ui=None,
+            )
+            with mock.patch(
+                "acs.version2_windows_file_workflows.PgnDocumentSession.open",
+                side_effect=DirectAbort("direct open aborted"),
+            ):
+                opened = open_delegate("pgn.open", {})
+            self.assertEqual(opened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(opened.error_code, "pgn_open_failed")
+            self.assertFalse(open_delegate.pgn_open_running)
+
+            session_events = []
+            session_delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=session_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=None,
+            )
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=DirectAbort("direct presentation aborted"),
+            ):
+                saved = session_delegate("pgn.save", {})
+                saved_as = session_delegate("pgn.save_as", {})
+
+            self.assertEqual(saved.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(saved.error_code, "pgn_save_failed")
+            self.assertEqual(saved_as.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(saved_as.error_code, "pgn_save_as_failed")
+            self.assertFalse(session_delegate.pgn_save_running)
+
     def test_pgn_snapshot_preflight_base_exception_is_terminal_before_worker_start(self) -> None:
         class SnapshotAbort(BaseException):
             pass
