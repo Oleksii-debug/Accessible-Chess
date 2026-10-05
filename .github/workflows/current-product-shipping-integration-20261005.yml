@@ -42,7 +42,9 @@ jobs:
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
           PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
           PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152
+          WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo
           WINDOWS_EVIDENCE_SHA: 1728432f216d4f6cdda9d2283bea89c242c89337
+          TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo
           TRAINING_DURABILITY_SHA: 5a22b18285fcc827f68f1aefaa7d19368654424a
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
@@ -67,10 +69,18 @@ jobs:
           live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
           test "$live_product" = "$PINNED_PRODUCT_SHA"
 
-          for evidence_sha in "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"; do
-            git cat-file -e "$evidence_sha^{commit}"
-            git merge-base --is-ancestor "$evidence_sha" HEAD
-          done
+          fetch_evidence_exact() {
+            ref="$1"; expected="$2"; label="$3"
+            git fetch --no-tags origin "+refs/heads/$ref:refs/remotes/origin/$ref"
+            live="$(git rev-parse "refs/remotes/origin/$ref")"
+            test "$live" = "$expected" || {
+              printf '%s_MOVED expected=%s live=%s\n' "$label" "$expected" "$live" >&2
+              exit 1
+            }
+            git merge-base --is-ancestor "$expected" HEAD
+          }
+          fetch_evidence_exact "$WINDOWS_EVIDENCE_REF" "$WINDOWS_EVIDENCE_SHA" SHIPPING_WINDOWS_EVIDENCE
+          fetch_evidence_exact "$TRAINING_DURABILITY_REF" "$TRAINING_DURABILITY_SHA" SHIPPING_TRAINING_DURABILITY
           git merge-base --is-ancestor "$live_product" "$WINDOWS_EVIDENCE_SHA"
           git merge-base --is-ancestor "$WINDOWS_EVIDENCE_SHA" "$TRAINING_DURABILITY_SHA"
           test "$(git merge-base "$live_product" "$TRAINING_DURABILITY_SHA")" = "$live_product"
@@ -142,6 +152,7 @@ jobs:
           echo "PRODUCT_SOURCE=$live_product"
           echo "PRODUCT_PATHS=$product_count"
           echo "QUALIFICATION_DELTA_PATHS=15"
+          echo "EVIDENCE_STACK_LIVE_HEADS=PASS"
           echo "EVIDENCE_STACK_PATHS_UNMODIFIED=PASS"
           echo "CANDIDATE_PATHS=$candidate_count"
 
