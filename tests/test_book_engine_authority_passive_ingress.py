@@ -9,6 +9,8 @@ from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.engine_ports import EngineContractError, EngineContractErrorCode
+from acs.full_product_actions import ActionDispatchResult
+from acs.version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEventKind
 from acs.version2_book_workspace import Version2BookWebViewProjection
 
 
@@ -76,6 +78,101 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
             )
 
         self.assertFalse(HostileBookBoardWorkflow.touched)
+
+    def test_book_workspace_rejects_active_action_result_before_value_probe(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        workflow = BookBoardWorkflow(
+            self._reader(),
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveResult:
+            touched = False
+
+            def __getattribute__(self, name):
+                if name == "value":
+                    type(self).touched = True
+                    raise AssertionError("active result value hook must not execute")
+                return super().__getattribute__(name)
+
+        projection = Version2BookWebViewProjection(
+            workflow.reader,
+            workflow,
+            lambda *_args: ActiveResult(),
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveResult.touched)
+
+    def test_book_workspace_rejects_active_ui_event_subclass_before_field_access(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        workflow = BookBoardWorkflow(
+            self._reader(),
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveBookBoardUiEvent(BookBoardUiEvent):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"kind", "action_id", "revision"}:
+                    type(self).touched = True
+                    raise AssertionError("active UI event field hook must not execute")
+                return super().__getattribute__(name)
+
+        active = ActiveBookBoardUiEvent.__new__(ActiveBookBoardUiEvent)
+        projection = Version2BookWebViewProjection(
+            workflow.reader,
+            workflow,
+            lambda *_args: active,
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveBookBoardUiEvent.touched)
+
+    def test_book_workspace_accepts_exact_router_result_with_exact_ui_event(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        workflow = BookBoardWorkflow(
+            self._reader(),
+            EngineAssistedWorkflowService(analysis),
+        )
+        workflow.open_current()
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=workflow.revision,
+        )
+        wrapped = ActionDispatchResult(
+            action_id="book.open_position",
+            handled_by_shell=False,
+            value=event,
+        )
+        projection = Version2BookWebViewProjection(
+            workflow.reader,
+            workflow,
+            lambda *_args: wrapped,
+        )
+
+        self.assertTrue(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
 
     def test_book_block_analysis_rejects_semantic_subclass_before_attribute_hooks(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
