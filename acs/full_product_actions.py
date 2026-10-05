@@ -74,7 +74,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("library.import", BindingContext.DATABASE, "Import into library"),
     _action(
         "library.cancel_import",
-        BindingContext.DATABASE,
+        BindingContext.GLOBAL,
         "Cancel library operation",
         "Ctrl+Shift+X",
     ),
