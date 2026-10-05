@@ -62,6 +62,7 @@ jobs:
             "acs/pgn_document.py"
             "acs/pgn_save_snapshot.py"
             "acs/pgn_service.py"
+            "acs/pgn_workspace.py"
             "acs/version2_application.py"
             "acs/version2_windows_file_workflows.py"
             "acs/version2_windows_host_runtime.py"
@@ -105,6 +106,7 @@ jobs:
           acs/pgn_document.py
           acs/pgn_save_snapshot.py
           acs/pgn_service.py
+          acs/pgn_workspace.py
           acs/version2_windows_file_workflows.py
           acs/version2_windows_host_runtime.py
           acs/version2_windows_import_event_mailbox.py
@@ -119,6 +121,7 @@ jobs:
           tests/test_pgn_save_snapshot_cancel.py
           tests/test_pgn_service.py
           tests/test_pgn_service_passive_overwrite.py
+          tests/test_pgn_workspace.py
           tests/test_v2_windows_pgn_save_terminal_truth.py
           tests/test_v2_windows_pgn_save_worker.py
           tests/test_v2_windows_pgn_open_worker.py
@@ -139,6 +142,7 @@ jobs:
           tests.test_pgn_save_snapshot_cancel
           tests.test_pgn_service_passive_overwrite
           tests.test_pgn_service
+          tests.test_pgn_workspace
           tests.test_v2_windows_pgn_save_terminal_truth
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_pgn_open_worker
