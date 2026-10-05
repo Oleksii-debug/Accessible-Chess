@@ -1744,7 +1744,7 @@ class Version2WindowsFileActionDelegate:
                     ),
                 ),
             )
-        except Exception:
+        except BaseException:
             _LOG.warning("Version 2 Library import failed", exc_info=True)
             self._emit_if_current(
                 generation,
