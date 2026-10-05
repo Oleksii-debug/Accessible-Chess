@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: universal-agent-tool-boundary-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: universal-agent-tool-boundary-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   qualify:
@@ -33,35 +33,60 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact Product ancestry and bounded scope
+      - name: Prove current Product convergence and bounded authority
         shell: bash
         env:
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+          PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62
+          SOURCE_REF: feat/universal-agent-readonly-tools-20261005-sol56m7q2
+          SOURCE_SHA: f0c429ab9863733d82f0fbc759af774f9cf080f9
+          CONVERGENCE_SHA: 33e8e15c7ae456b1a3101bc303ba75f106b67901
+          AGENT_TOOLS_BLOB: c9522af3e41f148812021b0ccd352bfd6ef17a8d
+          TEST_BLOB: 24ac09ad6632cafc076c85450b5631371db57251
         run: |
           set -euo pipefail
-          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
-          test "$(git rev-parse HEAD)" = "$expected"
-          if [ -n "${EVENT_BASE_REF:-}" ]; then
-            git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
-            live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
-            test -n "$EVENT_BASE_SHA"
-            test "$EVENT_BASE_SHA" = "$live_base"
-          else
-            live_base="$(git rev-parse HEAD^)"
-          fi
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base"...HEAD
-          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-          expected_paths="$(printf '%s\n' \
-            '.github/workflows/universal-agent-tool-boundary.yml' \
-            'acs/agent_tools.py' \
-            'tests/test_agent_tools.py' | sort)"
-          test "$changed" = "$expected_paths" || {
-            printf 'Unexpected Universal Agent scope:\n%s\n' "$changed" >&2
+          candidate="$(git rev-parse HEAD)"
+
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/agent-product"
+          live_product="$(git rev-parse refs/remotes/origin/agent-product)"
+          test "$live_product" = "$PRODUCT_SHA" || {
+            printf 'AGENT_PRODUCT_MOVED expected=%s live=%s\n' "$PRODUCT_SHA" "$live_product" >&2
             exit 1
           }
+
+          git fetch --no-tags origin "+refs/heads/$SOURCE_REF:refs/remotes/origin/agent-source"
+          live_source="$(git rev-parse refs/remotes/origin/agent-source)"
+          test "$live_source" = "$SOURCE_SHA" || {
+            printf 'AGENT_SOURCE_MOVED expected=%s live=%s\n' "$SOURCE_SHA" "$live_source" >&2
+            exit 1
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$PRODUCT_REF"
+            git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/origin/agent-live-head"
+            test "$(git rev-parse refs/remotes/origin/agent-live-head)" = "$candidate"
+          fi
+
+          test "$(git show -s --format=%P "$CONVERGENCE_SHA")" = "$PRODUCT_SHA $SOURCE_SHA"
+          git merge-base --is-ancestor "$CONVERGENCE_SHA" "$candidate"
+          git merge-base --is-ancestor "$PRODUCT_SHA" "$candidate"
+          git merge-base --is-ancestor "$SOURCE_SHA" "$candidate"
+          test "$(git merge-base "$PRODUCT_SHA" "$candidate")" = "$PRODUCT_SHA"
+
+          git diff --check "$PRODUCT_SHA"..."$candidate"
+          changed="$(git diff --name-only "$PRODUCT_SHA"..."$candidate" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/universal-agent-tool-boundary.yml' \
+            'acs/agent_tools.py' \
+            'tests/test_agent_tools.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Universal Agent authority scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          test "$(git rev-parse HEAD:acs/agent_tools.py)" = "$AGENT_TOOLS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_agent_tools.py)" = "$TEST_BLOB"
+          echo 'CURRENT_PRODUCT_AGENT_TOOL_AUTHORITY=PASS'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
