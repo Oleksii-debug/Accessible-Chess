@@ -1,6 +1,9 @@
 name: W5 Portable Package Contract
 
 on:
+  push:
+    branches:
+      - qa/w5-portable-package-contract-20261005-sol56f2q9
   pull_request:
     branches:
       - work/post-freeze-v2-windows-package-qualification-20260911
@@ -17,39 +20,69 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: w5-portable-package-contract-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_W5_SHA: b789448a573657b97cf535eb3e399e04990bbe46
+  W5_BRANCH: work/post-freeze-v2-windows-package-qualification-20260911
+  CONTRACT_PATH: .github/workflows/w5-portable-package-contract.yml
+
 jobs:
   portable-package-contract:
     name: Portable package contract on Windows
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 20
 
     steps:
-      - name: Check out qualification successor
-        uses: actions/checkout@v4
+      - name: Check out exact qualification successor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Set up Python
+      - name: Prove exact live W5 base and qualification-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin "+refs/heads/$W5_BRANCH:refs/remotes/origin/w5-contract-base"
+          live_w5="$(git rev-parse refs/remotes/origin/w5-contract-base)"
+          test "$live_w5" = "$EXPECTED_W5_SHA" || {
+            echo "W5_PORTABLE_BASE_MOVED expected=$EXPECTED_W5_SHA live=$live_w5" >&2
+            exit 1
+          }
+
+          git cat-file -e "$EXPECTED_W5_SHA^{commit}"
+          test "$(git merge-base "$EXPECTED_W5_SHA" HEAD)" = "$EXPECTED_W5_SHA"
+          git diff --check "$EXPECTED_W5_SHA"...HEAD
+
+          mapfile -t paths < <(git diff --name-only "$EXPECTED_W5_SHA"...HEAD | sort)
+          printf '%s\n' "${paths[@]}"
+          test "${#paths[@]}" -eq 1
+          test "${paths[0]}" = "$CONTRACT_PATH"
+
+          WriteMarker="W5_PORTABLE_PACKAGE_BASE=$EXPECTED_W5_SHA"
+          echo "$WriteMarker"
+          echo "W5_PORTABLE_PACKAGE_HEAD=$expected_head"
+          echo "W5_PORTABLE_PACKAGE_SCOPE=$CONTRACT_PATH"
+
+      - name: Set up canonical package-test Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12.10'
 
-      - name: Prove W5 qualification ancestry
-        shell: pwsh
-        run: |
-          $ExpectedW5 = 'b789448a573657b97cf535eb3e399e04990bbe46'
-          git cat-file -e "$ExpectedW5^{commit}"
-          if ($LASTEXITCODE -ne 0) {
-            throw "Expected W5 commit is not present: $ExpectedW5"
-          }
-          git merge-base --is-ancestor $ExpectedW5 HEAD
-          if ($LASTEXITCODE -ne 0) {
-            throw "Candidate does not descend from exact W5 qualification head $ExpectedW5"
-          }
-          Write-Host "W5_PORTABLE_PACKAGE_BASE=$ExpectedW5"
-
-      - name: Compile portable package authority
-        run: python -m py_compile acs/version2_portable_package.py
+      - name: Compile portable package authority and contract tests
+        run: >-
+          python -m py_compile
+          acs/version2_portable_package.py
+          tests/test_version2_portable_package.py
+          tests/test_portable_launcher_contract.py
+          tests/test_portable_launcher_window_readiness.py
+          tests/test_portable_localappdata_persistence_binding.py
 
       - name: Run canonical portable outer-package contract
         run: python -m unittest -v tests.test_version2_portable_package
