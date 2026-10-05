@@ -213,6 +213,10 @@
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
       if (area === "library" && command === "library.open_game") {
+        const openPayload = payload == null ? {} : payload;
+        if (!plainObject(openPayload) || Object.keys(openPayload).length !== 0) {
+          return Promise.reject(new Error("invalid Library Open payload"));
+        }
         return runPublishedBrowserTransition(
           bridge,
           "library",
@@ -442,6 +446,18 @@
           token
         ).then(function () {
           clearPendingShellPublication(token);
+          if (
+            area === "library" &&
+            actionId === "library.open_game" &&
+            result.kind === "delegated"
+          ) {
+            // publication_token is transport authority only. Never leak it into
+            // the strict Library delegated-event schema after commit.
+            return {
+              kind: "delegated",
+              payload: { action: "library.open_game" }
+            };
+          }
           return result;
         }, function () {
           return recoverShellPublication(
