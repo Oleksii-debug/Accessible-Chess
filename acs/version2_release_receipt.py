@@ -138,7 +138,10 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
             getattr(right, "st_dev", None),
             getattr(right, "st_ino", None),
         )
-        return None not in left_identity and left_identity == right_identity
+        values = left_identity + right_identity
+        if any(value in (None, 0) for value in values):
+            return False
+        return left_identity == right_identity
 
 
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
@@ -401,10 +404,12 @@ def write_version2_release_receipt(
         raise Version2ReleaseReceiptError("output_path must name a file")
     payload = receipt.to_json()
     payload_bytes = payload.encode("utf-8")
+    create_succeeded = False
     created: os.stat_result | None = None
     publication_verified = False
     try:
         with path.open("x", encoding="utf-8", newline="\n") as handle:
+            create_succeeded = True
             created = os.fstat(handle.fileno())
             if not stat.S_ISREG(created.st_mode) or _is_reparse(created):
                 raise Version2ReleaseReceiptError(
@@ -432,8 +437,11 @@ def write_version2_release_receipt(
     except Version2ReleaseReceiptError as exc:
         cleanup_safe = (
             publication_verified
-            or created is None
-            or _discard_failed_created_receipt(path, created)
+            or not create_succeeded
+            or (
+                created is not None
+                and _discard_failed_created_receipt(path, created)
+            )
         )
         if not cleanup_safe:
             raise Version2ReleaseReceiptError(
@@ -443,8 +451,11 @@ def write_version2_release_receipt(
     except OSError as exc:
         cleanup_safe = (
             publication_verified
-            or created is None
-            or _discard_failed_created_receipt(path, created)
+            or not create_succeeded
+            or (
+                created is not None
+                and _discard_failed_created_receipt(path, created)
+            )
         )
         suffix = "" if cleanup_safe else "; failed receipt cleanup could not be proven safe"
         raise Version2ReleaseReceiptError(
