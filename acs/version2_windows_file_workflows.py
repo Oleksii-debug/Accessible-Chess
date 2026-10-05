@@ -38,6 +38,16 @@ from .book_library_import import (
 )
 from .import_contract import SourceReadCancelledError
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
+from .pgn_save_snapshot import (
+    PgnSaveCancelledError,
+    PgnSaveMode,
+    PgnSavePublication,
+    PgnSaveSnapshot,
+    capture_pgn_save_snapshot,
+    commit_pgn_save_publication,
+    expected_pgn_destination_sha256,
+    publish_pgn_save_snapshot,
+)
 from .pgn_service import PgnFileError, open_pgn
 from .report_paths import report_safe_name
 
@@ -50,6 +60,9 @@ class FileWorkflowEventKind(str, Enum):
     PGN_OPEN_CANCELLING = "pgn_open_cancelling"
     PGN_OPEN_CANCELLED = "pgn_open_cancelled"
     PGN_OPENED = "pgn_opened"
+    PGN_SAVE_STARTED = "pgn_save_started"
+    PGN_SAVE_CANCELLING = "pgn_save_cancelling"
+    PGN_SAVE_CANCELLED = "pgn_save_cancelled"
     PGN_SAVED = "pgn_saved"
     PGN_SAVED_AS = "pgn_saved_as"
     DIALOG_CANCELLED = "dialog_cancelled"
@@ -231,6 +244,7 @@ class Version2WindowsFileActionDelegate:
             "pgn.open",
             "pgn.cancel_open",
             "pgn.save",
+            "pgn.cancel_save",
             "pgn.save_as",
             "library.import",
             "library.cancel_import",
@@ -292,6 +306,7 @@ class Version2WindowsFileActionDelegate:
         self._worker_kind = ""
         self._cancel_event: threading.Event | None = None
         self._terminal_pending: tuple[int, FileWorkflowEvent] | None = None
+        self._pending_save_result: tuple[object, ...] | None = None
         self._generation = 0
         self._shutdown_requested = False
 
@@ -304,6 +319,21 @@ class Version2WindowsFileActionDelegate:
     def pgn_open_running(self) -> bool:
         with self._lock:
             return self._worker is not None and self._worker_kind == "pgn_open"
+
+    @property
+    def pgn_save_running(self) -> bool:
+        with self._lock:
+            return self._worker is not None and self._worker_kind == "pgn_save"
+
+    @staticmethod
+    def _worker_focus_target(worker_kind: str) -> str:
+        if worker_kind == "import":
+            return "library-import-cancel"
+        if worker_kind == "pgn_open":
+            return "pgn-open-cancel"
+        if worker_kind == "pgn_save":
+            return "pgn-save-cancel"
+        return ""
 
     def _focus(self) -> str:
         try:
@@ -348,6 +378,8 @@ class Version2WindowsFileActionDelegate:
             return self._cancel_pgn_open()
         if action_id == "pgn.save":
             return self._save_pgn()
+        if action_id == "pgn.cancel_save":
+            return self._cancel_pgn_save()
         if action_id == "pgn.save_as":
             return self._save_pgn_as()
         if action_id == "library.import":
@@ -447,11 +479,7 @@ class Version2WindowsFileActionDelegate:
                 "pgn.open", "file_workflow_closed", focus_target=previous_focus
             )
         if worker_kind:
-            focus_target = (
-                "library-import-cancel"
-                if worker_kind == "import"
-                else "pgn-open-cancel"
-            )
+            focus_target = self._worker_focus_target(worker_kind)
             return self._failed(
                 "pgn.open", "file_worker_busy", focus_target=focus_target
             )
@@ -500,11 +528,7 @@ class Version2WindowsFileActionDelegate:
                 "pgn.open", "file_workflow_closed", focus_target=previous_focus
             )
         if worker_kind:
-            focus_target = (
-                "library-import-cancel"
-                if worker_kind == "import"
-                else "pgn-open-cancel"
-            )
+            focus_target = self._worker_focus_target(worker_kind)
             return self._failed(
                 "pgn.open", "file_worker_busy", focus_target=focus_target
             )
@@ -793,6 +817,7 @@ class Version2WindowsFileActionDelegate:
         self._worker_kind = ""
         self._cancel_event = None
         self._terminal_pending = None
+        self._pending_save_result = None
 
     def _session_or_failure(
         self, action_id: str
@@ -807,20 +832,64 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 action_id, "no_pgn_document", focus_target=self._focus()
             )
-        if not isinstance(session, PgnDocumentSession):
+        if type(session) is not PgnDocumentSession:
             return self._failed(
                 action_id, "pgn_session_invalid", focus_target=self._focus()
             )
         return session
 
     def _save_pgn(self) -> FileWorkflowEvent:
+        previous_focus = self._focus()
+        with self._lock:
+            active_kind = self._worker_kind if self._worker is not None else ""
+            shutdown_requested = self._shutdown_requested
+        if shutdown_requested:
+            return self._failed(
+                "pgn.save", "file_workflow_closed", focus_target=previous_focus
+            )
+        if active_kind:
+            return self._failed(
+                "pgn.save",
+                "file_worker_busy",
+                focus_target=self._worker_focus_target(active_kind),
+            )
+
         current = self._session_or_failure("pgn.save")
         if isinstance(current, FileWorkflowEvent):
             return current
-        previous_focus = self._focus()
+
+        # Preserve the historical synchronous seam for non-Windows/direct
+        # embeddings that do not supply an owner-thread poster.
+        if self._post_to_ui is None:
+            try:
+                game_count = current.view().game_count
+                current.save()
+            except PgnDocumentError as exc:
+                if exc.code in {
+                    PgnDocumentErrorCode.NO_SOURCE,
+                    PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
+                }:
+                    return self._save_pgn_as(
+                        session=current, prior_focus=previous_focus
+                    )
+                return self._failed(
+                    "pgn.save", "pgn_save_failed", focus_target=previous_focus
+                )
+            except Exception:
+                return self._failed(
+                    "pgn.save", "pgn_save_failed", focus_target=previous_focus
+                )
+            return self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED,
+                    "pgn.save",
+                    focus_target=previous_focus,
+                    game_count=game_count,
+                )
+            )
+
         try:
-            game_count = current.view().game_count
-            current.save()
+            snapshot = capture_pgn_save_snapshot(current, mode=PgnSaveMode.SAVE)
         except PgnDocumentError as exc:
             if exc.code in {
                 PgnDocumentErrorCode.NO_SOURCE,
@@ -836,13 +905,12 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 "pgn.save", "pgn_save_failed", focus_target=previous_focus
             )
-        return self._emit(
-            FileWorkflowEvent(
-                FileWorkflowEventKind.PGN_SAVED,
-                "pgn.save",
-                focus_target=previous_focus,
-                game_count=game_count,
-            )
+        return self._start_pgn_save_worker(
+            action_id="pgn.save",
+            session=current,
+            snapshot=snapshot,
+            destination=None,
+            previous_focus=previous_focus,
         )
 
     def _save_pgn_as(
@@ -851,6 +919,21 @@ class Version2WindowsFileActionDelegate:
         session: PgnDocumentSession | None = None,
         prior_focus: str | None = None,
     ) -> FileWorkflowEvent:
+        previous_focus = self._focus() if prior_focus is None else prior_focus
+        with self._lock:
+            active_kind = self._worker_kind if self._worker is not None else ""
+            shutdown_requested = self._shutdown_requested
+        if shutdown_requested:
+            return self._failed(
+                "pgn.save_as", "file_workflow_closed", focus_target=previous_focus
+            )
+        if active_kind:
+            return self._failed(
+                "pgn.save_as",
+                "file_worker_busy",
+                focus_target=self._worker_focus_target(active_kind),
+            )
+
         current: PgnDocumentSession | FileWorkflowEvent
         current = (
             session
@@ -859,9 +942,14 @@ class Version2WindowsFileActionDelegate:
         )
         if isinstance(current, FileWorkflowEvent):
             return current
-        previous_focus = self._focus() if prior_focus is None else prior_focus
+        if type(current) is not PgnDocumentSession:
+            return self._failed(
+                "pgn.save_as", "pgn_session_invalid", focus_target=previous_focus
+            )
+
         try:
             view = current.view()
+            expected_revision = current.document_revision
         except Exception:
             return self._failed(
                 "pgn.save_as",
@@ -880,12 +968,50 @@ class Version2WindowsFileActionDelegate:
             )
         if destination is None:
             return self._dialog_cancelled("pgn.save_as", previous_focus)
+
+        # Native dialogs pump messages. Do not publish a detached snapshot for a
+        # document that was replaced or edited while the picker was open.
         try:
-            expected = current.expected_destination_sha256(destination)
-            current.save_as(
-                destination,
-                overwrite=expected is not None,
-                expected_sha256=expected,
+            live_session = self._get_pgn_session()
+        except Exception:
+            return self._failed(
+                "pgn.save_as", "pgn_session_unavailable", focus_target=previous_focus
+            )
+        if (
+            live_session is not current
+            or current.document_revision != expected_revision
+        ):
+            return self._failed(
+                "pgn.save_as", "pgn_save_stale", focus_target=previous_focus
+            )
+
+        if self._post_to_ui is None:
+            try:
+                expected = current.expected_destination_sha256(destination)
+                current.save_as(
+                    destination,
+                    overwrite=expected is not None,
+                    expected_sha256=expected,
+                )
+            except Exception:
+                return self._failed(
+                    "pgn.save_as",
+                    "pgn_save_as_failed",
+                    focus_target=previous_focus,
+                )
+            return self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED_AS,
+                    "pgn.save_as",
+                    focus_target=previous_focus,
+                    game_count=game_count,
+                )
+            )
+
+        try:
+            snapshot = capture_pgn_save_snapshot(
+                current,
+                mode=PgnSaveMode.SAVE_AS,
             )
         except Exception:
             return self._failed(
@@ -893,12 +1019,305 @@ class Version2WindowsFileActionDelegate:
                 "pgn_save_as_failed",
                 focus_target=previous_focus,
             )
+
+        return self._start_pgn_save_worker(
+            action_id="pgn.save_as",
+            session=current,
+            snapshot=snapshot,
+            destination=Path(destination),
+            previous_focus=previous_focus,
+        )
+
+    def _start_pgn_save_worker(
+        self,
+        *,
+        action_id: str,
+        session: PgnDocumentSession,
+        snapshot: PgnSaveSnapshot,
+        destination: Path | None,
+        previous_focus: str,
+    ) -> FileWorkflowEvent:
+        if action_id not in {"pgn.save", "pgn.save_as"}:
+            raise ValueError("invalid PGN save action")
+        if type(session) is not PgnDocumentSession:
+            raise TypeError("PGN save worker requires an exact document session")
+        if type(snapshot) is not PgnSaveSnapshot:
+            raise TypeError("PGN save worker requires an exact detached snapshot")
+        if action_id == "pgn.save" and destination is not None:
+            raise ValueError("Save may not carry a Save As destination")
+        if action_id == "pgn.save_as" and destination is None:
+            raise ValueError("Save As requires a destination")
+
+        with self._lock:
+            if self._shutdown_requested:
+                return self._failed(
+                    action_id, "file_workflow_closed", focus_target=previous_focus
+                )
+            if self._worker is not None:
+                return self._failed(
+                    action_id,
+                    "file_worker_busy",
+                    focus_target=self._worker_focus_target(self._worker_kind),
+                )
+            self._generation += 1
+            generation = self._generation
+            cancel_event = threading.Event()
+            worker = threading.Thread(
+                target=self._run_pgn_save,
+                args=(
+                    generation,
+                    action_id,
+                    session,
+                    snapshot,
+                    destination,
+                    previous_focus,
+                    cancel_event,
+                ),
+                name=f"AccessibleChess-V2-PgnSave-{generation}",
+                daemon=False,
+            )
+            self._worker = worker
+            self._worker_started = False
+            self._worker_kind = "pgn_save"
+            self._cancel_event = cancel_event
+            self._terminal_pending = None
+            self._pending_save_result = None
+
+        started = self._emit(
+            FileWorkflowEvent(
+                FileWorkflowEventKind.PGN_SAVE_STARTED,
+                action_id,
+                focus_target="pgn-save-cancel",
+                game_count=len(snapshot.games),
+            )
+        )
+        shutdown_before_start = False
+        try:
+            with self._lock:
+                if generation != self._generation or self._worker is not worker:
+                    raise RuntimeError("PGN save worker ownership changed before start")
+                if self._shutdown_requested:
+                    self._clear_worker_locked()
+                    shutdown_before_start = True
+                else:
+                    worker.start()
+                    if self._worker is worker:
+                        self._worker_started = True
+        except Exception:
+            with self._lock:
+                if generation == self._generation and self._worker is worker:
+                    self._clear_worker_locked()
+            return self._failed(
+                action_id,
+                "pgn_save_worker_unavailable",
+                focus_target=previous_focus,
+            )
+        if shutdown_before_start:
+            return self._failed(
+                action_id, "file_workflow_closed", focus_target=previous_focus
+            )
+        return started
+
+    def _run_pgn_save(
+        self,
+        generation: int,
+        action_id: str,
+        session: PgnDocumentSession,
+        snapshot: PgnSaveSnapshot,
+        destination: Path | None,
+        previous_focus: str,
+        cancel_event: threading.Event,
+    ) -> None:
+        publication: PgnSavePublication | None = None
+        error_code = ""
+        try:
+            if action_id == "pgn.save":
+                publication = publish_pgn_save_snapshot(
+                    snapshot,
+                    cancel_check=cancel_event.is_set,
+                )
+            else:
+                assert destination is not None
+                expected = expected_pgn_destination_sha256(
+                    destination,
+                    cancel_check=cancel_event.is_set,
+                )
+                publication = publish_pgn_save_snapshot(
+                    snapshot,
+                    path=destination,
+                    overwrite=expected is not None,
+                    expected_sha256=expected,
+                    cancel_check=cancel_event.is_set,
+                )
+        except PgnSaveCancelledError:
+            error_code = "pgn_save_cancelled"
+        except Exception:
+            _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
+            error_code = "pgn_save_failed"
+
+        pending = (
+            generation,
+            action_id,
+            session,
+            publication,
+            error_code,
+            previous_focus,
+            cancel_event,
+            len(snapshot.games),
+        )
+        with self._lock:
+            if generation == self._generation and self._worker_kind == "pgn_save":
+                self._pending_save_result = pending
+
+        def finish_on_owner() -> None:
+            self._finish_pgn_save_on_owner(*pending)
+
+        try:
+            assert self._post_to_ui is not None
+            self._post_to_ui(finish_on_owner)
+        except Exception:
+            _LOG.warning("Version 2 PGN save UI publication post failed", exc_info=True)
+            # Keep the result recoverable. A durable publication must be
+            # committed on the owner thread during shutdown or the next posted
+            # owner callback; do not clear its worker authority here.
+            if publication is None:
+                with self._lock:
+                    current = (
+                        generation == self._generation
+                        and self._worker_kind == "pgn_save"
+                        and not self._shutdown_requested
+                    )
+                    if current:
+                        self._clear_worker_locked()
+                if current:
+                    self._emit(
+                        FileWorkflowEvent(
+                            FileWorkflowEventKind.FAILED,
+                            action_id,
+                            focus_target=previous_focus,
+                            error_code="pgn_save_ui_post_failed",
+                        )
+                    )
+
+    def _finish_pgn_save_on_owner(
+        self,
+        generation: int,
+        action_id: str,
+        session: PgnDocumentSession,
+        publication: PgnSavePublication | None,
+        error_code: str,
+        previous_focus: str,
+        cancel_event: threading.Event,
+        game_count: int,
+        *,
+        allow_shutdown_commit: bool = False,
+    ) -> None:
+        with self._lock:
+            current = (
+                generation == self._generation
+                and self._worker is not None
+                and self._worker_kind == "pgn_save"
+                and (allow_shutdown_commit or not self._shutdown_requested)
+            )
+            if not current:
+                return
+
+        # Once canonical publication returned, durable success wins over a late
+        # cancel signal. Otherwise cancellation remains terminal and path-free.
+        if publication is None and (
+            error_code == "pgn_save_cancelled" or cancel_event.is_set()
+        ):
+            terminal = FileWorkflowEvent(
+                FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+                action_id,
+                focus_target=previous_focus,
+            )
+        elif error_code or publication is None:
+            terminal = FileWorkflowEvent(
+                FileWorkflowEventKind.FAILED,
+                action_id,
+                focus_target=previous_focus,
+                error_code=error_code or "pgn_save_failed",
+            )
+        else:
+            try:
+                live_session = self._get_pgn_session()
+            except Exception:
+                terminal = FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    action_id,
+                    focus_target=previous_focus,
+                    error_code="pgn_session_unavailable",
+                )
+            else:
+                if live_session is not session:
+                    terminal = FileWorkflowEvent(
+                        FileWorkflowEventKind.FAILED,
+                        action_id,
+                        focus_target=previous_focus,
+                        error_code="pgn_save_stale",
+                    )
+                else:
+                    try:
+                        commit_pgn_save_publication(session, publication)
+                    except Exception:
+                        _LOG.warning(
+                            "Version 2 PGN save owner commit failed",
+                            exc_info=True,
+                        )
+                        terminal = FileWorkflowEvent(
+                            FileWorkflowEventKind.FAILED,
+                            action_id,
+                            focus_target=previous_focus,
+                            error_code="pgn_save_commit_failed",
+                        )
+                    else:
+                        terminal = FileWorkflowEvent(
+                            (
+                                FileWorkflowEventKind.PGN_SAVED
+                                if action_id == "pgn.save"
+                                else FileWorkflowEventKind.PGN_SAVED_AS
+                            ),
+                            action_id,
+                            focus_target=previous_focus,
+                            game_count=game_count,
+                        )
+
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._worker_kind != "pgn_save"
+                or (
+                    self._shutdown_requested
+                    and not allow_shutdown_commit
+                )
+            ):
+                return
+            self._clear_worker_locked()
+        self._emit_owner_async(terminal)
+
+    def _cancel_pgn_save(self) -> FileWorkflowEvent:
+        with self._lock:
+            worker = self._worker
+            cancel_event = self._cancel_event
+            running = (
+                worker is not None
+                and self._worker_kind == "pgn_save"
+                and cancel_event is not None
+            )
+            if running:
+                cancel_event.set()
+        if not running:
+            return self._failed(
+                "pgn.cancel_save",
+                "no_pgn_save_running",
+                focus_target="pgn-game-list",
+            )
         return self._emit(
             FileWorkflowEvent(
-                FileWorkflowEventKind.PGN_SAVED_AS,
-                "pgn.save_as",
-                focus_target=previous_focus,
-                game_count=game_count,
+                FileWorkflowEventKind.PGN_SAVE_CANCELLING,
+                "pgn.cancel_save",
+                focus_target="pgn-save-cancel",
             )
         )
 
@@ -919,11 +1338,7 @@ class Version2WindowsFileActionDelegate:
                     if active_kind == "import"
                     else "file_worker_busy"
                 ),
-                focus_target=(
-                    "library-import-cancel"
-                    if active_kind == "import"
-                    else "pgn-open-cancel"
-                ),
+                focus_target=self._worker_focus_target(active_kind),
             )
         try:
             source_path = self._dialogs.select_library_import()
@@ -968,11 +1383,7 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 "library.import",
                 "file_worker_busy",
-                focus_target=(
-                    "library-import-cancel"
-                    if conflict_kind == "import"
-                    else "pgn-open-cancel"
-                ),
+                focus_target=self._worker_focus_target(conflict_kind),
             )
 
         started = self._emit(
@@ -1298,6 +1709,19 @@ class Version2WindowsFileActionDelegate:
         worker.join(timeout)
         return not worker.is_alive()
 
+    def wait_for_pgn_save(self, timeout: float | None = None) -> bool:
+        """Wait for background PGN save publication; owner commit may still be queued."""
+
+        with self._lock:
+            worker = self._worker if self._worker_kind == "pgn_save" else None
+            worker_started = self._worker_started
+        if worker is None:
+            return True
+        if not worker_started:
+            return False
+        worker.join(timeout)
+        return not worker.is_alive()
+
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join worker and make any queued PGN Open publication stale."""
 
@@ -1322,6 +1746,21 @@ class Version2WindowsFileActionDelegate:
             with self._lock:
                 if self._worker is worker and self._worker_kind == "pgn_open":
                     self._clear_worker_locked()
+        elif stopped and worker_kind == "pgn_save":
+            # Publication may already be durable while its owner-thread commit
+            # is still queued. Complete that exact pending transaction before
+            # application state is torn down; the queued callback becomes stale.
+            with self._lock:
+                pending = self._pending_save_result
+            if pending is not None:
+                self._finish_pgn_save_on_owner(
+                    *pending,
+                    allow_shutdown_commit=True,
+                )
+            else:
+                with self._lock:
+                    if self._worker is worker and self._worker_kind == "pgn_save":
+                        self._clear_worker_locked()
         return stopped
 
 
