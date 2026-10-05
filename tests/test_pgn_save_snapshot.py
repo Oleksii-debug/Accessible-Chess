@@ -230,6 +230,39 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertTrue(session.dirty)
         self.assertTrue(target.exists())
 
+    def test_valid_shape_snapshot_source_swap_fails_before_save_io(self) -> None:
+        source = self.write_document("captured-source.pgn", DOCUMENT)
+        other = self.write_document("other-source.pgn", SECOND_DOCUMENT)
+        session = PgnDocumentSession.open(source)
+        other_session = PgnDocumentSession.open(other)
+        session.edit_tag("Event", "Pending Save")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        other_before = other.read_bytes()
+        object.__setattr__(snapshot, "source_before", other_session.source)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            publish_pgn_save_snapshot(snapshot)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertEqual(other.read_bytes(), other_before)
+        self.assertTrue(session.dirty)
+        self.assertIn("Pending Save", session.copy_pgn())
+
+    def test_snapshot_mode_swap_cannot_redirect_save_to_save_as(self) -> None:
+        source = self.write_document("mode-source.pgn", DOCUMENT)
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Pending Save")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        target = self.root / "redirected-save-as.pgn"
+        object.__setattr__(snapshot, "mode", PgnSaveMode.SAVE_AS)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            publish_pgn_save_snapshot(snapshot, path=target)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertFalse(target.exists())
+        self.assertTrue(session.dirty)
+
     def test_noncanonical_snapshot_source_provenance_fails_before_save_io(self) -> None:
         source = self.write_document("source-provenance.pgn")
         session = PgnDocumentSession.open(source)
