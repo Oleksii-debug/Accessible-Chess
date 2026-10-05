@@ -78,6 +78,29 @@ class Version2ApplicationTests(unittest.TestCase):
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
+    def test_file_event_rejects_derived_event_before_hooks(self):
+        touched = []
+
+        class ActiveEvent(FileWorkflowEvent):
+            def __getattribute__(self, name):
+                if name in {
+                    "kind",
+                    "action_id",
+                    "focus_target",
+                    "error_code",
+                    "warning_count",
+                }:
+                    touched.append(name)
+                    raise AssertionError("derived file event field must not execute")
+                return super().__getattribute__(name)
+
+        self.app._file_event(object.__new__(ActiveEvent))
+
+        self.assertEqual(touched, [])
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "error")
+        self.assertNotIn(str(self.root), repr(events[-1]))
+
     def test_import_observers_reject_derived_dtos_before_storage(self):
         touched = []
 
