@@ -284,6 +284,41 @@ static BOOL ac_direct_directory(const WCHAR *path) {
     return TRUE;
 }
 
+static HANDLE ac_open_direct_directory_guard(const WCHAR *path) {
+    HANDLE handle;
+    FILE_ATTRIBUTE_TAG_INFO tag_info;
+    DWORD error;
+
+    handle = CreateFileW(
+        path,
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        NULL
+    );
+    if (handle == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+
+    if (!GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            &tag_info,
+            sizeof(tag_info))) {
+        error = GetLastError();
+        CloseHandle(handle);
+        SetLastError(error);
+        return INVALID_HANDLE_VALUE;
+    }
+    if ((tag_info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+        (tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        CloseHandle(handle);
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return INVALID_HANDLE_VALUE;
+    }
+    return handle;
+}
+
 static HANDLE ac_open_direct_private_file(const WCHAR *path) {
     HANDLE handle;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
@@ -527,7 +562,9 @@ static void ac_fail_startup_timeout(HANDLE report) {
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
     HANDLE core_guard = INVALID_HANDLE_VALUE;
+    HANDLE data_guard = INVALID_HANDLE_VALUE;
     HANDLE child_instance_lock = NULL;
+    HANDLE child_data_guard = NULL;
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
@@ -583,6 +620,12 @@ void WINAPI wWinMainCRTStartup(void) {
         if (error != ERROR_ALREADY_EXISTS) ac_fail(report, L"package-local data directory creation", error);
     }
     if (!ac_direct_directory(g_data)) ac_fail(report, L"package-local data directory validation", ERROR_DIRECTORY);
+    data_guard = ac_open_direct_directory_guard(g_data);
+    if (data_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(report, L"package-local data directory guard", error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error);
+    }
+    ac_write_line(report, L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
 
     if (!SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)) {
         ac_fail(report, L"package-local LOCALAPPDATA binding", GetLastError());
@@ -631,6 +674,21 @@ void WINAPI wWinMainCRTStartup(void) {
         ac_fail(report, L"package-local data ownership transfer", error);
     }
 
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
+            data_guard,
+            g_process.hProcess,
+            &child_data_guard,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
+        CloseHandle(g_process.hThread);
+        CloseHandle(g_process.hProcess);
+        ac_fail(report, L"package-local data directory guard transfer", error);
+    }
+
     resume_result = ResumeThread(g_process.hThread);
     if (resume_result == (DWORD)-1) {
         error = GetLastError();
@@ -642,6 +700,9 @@ void WINAPI wWinMainCRTStartup(void) {
     CloseHandle(g_process.hThread);
     CloseHandle(g_instance_lock);
     g_instance_lock = INVALID_HANDLE_VALUE;
+    CloseHandle(data_guard);
+    data_guard = INVALID_HANDLE_VALUE;
+    ac_write_line(report, L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD");
 
     ac_write_line(report, L"PROCESS_CREATED: YES");
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
