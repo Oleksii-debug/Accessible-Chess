@@ -59,7 +59,7 @@ jobs:
           PORTABLE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
           PRODUCT_BRANCH: converge/current-settings-bookreader-resource-20261004-ooxple7-g11
           CURRENT_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          CURRENT_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc
+          CURRENT_PRODUCT_SHA: b3d94ebb5c26ef96a32d0309c761a31d4b032c95
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
@@ -87,7 +87,7 @@ jobs:
 
             product_paths="$(git diff --name-only "$live_base"..."$live_current_product" | sort)"
             product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-            test "$product_count" -eq 222
+            test "$product_count" -eq 230
 
             extra="$(git diff --name-only "$live_current_product"...HEAD | sort)"
             expected_extra="$(printf '%s\n' \
@@ -119,7 +119,7 @@ jobs:
               exit 1
             }
             candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-            test "$candidate_count" -eq 233
+            test "$candidate_count" -eq 241
             echo 'PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
           else
             git fetch --no-tags origin "+refs/heads/$PRIOR_INTEGRATION_BRANCH:refs/remotes/origin/$PRIOR_INTEGRATION_BRANCH"
