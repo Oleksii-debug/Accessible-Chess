@@ -138,7 +138,7 @@ _UK_LABELS = {
     "library.next_page": "Наступна сторінка бібліотеки",
     "library.previous_page": "Попередня сторінка бібліотеки",
     "library.import": "Імпортувати до бібліотеки",
-    "library.cancel_import": "Скасувати імпорт до бібліотеки",
+    "library.cancel_import": "Скасувати операцію бібліотеки",
     "library.export": "Експортувати з бібліотеки",
     "book.open": "Відкрити книгу",
     "book.board_next_move": "Наступний хід партії з книги",
