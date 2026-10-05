@@ -321,6 +321,43 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIsNone(self.app._pending_shell_publication)
         self.assertIsNone(self.app._pending_shell_publication_restore)
 
+    def test_malformed_success_restore_failure_still_restores_prior_domain(self) -> None:
+        prior_session, prior_pgn, prior_focus = self._prior_library_state()
+        replacement = self._session("malformed-restore-failure.pgn", "Replacement")
+        calls: list[tuple[object, object]] = []
+
+        def malformed_dispatch(command, payload):
+            calls.append((command, payload))
+            self.app.set_document(replacement)
+            return LibraryWebViewEvent(
+                "delegated",
+                {"action": "library.import"},
+            )
+
+        with (
+            patch.object(self.app.library, "dispatch", side_effect=malformed_dispatch),
+            patch.object(
+                self.app.shell,
+                "_restore_presentation_state",
+                side_effect=RuntimeError("simulated pre-publication restore failure"),
+            ),
+        ):
+            rejected = self.app.browser_command(
+                "library",
+                "library.open_game",
+                {"publication_protocol": "ack-v1", "request_id": 751},
+            )
+
+        self.assertEqual(rejected["kind"], "error")
+        self.assertEqual(calls, [("library.open_game", {})])
+        self.assertIs(self.app.session, prior_session)
+        self.assertIs(self.app.pgn, prior_pgn)
+        self.assertEqual(self.app._focus, prior_focus)
+        self.assertTrue(self.app._pgn_browser_lease_required)
+        self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertIsNone(self.app._pending_shell_publication_restore)
+
     def test_dirty_prior_pgn_is_restored_after_accepted_open_rolls_back(self) -> None:
         prior_session, prior_pgn, _prior_focus = self._prior_library_state()
         prior_session.edit_tag("Event", "Unsaved prior owner")
