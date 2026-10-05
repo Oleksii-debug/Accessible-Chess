@@ -1,0 +1,61 @@
+name: Keymap Recovery Web Accessibility
+
+on:
+  pull_request:
+    paths:
+      - 'web/index.html'
+      - 'tests/js/keymap_recovery_accessibility_test.js'
+      - '.github/workflows/keymap-recovery-web-accessibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-web:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify exact PR-head ancestry and bounded scope
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$EVENT_BASE_SHA" ]; then
+            test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+            git diff --check "$EVENT_BASE_SHA" HEAD
+            mapfile -t changed < <(git diff --name-only "$EVENT_BASE_SHA" HEAD | sort)
+            expected=(
+              '.github/workflows/keymap-recovery-web-accessibility.yml'
+              'tests/js/keymap_recovery_accessibility_test.js'
+              'web/index.html'
+            )
+            mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+            if [ "${changed[*]}" != "${expected_sorted[*]}" ]; then
+              printf 'Unexpected changed paths:\n'
+              printf '  %s\n' "${changed[@]}"
+              exit 1
+            fi
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse recovery accessibility regression
+        run: node --check tests/js/keymap_recovery_accessibility_test.js
+      - name: Run recovery accessibility regression
+        run: node tests/js/keymap_recovery_accessibility_test.js
+      - name: Run existing terminal keymap DOM regression
+        run: node tests/js/stage1_terminal_keymap_dom_test.js
