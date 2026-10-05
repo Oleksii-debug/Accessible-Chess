@@ -65,6 +65,8 @@ class ModelGateway:
         self._audit_log = audit_log
 
     def register(self, provider: ModelProvider, *, default: bool = False) -> None:
+        if type(default) is not bool:
+            raise TypeError("default must be boolean")
         capabilities = self._validate_capabilities(provider.capabilities)
         provider_id = capabilities.provider_id
         if provider_id in self._providers:
@@ -78,6 +80,10 @@ class ModelGateway:
         return tuple(sorted(self._providers))
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
+        # ModelRequest is a frozen, canonicalized boundary value. Reject
+        # subclasses/arbitrary lookalikes before probing any provider route.
+        if type(request) is not ModelRequest:
+            raise TypeError("request must be ModelRequest")
         providers = self._select_candidates(request)
         self._validate_privacy_route(request, providers)
         loop = asyncio.get_running_loop()
@@ -122,12 +128,22 @@ class ModelGateway:
                     provider.complete(attempt_request), timeout=remaining
                 )
             except TimeoutError:
+                # A hard-cancellation capability is an explicit adapter promise
+                # that caller cancellation/timeout terminates the provider-side
+                # inference, so a timeout is then safe to classify NO_EFFECT and
+                # may use an explicitly configured fallback. Without that proof,
+                # effect state remains UNKNOWN and fallback is forbidden.
+                hard_cancelled = capabilities.supports_hard_cancellation
                 error = ModelGatewayError(
                     ModelErrorCode.TIMEOUT,
                     "model request exceeded its deadline",
                     provider_id=capabilities.provider_id,
-                    retryable=capabilities.supports_hard_cancellation,
-                    failure_effect=ModelFailureEffect.UNKNOWN,
+                    retryable=hard_cancelled,
+                    failure_effect=(
+                        ModelFailureEffect.NO_EFFECT
+                        if hard_cancelled
+                        else ModelFailureEffect.UNKNOWN
+                    ),
                 )
                 self._audit_failure(request, capabilities.provider_id, error)
                 if self._can_fallback(error=error, index=index, providers=providers):
@@ -140,12 +156,29 @@ class ModelGateway:
                     continue
                 terminal_error = error
             except asyncio.CancelledError:
-                self._audit(
-                    event_type="model.cancelled",
-                    request=request,
-                    payload={"provider_id": capabilities.provider_id},
-                )
-                cancelled = True
+                # A provider coroutine may itself raise CancelledError. That is
+                # not equivalent to cancellation of this gateway task. Only
+                # propagate task cancellation when the current task has a real
+                # pending cancellation request; otherwise sanitize the provider
+                # failure and preserve UNKNOWN effect state.
+                current_task = asyncio.current_task()
+                if current_task is not None and current_task.cancelling():
+                    self._audit(
+                        event_type="model.cancelled",
+                        request=request,
+                        payload={"provider_id": capabilities.provider_id},
+                    )
+                    cancelled = True
+                else:
+                    error = ModelGatewayError(
+                        ModelErrorCode.CANCELLED,
+                        "model provider cancelled without caller cancellation",
+                        provider_id=capabilities.provider_id,
+                        retryable=False,
+                        failure_effect=ModelFailureEffect.UNKNOWN,
+                    )
+                    self._audit_failure(request, capabilities.provider_id, error)
+                    terminal_error = error
             except ModelGatewayError as raw_error:
                 error = self._normalize_provider_error(
                     raw_error, capabilities.provider_id
@@ -349,34 +382,29 @@ class ModelGateway:
     def _normalize_provider_error(
         error: ModelGatewayError, provider_id: str
     ) -> ModelGatewayError:
-        if not isinstance(error.code, ModelErrorCode):
+        def invalid(message: str) -> ModelGatewayError:
             return ModelGatewayError(
                 ModelErrorCode.PROVIDER_ERROR,
-                "model provider returned an invalid error code",
+                message,
                 provider_id=provider_id,
                 retryable=False,
+                failure_effect=ModelFailureEffect.UNKNOWN,
             )
-        if not isinstance(error.retryable, bool):
-            return ModelGatewayError(
-                ModelErrorCode.PROVIDER_ERROR,
-                "model provider returned an invalid retryable flag",
-                provider_id=provider_id,
-                retryable=False,
-            )
-        if not isinstance(error.failure_effect, ModelFailureEffect):
-            return ModelGatewayError(
-                ModelErrorCode.PROVIDER_ERROR,
-                "model provider returned an invalid failure effect state",
-                provider_id=provider_id,
-                retryable=False,
-            )
+
+        # Provider exceptions are untrusted boundary objects too. Reject a
+        # subclass before touching provider-controlled attributes/hooks.
+        if type(error) is not ModelGatewayError:
+            return invalid("model provider returned an invalid error contract")
+        if type(error.code) is not ModelErrorCode:
+            return invalid("model provider returned an invalid error code")
+        if type(error.retryable) is not bool:
+            return invalid("model provider returned an invalid retryable flag")
+        if type(error.failure_effect) is not ModelFailureEffect:
+            return invalid("model provider returned an invalid failure effect state")
+        if error.provider_id is not None and type(error.provider_id) is not str:
+            return invalid("model provider returned an invalid provider identity")
         if error.provider_id is not None and error.provider_id != provider_id:
-            return ModelGatewayError(
-                ModelErrorCode.PROVIDER_ERROR,
-                "model provider returned an error for another provider identity",
-                provider_id=provider_id,
-                retryable=False,
-            )
+            return invalid("model provider returned an error for another provider identity")
         safe_message = _SAFE_PROVIDER_MESSAGES[error.code]
         if provider_id == "foundry-local" and error.code is ModelErrorCode.UNAVAILABLE:
             safe_message = (
