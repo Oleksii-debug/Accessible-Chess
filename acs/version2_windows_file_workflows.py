@@ -832,7 +832,7 @@ class Version2WindowsFileActionDelegate:
             return self._failed(
                 action_id, "no_pgn_document", focus_target=self._focus()
             )
-        if type(session) is not PgnDocumentSession:
+        if not isinstance(session, PgnDocumentSession):
             return self._failed(
                 action_id, "pgn_session_invalid", focus_target=self._focus()
             )
@@ -888,6 +888,10 @@ class Version2WindowsFileActionDelegate:
                 )
             )
 
+        if type(current) is not PgnDocumentSession:
+            return self._failed(
+                "pgn.save", "pgn_session_invalid", focus_target=previous_focus
+            )
         try:
             snapshot = capture_pgn_save_snapshot(current, mode=PgnSaveMode.SAVE)
         except PgnDocumentError as exc:
@@ -942,7 +946,7 @@ class Version2WindowsFileActionDelegate:
         )
         if isinstance(current, FileWorkflowEvent):
             return current
-        if type(current) is not PgnDocumentSession:
+        if not isinstance(current, PgnDocumentSession):
             return self._failed(
                 "pgn.save_as", "pgn_session_invalid", focus_target=previous_focus
             )
@@ -982,7 +986,7 @@ class Version2WindowsFileActionDelegate:
             or current.document_revision != expected_revision
         ):
             return self._failed(
-                "pgn.save_as", "pgn_save_stale", focus_target=previous_focus
+                "pgn.save_as", "pgn_save_preflight_stale", focus_target=previous_focus
             )
 
         if self._post_to_ui is None:
@@ -1008,6 +1012,10 @@ class Version2WindowsFileActionDelegate:
                 )
             )
 
+        if type(current) is not PgnDocumentSession:
+            return self._failed(
+                "pgn.save_as", "pgn_session_invalid", focus_target=previous_focus
+            )
         try:
             snapshot = capture_pgn_save_snapshot(
                 current,
