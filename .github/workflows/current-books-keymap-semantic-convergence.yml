@@ -6,12 +6,14 @@ on:
       - 'web/full_product_books_training.js'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
       - '.github/workflows/current-books-keymap-semantic-convergence.yml'
   push:
     paths:
       - 'web/full_product_books_training.js'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
       - '.github/workflows/current-books-keymap-semantic-convergence.yml'
 
 permissions:
@@ -34,6 +36,20 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_BOOKS_KEYMAP_CONVERGENCE_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_BOOKS_KEYMAP_CONVERGENCE_EXACT_HEAD=PASS'
 
       - name: Prove exact candidate and retained source ancestry
         shell: bash
@@ -84,6 +100,7 @@ jobs:
         shell: bash
         run: |
           python -m unittest \
+            tests.test_current_books_keymap_semantic_convergence_workflow \
             tests.test_book_semantic_game_metadata \
             tests.test_book_library_reference_identity \
             tests.test_book_training_large_reading_journey \

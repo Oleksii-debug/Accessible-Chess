@@ -28,6 +28,9 @@ MAX_BOOK_PGN_CHARS = 64 * 1024 * 1024
 MAX_BOOK_LIST_ITEMS = 65_536
 MAX_BOOK_LIST_TOTAL_CHARS = 12 * 1024 * 1024
 MAX_BOOK_WARNING_TOTAL_CHARS = 12 * 1024 * 1024
+BOOK_STRUCTURE_WARNING_TRUNCATION_NOTICE = (
+    "Additional structural warnings were omitted because the diagnostic limit was reached."
+)
 # Durable BookIndex target keys are capped at 4096 characters. These limits
 # preserve the widest identifier that still fits its canonical target prefix.
 MAX_BOOK_BLOCK_ID_CHARS = 4_090
@@ -160,6 +163,50 @@ def _validate_warning_list(
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
     return value
+
+
+def _append_bounded_structure_warning(
+    warnings: list[str],
+    message: str,
+    *,
+    source_count: int,
+    total_chars: int,
+) -> tuple[int, bool]:
+    """Append one generated diagnostic without exceeding canonical warning budgets.
+
+    Stored importer warnings are preserved exactly. If generated structural
+    diagnostics would overflow count or aggregate-text limits, generated entries
+    are reclaimed as needed for one deterministic truncation notice. If the
+    stored warnings already consume the complete budget, fail closed rather than
+    silently pretending that structural diagnostics were complete.
+    """
+
+    if (
+        len(warnings) < MAX_BOOK_DOCUMENT_WARNINGS
+        and total_chars + len(message) <= MAX_BOOK_WARNING_TOTAL_CHARS
+    ):
+        warnings.append(message)
+        return total_chars + len(message), True
+
+    notice = BOOK_STRUCTURE_WARNING_TRUNCATION_NOTICE
+    while len(warnings) > source_count and (
+        len(warnings) >= MAX_BOOK_DOCUMENT_WARNINGS
+        or total_chars + len(notice) > MAX_BOOK_WARNING_TOTAL_CHARS
+    ):
+        removed = warnings.pop()
+        total_chars -= len(removed)
+
+    if (
+        len(warnings) >= MAX_BOOK_DOCUMENT_WARNINGS
+        or total_chars + len(notice) > MAX_BOOK_WARNING_TOTAL_CHARS
+    ):
+        raise BookDocumentError(
+            "Book structural warnings exceed the canonical diagnostic budget",
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+
+    warnings.append(notice)
+    return total_chars + len(notice), False
 
 
 def _add_document_text_chars(total: int, value: object) -> int:
@@ -679,28 +726,46 @@ class BookDocument:
         return list(self.iter_kind(Exercise))
 
     def validate_structure(self) -> list[str]:
-        """Return non-destructive semantic warnings suitable for import reports."""
+        """Return bounded non-destructive semantic warnings for import reports."""
         # BookDocument and its blocks remain mutable for authoring. Reuse the
         # canonical live export-state validator before warning inspection so
         # malformed containers, metadata or block fields fail through the stable
         # BookDocumentError boundary rather than leaking raw Python exceptions.
         self._validate_export_state()
         warnings = list(self.warnings)
+        source_count = len(warnings)
+        total_warning_chars = sum(len(warning) for warning in warnings)
+
+        def report(message: str) -> bool:
+            nonlocal total_warning_chars
+            total_warning_chars, complete = _append_bounded_structure_warning(
+                warnings,
+                message,
+                source_count=source_count,
+                total_chars=total_warning_chars,
+            )
+            return complete
+
         previous_level = 0
         seen_ids: set[str] = set()
         for index, block in enumerate(self.blocks):
             if block.block_id:
                 if block.block_id in seen_ids:
-                    warnings.append(f"duplicate block_id {block.block_id!r} at block {index}")
+                    if not report(
+                        f"duplicate block_id {block.block_id!r} at block {index}"
+                    ):
+                        return warnings
                 seen_ids.add(block.block_id)
             if isinstance(block, Heading):
                 if previous_level and block.level > previous_level + 1:
-                    warnings.append(
+                    if not report(
                         f"heading level jumps from {previous_level} to {block.level} at block {index}"
-                    )
+                    ):
+                        return warnings
                 previous_level = block.level
             if isinstance(block, Diagram) and not block.alt_text:
-                warnings.append(f"diagram at block {index} has no alt_text")
+                if not report(f"diagram at block {index} has no alt_text"):
+                    return warnings
         return warnings
 
     def _validate_export_state(self) -> int:

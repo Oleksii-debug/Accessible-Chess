@@ -636,15 +636,36 @@ class LibraryWebViewProjection:
             },
         )
 
+    def _render_presenter_transition(
+        self,
+        operation: Callable[[], LibraryView],
+        *,
+        announce: bool,
+    ) -> LibraryWebViewEvent:
+        """Publish presenter mutations only when their browser snapshot is valid."""
+        previous = self._presenter._capture_presentation_state()
+        try:
+            return self._render_event(operation(), announce=announce)
+        except Exception:
+            self._presenter._restore_presentation_state(previous)
+            raise
+
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
         if not isinstance(query, GameSearchQuery):
             raise TypeError("query must be GameSearchQuery")
         normalized = query.normalized()
         if normalized.after_game_id is not None:
             raise ValueError("browser search cannot supply a keyset cursor")
+        previous_query = self._query
         self._query = normalized
-        view = self._presenter.search(normalized)
-        return self._render_event(view, announce=True)
+        try:
+            return self._render_presenter_transition(
+                lambda: self._presenter.search(normalized),
+                announce=True,
+            )
+        except Exception:
+            self._query = previous_query
+            raise
 
     def reset_filters(self) -> LibraryWebViewEvent:
         return self.search(GameSearchQuery())
@@ -656,31 +677,42 @@ class LibraryWebViewProjection:
             or game_id > _JS_MAX_SAFE_INTEGER
         ):
             raise ValueError("game_id must be a browser-safe positive integer")
-        view = self._presenter.select(game_id)
-        return self._render_event(view, announce=False)
+        return self._render_presenter_transition(
+            lambda: self._presenter.select(game_id),
+            announce=False,
+        )
 
     def move_selection(self, delta: int) -> LibraryWebViewEvent:
         if type(delta) is not int or delta not in {-1, 1}:
             raise ValueError("library selection delta must be -1 or 1")
-        current = self._presenter.view()
-        if not current.rows or current.selected_game_id is None:
-            raise LookupError("library has no selected game")
-        ids = [row.game_id for row in current.rows]
-        try:
-            index = ids.index(current.selected_game_id)
-        except ValueError:
-            raise ValueError("library selection is inconsistent") from None
-        target = index + delta
-        if not 0 <= target < len(ids):
-            raise LookupError("library selection boundary")
-        view = self._presenter.select(ids[target])
-        return self._render_event(view, announce=False)
+
+        def transition() -> LibraryView:
+            current = self._presenter.view()
+            if not current.rows or current.selected_game_id is None:
+                raise LookupError("library has no selected game")
+            ids = [row.game_id for row in current.rows]
+            try:
+                index = ids.index(current.selected_game_id)
+            except ValueError:
+                raise ValueError("library selection is inconsistent") from None
+            target = index + delta
+            if not 0 <= target < len(ids):
+                raise LookupError("library selection boundary")
+            return self._presenter.select(ids[target])
+
+        return self._render_presenter_transition(transition, announce=False)
 
     def next_page(self) -> LibraryWebViewEvent:
-        return self._render_event(self._presenter.next_page(), announce=True)
+        return self._render_presenter_transition(
+            self._presenter.next_page,
+            announce=True,
+        )
 
     def previous_page(self) -> LibraryWebViewEvent:
-        return self._render_event(self._presenter.previous_page(), announce=True)
+        return self._render_presenter_transition(
+            self._presenter.previous_page,
+            announce=True,
+        )
 
     def open_selected(self) -> LibraryWebViewEvent:
         self._presenter.open_selected(self._dispatch)
@@ -695,10 +727,26 @@ class LibraryWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        self._import.set_language(language)
-        return self._render_event(self._presenter.view(), announce=False)
+
+        # A locale transition spans three cooperating presentation objects.
+        # Do not leave the browser, Library presenter, and import-status
+        # projection on different languages when the candidate view cannot be
+        # rendered (for example, because a stale/malformed row fails the
+        # browser-safe identity boundary).  The concrete presenter/projection
+        # types are sealed at ingress, so restoring through their canonical
+        # setters is a bounded local rollback rather than provider dispatch.
+        previous_language = self._language
+        try:
+            self._presenter.set_language(language)
+            self._import.set_language(language)
+            self._language = language
+            view = self._presenter.view()
+            return self._render_event(view, announce=False)
+        except Exception:
+            self._presenter.set_language(previous_language)
+            self._import.set_language(previous_language)
+            self._language = previous_language
+            raise
 
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:
         try:
