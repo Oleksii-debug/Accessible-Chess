@@ -529,8 +529,8 @@ async function clickRoute(routeId) {
     "retryable host rollback rejection advanced committed navigation"
   );
   check(
-    snapshotCalls === snapshotsBeforeRetryableHostRejection + 1,
-    "retryable host rollback rejection did not re-read host publication authority exactly once"
+    snapshotCalls === snapshotsBeforeRetryableHostRejection + 2,
+    "retryable host rollback rejection did not separate candidate read from authority re-check"
   );
 
   await clickRoute("board");
