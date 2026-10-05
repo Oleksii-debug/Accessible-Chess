@@ -410,6 +410,7 @@ class Game(BookBlock):
     pgn: str = ""
     title: str | None = None
     game_id: int | None = None
+    game_record_digest: str | None = None
 
     def __post_init__(self) -> None:
         BookBlock.__post_init__(self)
@@ -424,6 +425,16 @@ class Game(BookBlock):
                 code=BookDocumentErrorCode.INVALID_FIELD,
             )
         self.title = _optional_text(self.title, "Game title")
+        if self.game_record_digest is not None and (
+            type(self.game_record_digest) is not str
+            or len(self.game_record_digest) != 64
+            or any(character not in "0123456789abcdef" for character in self.game_record_digest)
+            or self.game_id is None
+        ):
+            raise BookDocumentError(
+                "Game record digest requires a referenced game and canonical SHA-256 identity",
+                code=BookDocumentErrorCode.INVALID_FIELD,
+            )
         if self.game_id is not None and (
             type(self.game_id) is not int or self.game_id < 0
         ):
