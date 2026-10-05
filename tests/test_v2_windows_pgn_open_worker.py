@@ -111,6 +111,78 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
         )
         return controller, dialogs, poster, events, session_box, publication_threads
 
+    def test_unsaved_confirmation_rejects_active_truthiness(self) -> None:
+        class ActiveDecision:
+            def __bool__(self):
+                raise AssertionError("confirmation truthiness hook executed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-confirmation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous = PgnDocumentSession.from_text(PGN_TEXT)
+            previous.edit_tag("Event", "Dirty previous")
+            controller, dialogs, poster, events, session_box, publications = self._controller(
+                source,
+                previous=previous,
+            )
+            dialogs.confirm_discard_unsaved_pgn = lambda: ActiveDecision()
+
+            result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "unsaved_confirmation_failed")
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(dialogs.open_calls, 0)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
+    def test_unsaved_confirmation_rejects_integer_true(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-confirmation-int.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous = PgnDocumentSession.from_text(PGN_TEXT)
+            previous.edit_tag("Event", "Dirty previous")
+            controller, dialogs, poster, events, session_box, publications = self._controller(
+                source,
+                previous=previous,
+            )
+            dialogs.confirm_discard_unsaved_pgn = lambda: 1
+
+            result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "unsaved_confirmation_failed")
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(dialogs.open_calls, 0)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
+    def test_unsaved_confirmation_false_remains_dialog_cancel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-confirmation-cancel.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous = PgnDocumentSession.from_text(PGN_TEXT)
+            previous.edit_tag("Event", "Dirty previous")
+            controller, dialogs, poster, events, session_box, publications = self._controller(
+                source,
+                previous=previous,
+            )
+            dialogs.confirm_discard_unsaved_pgn = lambda: False
+
+            result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.DIALOG_CANCELLED)
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(dialogs.open_calls, 0)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
     def test_open_prepare_runs_off_owner_and_publication_waits_for_owner_callback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "private-worker-source.pgn"

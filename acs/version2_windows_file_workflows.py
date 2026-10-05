@@ -466,6 +466,10 @@ class Version2WindowsFileActionDelegate:
                     ), previous_focus, current, current_revision
                 try:
                     discard = confirmation()
+                    if type(discard) is not bool:
+                        raise TypeError(
+                            "unsaved PGN confirmation must return an exact bool"
+                        )
                 except BaseException:
                     return None, self._failed(
                         "pgn.open",
