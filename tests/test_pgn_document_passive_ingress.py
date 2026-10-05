@@ -377,6 +377,118 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assertEqual(retained.sha256, "2" * 64)
         self.assertFalse(session.dirty)
 
+    def test_save_checkpoint_failure_preserves_precommit_session_state(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        session.edit_tag("Event", "Durably written direct Save")
+        source_before = session.source
+        digest_before = session._saved_digest
+        revision_before = session.document_revision
+        published = SourceFingerprint(
+            path="source.pgn",
+            size=101,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+
+        with (
+            patch("acs.pgn_document.save_pgn_atomic", return_value=published),
+            patch.object(
+                PgnWorkspace,
+                "mark_saved",
+                autospec=True,
+                side_effect=RuntimeError("checkpoint unavailable"),
+            ),
+        ):
+            self.assert_document_error(
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+                session.save,
+            )
+
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertTrue(session.dirty)
+
+    def test_save_as_checkpoint_failure_preserves_recovery_metadata(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        session = PgnDocumentSession(
+            workspace,
+            global_warnings=("recovery warning",),
+            source_overwrite_safe=False,
+            saved_digest=None,
+        )
+        revision_before = session.document_revision
+        published = SourceFingerprint(
+            path="fresh-save-as.pgn",
+            size=101,
+            sha256="2" * 64,
+            suffix=".pgn",
+        )
+
+        with (
+            patch("acs.pgn_document.save_pgn_atomic", return_value=published),
+            patch.object(
+                PgnWorkspace,
+                "mark_saved",
+                autospec=True,
+                side_effect=RuntimeError("checkpoint unavailable"),
+            ),
+        ):
+            self.assert_document_error(
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+                lambda: session.save_as("fresh-save-as.pgn"),
+            )
+
+        self.assertIsNone(session.source)
+        self.assertIsNone(session._saved_digest)
+        self.assertEqual(session._global_warnings, ("recovery warning",))
+        self.assertFalse(session._source_overwrite_safe)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertTrue(session.dirty)
+
+    def test_save_rejects_active_returned_provenance_without_string_hooks(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        session.edit_tag("Event", "Pending direct Save")
+        active_path = GuardedText("source.pgn")
+        active_path.armed = True
+        published = SourceFingerprint(
+            path=active_path,
+            size=101,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+
+        with patch("acs.pgn_document.save_pgn_atomic", return_value=published):
+            self.assert_document_error(
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+                session.save,
+            )
+
+        self.assertEqual(session.source, source)
+        self.assertTrue(session.dirty)
+
     def test_restore_rejects_context_subclass_before_attribute_hooks(self) -> None:
         session = self.session()
         bookmark = session.bookmark()
