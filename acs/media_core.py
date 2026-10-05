@@ -3,12 +3,12 @@ from __future__ import annotations
 """Presentation-neutral media/chess synchronization primitives.
 
 This module deliberately does *not* understand chess moves, FEN, SAN, UCI, or
-legality.  ``chess_ref`` values are opaque references owned by the canonical
-GameTree/application layer.  Media recognition may propose links to those
+legality. ``chess_ref`` values are opaque references owned by the canonical
+GameTree/application layer. Media recognition may propose links to those
 references, but only the canonical chess services may create/validate the
 underlying chess state.
 
-The model keeps the media cursor and chess cursor independent.  Synchronization
+The model keeps the media cursor and chess cursor independent. Synchronization
 is an explicit operation and never silently resolves ambiguous recognition.
 """
 
@@ -34,6 +34,8 @@ class MediaErrorCode(str, Enum):
     SOURCE_MISMATCH = "source_mismatch"
     DUPLICATE_LINK = "duplicate_link"
     LINK_LIMIT = "link_limit"
+    LINK_NOT_FOUND = "link_not_found"
+    CONFIRMATION_CONFLICT = "confirmation_conflict"
     INVALID_SCHEMA = "invalid_schema"
     INVALID_CONTAINER = "invalid_container"
     STATE_TOO_LARGE = "state_too_large"
@@ -104,7 +106,7 @@ def _require_confidence(value: object) -> float:
 class MediaSource:
     """One user-visible media item.
 
-    ``source_ref`` is an opaque provider/storage reference.  The core never
+    ``source_ref`` is an opaque provider/storage reference. The core never
     opens it, treats it as a filesystem path, or displays it as trusted text.
     """
 
@@ -202,7 +204,13 @@ class TimelineResolution:
 class MediaPositionTimeline:
     """Deterministic, immutable timeline of media-to-chess links."""
 
-    __slots__ = ("source_id", "_links", "_timestamps")
+    __slots__ = (
+        "source_id",
+        "_links",
+        "_timestamps",
+        "_links_by_timestamp",
+        "_confirmed_timestamps_by_ref",
+    )
 
     def __init__(
         self,
@@ -216,7 +224,7 @@ class MediaPositionTimeline:
                 f"media timeline exceeds {MAX_MEDIA_LINKS} links",
                 code=MediaErrorCode.LINK_LIMIT,
             )
-        seen: set[tuple[int, str, MediaLinkStatus]] = set()
+        seen: set[tuple[int, str]] = set()
         for link in materialized:
             if not isinstance(link, MediaChessLink):
                 raise MediaContractError(
@@ -229,7 +237,7 @@ class MediaPositionTimeline:
                     f"{self.source_id!r}",
                     code=MediaErrorCode.SOURCE_MISMATCH,
                 )
-            key = (link.timestamp_ms, link.chess_ref, link.status)
+            key = (link.timestamp_ms, link.chess_ref)
             if key in seen:
                 raise MediaContractError(
                     "duplicate media/chess link",
@@ -249,7 +257,22 @@ class MediaPositionTimeline:
                 ),
             )
         )
-        self._timestamps = tuple(sorted({link.timestamp_ms for link in self._links}))
+
+        grouped: dict[int, list[MediaChessLink]] = {}
+        confirmed_by_ref: dict[str, set[int]] = {}
+        for link in self._links:
+            grouped.setdefault(link.timestamp_ms, []).append(link)
+            if link.confirmed:
+                confirmed_by_ref.setdefault(link.chess_ref, set()).add(link.timestamp_ms)
+
+        self._links_by_timestamp = {
+            timestamp: tuple(group) for timestamp, group in grouped.items()
+        }
+        self._timestamps = tuple(self._links_by_timestamp)
+        self._confirmed_timestamps_by_ref = {
+            chess_ref: tuple(sorted(timestamps))
+            for chess_ref, timestamps in confirmed_by_ref.items()
+        }
 
     @property
     def links(self) -> tuple[MediaChessLink, ...]:
@@ -261,7 +284,7 @@ class MediaPositionTimeline:
 
     def links_at(self, timestamp_ms: int) -> tuple[MediaChessLink, ...]:
         timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
-        return tuple(link for link in self._links if link.timestamp_ms == timestamp)
+        return self._links_by_timestamp.get(timestamp, ())
 
     def resolve_exact(self, timestamp_ms: int) -> TimelineResolution:
         timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
@@ -304,18 +327,79 @@ class MediaPositionTimeline:
 
     def confirmed_timestamps_for(self, chess_ref: str) -> tuple[int, ...]:
         ref = _require_text(chess_ref, "chess_ref")
-        return tuple(
-            sorted(
-                {
-                    link.timestamp_ms
-                    for link in self._links
-                    if link.confirmed and link.chess_ref == ref
-                }
-            )
-        )
+        return self._confirmed_timestamps_by_ref.get(ref, ())
 
     def with_link(self, link: MediaChessLink) -> "MediaPositionTimeline":
         return MediaPositionTimeline(self.source_id, (*self._links, link))
+
+    def confirm_candidate(
+        self,
+        timestamp_ms: int,
+        chess_ref: str,
+        *,
+        replace_confirmed: bool = False,
+        evidence: str | None = None,
+    ) -> "MediaPositionTimeline":
+        """Explicitly confirm an existing recognition candidate.
+
+        The operation never invents a new chess reference. If a different
+        confirmed reference already exists at the same timestamp, callers must
+        explicitly opt into replacing it. Replacement demotes the old
+        confirmation(s) to candidates so the evidence remains reviewable.
+        """
+
+        timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
+        ref = _require_text(chess_ref, "chess_ref")
+        replacement_evidence = _require_optional_text(evidence, "evidence")
+        at_timestamp = self.links_at(timestamp)
+        selected = next((link for link in at_timestamp if link.chess_ref == ref), None)
+        if selected is None:
+            raise MediaContractError(
+                "cannot confirm a chess reference that is not an existing link",
+                code=MediaErrorCode.LINK_NOT_FOUND,
+            )
+
+        conflicts = tuple(
+            link
+            for link in at_timestamp
+            if link.confirmed and link.chess_ref != ref
+        )
+        if conflicts and not replace_confirmed:
+            raise MediaContractError(
+                "a different chess reference is already confirmed at this timestamp",
+                code=MediaErrorCode.CONFIRMATION_CONFLICT,
+            )
+
+        if (
+            selected.confirmed
+            and not conflicts
+            and (replacement_evidence is None or replacement_evidence == selected.evidence)
+        ):
+            return self
+
+        reconciled: list[MediaChessLink] = []
+        for link in self._links:
+            if link.timestamp_ms != timestamp:
+                reconciled.append(link)
+                continue
+            if link.chess_ref == ref:
+                reconciled.append(
+                    replace(
+                        link,
+                        status=MediaLinkStatus.CONFIRMED,
+                        evidence=(
+                            replacement_evidence
+                            if replacement_evidence is not None
+                            else link.evidence
+                        ),
+                    )
+                )
+                continue
+            if link.confirmed and replace_confirmed:
+                reconciled.append(replace(link, status=MediaLinkStatus.CANDIDATE))
+                continue
+            reconciled.append(link)
+        return MediaPositionTimeline(self.source_id, reconciled)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -493,6 +577,18 @@ def _source_from_dict(data: object) -> MediaSource:
     )
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise MediaContractError(
+                f"duplicate JSON object key: {key}",
+                code=MediaErrorCode.INVALID_SCHEMA,
+            )
+        result[key] = value
+    return result
+
+
 def serialize_media_state(
     source: MediaSource,
     timeline: MediaPositionTimeline,
@@ -555,7 +651,7 @@ def deserialize_media_state(
             code=MediaErrorCode.STATE_TOO_LARGE,
         )
     try:
-        payload = json.loads(text)
+        payload = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
     except (json.JSONDecodeError, RecursionError) as exc:
         raise MediaContractError(
             "media state is not valid JSON",
