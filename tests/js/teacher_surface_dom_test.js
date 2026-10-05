@@ -128,9 +128,16 @@ async function run() {
           snapshot: snapshot(payload.coordinate),
           clear_editor: true,
           focus_target: "teacher-pointer-input",
-          announcement: ""
+          announcement: "Pointer " + payload.coordinate
         }
       };
+    }
+    if (command === "teacher.orientation.toggle") {
+      const turned = snapshot("f3");
+      turned.board.orientation = "black";
+      return { kind: "render-visual", payload: {
+        snapshot: turned, focus_target: "teacher-orientation-toggle", announcement: "Black at bottom"
+      } };
     }
     if (command === "teacher.student_event") {
       return {
@@ -200,6 +207,13 @@ async function run() {
   check(document.activeElement === input, "pointer editor focus was not restored");
   check(root.replaceChildrenCalls === wholeRenders, "pointer update rerendered the whole Teacher surface");
   check(root.querySelector("#teacher-square-f3").getAttribute("data-pointer") === "true", "visual pointer did not move to f3");
+  check(announcements.length === 1 && announcements[0] === "Pointer f3", "explicit pointer result was not announced once");
+  const orientation = root.querySelector("#teacher-orientation-toggle");
+  orientation.listeners.click();
+  await flushPromises();
+  check(announcements.length === 2 && announcements[1] === "Black at bottom", "orientation result was not announced once");
+  check(document.activeElement === orientation, "orientation update lost button focus");
+  check(root.querySelector("#teacher-pointer-input") === input, "orientation update replaced pointer editor");
 
   const delayedCalls = [];
   const delayedResolvers = [];
@@ -268,7 +282,7 @@ async function run() {
   check(hover[1].piece_name === "white pawn", "hover did not return canonical piece identity");
   check(select[1].piece_name === "white pawn", "selection did not return canonical piece identity");
   check(!calls.some((item) => item[0] === "student.move" || item[0] === "board.input"), "pointer/hover/selection became a move");
-  check(announcements.length === 1 && announcements[0] === "Selected e4", "hover flooded or selection failed to announce once");
+  check(announcements.length === 3 && announcements[2] === "Selected e4", "hover flooded or selection failed to announce once");
 
   console.log("Teacher canonical-piece/spatial-arrow/pointer/hover/selection DOM contract PASS");
 }
