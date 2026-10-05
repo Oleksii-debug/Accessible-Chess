@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -507,6 +508,15 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                             next_after_game_id=first.game_id,
                             has_more=False,
                         )
+                    if self.mode == "oversized-page":
+                        return GameSearchPage(
+                            items=tuple(
+                                replace(first, game_id=first.game_id + offset)
+                                for offset in range(201)
+                            ),
+                            next_after_game_id=None,
+                            has_more=False,
+                        )
                     raise AssertionError("unexpected malformed-search mode")
 
             request = LibraryExportRequest.filtered(GameSearchQuery())
@@ -514,6 +524,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                 ("backward-id", "ids are not strictly increasing"),
                 ("empty-more", "paging did not advance"),
                 ("terminal-cursor", "terminal search page has a cursor"),
+                ("oversized-page", "search page exceeds the page limit"),
             ):
                 with self.subTest(mode=mode):
                     service = LibraryExportService(
