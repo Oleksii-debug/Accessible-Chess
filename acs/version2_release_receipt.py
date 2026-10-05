@@ -19,6 +19,10 @@ import stat
 from typing import Any
 
 from .version2_package_preflight import validate_version2_package_zip
+from .version2_portable_package import (
+    Version2PortablePackageError,
+    _sync_published_zip_namespace,
+)
 
 
 RELEASE_RECEIPT_SCHEMA_VERSION = 1
@@ -529,6 +533,39 @@ def write_version2_release_receipt(
                 ):
                     raise Version2ReleaseReceiptError(
                         "release receipt changed during atomic publication"
+                    )
+
+                # Fsyncing the staging inode is not enough to make the newly
+                # created canonical directory entry crash-durable on POSIX.
+                # Reuse the repository's exact-inode publication barrier:
+                # parent-directory fsync on POSIX and FlushFileBuffers on the
+                # published regular file on Windows.
+                try:
+                    durable_published = _sync_published_zip_namespace(
+                        path,
+                        expected=published_info,
+                    )
+                except Version2PortablePackageError as exc:
+                    raise Version2ReleaseReceiptError(
+                        "release receipt publication durability could not be confirmed"
+                    ) from exc
+                if not _same_file_snapshot(after_link_handle, durable_published):
+                    raise Version2ReleaseReceiptError(
+                        "release receipt changed during durability confirmation"
+                    )
+
+                # A durable namespace entry must still decode as the exact
+                # receipt object that was staged. This catches same-inode
+                # rewrites after link creation before publication is accepted.
+                readback = read_version2_release_receipt(path)
+                if readback != validated_receipt:
+                    raise Version2ReleaseReceiptError(
+                        "published release receipt differs from staged receipt"
+                    )
+                final_published = _safe_receipt_lstat(path)
+                if not _same_file_snapshot(durable_published, final_published):
+                    raise Version2ReleaseReceiptError(
+                        "release receipt changed during publication readback"
                     )
                 publication_accepted = True
         except Version2ReleaseReceiptError:
