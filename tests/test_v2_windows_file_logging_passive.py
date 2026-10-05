@@ -72,6 +72,26 @@ class Version2WindowsFileLoggingPassiveTests(unittest.TestCase):
             next_delegate=lambda action_id, payload: None,
         )
 
+    def test_worker_service_bundle_remains_dataclass_after_event_snapshot_helper(self) -> None:
+        library = _UnusedLibrary()
+        cleanup = lambda: None
+        services = Version2ImportWorkerServices(library, None, cleanup)
+
+        self.assertIs(services.library, library)
+        self.assertIsNone(services.chessbase)
+        self.assertIs(services.close, cleanup)
+        self.assertTrue(hasattr(Version2ImportWorkerServices, "__dataclass_fields__"))
+        self.assertFalse(hasattr(workflows._snapshot_file_workflow_event, "__dataclass_fields__"))
+
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.FAILED,
+            "library.import",
+            error_code="library_import_failed",
+        )
+        snapshot = workflows._snapshot_file_workflow_event(event)
+        self.assertEqual(snapshot, event)
+        self.assertIsNot(snapshot, event)
+
     def test_safe_warning_swallows_logging_handler_abort(self) -> None:
         class LoggingAbort(BaseException):
             pass
