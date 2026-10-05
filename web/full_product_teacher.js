@@ -131,6 +131,7 @@
   }
 
   function renderVisual(snapshot, invoke, announce, fallbackMessage) {
+    const ukrainian = snapshot.language === "uk";
     const visual = node("section");
     visual.id = "teacher-visual-region";
     const boardState = snapshot.board || {};
@@ -141,7 +142,7 @@
     const grid = node("div");
     grid.id = "teacher-visual-board";
     grid.setAttribute("role", "grid");
-    grid.setAttribute("aria-label", "Teaching board");
+    grid.setAttribute("aria-label", ukrainian ? "Навчальна дошка" : "Teaching board");
     grid.style.display = "grid";
     grid.style.gridTemplateColumns = "repeat(8, minmax(2.5rem, 1fr))";
     boardSquares(String(boardState.orientation || "white")).forEach(function (square) {
@@ -221,10 +222,12 @@
 
     const fragment = document.createDocumentFragment();
     const main = node("section");
-    main.appendChild(node("h2", "Teacher/Classroom"));
+    const ukrainian = snapshot.language === "uk";
+    main.setAttribute("lang", ukrainian ? "uk" : "en");
+    main.appendChild(node("h2", ukrainian ? "Викладач / клас" : "Teacher/Classroom"));
 
     const form = node("form");
-    const label = node("label", "Teacher pointer square");
+    const label = node("label", ukrainian ? "Поле вказівника викладача" : "Teacher pointer square");
     const input = node("input");
     input.id = "teacher-pointer-input";
     input.type = "text";
@@ -232,7 +235,7 @@
     input.autocomplete = "off";
     input.spellcheck = false;
     label.htmlFor = input.id;
-    const submit = node("button", "Set pointer");
+    const submit = node("button", ukrainian ? "Встановити вказівник" : "Set pointer");
     submit.type = "submit";
     form.appendChild(label);
     form.appendChild(input);
@@ -257,7 +260,7 @@
     });
     main.appendChild(form);
 
-    const orientation = node("button", "Toggle orientation");
+    const orientation = node("button", ukrainian ? "Змінити орієнтацію" : "Toggle orientation");
     orientation.id = "teacher-orientation-toggle";
     orientation.type = "button";
     orientation.addEventListener("click", function () {

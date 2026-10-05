@@ -194,6 +194,16 @@ async function run() {
   check(hiddenE4.getAttribute("aria-label") === "e4, white pawn", "hidden coordinate mode lost semantic square/piece identity");
 
   const input = root.querySelector("#teacher-pointer-input");
+  const ukrainianRoot = new FakeElement("div");
+  const ukrainianSnapshot = snapshot(null);
+  ukrainianSnapshot.language = "uk";
+  window.AccessibleChessTeacherSurface.render(ukrainianRoot, ukrainianSnapshot, invoke, function () {}, "teacher-pointer-input", "Помилка");
+  check(ukrainianRoot.descendants().some((item) => item.tagName === "H2" && item.textContent === "Викладач / клас"), "Ukrainian Teacher heading missing");
+  check(ukrainianRoot.descendants().some((item) => item.tagName === "LABEL" && item.textContent === "Поле вказівника викладача"), "Ukrainian pointer label missing");
+  check(ukrainianRoot.querySelector("#teacher-orientation-toggle").textContent === "Змінити орієнтацію", "Ukrainian orientation label missing");
+  check(ukrainianRoot.querySelector("#teacher-visual-board").getAttribute("aria-label") === "Навчальна дошка", "Ukrainian board accessible name missing");
+  check(ukrainianRoot.descendants().some((item) => item.getAttribute("lang") === "uk"), "Teacher language missing from accessibility tree");
+  input.focus();
   check(document.activeElement === input, "pointer input did not receive focus");
   const wholeRenders = root.replaceChildrenCalls;
   input.value = "f3";

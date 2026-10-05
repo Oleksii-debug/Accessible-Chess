@@ -180,6 +180,9 @@ os._exit(0)
                 if child.poll() is None:
                     child.kill()
                     child.wait(timeout=10)
+                for stream in (child.stdin, child.stdout, child.stderr):
+                    if stream is not None:
+                        stream.close()
 
             replacement_revision = store.save(
                 self._ledger(record_id="after-crash"),

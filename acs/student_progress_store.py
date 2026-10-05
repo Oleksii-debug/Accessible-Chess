@@ -73,14 +73,19 @@ def _same_file_identity(first: os.stat_result, second: os.stat_result) -> bool:
         return _identity(first) == _identity(second)
 
 
-def _same_file_version(first: os.stat_result, second: os.stat_result) -> bool:
+def _same_file_version(
+    first: os.stat_result, second: os.stat_result, *, cross_interface: bool = False
+) -> bool:
     return (
         _same_file_identity(first, second)
         and int(first.st_size) == int(second.st_size)
         and int(getattr(first, "st_mtime_ns", 0))
         == int(getattr(second, "st_mtime_ns", 0))
-        and int(getattr(first, "st_ctime_ns", 0))
-        == int(getattr(second, "st_ctime_ns", 0))
+        and (
+            (cross_interface and os.name == "nt")
+            or int(getattr(first, "st_ctime_ns", 0))
+            == int(getattr(second, "st_ctime_ns", 0))
+        )
     )
 
 
@@ -142,15 +147,46 @@ def _read_bounded_file(path: Path) -> bytes:
         if not _same_file_version(opened, after) or total != int(after.st_size):
             raise ValueError("student progress file changed while reading")
 
+        # As in canonical Training persistence, Windows fstat/lstat ctime values
+        # are not comparable across the two APIs. Keep full descriptor-version
+        # checks, and confirm content through the held descriptor before the
+        # final pathname identity/size/mtime check. A same-size edit with restored
+        # mtime must still be rejected rather than mistaken for a stable snapshot.
+        data = b"".join(chunks)
+        del chunks
+        expected_digest = hashlib.sha256(data).digest()
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        confirmed_digest = hashlib.sha256()
+        confirmed_total = 0
+        while True:
+            chunk = os.read(
+                descriptor,
+                min(65536, STUDENT_PROGRESS_STORE_MAX_BYTES + 1 - confirmed_total),
+            )
+            if not chunk:
+                break
+            confirmed_total += len(chunk)
+            if confirmed_total > STUDENT_PROGRESS_STORE_MAX_BYTES:
+                raise ValueError("student progress file exceeds maximum size")
+            confirmed_digest.update(chunk)
+        confirmed = os.fstat(descriptor)
+        _require_private_regular(confirmed, "student progress file")
+        if (
+            not _same_file_version(opened, confirmed)
+            or confirmed_total != total
+            or confirmed_digest.digest() != expected_digest
+        ):
+            raise ValueError("student progress file changed while reading")
+
         parent_after = path.parent.lstat()
         _require_private_directory(parent_after, "student progress directory")
         if not _same_file_identity(parent_before, parent_after):
             raise ValueError("student progress directory changed while reading")
         current = path.lstat()
         _require_private_regular(current, "student progress file")
-        if not _same_file_version(after, current):
+        if not _same_file_version(confirmed, current, cross_interface=True):
             raise ValueError("student progress file changed while reading")
-        return b"".join(chunks)
+        return data
     finally:
         os.close(descriptor)
 
@@ -270,8 +306,15 @@ def _open_writer_lock(path: Path) -> int:
         _require_private_regular(current, "student progress lock")
         if not _same_file_identity(opened, current):
             raise StudentProgressBusyError("student progress store lock changed while opening")
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        if os.read(descriptor, len(_LOCK_MARKER) + 1) != _LOCK_MARKER:
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            marker = os.read(descriptor, len(_LOCK_MARKER) + 1)
+        except OSError as exc:
+            # A live peer's Windows byte-range lock can deny this pre-lock read.
+            # Report the existing busy authority and release our descriptor;
+            # never reinterpret denied access as a valid marker or delete it.
+            raise StudentProgressBusyError("student progress store is busy") from exc
+        if marker != _LOCK_MARKER:
             raise StudentProgressBusyError("student progress store lock changed while opening")
         return descriptor
     except Exception:
