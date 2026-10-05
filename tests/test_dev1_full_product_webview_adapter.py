@@ -755,6 +755,20 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual([], calls)
         self.assertEqual("move-input", adapter.shell.restore_focus_target())
 
+    def test_action_ingress_bounds_focus_before_router_truthiness_or_regex(self):
+        adapter, calls = self.make_adapter()
+        for focus_id in ("x" * 161, "board\x00launcher"):
+            with self.subTest(focus_id_len=len(focus_id)):
+                failed = adapter.activate_action(
+                    "teacher.highlight",
+                    {"square": "f3"},
+                    current_focus_id=focus_id,
+                )
+                self.assertEqual("error", failed.kind)
+
+        self.assertEqual([], calls)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
 
 if __name__ == "__main__":
     unittest.main()
