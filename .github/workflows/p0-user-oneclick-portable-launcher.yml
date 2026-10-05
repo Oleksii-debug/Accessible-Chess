@@ -35,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: p0-user-oneclick-portable-launcher-${{ github.ref }}
+  group: p0-user-oneclick-portable-launcher-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -58,6 +58,20 @@ jobs:
           if ($actual -ne $expected) {
             throw "Exact candidate mismatch: expected $expected, got $actual"
           }
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $eventSha = '${{ github.event.pull_request.head.sha }}'
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve live pull-request head' }
+          $liveSha = (git rev-parse FETCH_HEAD).Trim()
+          if ($liveSha -ne $eventSha) {
+            throw "P0_ONECLICK_SUPERSEDED event=$eventSha live=$liveSha"
+          }
+          Write-Host 'P0_ONECLICK_EXACT_HEAD=PASS'
 
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
