@@ -10,6 +10,7 @@ on:
       - 'web/index.html'
       - 'tests/test_webview_keymap_bridge_contract.py'
       - 'tests/test_dynamic_keymap_help_contract.py'
+      - 'tests/js/dynamic_keymap_help_test.js'
       - '.github/workflows/webview-keymap-authority.yml'
   push:
     paths:
@@ -20,6 +21,7 @@ on:
       - 'web/index.html'
       - 'tests/test_webview_keymap_bridge_contract.py'
       - 'tests/test_dynamic_keymap_help_contract.py'
+      - 'tests/js/dynamic_keymap_help_test.js'
       - '.github/workflows/webview-keymap-authority.yml'
 
 concurrency:
@@ -47,3 +49,5 @@ jobs:
         run: python -m py_compile tests/test_webview_keymap_bridge_contract.py tests/test_dynamic_keymap_help_contract.py
       - name: Run keymap authority contracts
         run: python -m unittest -v tests.test_webview_keymap_bridge_contract tests.test_dynamic_keymap_help_contract
+      - name: Run dynamic Help behavior contract
+        run: node tests/js/dynamic_keymap_help_test.js
