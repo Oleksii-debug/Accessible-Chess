@@ -36,6 +36,8 @@ class ClassroomWebAssetTests(unittest.TestCase):
         self.assertIn('event.key === "ArrowUp"', source)
         self.assertIn('event.key === "ArrowDown"', source)
         self.assertIn('event.key === "Enter"', source)
+        self.assertIn('resolve(event, "classroom_list")', source)
+        self.assertIn('actionId === "classroom.open_selected"', source)
 
     def test_remote_section_does_not_create_second_live_region(self) -> None:
         source = self.source

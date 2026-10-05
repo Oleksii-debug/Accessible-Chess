@@ -48,6 +48,20 @@ def test_board_context_can_be_filtered_without_visual_table_semantics():
     assert {row.action_id for row in rows} >= {"board.attackers", "board.defenders", "board.input"}
 
 
+def test_classroom_context_is_localized_without_exposing_transport_tokens():
+    from acs.full_product_actions import build_full_product_action_registry
+
+    uk_model = KeymapEditorModel(build_full_product_action_registry(), lang="uk")
+    uk_rows = uk_model.rows(context=BindingContext.CLASSROOM_LIST)
+    assert uk_rows
+    assert all(row.context_label == "Список класу" for row in uk_rows)
+
+    en_model = KeymapEditorModel(build_full_product_action_registry(), lang="en")
+    en_rows = en_model.rows(context=BindingContext.CLASSROOM_LIST)
+    assert en_rows
+    assert all(row.context_label == "Classroom list" for row in en_rows)
+
+
 def test_preview_is_non_mutating_and_reports_exact_conflict_before_save():
     registry = ActionRegistry()
     model = KeymapEditorModel(registry)

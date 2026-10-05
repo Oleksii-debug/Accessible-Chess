@@ -80,42 +80,71 @@
       });
 
       option.addEventListener("keydown", function (event) {
+        const resolve = global.accessibleChessKeymapAction;
+        let actionId = "";
+        let resolverReady = false;
+        if (typeof resolve === "function") {
+          const resolved = resolve(event, "classroom_list");
+          if (resolved !== null && resolved !== undefined) {
+            resolverReady = true;
+            actionId = typeof resolved === "string" ? resolved : "";
+          }
+        }
+        if (
+          !resolverReady &&
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
+        ) {
+          if (event.key === "ArrowUp") actionId = "classroom.previous_item";
+          else if (event.key === "ArrowDown") actionId = "classroom.next_item";
+          else if (event.key === "Home") actionId = "classroom.first_item";
+          else if (event.key === "End") actionId = "classroom.last_item";
+          else if (event.key === "Enter") actionId = "classroom.open_selected";
+        }
+
         let command = null;
         let payload = null;
-        if (event.key === "ArrowUp") {
+        let handled = false;
+        if (actionId === "classroom.previous_item") {
+          handled = true;
           if (itemIndex === 0) {
-            event.preventDefault();
-            return;
+            command = "";
+          } else {
+            command = "management.move";
+            payload = { kind: section.kind, delta: -1 };
           }
-          command = "management.move";
-          payload = { kind: section.kind, delta: -1 };
-        } else if (event.key === "ArrowDown") {
+        } else if (actionId === "classroom.next_item") {
+          handled = true;
           if (itemIndex === items.length - 1) {
-            event.preventDefault();
-            return;
+            command = "";
+          } else {
+            command = "management.move";
+            payload = { kind: section.kind, delta: 1 };
           }
-          command = "management.move";
-          payload = { kind: section.kind, delta: 1 };
-        } else if (event.key === "Home") {
+        } else if (actionId === "classroom.first_item") {
+          handled = true;
           if (itemIndex === 0) {
-            event.preventDefault();
-            return;
+            command = "";
+          } else {
+            command = "management.select";
+            payload = { kind: section.kind, record_id: items[0].record_id };
           }
-          command = "management.select";
-          payload = { kind: section.kind, record_id: items[0].record_id };
-        } else if (event.key === "End") {
+        } else if (actionId === "classroom.last_item") {
+          handled = true;
           if (itemIndex === items.length - 1) {
-            event.preventDefault();
-            return;
+            command = "";
+          } else {
+            command = "management.select";
+            payload = { kind: section.kind, record_id: items[items.length - 1].record_id };
           }
-          command = "management.select";
-          payload = { kind: section.kind, record_id: items[items.length - 1].record_id };
-        } else if (event.key === "Enter") {
+        } else if (actionId === "classroom.open_selected") {
+          handled = true;
           command = "management.open";
           payload = { kind: section.kind };
         }
-        if (!command) return;
+        if (!handled) return;
         event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        if (!command) return;
         Promise.resolve(invoke(command, payload)).then(function (result) {
           if (command === "management.select") {
             applyKeyboardSelectionEvent(result, announce);

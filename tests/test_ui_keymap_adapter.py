@@ -1,3 +1,4 @@
+from acs.full_product_actions import build_full_product_action_registry
 from acs.keybindings import ActionRegistry
 from acs.ui_keymap_adapter import build_web_keymap
 
@@ -62,3 +63,18 @@ def test_move_entry_aliases_are_projected_without_changing_parser_syntax():
     assert rows["move.standard"]["alias"] == "s"
     assert rows["move.empty"]["alias"] == "e"
     assert all("W:" not in (row["alias"] or "") for row in rows.values())
+
+
+def test_classroom_navigation_is_projected_as_one_remappable_context():
+    rows = _by_id(build_web_keymap(build_full_product_action_registry()))
+    expected = {
+        "classroom.previous_item": "Up",
+        "classroom.next_item": "Down",
+        "classroom.first_item": "Home",
+        "classroom.last_item": "End",
+        "classroom.open_selected": "Enter",
+    }
+    for action_id, binding in expected.items():
+        assert rows[action_id]["registryContext"] == "classroom_list"
+        assert rows[action_id]["context"] == "classroom_list"
+        assert rows[action_id]["binding"] == binding

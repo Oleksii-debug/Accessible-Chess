@@ -23,6 +23,11 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         registry.set_binding("library.open_game", "Ctrl+Enter")
         registry.set_binding("education.next_item", "L")
         registry.set_binding("education.open_selected", "O")
+        registry.set_binding("classroom.previous_item", "H")
+        registry.set_binding("classroom.next_item", "J")
+        registry.set_binding("classroom.first_item", "G")
+        registry.set_binding("classroom.last_item", "K")
+        registry.set_binding("classroom.open_selected", "O")
         registry.set_binding("board.cursor_down", "Ctrl+J")
         registry.set_binding("move.submit", "F2")
         registry.set_binding("history.commit_go_to_move", "F3")
@@ -35,6 +40,12 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertIsNone(_resolved(registry, BindingContext.EDUCATION_LIST, "Down"))
         self.assertEqual("education.next_item", _resolved(registry, BindingContext.EDUCATION_LIST, "L"))
         self.assertEqual("education.open_selected", _resolved(registry, BindingContext.EDUCATION_LIST, "O"))
+        self.assertIsNone(_resolved(registry, BindingContext.CLASSROOM_LIST, "Down"))
+        self.assertEqual("classroom.previous_item", _resolved(registry, BindingContext.CLASSROOM_LIST, "H"))
+        self.assertEqual("classroom.next_item", _resolved(registry, BindingContext.CLASSROOM_LIST, "J"))
+        self.assertEqual("classroom.first_item", _resolved(registry, BindingContext.CLASSROOM_LIST, "G"))
+        self.assertEqual("classroom.last_item", _resolved(registry, BindingContext.CLASSROOM_LIST, "K"))
+        self.assertEqual("classroom.open_selected", _resolved(registry, BindingContext.CLASSROOM_LIST, "O"))
         self.assertIsNone(_resolved(registry, BindingContext.BOARD, "Down"))
         self.assertEqual("board.cursor_down", _resolved(registry, BindingContext.BOARD, "Ctrl+J"))
         self.assertIsNone(_resolved(registry, BindingContext.MOVE_ENTRY, "Enter"))
@@ -48,21 +59,26 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertEqual("library.open_game", _resolved(restored, BindingContext.LIBRARY_RESULTS, "Ctrl+Enter"))
         self.assertEqual("education.next_item", _resolved(restored, BindingContext.EDUCATION_LIST, "L"))
         self.assertEqual("education.open_selected", _resolved(restored, BindingContext.EDUCATION_LIST, "O"))
+        self.assertEqual("classroom.previous_item", _resolved(restored, BindingContext.CLASSROOM_LIST, "H"))
+        self.assertEqual("classroom.next_item", _resolved(restored, BindingContext.CLASSROOM_LIST, "J"))
+        self.assertEqual("classroom.first_item", _resolved(restored, BindingContext.CLASSROOM_LIST, "G"))
+        self.assertEqual("classroom.last_item", _resolved(restored, BindingContext.CLASSROOM_LIST, "K"))
+        self.assertEqual("classroom.open_selected", _resolved(restored, BindingContext.CLASSROOM_LIST, "O"))
         self.assertEqual("board.cursor_down", _resolved(restored, BindingContext.BOARD, "Ctrl+J"))
         self.assertEqual("move.submit", _resolved(restored, BindingContext.MOVE_ENTRY, "F2"))
         self.assertEqual("history.commit_go_to_move", _resolved(restored, BindingContext.HISTORY, "F3"))
 
     def test_shell_exports_current_synchronous_event_resolver_for_child_surfaces(self) -> None:
         source = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("function keymapActionForEvent(e,uiContext)", source)
+        self.assertIn("function keymapActionForEvent(e,registryContext)", source)
         self.assertIn("if(!keymapReady)return null", source)
-        self.assertIn("actionByChord(eventChord(e),uiContext)", source)
+        self.assertIn("actionByChord(eventChord(e),registryContext)", source)
         self.assertIn("window.accessibleChessKeymapAction=keymapActionForEvent", source)
         self.assertIn("function installKeymapSnapshot(snapshot,isCentral)", source)
         self.assertIn("const hadReadyKeymap=keymapReady", source)
         self.assertIn("if(!hadReadyKeymap)keymapReady=false", source)
         self.assertIn("async function applyKeymapMutation(result)", source)
-        self.assertIn("if(result.snapshot)installKeymapSnapshot(result.snapshot,true)", source)
+        self.assertIn("if(result.snapshot){try{installKeymapSnapshot(result.snapshot,true)", source)
         self.assertIn("keymapReady=true", source)
         self.assertNotIn("async function loadKeymap(){keymapReady=false", source)
 
@@ -117,6 +133,21 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
         self.assertIn("resolved !== null && resolved !== undefined", source)
         self.assertIn("!resolverReady", source)
         for action_id in ("education.previous_item", "education.next_item", "education.open_selected"):
+            self.assertIn(action_id, source)
+
+    def test_classroom_list_uses_remappable_context_with_keyboard_fallback(self) -> None:
+        source = (ROOT / "web" / "full_product_classroom.js").read_text(encoding="utf-8")
+        self.assertIn('resolve(event, "classroom_list")', source)
+        self.assertIn('typeof resolve === "function"', source)
+        self.assertIn("resolved !== null && resolved !== undefined", source)
+        self.assertIn("!resolverReady", source)
+        for action_id in (
+            "classroom.previous_item",
+            "classroom.next_item",
+            "classroom.first_item",
+            "classroom.last_item",
+            "classroom.open_selected",
+        ):
             self.assertIn(action_id, source)
 
 

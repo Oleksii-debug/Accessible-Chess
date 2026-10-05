@@ -27,6 +27,7 @@ class BindingContext(str, Enum):
     PGN_TREE = "pgn_tree"
     LIBRARY_RESULTS = "library_results"
     EDUCATION_LIST = "education_list"
+    CLASSROOM_LIST = "classroom_list"
 
 
 @dataclass(frozen=True)

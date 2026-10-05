@@ -22,6 +22,13 @@ def test_final_profile_exposes_teacher_and_classes_but_not_remote_or_mutations()
     assert not any(action_id.startswith("remote.") for action_id in ids)
     assert "teacher.pointer_input" not in ids
     assert "classes.new" not in ids
+    assert {
+        "classroom.previous_item",
+        "classroom.next_item",
+        "classroom.first_item",
+        "classroom.last_item",
+        "classroom.open_selected",
+    } <= ids
 
 
 def test_final_shell_has_keyboard_reachable_teacher_and_classes_routes():

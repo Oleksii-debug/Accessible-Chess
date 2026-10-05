@@ -27,6 +27,7 @@ _UI_CONTEXT = {
     BindingContext.PGN_TREE: "pgn_tree",
     BindingContext.LIBRARY_RESULTS: "library_results",
     BindingContext.EDUCATION_LIST: "education_list",
+    BindingContext.CLASSROOM_LIST: "classroom_list",
 }
 
 _UK_LABELS = {
@@ -103,6 +104,11 @@ _UK_LABELS = {
     "education.previous_item": "Попередній навчальний елемент",
     "education.next_item": "Наступний навчальний елемент",
     "education.open_selected": "Відкрити вибраний навчальний елемент",
+    "classroom.previous_item": "Попередній елемент класу",
+    "classroom.next_item": "Наступний елемент класу",
+    "classroom.first_item": "Перший елемент класу",
+    "classroom.last_item": "Останній елемент класу",
+    "classroom.open_selected": "Відкрити вибраний елемент класу",
 }
 
 _EN_LABELS: dict[str, str] = {
@@ -116,6 +122,11 @@ _EN_LABELS: dict[str, str] = {
     "board.activate": "Activate board square",
     "board.activate_alternative": "Activate board square, alternative key",
     "board.exit": "Exit board interaction",
+    "classroom.previous_item": "Previous classroom item",
+    "classroom.next_item": "Next classroom item",
+    "classroom.first_item": "First classroom item",
+    "classroom.last_item": "Last classroom item",
+    "classroom.open_selected": "Open selected classroom item",
 }
 
 for _number in range(1, 9):

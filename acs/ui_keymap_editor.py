@@ -29,6 +29,7 @@ _CONTEXT_LABELS_UK = {
     BindingContext.PGN_TREE.value: "Дерево PGN",
     BindingContext.LIBRARY_RESULTS.value: "Результати бібліотеки",
     BindingContext.EDUCATION_LIST.value: "Навчальний список",
+    BindingContext.CLASSROOM_LIST.value: "Список класу",
 }
 
 _CONTEXT_LABELS_EN = {
@@ -45,6 +46,7 @@ _CONTEXT_LABELS_EN = {
     BindingContext.PGN_TREE.value: "PGN tree",
     BindingContext.LIBRARY_RESULTS.value: "Library results",
     BindingContext.EDUCATION_LIST.value: "Education list",
+    BindingContext.CLASSROOM_LIST.value: "Classroom list",
 }
 
 
