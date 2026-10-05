@@ -354,6 +354,66 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             self.assertFalse(controller.pgn_save_running)
             self.assertNotIn("private owner session access failure", repr(terminal))
 
+    def test_durable_save_rejects_active_live_source_without_executing_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "active-live-source-after-publish.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Durable bytes before live provenance tamper")
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            self.assertIn(
+                '[Event "Durable bytes before live provenance tamper"]',
+                source.read_text(encoding="utf-8"),
+            )
+            live_source = session.source
+            assert live_source is not None
+            touched: list[str] = []
+
+            class ActiveText(str):
+                def __eq__(self, other):
+                    touched.append("eq")
+                    raise AssertionError("active live source equality executed")
+
+                def __ne__(self, other):
+                    touched.append("ne")
+                    raise AssertionError("active live source inequality executed")
+
+            object.__setattr__(
+                live_source,
+                "sha256",
+                ActiveText(live_source.sha256),
+            )
+
+            poster.drain()
+
+            self.assertEqual([], touched)
+            self.assertEqual(len(async_events), 1)
+            terminal = async_events[0]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_commit_failed")
+            self.assertEqual(terminal.focus_target, "pgn-game-list")
+            self.assertEqual(sync_events, [started])
+            self.assertEqual(Path(session.source.path), source)
+            self.assertTrue(session.dirty)
+            self.assertFalse(controller.pgn_save_running)
+
     def test_late_cancel_resolves_completed_durable_save_as_success(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "save-as-source.pgn"
