@@ -308,6 +308,66 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(session.source, source_before)
         self.assertEqual(Path(session.source.path), source)
 
+    def test_commit_rejects_active_live_source_field_before_equality(self) -> None:
+        source = self.write_document("active-live-source.pgn")
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "active-live-source-destination.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        live_source = session.source
+        assert live_source is not None
+        touched: list[str] = []
+
+        class ActiveText(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active live source equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active live source inequality executed")
+
+        object.__setattr__(
+            live_source,
+            "sha256",
+            ActiveText(live_source.sha256),
+        )
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual([], touched)
+        self.assertTrue(target.exists())
+        self.assertEqual(Path(session.source.path), source)
+
+    def test_commit_rejects_active_live_saved_digest_before_equality(self) -> None:
+        source = self.write_document("active-live-saved-digest.pgn")
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "active-live-saved-digest-destination.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        saved_digest = session._saved_digest
+        assert type(saved_digest) is str
+        touched: list[str] = []
+
+        class ActiveText(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active live saved digest equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active live saved digest inequality executed")
+
+        session._saved_digest = ActiveText(saved_digest)
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual([], touched)
+        self.assertTrue(target.exists())
+        self.assertEqual(Path(session.source.path), source)
+
     def test_committed_publication_does_not_alias_worker_fingerprint(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
