@@ -9,7 +9,18 @@ workstation directories must not cross report boundaries.
 """
 
 import os
+import unicodedata
 from typing import Any
+
+
+_UNSAFE_REPORT_PATH_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
+
+
+def _has_unsafe_report_text(text: str) -> bool:
+    return any(
+        unicodedata.category(character) in _UNSAFE_REPORT_PATH_CATEGORIES
+        for character in text
+    )
 
 
 def report_safe_name(path: Any) -> str:
@@ -19,7 +30,7 @@ def report_safe_name(path: Any) -> str:
     OS. Absolute POSIX paths, Windows drive paths and UNC paths are reduced to
     their final component. Safe relative paths are preserved with ``/`` so a
     stable provenance such as ``incoming/game.cbh`` is not needlessly lost.
-    Any relative traversal component fails closed to the final basename.
+    Any relative traversal component or report-control text fails closed.
     """
 
     try:
@@ -30,22 +41,22 @@ def report_safe_name(path: Any) -> str:
         raw = os.fsdecode(raw)
 
     text = str(raw).replace("\\", "/").rstrip("/")
-    if not text:
+    if not text or _has_unsafe_report_text(text):
         return "source"
 
-    basename = text.rsplit("/", 1)[-1]
+    is_windows_drive_path = (
+        len(text) >= 2
+        and text[0].isalpha()
+        and text[1] == ":"
+    )
+    private_text = text[2:] if is_windows_drive_path else text
+    basename = private_text.rsplit("/", 1)[-1]
     if basename in {"", ".", ".."} or basename.endswith(":"):
         return "source"
 
     is_posix_absolute = text.startswith("/")
     is_unc_absolute = text.startswith("//")
-    is_windows_drive_absolute = (
-        len(text) >= 3
-        and text[0].isalpha()
-        and text[1] == ":"
-        and text[2] == "/"
-    )
-    if is_posix_absolute or is_unc_absolute or is_windows_drive_absolute:
+    if is_posix_absolute or is_unc_absolute or is_windows_drive_path:
         return basename
 
     parts = [part for part in text.split("/") if part not in {"", "."}]
