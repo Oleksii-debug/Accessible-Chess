@@ -150,6 +150,26 @@ class BookOpenPreparationTests(unittest.TestCase):
             self.assertEqual(source.read_bytes(), before)
 
 
+    def test_cancel_open_action_is_in_the_shared_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                definition = app.adapter.registry.definition("book.cancel_open")
+                self.assertEqual(definition.action_id, "book.cancel_open")
+                self.assertEqual(definition.context.value, "book_reader")
+            finally:
+                analysis.close()
+                database.close()
+
     def test_application_book_open_returns_before_ui_commit(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
