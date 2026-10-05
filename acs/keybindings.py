@@ -29,6 +29,7 @@ class BindingContext(str, Enum):
     EDUCATION_LIST = "education_list"
     CLASSROOM_LIST = "classroom_list"
     TOOLBAR = "toolbar"
+    PROFILE_DIALOG = "profile_dialog"
 
 
 @dataclass(frozen=True)

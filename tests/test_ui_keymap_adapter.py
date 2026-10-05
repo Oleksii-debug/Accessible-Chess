@@ -92,3 +92,10 @@ def test_toolbar_roving_focus_is_projected_as_one_remappable_context():
         assert rows[action_id]["registryContext"] == "toolbar"
         assert rows[action_id]["context"] == "toolbar"
         assert rows[action_id]["binding"] == binding
+
+
+def test_local_profile_save_is_projected_as_a_remappable_shortcut():
+    row = _by_id(build_web_keymap(build_full_product_action_registry()))["profile.save_name"]
+    assert row["registryContext"] == "profile_dialog"
+    assert row["context"] == "profile_dialog"
+    assert row["binding"] == "Enter"

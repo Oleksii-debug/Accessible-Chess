@@ -29,6 +29,7 @@ _UI_CONTEXT = {
     BindingContext.EDUCATION_LIST: "education_list",
     BindingContext.CLASSROOM_LIST: "classroom_list",
     BindingContext.TOOLBAR: "toolbar",
+    BindingContext.PROFILE_DIALOG: "profile_dialog",
 }
 
 _UK_LABELS = {
@@ -114,6 +115,7 @@ _UK_LABELS = {
     "toolbar.next_control": "Наступний елемент панелі інструментів",
     "toolbar.first_control": "Перший елемент панелі інструментів",
     "toolbar.last_control": "Останній елемент панелі інструментів",
+    "profile.save_name": "Зберегти ім’я локального профілю",
 }
 
 _EN_LABELS: dict[str, str] = {
@@ -136,6 +138,7 @@ _EN_LABELS: dict[str, str] = {
     "toolbar.next_control": "Next toolbar control",
     "toolbar.first_control": "First toolbar control",
     "toolbar.last_control": "Last toolbar control",
+    "profile.save_name": "Save local profile name",
 }
 
 for _number in range(1, 9):

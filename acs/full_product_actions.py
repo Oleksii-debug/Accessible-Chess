@@ -156,6 +156,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("toolbar.next_control", BindingContext.TOOLBAR, "Next toolbar control", "Right"),
     _action("toolbar.first_control", BindingContext.TOOLBAR, "First toolbar control", "Home"),
     _action("toolbar.last_control", BindingContext.TOOLBAR, "Last toolbar control", "End"),
+    _action("profile.save_name", BindingContext.PROFILE_DIALOG, "Save local profile name", "Enter"),
     _action("classes.new", BindingContext.DOCUMENT, "New class"),
     _action("classes.open", BindingContext.DOCUMENT, "Open class"),
     _action("classes.student_open", BindingContext.DOCUMENT, "Open student"),

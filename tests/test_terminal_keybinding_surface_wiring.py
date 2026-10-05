@@ -169,6 +169,14 @@ class TerminalKeybindingSurfaceWiringTests(unittest.TestCase):
                 ):
                     self.assertIn(action_id, source)
 
+    def test_local_profile_save_uses_remappable_context_with_bootstrap_fallback(self) -> None:
+        source = (ROOT / "web" / "version2_local_profile.js").read_text(encoding="utf-8")
+        self.assertIn('resolve(event, "profile_dialog")', source)
+        self.assertIn('typeof resolve === "function"', source)
+        self.assertIn("resolved !== null && resolved !== undefined", source)
+        self.assertIn("!resolverReady", source)
+        self.assertIn('actionId = "profile.save_name"', source)
+
 
 if __name__ == "__main__":
     unittest.main()

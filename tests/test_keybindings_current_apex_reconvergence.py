@@ -65,6 +65,7 @@ class CurrentApexKeybindingReconvergenceTests(unittest.TestCase):
             "toolbar.next_control": (BindingContext.TOOLBAR, "Right"),
             "toolbar.first_control": (BindingContext.TOOLBAR, "Home"),
             "toolbar.last_control": (BindingContext.TOOLBAR, "End"),
+            "profile.save_name": (BindingContext.PROFILE_DIALOG, "Enter"),
         }
         for action_id, (context, binding) in expected.items():
             with self.subTest(action_id=action_id):
@@ -95,6 +96,7 @@ class CurrentApexKeybindingReconvergenceTests(unittest.TestCase):
         self.assertEqual(rows["education.open_selected"]["context"], "education_list")
         self.assertEqual(rows["classroom.open_selected"]["context"], "classroom_list")
         self.assertEqual(rows["toolbar.next_control"]["context"], "toolbar")
+        self.assertEqual(rows["profile.save_name"]["context"], "profile_dialog")
 
     def test_imported_duplicate_binding_fails_closed(self) -> None:
         registry = ActionRegistry()

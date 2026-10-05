@@ -31,6 +31,7 @@ _CONTEXT_LABELS_UK = {
     BindingContext.EDUCATION_LIST.value: "Навчальний список",
     BindingContext.CLASSROOM_LIST.value: "Список класу",
     BindingContext.TOOLBAR.value: "Панель інструментів",
+    BindingContext.PROFILE_DIALOG.value: "Локальний профіль",
 }
 
 _CONTEXT_LABELS_EN = {
@@ -49,6 +50,7 @@ _CONTEXT_LABELS_EN = {
     BindingContext.EDUCATION_LIST.value: "Education list",
     BindingContext.CLASSROOM_LIST.value: "Classroom list",
     BindingContext.TOOLBAR.value: "Toolbar",
+    BindingContext.PROFILE_DIALOG.value: "Local profile",
 }
 
 

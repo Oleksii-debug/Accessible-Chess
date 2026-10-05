@@ -204,6 +204,36 @@ class KeymapProfileIngressCurrentTests(unittest.TestCase):
             )
             self.assertIsNone(restarted.resolve_binding("toolbar", "J"))
 
+    def test_profile_dialog_remap_survives_restart_and_context_reset(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "keymap.json"
+            service = KeymapService(path, lang="en")
+            service.adopt_registry(build_final_product_action_registry())
+
+            saved = service.save("profile.save_name", "J")
+            self.assertTrue(saved["ok"])
+            self.assertEqual(
+                service.resolve_binding("profile_dialog", "J")["actionId"],
+                "profile.save_name",
+            )
+            self.assertIsNone(service.resolve_binding("profile_dialog", "Enter"))
+
+            restarted = KeymapService(path, lang="en")
+            restarted.adopt_registry(build_final_product_action_registry())
+            self.assertEqual(
+                restarted.resolve_binding("profile_dialog", "J")["actionId"],
+                "profile.save_name",
+            )
+            self.assertIsNone(restarted.resolve_binding("profile_dialog", "Enter"))
+
+            reset = restarted.reset_context("profile_dialog")
+            self.assertTrue(reset["ok"])
+            self.assertEqual(
+                restarted.resolve_binding("profile_dialog", "Enter")["actionId"],
+                "profile.save_name",
+            )
+            self.assertIsNone(restarted.resolve_binding("profile_dialog", "J"))
+
     def test_valid_versioned_and_legacy_profiles_still_import(self):
         with TemporaryDirectory() as root:
             service = self._service(root)
