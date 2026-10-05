@@ -8,9 +8,13 @@ on:
     branches:
       - work/post-freeze-v2-windows-package-qualification-20260911
     paths:
+      - run_accessible_chess.py
+      - acs/stage1_release_ui.py
+      - acs/version2_application.py
       - acs/version2_package_assembler.py
       - acs/version2_package_preflight.py
       - acs/version2_portable_package.py
+      - acs/version2_release_app.py
       - packaging/portable_launcher.c
       - tests/test_version2_package_assembler.py
       - tests/test_version2_package_preflight.py
@@ -19,6 +23,7 @@ on:
       - tests/test_portable_launcher_contract.py
       - tests/test_portable_launcher_window_readiness.py
       - tests/test_portable_localappdata_persistence_binding.py
+      - .github/workflows/p0-user-oneclick-portable-launcher.yml
       - .github/workflows/post-freeze-v2-windows-package-qualification.yml
       - .github/workflows/w5-portable-package-contract.yml
 
@@ -84,9 +89,13 @@ jobs:
       - name: Compile portable package authority and contract tests
         run: >-
           python -m py_compile
+          run_accessible_chess.py
+          acs/stage1_release_ui.py
+          acs/version2_application.py
           acs/version2_package_assembler.py
           acs/version2_package_preflight.py
           acs/version2_portable_package.py
+          acs/version2_release_app.py
           tests/test_version2_package_assembler.py
           tests/test_version2_package_preflight.py
           tests/test_v2_package_required_resources.py
