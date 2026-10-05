@@ -387,6 +387,44 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
                 )
             )
 
+    def test_book_workspace_contains_workflow_state_abort_after_dispatch(self) -> None:
+        class WorkflowStateAbort(BaseException):
+            pass
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=0,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=WorkflowStateAbort("corrupted workflow state"),
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
+
+        self.assertFalse(workflow.active)
+
     def test_book_workspace_rejects_active_workflow_revision_scalar_before_comparison(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)

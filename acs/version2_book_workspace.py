@@ -856,7 +856,9 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return False
         try:
             workflow_active, workflow_revision = self._workflow_presentation_state()
-        except BookBoardWorkflowError:
+        except BaseException:
+            # The action boundary must remain sanitized even if canonical
+            # workflow state was low-level corrupted after dispatch.
             return False
         if (
             result.kind is not expected
