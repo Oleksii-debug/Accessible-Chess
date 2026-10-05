@@ -82,6 +82,20 @@ class _Owner:
         return len(self.posted)
 
 
+class _FailOnceOwner(_Owner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_post = True
+        self.failed_posts = 0
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        if self.fail_next_post:
+            self.fail_next_post = False
+            self.failed_posts += 1
+            raise RuntimeError("transient owner post failure")
+        return super().BeginInvoke(delegate)
+
+
 class _Library:
     def __init__(self) -> None:
         self.calls = 0
@@ -251,6 +265,77 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
 
             self.assertFalse(session.dirty)
             self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_failed_owner_post_after_durable_save_recovers_before_next_file_action(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-post-failure.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Durable before owner recovery")
+            owner = _FailOnceOwner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            self.assertEqual(owner.failed_posts, 1)
+            self.assertEqual(owner.posted, [])
+            self.assertIn(
+                "Durable before owner recovery",
+                source.read_text(encoding="utf-8"),
+            )
+            self.assertTrue(session.dirty)
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertEqual(imported_events, [])
+
+            # The retry itself is the owner-thread recovery point. The durable
+            # publication is committed before the new cancel command is routed,
+            # so the shared worker cannot remain permanently busy.
+            retry = runtime("pgn.cancel_save", {})
+
+            self.assertEqual(retry.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(retry.error_code, "no_pgn_save_running")
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_pending_owner_completion_can_recover_through_existing_wakeup_seam(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-explicit-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Explicit owner recovery")
+            owner = _FailOnceOwner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            runtime("pgn.save", {})
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+
+            self.assertTrue(runtime.request_pending_import_wakeup())
+
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
             self.assertEqual(
                 [event.kind for event in imported_events],
                 [FileWorkflowEventKind.PGN_SAVED],

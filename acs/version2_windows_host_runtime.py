@@ -28,6 +28,79 @@ from .version2_windows_pgn_export import Version2WindowsPgnExportDelegate
 from .version2_windows_pgn_streaming_host import Version2WindowsStreamingFileActionDelegate
 
 
+class _Version2RecoverableOwnerCallbackPoster:
+    """Retain one file-worker owner callback when ``BeginInvoke`` rejects it.
+
+    PGN Open/Save share one worker slot, so at most one deferred owner callback can
+    be authoritative at a time.  The file delegate already generation-fences every
+    callback.  Retaining a rejected callback here therefore lets the next trusted
+    UI-thread file action complete a durable Save owner commit instead of leaving
+    the shared worker permanently busy, while a stale Open callback remains a
+    harmless no-op after its delegate-side post-failure fence cleared ownership.
+
+    This seam does not retry domain work and does not swallow the original posting
+    error: the delegate still observes exactly the same ``BeginInvoke`` failure and
+    applies its existing Open/Save failure semantics.  Only the already-built owner
+    callback is retained for bounded recovery.
+    """
+
+    def __init__(
+        self,
+        poster: Callable[[Callable[[], None]], Any],
+        *,
+        ui_thread_id: int,
+    ) -> None:
+        if not callable(poster):
+            raise TypeError("owner callback poster must be callable")
+        if type(ui_thread_id) is not int:
+            raise TypeError("ui_thread_id must be an integer")
+        self._poster = poster
+        self._ui_thread_id = ui_thread_id
+        self._lock = threading.RLock()
+        self._pending: Callable[[], None] | None = None
+        self._closed = False
+
+    @property
+    def pending(self) -> bool:
+        with self._lock:
+            return self._pending is not None
+
+    def __call__(self, callback: Callable[[], None]) -> Any:
+        if not callable(callback):
+            raise TypeError("owner callback must be callable")
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("owner callback recovery is closed")
+            if self._pending is not None:
+                raise RuntimeError("previous owner callback is pending recovery")
+        try:
+            return self._poster(callback)
+        except Exception:
+            with self._lock:
+                if not self._closed and self._pending is None:
+                    self._pending = callback
+            raise
+
+    def recover_on_owner(self) -> bool:
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("owner callback recovery requires UI thread")
+        with self._lock:
+            if self._closed or self._pending is None:
+                return False
+            callback = self._pending
+            self._pending = None
+        # Once execution begins, the delegate's own generation/session fences own
+        # retry safety. Re-queueing an unexpectedly failing callback here could
+        # replay a partially completed domain effect, so failures propagate once.
+        callback()
+        return True
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            self._pending = None
+
+
 class Version2WindowsFileWorkflowRuntime:
     """Compose trusted file actions, async UI handoff and orderly shutdown.
 
@@ -91,6 +164,10 @@ class Version2WindowsFileWorkflowRuntime:
             owner_control,
             delegate_factory=ui_delegate_factory,
         )
+        self._owner_callback_poster = _Version2RecoverableOwnerCallbackPoster(
+            self._poster,
+            ui_thread_id=self._ui_thread_id,
+        )
 
         def ui_ready() -> Any:
             return import_ui_ready(self._mailbox)
@@ -125,7 +202,7 @@ class Version2WindowsFileWorkflowRuntime:
             event_sink=self._pump,
             next_delegate=self._export_delegate,
             current_focus_provider=current_focus_provider,
-            post_to_ui=self._poster,
+            post_to_ui=self._owner_callback_poster,
             owner_async_event_sink=self._pump.owner_async_event_sink,
         )
 
@@ -168,6 +245,10 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+        # A failed BeginInvoke after durable PGN Save publication must not strand
+        # the one shared file worker forever. The next trusted file action is an
+        # owner-thread recovery point for that exact generation-fenced callback.
+        self._owner_callback_poster.recover_on_owner()
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
@@ -183,7 +264,10 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 return False
-        return self._pump.request_pending_wakeup()
+        recovered = False
+        if threading.get_ident() == self._ui_thread_id:
+            recovered = self._owner_callback_poster.recover_on_owner()
+        return self._pump.request_pending_wakeup() or recovered
 
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join active file worker before closing the UI pump."""
@@ -200,6 +284,9 @@ class Version2WindowsFileWorkflowRuntime:
             # caller may retry shutdown. PGN Open publication is already fenced.
             return False
 
+        # Shutdown owns pending-save commit recovery inside the file delegate.
+        # Any callback retained only because BeginInvoke failed is stale now.
+        self._owner_callback_poster.close()
         self._pump.close()
         with self._lock:
             self._closed = True
