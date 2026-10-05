@@ -1887,6 +1887,12 @@ class Version2Application:
 
     def drain_events(self):
         self._assert_thread()
+        if self._pending_shell_publication is not None:
+            # The browser is rendering a candidate route. Preserve every prior
+            # native/domain presentation event in order until that route is
+            # either committed or rolled back; applying an event to the
+            # unpublished DOM would create a second presentation authority.
+            return ()
         events = tuple(self._events)
         self._events.clear()
         return events
