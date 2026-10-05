@@ -178,8 +178,14 @@ def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, A
     return result
 
 
+def _reject_nonfinite_json(value: str) -> object:
+    raise Version2ReleaseReceiptError(
+        f"release receipt contains non-finite JSON number {value!r}"
+    )
+
+
 def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
-    if not isinstance(payload, dict):
+    if type(payload) is not dict:
         raise Version2ReleaseReceiptError("release receipt must be a JSON object")
     keys = frozenset(payload)
     if keys != _RECEIPT_FIELDS:
@@ -190,11 +196,11 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
         )
     if type(payload["schema_version"]) is not int or payload["schema_version"] != RELEASE_RECEIPT_SCHEMA_VERSION:
         raise Version2ReleaseReceiptError("unsupported release receipt schema_version")
-    if payload["product"] != "Accessible Chess":
+    if type(payload["product"]) is not str or payload["product"] != "Accessible Chess":
         raise Version2ReleaseReceiptError("release receipt product identity mismatch")
-    if payload["repository"] != REPOSITORY_FULL_NAME:
+    if type(payload["repository"]) is not str or payload["repository"] != REPOSITORY_FULL_NAME:
         raise Version2ReleaseReceiptError("release receipt repository identity mismatch")
-    if payload["workflow_path"] != CANONICAL_W5_WORKFLOW:
+    if type(payload["workflow_path"]) is not str or payload["workflow_path"] != CANONICAL_W5_WORKFLOW:
         raise Version2ReleaseReceiptError("release receipt workflow identity mismatch")
 
     return Version2ReleaseReceipt(
@@ -219,6 +225,34 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
         checksums_verified=_positive_id(
             payload["checksums_verified"], label="checksums_verified"
         ),
+    )
+
+
+def _validated_receipt_instance(
+    receipt: Version2ReleaseReceipt,
+) -> Version2ReleaseReceipt:
+    """Detach and revalidate a direct receipt object before durable publication."""
+
+    if type(receipt) is not Version2ReleaseReceipt:
+        raise TypeError("receipt must be an exact Version2ReleaseReceipt")
+    return _receipt_from_mapping(
+        {
+            "schema_version": receipt.schema_version,
+            "product": receipt.product,
+            "repository": receipt.repository,
+            "workflow_path": receipt.workflow_path,
+            "workflow_run_id": receipt.workflow_run_id,
+            "workflow_run_attempt": receipt.workflow_run_attempt,
+            "qualification_head_sha": receipt.qualification_head_sha,
+            "artifact_id": receipt.artifact_id,
+            "artifact_name": receipt.artifact_name,
+            "integration_sha": receipt.integration_sha,
+            "package_sha256": receipt.package_sha256,
+            "inventory_sha256": receipt.inventory_sha256,
+            "inventory_files": receipt.inventory_files,
+            "total_bytes": receipt.total_bytes,
+            "checksums_verified": receipt.checksums_verified,
+        }
     )
 
 
@@ -268,10 +302,14 @@ def read_version2_release_receipt(
     except UnicodeDecodeError as exc:
         raise Version2ReleaseReceiptError("release receipt is not UTF-8") from exc
     try:
-        payload = json.loads(text, object_pairs_hook=_json_object_without_duplicates)
+        payload = json.loads(
+            text,
+            object_pairs_hook=_json_object_without_duplicates,
+            parse_constant=_reject_nonfinite_json,
+        )
     except Version2ReleaseReceiptError:
         raise
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
         raise Version2ReleaseReceiptError("release receipt is not valid JSON") from exc
     receipt = _receipt_from_mapping(payload)
     if raw != receipt.to_json().encode("utf-8"):
@@ -382,13 +420,12 @@ def write_version2_release_receipt(
     not merely against a pathname that could have been replaced in between.
     """
 
-    if not isinstance(receipt, Version2ReleaseReceipt):
-        raise TypeError("receipt must be Version2ReleaseReceipt")
+    validated_receipt = _validated_receipt_instance(receipt)
     path = Path(output_path)
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
 
-    payload = receipt.to_json()
+    payload = validated_receipt.to_json()
     payload_bytes = payload.encode("utf-8")
     parent = path.parent
     staging: Path | None = None
