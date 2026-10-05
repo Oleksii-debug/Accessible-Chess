@@ -258,5 +258,102 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual(self.app.drain_events(), ())
 
 
+    def test_acknowledged_training_route_rolls_back_unpublished_owner_and_focus(self):
+        self._open_exercise_book()
+        prior_route = self.app.shell.current_route.route_id
+        prior_focus = self.app._focus
+        prior_shell_focus = self.app.shell.restore_focus_target()
+        prior_workspace = self.app.training_workspace
+        prior_training = self.app.training
+
+        routed = self.app.browser_command(
+            "shell",
+            "screen.training",
+            {"publication_protocol": "ack-v1"},
+        )
+
+        self.assertEqual("route", routed["kind"])
+        token = routed["payload"]["publication_token"]
+        self.assertIs(type(token), int)
+        self.assertGreater(token, 0)
+        self.assertEqual("training", self.app.shell.current_route.route_id)
+        self.assertIsNotNone(self.app.training_workspace)
+        self.assertIsNotNone(self.app.training)
+
+        rolled_back = self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+
+        self.assertEqual("presentation-rollback", rolled_back["kind"])
+        self.assertEqual(token, rolled_back["payload"]["token"])
+        self.assertEqual(prior_route, rolled_back["payload"]["route_id"])
+        self.assertEqual(prior_focus, rolled_back["payload"]["focus_target"])
+        self.assertEqual(prior_route, self.app.shell.current_route.route_id)
+        self.assertEqual(prior_focus, self.app._focus)
+        self.assertEqual(prior_shell_focus, self.app.shell.restore_focus_target())
+        self.assertIs(prior_workspace, self.app.training_workspace)
+        self.assertIs(prior_training, self.app.training)
+        self.assertIsNone(self.app._pending_shell_publication)
+
+    def test_acknowledged_route_commit_is_single_pending_one_shot(self):
+        self._open_exercise_book()
+        routed = self.app.browser_command(
+            "shell",
+            "screen.library",
+            {"publication_protocol": "ack-v1"},
+        )
+        self.assertEqual("route", routed["kind"])
+        token = routed["payload"]["publication_token"]
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+        blocked = self.app.browser_command(
+            "shell",
+            "screen.settings",
+            {"publication_protocol": "ack-v1"},
+        )
+        self.assertEqual("error", blocked["kind"])
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+        committed = self.app.browser_command(
+            "shell",
+            "shell.presentation_commit",
+            {"token": token},
+        )
+        self.assertEqual("presentation-commit", committed["kind"])
+        self.assertEqual(token, committed["payload"]["token"])
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+        replay = self.app.browser_command(
+            "shell",
+            "shell.presentation_rollback",
+            {"token": token},
+        )
+        self.assertEqual("error", replay["kind"])
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+    def test_invalid_publication_protocol_fails_before_route_or_training_staging(self):
+        self._open_exercise_book()
+        prior_route = self.app.shell.current_route.route_id
+        prior_focus = self.app._focus
+        prior_workspace = self.app.training_workspace
+        prior_training = self.app.training
+
+        rejected = self.app.browser_command(
+            "shell",
+            "screen.training",
+            {"publication_protocol": "future-v2"},
+        )
+
+        self.assertEqual("error", rejected["kind"])
+        self.assertEqual(prior_route, self.app.shell.current_route.route_id)
+        self.assertEqual(prior_focus, self.app._focus)
+        self.assertIs(prior_workspace, self.app.training_workspace)
+        self.assertIs(prior_training, self.app.training)
+        self.assertIsNone(self.app._pending_shell_publication)
+
+
 if __name__ == "__main__":
     unittest.main()
