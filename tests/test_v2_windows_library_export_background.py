@@ -29,6 +29,7 @@ from acs.search_service import (
 )
 from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_application import Version2Application
+from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind
 from acs.version2_windows_library_export import (
     LibraryExportHostEvent,
     LibraryExportHostEventKind,
@@ -896,6 +897,52 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertEqual(
                 fake._events[1]["payload"]["focus_target"],
                 "library-export-selected",
+            )
+        finally:
+            database.close()
+
+    def test_no_import_running_recovers_stale_export_after_lost_terminal_event(self) -> None:
+        database = AcsDatabase()
+        try:
+            database.import_pgn_text(_PGN, source_name="lost-terminal-recovery.pgn")
+            bridge = build_library_export_webview(
+                database,
+                lambda action, payload: None,
+                language=UILanguage.EN,
+            )
+            bridge.projection.host_export_started()
+            self.assertTrue(bridge.projection.export_running)
+            fake = SimpleNamespace(
+                shell=SimpleNamespace(language=UILanguage.EN),
+                library=bridge,
+                _events=[],
+                _native_file_error_message=lambda event: "The action could not be completed.",
+            )
+
+            Version2Application._file_event(
+                fake,
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "library.cancel_import",
+                    focus_target="library-export-filtered",
+                    error_code="no_import_running",
+                ),
+            )
+
+            self.assertFalse(bridge.projection.export_running)
+            self.assertEqual(fake._events[0]["kind"], "render-import")
+            self.assertFalse(
+                fake._events[0]["payload"]["import"]["actions"][1]["enabled"]
+            )
+            self.assertEqual(
+                fake._events[1],
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "The Library operation has already finished.",
+                        "focus_target": "library-export-filtered",
+                    },
+                },
             )
         finally:
             database.close()
