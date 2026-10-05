@@ -61,6 +61,18 @@ class PgnSavePublication:
     saved: SourceFingerprint
 
 
+@dataclass(frozen=True, slots=True)
+class _PassiveSnapshotMetadata:
+    mode: PgnSaveMode
+    document_revision: int
+    content_digest: str
+    games: tuple[PgnGame, ...]
+    source_before: SourceFingerprint | None
+    source_overwrite_safe_before: bool
+    saved_digest_before: str | None
+    session_ref: ReferenceType[PgnDocumentSession]
+
+
 def _stale(message: str) -> PgnDocumentError:
     return PgnDocumentError(message, code=PgnDocumentErrorCode.CONTEXT_STALE)
 
@@ -94,6 +106,59 @@ def _detached_source_fingerprint(
         size=size,
         sha256=sha256,
         suffix=suffix,
+    )
+
+
+def _passive_snapshot_metadata(snapshot: object) -> _PassiveSnapshotMetadata:
+    """Detach passive snapshot metadata before worker/owner boundary use."""
+
+    if type(snapshot) is not PgnSaveSnapshot:
+        raise TypeError("PGN save snapshot is malformed")
+    mode = metadata.mode
+    document_revision = snapshot.document_revision
+    content_digest = metadata.content_digest
+    games = snapshot.games
+    source_before = snapshot.source_before
+    source_overwrite_safe_before = snapshot.source_overwrite_safe_before
+    saved_digest_before = metadata.saved_digest_before
+    session_ref = snapshot._session_ref
+
+    if type(mode) is not PgnSaveMode:
+        raise TypeError("PGN save snapshot mode is invalid")
+    if type(document_revision) is not int or document_revision < 0:
+        raise TypeError("PGN save snapshot revision is invalid")
+    if (
+        type(content_digest) is not str
+        or len(content_digest) != 64
+        or any(character not in "0123456789abcdef" for character in content_digest)
+    ):
+        raise TypeError("PGN save snapshot digest is invalid")
+    if type(games) is not tuple:
+        raise TypeError("PGN save snapshot games must be a built-in tuple")
+    if type(source_overwrite_safe_before) is not bool:
+        raise TypeError("PGN save snapshot source safety flag is invalid")
+    if saved_digest_before is not None and (
+        type(saved_digest_before) is not str
+        or len(saved_digest_before) != 64
+        or any(character not in "0123456789abcdef" for character in saved_digest_before)
+    ):
+        raise TypeError("PGN save snapshot saved digest is invalid")
+    if type(session_ref) is not ReferenceType:
+        raise TypeError("PGN save snapshot session reference is invalid")
+
+    detached_source = _detached_source_fingerprint(
+        source_before,
+        allow_none=True,
+    )
+    return _PassiveSnapshotMetadata(
+        mode=mode,
+        document_revision=document_revision,
+        content_digest=content_digest,
+        games=games,
+        source_before=detached_source,
+        source_overwrite_safe_before=source_overwrite_safe_before,
+        saved_digest_before=saved_digest_before,
+        session_ref=session_ref,
     )
 
 
@@ -255,29 +320,28 @@ def publish_pgn_save_snapshot(
     and the caller must report/commit success rather than contradictory cancel.
     """
 
-    if type(snapshot) is not PgnSaveSnapshot:
-        raise TypeError("PGN save publication requires an exact snapshot")
+    metadata = _passive_snapshot_metadata(snapshot)
     check = _validated_cancel_check(cancel_check)
     _raise_if_cancelled(check)
     publication_games, _digest = _canonical_detached_games(
-        snapshot.games,
-        expected_digest=snapshot.content_digest,
+        metadata.games,
+        expected_digest=metadata.content_digest,
     )
     _raise_if_cancelled(check)
 
     writer_games = _cancellable_games(publication_games, check)
     pre_publish_check = None if check is None else lambda: _raise_if_cancelled(check)
 
-    if snapshot.mode is PgnSaveMode.SAVE:
+    if metadata.mode is PgnSaveMode.SAVE:
         if path is not None or overwrite or expected_sha256 is not None:
             raise ValueError("Save snapshot destination is bound to its source")
         source = _detached_source_fingerprint(
-            snapshot.source_before,
+            metadata.source_before,
             allow_none=True,
         )
         if source is None:
             raise _stale("Save snapshot lost its source binding")
-        if not snapshot.source_overwrite_safe_before:
+        if not metadata.source_overwrite_safe_before:
             raise PgnDocumentError(
                 "source required recovery; use Save As to preserve the original",
                 code=PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
@@ -289,7 +353,7 @@ def publish_pgn_save_snapshot(
             expected_sha256=source.sha256,
             pre_publish_check=pre_publish_check,
         )
-    elif snapshot.mode is PgnSaveMode.SAVE_AS:
+    elif metadata.mode is PgnSaveMode.SAVE_AS:
         if path is None:
             raise TypeError("Save As snapshot requires a destination path")
         destination = Path(path)
@@ -326,22 +390,18 @@ def commit_pgn_save_publication(
     if type(publication) is not PgnSavePublication:
         raise TypeError("PGN save commit requires an exact publication")
     snapshot = publication.snapshot
+    metadata = _passive_snapshot_metadata(snapshot)
     raw_saved = publication.saved
-    if type(snapshot) is not PgnSaveSnapshot:
-        raise TypeError("PGN save publication is malformed")
     saved = _detached_source_fingerprint(raw_saved)
     assert saved is not None
-    source_before = _detached_source_fingerprint(
-        snapshot.source_before,
-        allow_none=True,
-    )
-    if snapshot._session_ref() is not current:
+    source_before = metadata.source_before
+    if metadata.session_ref() is not current:
         raise _stale("PGN save publication belongs to a different document session")
 
     # Exact replay after a successful owner-thread commit is harmless.  This is
     # checked before source-staleness because an unchanged Save can legitimately
     # produce the same fingerprint as its source generation.
-    if current.source == saved and current._saved_digest == snapshot.content_digest:
+    if current.source == saved and current._saved_digest == metadata.content_digest:
         return current.view()
 
     # Ordinary edits do not mutate either source provenance or the saved
@@ -350,15 +410,15 @@ def commit_pgn_save_publication(
     # a path happens to cycle back to the same source.
     if (
         current.source != source_before
-        or current._saved_digest != snapshot._saved_digest_before
+        or current._saved_digest != metadata.saved_digest_before
     ):
         raise _stale("PGN source changed before the save publication could commit")
 
-    if snapshot.mode is PgnSaveMode.SAVE:
+    if metadata.mode is PgnSaveMode.SAVE:
         source = source_before
         if source is None or Path(saved.path).absolute() != Path(source.path).absolute():
             raise _stale("Save publication does not match the captured source")
-    elif snapshot.mode is not PgnSaveMode.SAVE_AS:
+    elif metadata.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
 
     # ``PgnDocumentSession`` owns these fields.  This companion module is the
@@ -371,15 +431,15 @@ def commit_pgn_save_publication(
         sha256=saved.sha256,
         suffix=saved.suffix,
     )
-    if snapshot.mode is PgnSaveMode.SAVE_AS:
+    if metadata.mode is PgnSaveMode.SAVE_AS:
         current._source_overwrite_safe = True
         current._global_warnings = ()
-    current._saved_digest = snapshot.content_digest
+    current._saved_digest = metadata.content_digest
 
     # Mark the live workspace clean only when it is still exactly the generation
     # that was written.  If the user edited during the worker run, retain the
     # newer workspace baseline and let ``dirty`` compare it to the saved digest.
-    if current.workspace.content_digest == snapshot.content_digest:
+    if current.workspace.content_digest == metadata.content_digest:
         current.workspace.mark_saved()
 
     current._document_revision += 1
