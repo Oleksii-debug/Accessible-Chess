@@ -32,6 +32,7 @@ on:
       - 'tests/test_terminal_keybinding_surface_wiring.py'
       - 'tests/test_keybindings_current_apex_reconvergence.py'
       - 'tests/test_stage1_unbound_shortcut_capture.py'
+      - 'tests/test_dev1_release_ui_regressions.py'
       - 'tests/test_ui_keymap_service.py'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
   workflow_dispatch:
@@ -167,6 +168,7 @@ jobs:
           tests/test_terminal_keybinding_surface_wiring.py
           tests/test_keybindings_current_apex_reconvergence.py
           tests/test_stage1_unbound_shortcut_capture.py
+          tests/test_dev1_release_ui_regressions.py
 
       - name: Parse and execute terminal PGN Library Education DOM contracts
         shell: bash
@@ -213,6 +215,7 @@ jobs:
       - name: Execute adjacent keyboard and accessibility regressions
         run: >-
           python -m unittest -v
+          tests.test_dev1_release_ui_regressions
           tests.test_stage1_board_action_integration
           tests.test_v2_remapped_keyboard_routing
           tests.test_nvda_p0_contract
