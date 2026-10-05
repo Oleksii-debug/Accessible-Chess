@@ -712,6 +712,36 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             )
             self.assertNotIn(str(source), repr(terminal))
 
+    def test_save_as_worker_failure_uses_save_as_specific_accessible_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-save-as-failure.pgn"
+            destination = Path(tmp) / "destination-save-as-failure.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Still dirty after Save As failure")
+            controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
+            dialogs.save_path = destination
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.publish_pgn_save_snapshot",
+                side_effect=RuntimeError("private Save As writer failure"),
+            ):
+                started = controller("pgn.save_as", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertEqual(started.action_id, "pgn.save_as")
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                poster.drain()
+
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.action_id, "pgn.save_as")
+            self.assertEqual(terminal.error_code, "pgn_save_as_failed")
+            self.assertFalse(destination.exists())
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            self.assertNotIn("private Save As writer failure", repr(terminal))
+
     def test_worker_failure_preserves_dirty_state_and_source_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
