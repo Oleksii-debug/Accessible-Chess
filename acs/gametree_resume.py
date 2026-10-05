@@ -658,6 +658,8 @@ def _publish_update(
     destination: Path,
     *,
     expected_token: str,
+    published_token: str,
+    published_generation: int,
 ) -> None:
     current = _read_store_bytes(destination)
     if _token_for_bytes(current) != expected_token:
@@ -693,18 +695,20 @@ def _publish_update(
             backup_token = _token_for_bytes(_read_store_bytes(backup))
         except GameTreeResumeError as exc:
             preserve_backup = True
-            raise GameTreeResumeError(
-                "resume publication could not verify the recovery snapshot",
-                code=GameTreeResumeCode.IO_FAILURE,
+            raise GameTreeResumeDurabilityUnknownError(
+                "resume state was published but the recovery snapshot could not be confirmed",
+                published_token=published_token,
+                published_generation=published_generation,
             ) from exc
         if backup_token != expected_token:
             try:
                 os.replace(backup, destination)
             except OSError as exc:
                 preserve_backup = True
-                raise GameTreeResumeError(
-                    "resume concurrent-write rollback failed",
-                    code=GameTreeResumeCode.IO_FAILURE,
+                raise GameTreeResumeDurabilityUnknownError(
+                    "resume state was published and concurrent-write rollback could not be confirmed",
+                    published_token=published_token,
+                    published_generation=published_generation,
                 ) from exc
             backup = None
             raise GameTreeResumeError(
@@ -923,6 +927,8 @@ class GameTreeResumeStore:
                         tmp_path,
                         self._path,
                         expected_token=current.token,
+                        published_token=desired_token,
+                        published_generation=generation,
                     )
                     tmp_path = None
                 publication_committed = True
