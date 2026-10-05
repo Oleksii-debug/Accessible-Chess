@@ -73,6 +73,8 @@ class SemVer:
 
     @classmethod
     def parse(cls, value: str) -> "SemVer":
+        if cls is not SemVer:
+            raise TypeError("SemVer.parse must use the canonical SemVer type")
         if type(value) is not str:
             raise ApplicationUpdateError("version must be exact text")
         match = _SEMVER_RE.fullmatch(value)
@@ -86,6 +88,8 @@ class SemVer:
         )
 
     def compare_precedence(self, other: "SemVer") -> int:
+        if type(self) is not SemVer:
+            raise TypeError("self must be an exact SemVer")
         if type(other) is not SemVer:
             raise TypeError("other must be an exact SemVer")
         left_core = (self.major, self.minor, self.patch)
@@ -126,6 +130,10 @@ class ApplicationUpdateManifest:
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "ApplicationUpdateManifest":
+        if cls is not ApplicationUpdateManifest:
+            raise TypeError(
+                "manifest parsing must use the canonical ApplicationUpdateManifest type"
+            )
         if type(raw) is not dict:
             raise ApplicationUpdateError(
                 "update manifest must be an exact passive object"
@@ -177,14 +185,18 @@ class ApplicationUpdateManifest:
 
     @classmethod
     def from_json(cls, payload: str | bytes) -> "ApplicationUpdateManifest":
-        if isinstance(payload, bytes):
+        if cls is not ApplicationUpdateManifest:
+            raise TypeError(
+                "manifest parsing must use the canonical ApplicationUpdateManifest type"
+            )
+        if type(payload) is bytes:
             try:
                 payload = payload.decode("utf-8")
             except UnicodeDecodeError as exc:
                 raise ApplicationUpdateError("manifest must be UTF-8") from exc
-        if not isinstance(payload, str):
+        elif type(payload) is not str:
             raise ApplicationUpdateError(
-                "manifest payload must be text or UTF-8 bytes"
+                "manifest payload must be exact text or exact UTF-8 bytes"
             )
         try:
             encoded = payload.encode("utf-8")
@@ -246,7 +258,12 @@ def verify_artifact_bytes(
         raise ApplicationUpdateError("artifact must be a readable byte buffer") from exc
     if view.nbytes != manifest.artifact_size:
         raise ApplicationUpdateError("artifact size does not match manifest")
-    digest = hashlib.sha256(view).hexdigest()
+    try:
+        digest = hashlib.sha256(view).hexdigest()
+    except (TypeError, ValueError, BufferError) as exc:
+        raise ApplicationUpdateError(
+            "artifact buffer could not be hashed safely"
+        ) from exc
     if digest != manifest.artifact_sha256:
         raise ApplicationUpdateError("artifact SHA-256 does not match manifest")
     return _verified(manifest, current_version)
