@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: bookdocument-semantic-integrity-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 env:
   PRODUCT_REF: work/full-product-teacher-education-reachability-20260911
 
@@ -34,6 +38,22 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Reject superseded pull request head
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/bookdocument-live-pr-head"
+          live_head="$(git rev-parse refs/remotes/origin/bookdocument-live-pr-head)"
+          test "$live_head" = "$EVENT_HEAD_SHA" || {
+            echo "BOOKDOCUMENT_SUPERSEDED event=$EVENT_HEAD_SHA live=$live_head" >&2
+            exit 1
+          }
 
       - name: Prove bounded owner scope or exact whole-product composition
         shell: bash
@@ -72,9 +92,9 @@ jobs:
             git merge-base --is-ancestor \
               '00d89fd48e4e60389ef7298958500d2a29d956ce' HEAD
             test "$(git rev-parse HEAD:acs/bookdocument.py)" = \
-              '71a4ac74de61de10967284b7a1908534b5384259'
+              '23249894e2e7d9c3b2c0602515188000ea846a41'
             test "$(git rev-parse HEAD:tests/test_bookdocument.py)" = \
-              'f8abeb20819df2776e82d1bf5f9007fc12cb31d6'
+              '425b075b8ee0c0c6bb5228fadf2fc37f9f8a82d8'
             echo 'BOOKDOCUMENT_TOPOLOGY=WHOLE_PRODUCT_COMPOSITION'
           else
             printf 'Unexpected BookDocument successor scope:\n%s\n' "$actual" >&2
