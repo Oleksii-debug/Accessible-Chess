@@ -461,5 +461,112 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertNotIn("private dialog-close abort", repr(failed))
 
 
+    def test_keyboard_ingress_rejects_active_values_without_executing_hooks(self):
+        adapter, _ = self.make_adapter()
+
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active text len hook must not execute")
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active text strip hook must not execute")
+
+            def lower(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active text lower hook must not execute")
+
+        class HostileModifiers(list):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active list len hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active list iter hook must not execute")
+
+        for kwargs in (
+            {"key": HostileText("c"), "modifiers": ["Ctrl"], "tag_name": "input"},
+            {"key": "c", "modifiers": HostileModifiers(["Ctrl"]), "tag_name": "input"},
+            {"key": "c", "modifiers": [HostileText("Ctrl")], "tag_name": "input"},
+            {"key": "c", "modifiers": ["Ctrl"], "tag_name": HostileText("input")},
+        ):
+            with self.subTest(kwargs=repr(kwargs)):
+                policy = adapter.keydown_policy(**kwargs)
+                self.assertFalse(policy.payload["global_keymap"])
+                self.assertFalse(policy.payload["prevent_default"])
+                self.assertTrue(policy.payload["editable"])
+
+        self.assertFalse(HostileText.touched)
+        self.assertFalse(HostileModifiers.touched)
+
+    def test_keyboard_ingress_rejects_non_boolean_contenteditable_without_truthiness(self):
+        adapter, _ = self.make_adapter()
+
+        class HostileFlag:
+            touched = False
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("content-editable truthiness must not execute")
+
+        policy = adapter.keydown_policy(
+            key="c",
+            modifiers=["Ctrl"],
+            tag_name="input",
+            content_editable=HostileFlag(),
+        )
+        self.assertFalse(policy.payload["global_keymap"])
+        self.assertFalse(policy.payload["prevent_default"])
+        self.assertTrue(policy.payload["editable"])
+        self.assertFalse(HostileFlag.touched)
+
+    def test_keyboard_ingress_bounds_key_modifiers_and_tag_before_normalization(self):
+        adapter, _ = self.make_adapter()
+        cases = (
+            {"key": "", "modifiers": [], "tag_name": "div"},
+            {"key": "x" * 65, "modifiers": [], "tag_name": "div"},
+            {"key": "c", "modifiers": ["Ctrl"] * 9, "tag_name": "input"},
+            {"key": "c", "modifiers": ["x" * 17], "tag_name": "input"},
+            {"key": "c", "modifiers": ["Ctrl"], "tag_name": "x" * 33},
+            {"key": "c\x00", "modifiers": ["Ctrl"], "tag_name": "input"},
+            {"key": "c", "modifiers": ["Ctrl\x00"], "tag_name": "input"},
+            {"key": "c", "modifiers": ["Ctrl"], "tag_name": "in\x00put"},
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs):
+                policy = adapter.keydown_policy(**kwargs)
+                self.assertFalse(policy.payload["global_keymap"])
+                self.assertFalse(policy.payload["prevent_default"])
+                self.assertTrue(policy.payload["editable"])
+
+    def test_keyboard_ingress_preserves_valid_browser_list_and_tuple_semantics(self):
+        adapter, _ = self.make_adapter()
+        for modifiers in (["Ctrl"], ("Ctrl",)):
+            with self.subTest(modifiers=modifiers):
+                editing = adapter.keydown_policy(
+                    key="c",
+                    modifiers=modifiers,
+                    tag_name="INPUT",
+                )
+                self.assertFalse(editing.payload["global_keymap"])
+                self.assertFalse(editing.payload["prevent_default"])
+                self.assertTrue(editing.payload["editable"])
+
+                global_action = adapter.keydown_policy(
+                    key="p",
+                    modifiers=["Ctrl", "Alt"],
+                    tag_name="div",
+                )
+                self.assertTrue(global_action.payload["global_keymap"])
+                self.assertTrue(global_action.payload["prevent_default"])
+                self.assertFalse(global_action.payload["editable"])
+
+
 if __name__ == "__main__":
     unittest.main()
