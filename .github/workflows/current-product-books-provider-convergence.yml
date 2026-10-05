@@ -64,6 +64,10 @@ jobs:
           LEXICAL_MERGE: 67a933ec647fc1da2bf188acf9bbb89082abea9c
           PRE_SERIALIZED_PRODUCT: 9edc0ab3ad0df9a927792dff2ab0838f614029d4
           SERIALIZED_MERGE: d4857fcaf1202b4cf59e7139a80f14241bf539dc
+          FORMAT_REF: feature/formats-commercial-workflows-20261005
+          FORMAT_HEAD: b6d1ad20fcda7ccadba40bc39b7506df67d58c86
+          PRE_FORMAT_PRODUCT: c1baa22b452dd8ef28fcf878814d174c1ca0f3bf
+          FORMAT_MERGE: 22fcebaa7ccb2e07dea75a76b0f37eb985947193
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -87,6 +91,7 @@ jobs:
           fetch_exact "$BOOKS_REF" "$BOOKS_HEAD" CURRENT_PRODUCT_BOOKS
           fetch_exact "$LOCAL_PROFILE_REF" "$LOCAL_PROFILE_HEAD" CURRENT_PRODUCT_LOCAL_PROFILE
           fetch_exact "$KEYMAP_REF" "$KEYMAP_HEAD" CURRENT_PRODUCT_KEYMAP
+          fetch_exact "$FORMAT_REF" "$FORMAT_HEAD" CURRENT_PRODUCT_FORMAT_CONVERSION
 
           test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
@@ -95,8 +100,10 @@ jobs:
           test "$(git show -s --format=%P "$SERIALIZED_MERGE")" = "$PRE_SERIALIZED_PRODUCT $BOOKS_HEAD"
           git merge-base --is-ancestor "$LEXICAL_MERGE" HEAD
           git merge-base --is-ancestor "$SERIALIZED_MERGE" HEAD
+          test "$(git show -s --format=%P "$FORMAT_MERGE")" = "$PRE_FORMAT_PRODUCT $FORMAT_HEAD"
+          git merge-base --is-ancestor "$FORMAT_MERGE" HEAD
 
-          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD"; do
+          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
 
@@ -107,17 +114,29 @@ jobs:
             '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
             '.github/workflows/current-product-books-provider-convergence.yml' \
             '.github/workflows/local-profile-current-apex.yml' \
+            '.github/workflows/pgn-reviewed-encoding-conversion.yml' \
             'acs/book_epub_import.py' \
             'acs/book_game_content.py' \
             'acs/book_html_import.py' \
             'acs/book_text_import.py' \
             'acs/bookdocument.py' \
+            'acs/full_product_native_menu.py' \
             'acs/local_profile.py' \
+            'acs/pgn_conversion.py' \
+            'acs/pgn_conversion_windows.py' \
+            'docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md' \
+            'docs/PGN_CONVERSION_ACCEPTANCE_20261005_UA.md' \
+            'docs/PGN_CONVERSION_REAL_CORPUS_20261005.json' \
+            'scripts/qualify_pgn_conversion_corpus.py' \
             'tests/js/p0g_event_aware_announcement_test.js' \
             'tests/test_book_lookup_detached_canonicalization.py' \
             'tests/test_bookdocument.py' \
+            'tests/test_full_product_native_menu.py' \
             'tests/test_local_profile_path_identity.py' \
             'tests/test_local_profile_recursion_boundary.py' \
+            'tests/test_pgn_conversion.py' \
+            'tests/test_pgn_conversion_native_windows.py' \
+            'tests/test_pgn_conversion_windows.py' \
             'tests/test_v2_book_epub_import.py' \
             'tests/test_v2_book_html_import.py' \
             'tests/test_v2_book_text_import.py' \
@@ -133,6 +152,10 @@ jobs:
           test "$(git rev-parse HEAD:acs/bookdocument.py)" = '23249894e2e7d9c3b2c0602515188000ea846a41'
           test "$(git rev-parse HEAD:acs/local_profile.py)" = '96d9b523a93a18eb4cc473ef0c87abee49d84512'
           test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = '7a91103062b76b541d370ec3a3247974d5cd0b80'
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = '94c56b2edbe4b865126b665a899830f8a6298be4'
+          test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '6d680b0faea0eaab1bf5d784dd202eeafb9fb9ca'
+          test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = 'b551e93cb734a432ba6f7e9692b0c31b45062322'
+          test "$(git rev-parse HEAD:.github/workflows/pgn-reviewed-encoding-conversion.yml)" = '90494595a4158d302999575601a76440a7e1b9f4'
           grep -F 'function announceUserAction(message)' web/index.html >/dev/null
           echo 'CURRENT_PRODUCT_COMPLETE_GEOMETRY=PASS'
 
@@ -153,6 +176,10 @@ jobs:
           acs/version2_gametree_resume.py
           acs/chessbase_manifest.py
           acs/local_profile.py
+          acs/full_product_native_menu.py
+          acs/pgn_conversion.py
+          acs/pgn_conversion_windows.py
+          scripts/qualify_pgn_conversion_corpus.py
 
       - name: Execute semantic reading malformed-content persistence and accessibility regressions
         run: >-
@@ -171,6 +198,10 @@ jobs:
           tests.test_portable_launcher_contract
           tests.test_local_profile_recursion_boundary
           tests.test_local_profile_path_identity
+          tests.test_full_product_native_menu
+          tests.test_pgn_conversion
+          tests.test_pgn_conversion_windows
+          tests.test_pgn_conversion_native_windows
 
       - name: Execute P0-G event identity regression
         run: node tests/js/p0g_event_aware_announcement_test.js
