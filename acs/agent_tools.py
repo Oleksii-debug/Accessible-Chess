@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from math import isfinite
 from types import MappingProxyType
 from typing import Any
 
@@ -71,6 +72,78 @@ class AgentToolArgument:
         return value
 
 
+_MAX_TOOL_RESULT_DATA_DEPTH = 32
+_MAX_TOOL_RESULT_DATA_ITEMS = 4096
+
+
+def _snapshot_tool_result_data(
+    value: object,
+    *,
+    path: str,
+    depth: int = 0,
+    remaining_items: list[int] | None = None,
+) -> object:
+    """Detach one bounded passive JSON-like result graph from handler ownership.
+
+    Tool handlers are product code, but their return value crosses into the Agent
+    presentation/model boundary. Only exact built-in passive values are retained;
+    subclasses/custom objects cannot carry executable hooks into later consumers.
+    """
+
+    if depth > _MAX_TOOL_RESULT_DATA_DEPTH:
+        raise ValueError("tool result data nesting is too deep")
+    budget = remaining_items if remaining_items is not None else [_MAX_TOOL_RESULT_DATA_ITEMS]
+
+    if value is None or type(value) in (bool, int, str):
+        return value
+    if type(value) is float:
+        if not isfinite(value):
+            raise ValueError(f"{path} must not contain NaN or infinity")
+        return value
+    if type(value) is list:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("tool result data has too many items")
+        return [
+            _snapshot_tool_result_data(
+                item,
+                path=f"{path}[{index}]",
+                depth=depth + 1,
+                remaining_items=budget,
+            )
+            for index, item in enumerate(value)
+        ]
+    if type(value) is tuple:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("tool result data has too many items")
+        return tuple(
+            _snapshot_tool_result_data(
+                item,
+                path=f"{path}[{index}]",
+                depth=depth + 1,
+                remaining_items=budget,
+            )
+            for index, item in enumerate(value)
+        )
+    if type(value) is dict:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("tool result data has too many items")
+        snapshot: dict[str, object] = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError(f"{path} keys must be exact text")
+            snapshot[key] = _snapshot_tool_result_data(
+                item,
+                path=f"{path}.{key}",
+                depth=depth + 1,
+                remaining_items=budget,
+            )
+        return snapshot
+    raise TypeError(f"{path} contains unsupported value type {type(value).__name__}")
+
+
 @dataclass(frozen=True)
 class AgentToolResult:
     """Accessible text plus detached structured data returned by a tool."""
@@ -83,7 +156,9 @@ class AgentToolResult:
             raise ValueError("tool result text must be non-empty")
         if type(self.data) is not dict:
             raise TypeError("tool result data must be a built-in dict")
-        object.__setattr__(self, "data", MappingProxyType(dict(self.data)))
+        snapshot = _snapshot_tool_result_data(self.data, path="tool result data")
+        assert type(snapshot) is dict
+        object.__setattr__(self, "data", MappingProxyType(snapshot))
 
 
 @dataclass(frozen=True)
