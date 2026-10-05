@@ -71,6 +71,10 @@ class RecordedMediaPreprocessExecutor:
         return PreprocessStepResult(evidence, self.run.checkpoint())
 
     def collect_speech(self, start_ms: int, end_ms: int) -> tuple[SpeechEvidence, ...]:
+        if type(start_ms) is not int or type(end_ms) is not int or start_ms < 0 or end_ms < start_ms:
+            raise PreprocessContractError("invalid speech request range", code=PreprocessErrorCode.INVALID)
+        if end_ms > self.plan.source.duration_ms:
+            raise PreprocessContractError("speech request outside duration", code=PreprocessErrorCode.INVALID)
         if self.speech_port is None:
             raise PreprocessContractError("speech port unavailable", code=PreprocessErrorCode.INVALID_STATE)
         accepted: list[SpeechEvidence] = []
