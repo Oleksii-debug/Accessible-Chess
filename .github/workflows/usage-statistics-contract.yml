@@ -8,6 +8,7 @@ on:
       - 'acs/usage_statistics.py'
       - 'acs/usage_sync.py'
       - 'tests/test_usage_statistics.py'
+      - 'tests/test_usage_statistics_read_safety.py'
       - 'tests/test_usage_sync.py'
       - 'tests/test_usage_sync_persisted_json_boundary.py'
       - '.github/workflows/usage-statistics-contract.yml'
@@ -58,6 +59,7 @@ jobs:
             'acs/usage_statistics.py'
             'acs/usage_sync.py'
             'tests/test_usage_statistics.py'
+            'tests/test_usage_statistics_read_safety.py'
             'tests/test_usage_sync.py'
             'tests/test_usage_sync_persisted_json_boundary.py'
           )
@@ -80,6 +82,7 @@ jobs:
           acs/usage_statistics.py
           acs/usage_sync.py
           tests/test_usage_statistics.py
+          tests/test_usage_statistics_read_safety.py
           tests/test_usage_sync.py
           tests/test_usage_sync_persisted_json_boundary.py
 
@@ -89,5 +92,6 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_usage_statistics
+          tests.test_usage_statistics_read_safety
           tests.test_usage_sync
           tests.test_usage_sync_persisted_json_boundary
