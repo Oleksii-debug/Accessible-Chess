@@ -51,8 +51,15 @@ class FakeElement {
     return this.descendants().find((item) => item.id === id) || null;
   }
   querySelectorAll(selector) {
-    if (selector !== '[role="option"]') return [];
-    return this.descendants().filter((item) => item.attributes.role === "option");
+    if (selector === '[role="option"]') {
+      return this.descendants().filter((item) => item.attributes.role === "option");
+    }
+    if (selector === 'button[data-action]') {
+      return this.descendants().filter(
+        (item) => item.tagName === "BUTTON" && typeof item.dataset.action === "string"
+      );
+    }
+    return [];
   }
 }
 
@@ -170,6 +177,69 @@ function snapshot(checked) {
   check(replacement.checked === true, "export checkbox did not reflect canonical presentation state");
   check(document.activeElement === replacement, "export checkbox focus was not restored after render");
   check(announcements.includes("Added to export."), "explicit export toggle was not announced");
+
+  const actionButton = (actionId) => root.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === actionId);
+  const exportSelected = actionButton("library.export_selected");
+  const exportFiltered = actionButton("library.export_filtered");
+  const clearExport = actionButton("library.clear_export_selection");
+  check(exportSelected && !exportSelected.disabled, "selected export action should be enabled");
+  check(exportFiltered && !exportFiltered.disabled, "filtered export action should be enabled");
+  check(clearExport && !clearExport.disabled, "clear export action should be enabled");
+
+  const beforePartialRenderCalls = root.replaceChildrenCalls;
+  const focusedBeforeBusy = document.activeElement;
+  window.AccessibleChessLibrarySurface.apply(root, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "idle", heading: "Import", description: "Import games",
+        processed_games: 0, total_games: 0, progress_label: "", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: true }
+        ]
+      },
+      focus_target: "",
+      announcement: ""
+    }
+  }, invoke, announce);
+
+  check(
+    root.replaceChildrenCalls === beforePartialRenderCalls,
+    "Library operation event triggered a full DOM repaint"
+  );
+  check(document.activeElement === focusedBeforeBusy, "Library operation event moved existing focus");
+  check(actionButton("library.export_selected").disabled, "busy export action stayed enabled");
+  check(actionButton("library.export_filtered").disabled, "busy filtered export action stayed enabled");
+  check(actionButton("library.clear_export_selection").disabled, "busy clear action stayed enabled");
+  check(
+    root.__accessibleChessLibrarySnapshot.actions
+      .filter((action) => action.action.indexOf("library.export_") === 0)
+      .every((action) => action.enabled === false),
+    "partial operation event left canonical browser export action state enabled"
+  );
+
+  window.AccessibleChessLibrarySurface.apply(root, {
+    kind: "render-import",
+    payload: {
+      import: {
+        phase: "idle", heading: "Import", description: "Import games",
+        processed_games: 0, total_games: 0, progress_label: "", message: "",
+        actions: [
+          { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: true },
+          { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel", enabled: false }
+        ]
+      },
+      focus_target: "",
+      announcement: ""
+    }
+  }, invoke, announce);
+
+  check(document.activeElement === focusedBeforeBusy, "Library terminal operation event moved existing focus");
+  check(!actionButton("library.export_selected").disabled, "selected export action was not restored");
+  check(!actionButton("library.export_filtered").disabled, "filtered export action was not restored");
+  check(!actionButton("library.clear_export_selection").disabled, "clear export action was not restored");
 
   console.log("Library export checkbox DOM contract PASS");
 })().catch((error) => {
