@@ -158,6 +158,45 @@ class BookOpenWorkerTests(unittest.TestCase):
             worker.start(Path("book.md"))
         self.assertFalse(worker.active)
 
+    def test_commit_failure_is_terminal_and_does_not_leave_worker_active(self) -> None:
+        callbacks = []
+        events = []
+
+        def fail_commit(_value):
+            raise ValueError("synthetic commit failure")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=fail_commit,
+            post_to_ui=callbacks.append,
+            event_sink=events.append,
+        )
+        worker.start(Path("book.md"), focus_target="book-open")
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+
+        self.assertFalse(worker.active)
+        self.assertEqual(
+            [event.kind for event in events],
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+
+    def test_started_event_failure_rolls_back_single_flight_state(self) -> None:
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda value: None,
+            post_to_ui=lambda callback: None,
+            event_sink=lambda event: (_ for _ in ()).throw(
+                RuntimeError("status delivery failed")
+            ),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "status delivery failed"):
+            worker.start(Path("book.md"))
+
+        self.assertFalse(worker.active)
+        self.assertFalse(worker.closed)
+
     def test_control_methods_are_ui_thread_only(self) -> None:
         worker = Version2BookOpenWorker(
             prepare=lambda source, *, cancel_check: None,
