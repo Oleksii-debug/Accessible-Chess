@@ -141,6 +141,17 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
             BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
 
+    def test_provider_preflight_does_not_invent_a_tag_name_token_cap(self) -> None:
+        long_tag_name = "T" * 5000
+        source = PgnGame(
+            tags={long_tag_name: "value"},
+            line=VariationLine(moves=[MoveNode("e4")]),
+        )
+
+        resolved = resolve_book_game(Game(game_id=37), lookup=_Lookup(source))
+
+        self.assertEqual(resolved.game.tags[long_tag_name], "value")
+
     def test_provider_comment_text_is_bounded_before_serializer_scan(self) -> None:
         source = PgnGame(
             tags={},
