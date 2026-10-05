@@ -471,6 +471,25 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertIn("Snapshot Base", target.read_text(encoding="utf-8"))
         self.assertFalse(session.dirty)
 
+    def test_absent_save_as_target_rejects_overwrite_without_generation_before_writer(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "absent-overwrite.pgn"
+        self.assertFalse(target.exists())
+
+        with patch("acs.pgn_save_snapshot.save_pgn_atomic") as writer:
+            with self.assertRaises(PgnDocumentError) as caught:
+                publish_pgn_save_snapshot(snapshot, path=target, overwrite=True)
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
+        )
+        writer.assert_not_called()
+        self.assertFalse(target.exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
     def test_recovered_source_cannot_snapshot_save_but_save_as_clears_provenance_warning(self) -> None:
         source = self.root / "legacy-cp1251.pgn"
         legacy = DOCUMENT.replace("Snapshot Base", "Русская шахматная книга")
