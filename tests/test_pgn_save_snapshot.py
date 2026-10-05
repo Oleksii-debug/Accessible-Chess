@@ -129,6 +129,45 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertTrue(session.dirty)
         self.assertTrue(target.exists())
 
+    def test_noncanonical_publication_provenance_fails_before_session_rebind(self) -> None:
+        cases = (
+            ("sha256", "f" * 63),
+            ("sha256", "F" * 64),
+            ("size", -1),
+            ("suffix", ".txt"),
+            ("path", ""),
+        )
+        for field_name, invalid_value in cases:
+            with self.subTest(field=field_name):
+                session = PgnDocumentSession.from_text(DOCUMENT)
+                snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+                target = self.root / f"noncanonical-{field_name}.pgn"
+                publication = publish_pgn_save_snapshot(snapshot, path=target)
+                object.__setattr__(publication.saved, field_name, invalid_value)
+
+                with self.assertRaises(ValueError):
+                    commit_pgn_save_publication(session, publication)
+
+                self.assertIsNone(session.source)
+                self.assertTrue(session.dirty)
+                self.assertTrue(target.exists())
+
+    def test_noncanonical_snapshot_source_provenance_fails_before_save_io(self) -> None:
+        source = self.write_document("source-provenance.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Pending Save")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        assert snapshot.source_before is not None
+        source_bytes = source.read_bytes()
+        object.__setattr__(snapshot.source_before, "sha256", "0" * 63)
+
+        with self.assertRaises(ValueError):
+            publish_pgn_save_snapshot(snapshot)
+
+        self.assertEqual(source.read_bytes(), source_bytes)
+        self.assertTrue(session.dirty)
+        self.assertIn("Pending Save", session.copy_pgn())
+
     def test_tampered_snapshot_session_reference_is_rejected_before_callback(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
