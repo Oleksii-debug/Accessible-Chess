@@ -120,6 +120,8 @@ let lastShellPublicationResolution = null;
 let nextShellPublicationToken = 1;
 let shellPublicationCommits = 0;
 let shellPublicationRollbacks = 0;
+let dropNextCommitResponseAfterEffect = false;
+let dropNextRollbackResponseAfterEffect = false;
 
 function snapshot(route) {
   const focus = {
@@ -232,6 +234,10 @@ const windowObject = {
           lastShellPublicationResolution = { token: payload.token, commit: commit };
           if (commit) {
             shellPublicationCommits += 1;
+            if (dropNextCommitResponseAfterEffect) {
+              dropNextCommitResponseAfterEffect = false;
+              return Promise.reject(new Error("simulated lost commit response"));
+            }
             return Promise.resolve({
               kind: "presentation-commit",
               payload: { token: payload.token }
@@ -239,6 +245,10 @@ const windowObject = {
           }
           currentRoute = pending.previousRoute;
           shellPublicationRollbacks += 1;
+          if (dropNextRollbackResponseAfterEffect) {
+            dropNextRollbackResponseAfterEffect = false;
+            return Promise.reject(new Error("simulated lost rollback response"));
+          }
           return Promise.resolve({
             kind: "presentation-rollback",
             payload: { token: payload.token }
@@ -418,6 +428,7 @@ async function clickRoute(routeId) {
 
   trainingAvailable = true;
   failNextTrainingRender = true;
+  dropNextRollbackResponseAfterEffect = true;
   await clickRoute("training");
   check(
     originalMain.hidden === true && workspace.hidden === false,
@@ -441,7 +452,11 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 1, "malformed Training render incorrectly committed the route");
   check(pendingShellPublication === null, "malformed Training render left a pending publication");
 
+  dropNextCommitResponseAfterEffect = true;
   await clickRoute("board");
+  check(currentRoute === "board", "lost commit response changed the committed Board route");
+  check(shellPublicationCommits === 2, "commit response retry duplicated or lost the Board commit");
+  check(pendingShellPublication === null, "lost commit response left a pending route");
   booksAvailable = false;
   trainingAvailable = false;
   check(
