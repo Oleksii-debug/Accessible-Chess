@@ -287,6 +287,34 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[-1]["kind"], "status")
         self.assertIn("збережено", events[-1]["payload"]["announcement"])
 
+    def test_document_warning_projection_is_bounded_and_control_normalized(self):
+        base = PgnDocumentSession.from_text(PGN)
+        warnings = tuple(
+            (
+                "warning 0\nwith control\ttext" + ("x" * 1000)
+                if index == 0
+                else f"warning {index}"
+            )
+            for index in range(300)
+        )
+        recovered = PgnDocumentSession(
+            base.workspace,
+            global_warnings=warnings,
+            source_overwrite_safe=False,
+        )
+
+        self.app.set_document(recovered)
+        projected = self.app.snapshot()["pgn"]["game"]["warnings"]
+
+        self.assertEqual(len(projected), 256)
+        self.assertLessEqual(len(projected[0]), 720)
+        self.assertNotIn("\n", projected[0])
+        self.assertNotIn("\t", projected[0])
+        self.assertEqual(
+            projected[-1],
+            "Додаткові попередження відновлення не показано.",
+        )
+
     def test_recovered_document_warnings_are_available_in_pgn_accessibility_surface(self):
         recovered = self.root / "legacy-recovery-surface.pgn"
         recovered.write_bytes(
