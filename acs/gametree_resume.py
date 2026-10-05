@@ -66,12 +66,36 @@ class GameTreeResumeCode(str, Enum):
     STALE_SNAPSHOT = "stale_snapshot"
     STALE_WRITER = "stale_writer"
     IO_FAILURE = "io_failure"
+    DURABILITY_UNKNOWN = "durability_unknown"
 
 
 class GameTreeResumeError(ValueError):
     def __init__(self, message: str, *, code: GameTreeResumeCode) -> None:
         super().__init__(message)
         self.code = GameTreeResumeCode(code)
+
+
+class GameTreeResumeDurabilityUnknownError(GameTreeResumeError):
+    """Atomic publication happened, but durable canonical confirmation did not."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        published_token: str,
+        published_generation: int,
+    ) -> None:
+        super().__init__(message, code=GameTreeResumeCode.DURABILITY_UNKNOWN)
+        if type(published_token) is not str or _DIGEST_RE.fullmatch(published_token) is None:
+            raise ValueError("published_token must be a lowercase SHA-256 digest")
+        if (
+            type(published_generation) is not int
+            or published_generation < 1
+            or published_generation > MAX_RESUME_GENERATION
+        ):
+            raise ValueError("published_generation is outside the supported range")
+        self.published_token = published_token
+        self.published_generation = published_generation
 
 
 def _require_digest(
@@ -877,6 +901,7 @@ class GameTreeResumeStore:
             desired_token = _token_for_bytes(payload)
 
             tmp_path: Path | None = None
+            publication_committed = False
             try:
                 with tempfile.NamedTemporaryFile(
                     mode="wb",
@@ -900,19 +925,32 @@ class GameTreeResumeStore:
                         expected_token=current.token,
                     )
                     tmp_path = None
-                _fsync_directory(self._path.parent)
+                publication_committed = True
+
+                # The canonical pathname now contains this transaction's bytes.
+                # Any later failure is materially different from a pre-commit
+                # I/O error: callers must assume the generation may be visible
+                # and reconcile with its exact token before retrying or rolling
+                # back in-memory state.
+                try:
+                    _fsync_directory(self._path.parent)
+                    readback = self._load_unlocked()
+                    if (
+                        readback.token != desired_token
+                        or readback.generation != generation
+                    ):
+                        raise GameTreeResumeError(
+                            "resume canonical storage changed after publication",
+                            code=GameTreeResumeCode.STALE_WRITER,
+                        )
+                except Exception as exc:
+                    raise GameTreeResumeDurabilityUnknownError(
+                        "resume state was published but durable canonical storage could not be confirmed",
+                        published_token=desired_token,
+                        published_generation=generation,
+                    ) from exc
             finally:
                 _cleanup_redundant_path(tmp_path)
 
-            readback = self._load_unlocked()
-            if readback.token != desired_token:
-                raise GameTreeResumeError(
-                    "resume store changed immediately after publication",
-                    code=GameTreeResumeCode.STALE_WRITER,
-                )
-            if readback.generation != generation:
-                raise GameTreeResumeError(
-                    "resume generation changed immediately after publication",
-                    code=GameTreeResumeCode.STALE_WRITER,
-                )
+            assert publication_committed
             return readback
