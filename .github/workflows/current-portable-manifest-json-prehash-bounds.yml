@@ -42,8 +42,8 @@ jobs:
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           SOURCE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
           INTEGRATION_BRANCH: converge/current-product-package-manifest-integration-20261004-3pg7jcgq
-          CURRENT_PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
-          CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          CURRENT_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
+          CURRENT_PRODUCT_SHA: 0c18ee1baa5bec8c9d75656597723bd94785df25
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PACKAGE_INTEGRATION_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
@@ -116,7 +116,7 @@ jobs:
 
               product_paths="$(git diff --name-only "$live_base"..."$live_current_product" | sort)"
               product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
-              test "$product_count" -eq 64
+              test "$product_count" -eq 199
 
               extra="$(git diff --name-only "$live_current_product"...HEAD | sort)"
               expected_extra="$(printf '%s\n' \
@@ -136,7 +136,7 @@ jobs:
                 exit 1
               }
               candidate_count="$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')"
-              test "$candidate_count" -eq 66
+              test "$candidate_count" -eq 201
               echo 'PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
             fi
           fi
