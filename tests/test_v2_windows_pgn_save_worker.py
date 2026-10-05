@@ -721,7 +721,7 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             old_source = session.source
             session.edit_tag("Event", "Still dirty after Save As failure")
             controller, dialogs, poster, _, async_events, _, _ = self._controller(session)
-            dialogs.save_path = destination
+            dialogs.save_destination = destination
 
             with mock.patch(
                 "acs.version2_windows_file_workflows.publish_pgn_save_snapshot",
