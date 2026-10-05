@@ -314,7 +314,7 @@ class OwnerFinalReceiptTests(unittest.TestCase):
             self.assertEqual(receipt.read_bytes(), first_bytes)
             self.assertEqual(sync.call_count, 1)
             self.assertEqual(set(second), FINAL_RECEIPT_KEYS)
-            self.assertFalse((root / ".receipt.json.publish.tmp").exists())
+            self.assertEqual(list(root.glob(".receipt.json.publish-*.tmp")), [])
 
     def test_post_replace_durability_failure_is_retryable_from_finalized_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -340,7 +340,7 @@ class OwnerFinalReceiptTests(unittest.TestCase):
             replaced = json.loads(receipt.read_text(encoding="utf-8"))
             self.assertEqual(set(replaced), FINAL_RECEIPT_KEYS)
             self.assertEqual(replaced["finalizer_run_id"], 37180000000)
-            self.assertFalse((root / ".receipt.json.publish.tmp").exists())
+            self.assertEqual(list(root.glob(".receipt.json.publish-*.tmp")), [])
 
             recovered = _finalize(receipt, final_zip)
             self.assertEqual(recovered, replaced)
@@ -382,6 +382,59 @@ class OwnerFinalReceiptTests(unittest.TestCase):
 
             self.assertEqual(receipt.read_bytes(), before)
 
+    def test_stale_prior_staging_never_blocks_or_gets_deleted_by_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+            stale = root / ".receipt.json.publish-stale.tmp"
+            stale.write_bytes(b"prior-crash-residue")
+
+            value = _finalize(receipt, final_zip)
+
+            self.assertEqual(set(value), FINAL_RECEIPT_KEYS)
+            self.assertEqual(stale.read_bytes(), b"prior-crash-residue")
+            self.assertEqual(
+                list(root.glob(".receipt.json.publish-*.tmp")),
+                [stale],
+            )
+
+    def test_failed_publication_preserves_replaced_staging_path(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            original = json.dumps(_receipt(final_zip), sort_keys=True) + "\n"
+            receipt.write_text(original, encoding="utf-8")
+            foreign = b"foreign-staging-owned-by-another-writer"
+            replaced_path: list[Path] = []
+
+            def replace_staging_then_fail(source, _destination):
+                staged = Path(source)
+                staged.unlink()
+                staged.write_bytes(foreign)
+                replaced_path.append(staged)
+                raise OSError("simulated replace failure after staging substitution")
+
+            with mock.patch.object(
+                finalizer_module.os,
+                "replace",
+                side_effect=replace_staging_then_fail,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerFinalReceiptError,
+                    "could not be published",
+                ):
+                    _finalize(receipt, final_zip)
+
+            self.assertEqual(receipt.read_text(encoding="utf-8"), original)
+            self.assertEqual(len(replaced_path), 1)
+            self.assertTrue(replaced_path[0].is_file())
+            self.assertEqual(replaced_path[0].read_bytes(), foreign)
+
     def test_publication_failure_keeps_original_receipt_and_cleans_temp(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -396,7 +449,7 @@ class OwnerFinalReceiptTests(unittest.TestCase):
                     _finalize(receipt, final_zip)
 
             self.assertEqual(receipt.read_text(encoding="utf-8"), original)
-            self.assertFalse((root / ".receipt.json.publish.tmp").exists())
+            self.assertEqual(list(root.glob(".receipt.json.publish-*.tmp")), [])
 
 
 if __name__ == "__main__":
