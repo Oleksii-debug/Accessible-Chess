@@ -178,6 +178,39 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("Restart the application", english)
         self.assertNotIn(str(self.root), english)
 
+    def test_common_native_file_failures_are_specific_and_path_free(self):
+        cases = (
+            ("pgn.open", "file_dialog_failed", "Файлова операція не розпочалася"),
+            ("library.import", "import_worker_unavailable", "Бібліотеку не змінено"),
+            ("pgn.save", "no_pgn_document", "Немає відкритого PGN"),
+            ("pgn.open", "pgn_open_failed", "Поточний документ не змінено"),
+            ("pgn.save", "pgn_session_unavailable", "безпечно отримати поточний PGN"),
+        )
+        for action_id, error_code, fragment in cases:
+            with self.subTest(error_code=error_code):
+                event = FileWorkflowEvent(
+                    kind=FileWorkflowEventKind.FAILED,
+                    action_id=action_id,
+                    focus_target="pgn-game-list",
+                    error_code=error_code,
+                )
+                message = self.app._native_file_error_message(event)
+                self.assertIn(fragment, message)
+                self.assertNotEqual(message, "Не вдалося виконати дію.")
+                self.assertNotIn(str(self.root), message)
+
+        self.app.shell.set_language(UILanguage.EN)
+        english = self.app._native_file_error_message(
+            FileWorkflowEvent(
+                kind=FileWorkflowEventKind.FAILED,
+                action_id="pgn.open",
+                focus_target="pgn-game-list",
+                error_code="pgn_open_failed",
+            )
+        )
+        self.assertIn("current document was not changed", english)
+        self.assertNotEqual(english, "The action could not be completed.")
+
     def test_pgn_save_conflict_announces_no_clobber_truth(self):
         conflict = FileWorkflowEvent(
             kind=FileWorkflowEventKind.FAILED,
