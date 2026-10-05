@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+import acs.media_files as media_files_module
+
 from acs.media_errors import MediaError, MediaErrorCode
 from acs.media_files import promote_partial_file
 from acs.media_hashing import sha256_bytes
@@ -178,3 +180,46 @@ def test_partial_promotion_never_overwrites_existing_output(tmp_path: Path) -> N
         promote_partial_file(partial, final, allowed_root=tmp_path)
     assert final.read_bytes() == b"original"
     assert partial.read_bytes() == b"new"
+
+def test_partial_promotion_refuses_destination_that_appears_at_publish_time(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    partial = tmp_path / "audio.wav.partial"
+    final = tmp_path / "audio.wav"
+    partial.write_bytes(b"validated")
+    real_link = media_files_module.os.link
+
+    def raced_link(source, destination, **kwargs):
+        Path(destination).write_bytes(b"concurrent")
+        return real_link(source, destination, **kwargs)
+
+    monkeypatch.setattr(media_files_module.os, "link", raced_link)
+    with pytest.raises(FileExistsError):
+        promote_partial_file(partial, final, allowed_root=tmp_path)
+
+    assert final.read_bytes() == b"concurrent"
+    assert partial.read_bytes() == b"validated"
+
+
+def test_partial_promotion_uses_no_replace_hard_link_not_os_replace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    partial = tmp_path / "audio.wav.partial"
+    final = tmp_path / "audio.wav"
+    partial.write_bytes(b"validated")
+    called = {"replace": False}
+
+    def forbidden_replace(*_args, **_kwargs):
+        called["replace"] = True
+        raise AssertionError("os.replace must not publish media output")
+
+    monkeypatch.setattr(media_files_module.os, "replace", forbidden_replace)
+    result = promote_partial_file(partial, final, allowed_root=tmp_path)
+
+    assert result.path == final
+    assert final.read_bytes() == b"validated"
+    assert not partial.exists()
+    assert called["replace"] is False
+
