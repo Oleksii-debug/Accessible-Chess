@@ -474,6 +474,42 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "invalid Library game request"):
                         self.app._delegate("library.open_game", payload)
 
+    def test_native_library_open_accepts_exact_persisted_identity(self) -> None:
+        self.database.import_pgn_text(
+            PGN_TEMPLATE.format(event="Exact Native Open"),
+            source_name="exact-native-open.pgn",
+        )
+        row = self.database.search_games(limit=1)[0]
+        payload = {
+            "game_id": row["id"],
+            "source_id": row["source_id"],
+            "source_index": row["source_index"],
+        }
+
+        result = self.app._delegate("library.open_game", payload)
+
+        self.assertIsNone(result)
+        self.assertIsNotNone(self.app.session)
+        self.assertIsNotNone(self.app.pgn)
+        self.assertEqual(self.app.shell.current_route.route_id, "pgn")
+
+    def test_native_library_open_rejects_malformed_persisted_provenance_before_load(self) -> None:
+        payload = {"game_id": 1, "source_id": 1, "source_index": 0}
+        malformed_rows = (
+            {"source_id": True, "source_index": 0},
+            {"source_id": 1, "source_index": False},
+            {"source_id": 1},
+            {"source_index": 0},
+        )
+        for row in malformed_rows:
+            with self.subTest(row=row):
+                with patch.object(self.database, "get_game", return_value=row), patch(
+                    "acs.version2_application.AcsdbBookGameLookup.load_book_game",
+                    side_effect=AssertionError("game load must not run"),
+                ):
+                    with self.assertRaisesRegex(ValueError, "Library selection is stale"):
+                        self.app._delegate("library.open_game", payload)
+
     def test_native_library_navigation_rejects_payload_before_projection_mutation(self) -> None:
         class HostileDict(dict):
             def __bool__(self):
