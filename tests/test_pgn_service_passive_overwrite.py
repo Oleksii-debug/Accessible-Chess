@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.gametree import parse_games
 from acs.pgn_document import (
@@ -10,7 +11,11 @@ from acs.pgn_document import (
     PgnDocumentErrorCode,
     PgnDocumentSession,
 )
-from acs.pgn_service import export_game_atomic, save_pgn_atomic
+from acs.pgn_service import (
+    PgnPublicationUnverifiedError,
+    export_game_atomic,
+    save_pgn_atomic,
+)
 
 
 PGN = '''[Event "Passive overwrite"]
@@ -128,6 +133,26 @@ class PgnServicePassiveOverwriteTests(unittest.TestCase):
             self.assertTrue(target.exists())
             self.assertEqual(saved.path, str(target))
             self.assertFalse(session.dirty)
+
+
+    def test_post_publication_fingerprint_failure_has_distinct_terminal_truth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "published-but-unverified.pgn"
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=OSError("private post-publication verification failure"),
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError) as caught:
+                    save_pgn_atomic(target, self.games(), overwrite=False)
+
+            # The no-clobber publication already crossed its commit boundary
+            # before final provenance verification failed. Callers must know
+            # that a blind retry could now clobber bytes which are already
+            # visible at the selected destination.
+            self.assertTrue(target.exists())
+            self.assertIn('[Event "Passive overwrite"]', target.read_text(encoding="utf-8"))
+            self.assertNotIn("private post-publication", str(caught.exception))
 
 
 if __name__ == "__main__":
