@@ -8,6 +8,10 @@ import tempfile
 import unittest
 from unittest import mock
 
+from acs.version2_release_receipt import (
+    build_version2_release_receipt,
+    write_version2_release_receipt,
+)
 from scripts.record_owner_physical_acceptance import (
     OwnerPhysicalAcceptanceError,
     REQUIRED_SCENARIOS,
@@ -15,6 +19,7 @@ from scripts.record_owner_physical_acceptance import (
     record_owner_physical_acceptance,
     verify_owner_physical_acceptance,
 )
+from tests.test_version2_release_receipt import _fixture as _release_fixture
 
 
 PRODUCT_SHA = "a" * 40
@@ -25,6 +30,7 @@ SECOND_DOC_SHA = "e" * 64
 SOUND_SHA = "f" * 64
 SOUND_INVENTORY_SHA = "1" * 64
 PACKAGE_CHECKSUM_SHA = "2" * 64
+RELEASE_RECEIPT_SHA = "3" * 64
 
 
 def _scenarios(status: str = "PASS") -> dict[str, str]:
@@ -79,14 +85,55 @@ def _record(
     output: Path,
     scenarios: dict[str, str],
 ):
-    with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}, clear=False):
+    release_receipt = machine_receipt.with_name("qualified-release-receipt.json")
+    with mock.patch.dict(
+        os.environ,
+        {"GITHUB_ACTIONS": "", "CI": ""},
+        clear=False,
+    ), mock.patch(
+        "scripts.record_owner_physical_acceptance._verified_release_receipt_binding",
+        return_value=RELEASE_RECEIPT_SHA,
+    ):
         return record_owner_physical_acceptance(
             machine_receipt,
+            release_receipt,
             final_zip,
             output,
             observed_at_utc="2026-10-05T19:15:00Z",
             scenario_results=scenarios,
         )
+
+
+def _verify(record: Path, machine_receipt: Path, final_zip: Path):
+    release_receipt = machine_receipt.with_name("qualified-release-receipt.json")
+    with mock.patch(
+        "scripts.record_owner_physical_acceptance._verified_release_receipt_binding",
+        return_value=RELEASE_RECEIPT_SHA,
+    ):
+        return verify_owner_physical_acceptance(
+            record,
+            machine_receipt,
+            release_receipt,
+            final_zip,
+        )
+
+
+def _qualified_evidence(root: Path) -> tuple[Path, Path, Path]:
+    _package_root, final_zip = _release_fixture(str(root))
+    release_receipt = root / "release-receipt.json"
+    receipt = build_version2_release_receipt(
+        final_zip,
+        expected_integration_sha=PRODUCT_SHA,
+        workflow_run_id=37139145605,
+        workflow_run_attempt=1,
+        qualification_head_sha="b" * 40,
+        artifact_id=11282014673,
+        artifact_name="dostupni-shakhy-w5exact-win-x64-standalone",
+    )
+    write_version2_release_receipt(release_receipt, receipt)
+    machine_receipt = root / "owner-final-receipt.json"
+    _write_machine_receipt(machine_receipt, _machine_receipt(final_zip))
+    return final_zip, machine_receipt, release_receipt
 
 
 class OwnerPhysicalAcceptanceTests(unittest.TestCase):
@@ -112,12 +159,90 @@ class OwnerPhysicalAcceptanceTests(unittest.TestCase):
                 value["machine_receipt_sha256"],
                 hashlib.sha256(machine.read_bytes()).hexdigest(),
             )
+            self.assertEqual(value["release_receipt_sha256"], RELEASE_RECEIPT_SHA)
             self.assertEqual(value["product_sha"], PRODUCT_SHA)
             self.assertEqual(value["machine_finalizer_run_id"], 37180000000)
             self.assertEqual(
-                verify_owner_physical_acceptance(output, machine, final_zip),
+                _verify(output, machine, final_zip),
                 value,
             )
+
+    def test_real_release_receipt_and_package_bytes_are_bound_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip, machine, release_receipt = _qualified_evidence(root)
+            output = root / "owner-physical-acceptance.json"
+
+            with mock.patch.dict(
+                os.environ,
+                {"GITHUB_ACTIONS": "", "CI": ""},
+                clear=False,
+            ):
+                value = record_owner_physical_acceptance(
+                    machine,
+                    release_receipt,
+                    final_zip,
+                    output,
+                    observed_at_utc="2026-10-05T19:15:00Z",
+                    scenario_results=_scenarios(),
+                )
+
+            self.assertEqual(value["result"], "PASS")
+            self.assertEqual(
+                value["release_receipt_sha256"],
+                hashlib.sha256(release_receipt.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                verify_owner_physical_acceptance(
+                    output,
+                    machine,
+                    release_receipt,
+                    final_zip,
+                ),
+                value,
+            )
+
+    def test_verifier_rejects_substituted_valid_release_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip, machine, release_receipt = _qualified_evidence(root)
+            output = root / "owner-physical-acceptance.json"
+            with mock.patch.dict(
+                os.environ,
+                {"GITHUB_ACTIONS": "", "CI": ""},
+                clear=False,
+            ):
+                record_owner_physical_acceptance(
+                    machine,
+                    release_receipt,
+                    final_zip,
+                    output,
+                    observed_at_utc="2026-10-05T19:15:00Z",
+                    scenario_results=_scenarios(),
+                )
+
+            alternate = root / "alternate-release-receipt.json"
+            alternate_receipt = build_version2_release_receipt(
+                final_zip,
+                expected_integration_sha=PRODUCT_SHA,
+                workflow_run_id=37139145605,
+                workflow_run_attempt=1,
+                qualification_head_sha="b" * 40,
+                artifact_id=11282014674,
+                artifact_name="dostupni-shakhy-w5exact-win-x64-standalone",
+            )
+            write_version2_release_receipt(alternate, alternate_receipt)
+
+            with self.assertRaisesRegex(
+                OwnerPhysicalAcceptanceError,
+                "release receipt digest mismatch",
+            ):
+                verify_owner_physical_acceptance(
+                    output,
+                    machine,
+                    alternate,
+                    final_zip,
+                )
 
     def test_real_failure_is_durable_human_tested_rejection_not_nvda_success(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -193,6 +318,7 @@ class OwnerPhysicalAcceptanceTests(unittest.TestCase):
                     ):
                         record_owner_physical_acceptance(
                             machine,
+                            root / "unused-release-receipt.json",
                             final_zip,
                             output,
                             observed_at_utc="2026-10-05T19:15:00Z",
@@ -315,7 +441,7 @@ class OwnerPhysicalAcceptanceTests(unittest.TestCase):
                 OwnerPhysicalAcceptanceError,
                 "derived acceptance state",
             ):
-                verify_owner_physical_acceptance(output, machine, final_zip)
+                _verify(output, machine, final_zip)
 
     def test_cli_verify_is_safe_in_automation(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -332,17 +458,23 @@ class OwnerPhysicalAcceptanceTests(unittest.TestCase):
                 {"GITHUB_ACTIONS": "true", "CI": "true"},
                 clear=False,
             ):
-                result = main(
-                    [
+                with mock.patch(
+                    "scripts.record_owner_physical_acceptance._verified_release_receipt_binding",
+                    return_value=RELEASE_RECEIPT_SHA,
+                ):
+                    result = main(
+                        [
                         "verify",
                         "--record",
                         str(output),
                         "--machine-receipt",
                         str(machine),
+                        "--release-receipt",
+                        str(root / "unused-release-receipt.json"),
                         "--final-zip",
                         str(final_zip),
-                    ]
-                )
+                        ]
+                    )
             self.assertEqual(result, 0)
 
 
