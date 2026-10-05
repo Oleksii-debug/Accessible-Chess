@@ -11,6 +11,7 @@ workstation directories must not cross report boundaries.
 import os
 import unicodedata
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 
 _UNSAFE_REPORT_PATH_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
@@ -23,24 +24,8 @@ def _has_unsafe_report_text(text: str) -> bool:
     )
 
 
-def report_safe_name(path: Any) -> str:
-    """Return portable relative provenance or a basename for private paths.
-
-    Both slash conventions are recognized lexically, independent of the host
-    OS. Absolute POSIX paths, Windows drive paths and UNC paths are reduced to
-    their final component. Safe relative paths are preserved with ``/`` so a
-    stable provenance such as ``incoming/game.cbh`` is not needlessly lost.
-    Any relative traversal component or report-control text fails closed.
-    """
-
-    try:
-        raw = os.fspath(path)
-    except TypeError:
-        raw = str(path)
-    if isinstance(raw, bytes):
-        raw = os.fsdecode(raw)
-
-    text = str(raw).replace("\\", "/").rstrip("/")
+def _report_safe_path_text(text: str) -> str:
+    text = text.replace("\\", "/").rstrip("/")
     if not text or _has_unsafe_report_text(text):
         return "source"
 
@@ -63,3 +48,35 @@ def report_safe_name(path: Any) -> str:
     if not parts or ".." in parts:
         return basename
     return "/".join(parts)
+
+
+def report_safe_name(path: Any) -> str:
+    """Return portable relative provenance or a basename for private paths.
+
+    Both slash conventions are recognized lexically, independent of the host
+    OS. Absolute POSIX paths, Windows drive paths, UNC paths and local ``file:``
+    URIs are reduced to their final component. Safe relative paths are
+    preserved with ``/`` so stable provenance such as ``incoming/game.cbh`` is
+    not needlessly lost. Any relative traversal component or report-control
+    text fails closed. Percent-encoded local-file URI text is decoded before
+    validation so encoded separators or controls cannot bypass the boundary.
+    """
+
+    try:
+        raw = os.fspath(path)
+    except TypeError:
+        raw = str(path)
+    if isinstance(raw, bytes):
+        raw = os.fsdecode(raw)
+
+    text = str(raw)
+    if text[:5].casefold() == "file:":
+        try:
+            parsed = urlsplit(text)
+            if parsed.scheme.casefold() != "file":
+                return "source"
+            text = unquote(parsed.path, encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, ValueError):
+            return "source"
+
+    return _report_safe_path_text(text)
