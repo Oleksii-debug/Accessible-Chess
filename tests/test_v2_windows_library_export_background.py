@@ -1268,7 +1268,10 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
-    def test_export_selection_mutations_roll_back_when_render_validation_fails(self) -> None:
+    def test_export_projection_mutations_roll_back_on_base_exception(self) -> None:
+        class ProjectionAbort(BaseException):
+            pass
+
         database = AcsDatabase()
         try:
             database.import_pgn_text(_PGN, source_name="selection-atomicity.pgn")
@@ -1284,9 +1287,9 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             with patch.object(
                 projection,
                 "_render_event",
-                side_effect=ValueError("simulated malformed presenter render"),
+                side_effect=ProjectionAbort("simulated malformed presenter render"),
             ):
-                with self.assertRaisesRegex(ValueError, "malformed presenter render"):
+                with self.assertRaises(ProjectionAbort):
                     projection.toggle_export_selection(game_id)
             self.assertEqual(projection.export_game_ids, ())
 
@@ -1295,11 +1298,35 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             with patch.object(
                 projection,
                 "_render_event",
-                side_effect=ValueError("simulated malformed clear render"),
+                side_effect=ProjectionAbort("simulated malformed clear render"),
             ):
-                with self.assertRaisesRegex(ValueError, "malformed clear render"):
+                with self.assertRaises(ProjectionAbort):
                     projection.clear_export_selection()
             self.assertEqual(projection.export_game_ids, (game_id,))
+
+            with patch(
+                "acs.library_export_webview_projection.LibraryWebViewProjection.search",
+                side_effect=ProjectionAbort("canonical search aborted"),
+            ):
+                with self.assertRaises(ProjectionAbort):
+                    projection.search(GameSearchQuery(player="Different"))
+            self.assertEqual(projection.export_game_ids, (game_id,))
+
+            projection.host_export_started()
+            with patch.object(
+                projection,
+                "_dispatch",
+                side_effect=ProjectionAbort("cancel dispatch aborted"),
+            ):
+                with self.assertRaises(ProjectionAbort):
+                    projection.request_cancel_operation()
+            cancel_action = next(
+                action
+                for action in projection.snapshot()["import"]["actions"]
+                if action["action"] == "library.cancel_import"
+            )
+            self.assertTrue(cancel_action["enabled"])
+            projection.host_export_finished()
         finally:
             database.close()
 
