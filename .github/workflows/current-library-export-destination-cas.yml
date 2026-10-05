@@ -11,6 +11,7 @@ on:
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
       - 'tests/test_v2_windows_library_export_background.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'web/version2_release_bootstrap.js'
       - '.github/workflows/current-library-export-destination-cas.yml'
   workflow_dispatch:
@@ -86,6 +87,7 @@ jobs:
             'acs/version2_windows_host_runtime.py' \
             'acs/version2_windows_library_export.py' \
             'tests/test_v2_windows_library_export_background.py' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
             'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Library export background/CAS scope:\n%s\n' "$changed" >&2
@@ -113,8 +115,9 @@ jobs:
           acs/version2_windows_library_export.py
           tests/test_v2_windows_library_export_background.py
 
-      - name: Syntax-check release event bridge
-        run: node --check web/version2_release_bootstrap.js
+      - name: Execute release event/focus DOM oracle
+        run: >-
+          node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Execute Library export, host-runtime, and canonical writer regressions
         run: >-
