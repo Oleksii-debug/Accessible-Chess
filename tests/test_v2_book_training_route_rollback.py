@@ -317,6 +317,9 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
 
     def test_acknowledged_route_commit_is_single_pending_one_shot(self):
         self._open_exercise_book()
+        self.app.drain_events()
+        queued_event = {"kind": "status", "payload": {"message": "before-route"}}
+        self.app._events.append(queued_event)
         routed = self.app.browser_command(
             "shell",
             "screen.library",
@@ -334,6 +337,8 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual("error", blocked["kind"])
         self.assertEqual("library", self.app.shell.current_route.route_id)
         self.assertTrue(self.app.shell._publication_hold_active)
+        self.assertEqual((), self.app.drain_events())
+        self.assertEqual(1, len(self.app._events))
 
         native_style = self.app.adapter.activate_action(
             "screen.settings",
@@ -375,6 +380,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIsNone(self.app._pending_shell_publication)
         self.assertFalse(self.app.shell._publication_hold_active)
         self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual((queued_event,), self.app.drain_events())
 
         duplicate_commit = self.app.browser_command(
             "shell",
