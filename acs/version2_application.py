@@ -29,7 +29,7 @@ from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .input_limits import MAX_FEN_CHARS
-from .import_contract import read_source_snapshot
+from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
@@ -387,11 +387,14 @@ class Version2Application:
         else:
             limit = MAX_TEXT_SOURCE_BYTES
 
-        _, raw = read_source_snapshot(
-            source,
-            max_bytes=limit,
-            cancel_check=(None if cancel_check is None else cancel_check),
-        )
+        try:
+            _, raw = read_source_snapshot(
+                source,
+                max_bytes=limit,
+                cancel_check=(None if cancel_check is None else cancel_check),
+            )
+        except SourceReadCancelledError:
+            raise BookOpenCancelled("Book Open preparation cancelled") from None
         checkpoint()
         safe_name = report_safe_name(source)
         if suffix == ".epub":
@@ -422,16 +425,21 @@ class Version2Application:
             warnings=tuple(imported.warnings),
         )
 
-    def commit_prepared_book_open(self, prepared: PreparedBookOpen) -> int:
-        """Transactionally publish one already-prepared Book on the UI thread."""
+    def _assert_book_open_allowed(self) -> None:
+        """Reject Book owner replacement before source I/O or UI publication."""
 
         self._assert_thread()
-        if type(prepared) is not PreparedBookOpen:
-            raise TypeError("prepared Book Open result is invalid")
         if self.shell.active_dialog_id is not None:
             raise ValueError("close the active dialog before opening a book")
         if self.book_workflow is not None and self.book_workflow.active:
             raise ValueError("return to the book before opening another source")
+
+    def commit_prepared_book_open(self, prepared: PreparedBookOpen) -> int:
+        """Transactionally publish one already-prepared Book on the UI thread."""
+
+        self._assert_book_open_allowed()
+        if type(prepared) is not PreparedBookOpen:
+            raise TypeError("prepared Book Open result is invalid")
 
         self.save_training_progress()
         self.save_book_progress()
@@ -506,7 +514,10 @@ class Version2Application:
     def open_book(self, source: Path):
         """Compatibility wrapper preserving current synchronous Book Open."""
 
-        self._assert_thread()
+        # Preserve the historical fail-before-read authority fence for direct
+        # callers. The commit repeats it because a future background preparation
+        # can race with a modal or Book-Board owner becoming active.
+        self._assert_book_open_allowed()
         prepared = self.prepare_book_open(source)
         return self.commit_prepared_book_open(prepared)
 
