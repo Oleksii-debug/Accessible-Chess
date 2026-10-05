@@ -69,12 +69,9 @@ class PgnSaveSnapshotTests(unittest.TestCase):
 
     def test_workspace_subclass_is_rejected_before_active_behavior(self) -> None:
         workspace = _ExplodingWorkspace.from_text(DOCUMENT)
-        session = PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
 
         with self.assertRaises(TypeError):
-            capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
-
-        self.assertIsNone(session.source)
+            PgnDocumentSession(workspace, saved_digest=workspace.content_digest)
 
     def test_active_overwrite_control_is_rejected_without_truthiness_or_io(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
@@ -91,6 +88,70 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
+
+    def test_capture_rejects_active_saved_digest_before_worker_handoff(self) -> None:
+        class ActiveText(str):
+            def __len__(self):
+                raise AssertionError("active saved digest length executed")
+
+            def __eq__(self, other):
+                raise AssertionError("active saved digest equality executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        session._saved_digest = ActiveText("0" * 64)
+
+        with self.assertRaises(TypeError):
+            capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+    def test_capture_rejects_active_workspace_revision_before_comparison(self) -> None:
+        class ActiveInt(int):
+            def __lt__(self, other):
+                raise AssertionError("active workspace revision ordering executed")
+
+            def __ne__(self, other):
+                raise AssertionError("active workspace revision comparison executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        session.workspace._content_revision = ActiveInt(
+            session.workspace.content_revision
+        )
+
+        with self.assertRaises(TypeError):
+            capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+    def test_capture_rejects_active_workspace_digest_before_worker_handoff(self) -> None:
+        class ActiveText(str):
+            def __len__(self):
+                raise AssertionError("active workspace digest length executed")
+
+            def __eq__(self, other):
+                raise AssertionError("active workspace digest equality executed")
+
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        session.workspace._content_digest = ActiveText(
+            session.workspace.content_digest
+        )
+
+        with self.assertRaises(TypeError):
+            capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+    def test_capture_rejects_saved_baseline_change_during_detach(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        workspace = session.workspace
+        session._saved_digest = workspace.content_digest
+        real_games = PgnWorkspace.games
+
+        def racing_games(bound_workspace):
+            games = real_games(bound_workspace)
+            if bound_workspace is workspace:
+                session._saved_digest = "f" * 64
+            return games
+
+        with patch.object(PgnWorkspace, "games", autospec=True, side_effect=racing_games):
+            with self.assertRaises(PgnDocumentError) as caught:
+                capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
 
     def test_capture_does_not_materialize_document_presentation_view(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
