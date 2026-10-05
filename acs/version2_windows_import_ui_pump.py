@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Windows UI-thread wakeup seam for Version 2 asynchronous Library imports.
+"""Windows UI-thread wakeup seam for Version 2 asynchronous file workflows.
 
 The import worker must never call WebView/NVDA presentation code directly.
 ``Version2ImportUiEventMailbox`` owns the bounded worker->UI queue; this module
@@ -141,6 +141,23 @@ class Version2ImportUiWakeupPump:
             return returned
 
         self._request_wakeup()
+        return returned
+
+    def owner_async_event_sink(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        """Deliver an asynchronous completion that is already on the UI thread."""
+
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("owner asynchronous file events require the UI thread")
+        if not isinstance(event, FileWorkflowEvent):
+            raise TypeError("UI wakeup pump accepts FileWorkflowEvent only")
+        with self._lock:
+            if self._closed:
+                return event
+        returned = self._mailbox.put_async_owner(event)
+        # Unlike a synchronous user command, an owner callback has no caller
+        # waiting to consume its return value. Drain the exact queued terminal
+        # through the existing presentation callback before returning.
+        self._run_ui_ready()
         return returned
 
     def _request_wakeup(self, *, schedule_retry: bool = True) -> None:
