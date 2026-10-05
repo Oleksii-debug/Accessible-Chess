@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -21,6 +22,15 @@ def _with_optional_magic(payload: bytes, magic: int) -> bytes:
     optional_header = pe_offset + 24
     data[optional_header:optional_header + 2] = magic.to_bytes(2, "little")
     return bytes(data)
+
+
+def _snapshot(*, dev, ino, size: int = 4096, mtime_ns: int = 123456789):
+    return SimpleNamespace(
+        st_dev=dev,
+        st_ino=ino,
+        st_size=size,
+        st_mtime_ns=mtime_ns,
+    )
 
 
 class Version2PackagePeIdentityTests(unittest.TestCase):
@@ -162,6 +172,28 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
                     require_clr=True,
                 )
             self.assertEqual(read_opens, 1)
+
+    def test_snapshot_fallback_rejects_unavailable_file_identity(self):
+        unknown_pairs = (
+            (_snapshot(dev=None, ino=None), _snapshot(dev=None, ino=None)),
+            (_snapshot(dev=0, ino=0), _snapshot(dev=0, ino=0)),
+            (_snapshot(dev=5, ino=0), _snapshot(dev=5, ino=0)),
+            (_snapshot(dev=0, ino=19), _snapshot(dev=0, ino=19)),
+        )
+        with patch.object(preflight.os.path, "samestat", side_effect=OSError("unavailable")):
+            for left, right in unknown_pairs:
+                with self.subTest(left=left, right=right):
+                    self.assertFalse(preflight._same_file_snapshot(left, right))
+
+    def test_snapshot_fallback_accepts_only_matching_nonzero_file_identity(self):
+        left = _snapshot(dev=5, ino=19)
+        same = _snapshot(dev=5, ino=19)
+        different_inode = _snapshot(dev=5, ino=20)
+        different_size = _snapshot(dev=5, ino=19, size=4097)
+        with patch.object(preflight.os.path, "samestat", side_effect=AttributeError("unavailable")):
+            self.assertTrue(preflight._same_file_snapshot(left, same))
+            self.assertFalse(preflight._same_file_snapshot(left, different_inode))
+            self.assertFalse(preflight._same_file_snapshot(left, different_size))
 
     def test_pe_validation_rejects_identity_change_while_opening(self):
         with tempfile.TemporaryDirectory() as td:
