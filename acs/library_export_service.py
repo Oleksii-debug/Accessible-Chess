@@ -74,7 +74,7 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         cancelled = cancel_check()
     except LibraryExportCancelledError:
         raise
-    except Exception as exc:
+    except BaseException as exc:
         raise LibraryExportControlError("Library export cancellation check failed") from exc
     if type(cancelled) is not bool:
         raise LibraryExportControlError("Library export cancel_check must return a boolean")
