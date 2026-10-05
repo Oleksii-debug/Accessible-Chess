@@ -54,7 +54,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact convergence ancestry and scope
+      - name: Prove exact source convergence and descendant ancestry
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -62,24 +62,27 @@ jobs:
           HELP_SOURCE: 56cc2a98b159d257f1bdddcef587e99876559439
           DIAGNOSTIC_SOURCE: bee6a0d5e2cc675805d4830ed59a402332c28c56
           CONVERGENCE_MERGE: 38b78c8eb6cf7e8b3732df612774364c7c615c7f
+          DIAGNOSTIC_HELP_HEAD: 7baaaa5f6b90987b60b08595808b5ab2808141d4
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
 
-          for commit in "$PRODUCT_BASE" "$HELP_SOURCE" "$DIAGNOSTIC_SOURCE" "$CONVERGENCE_MERGE"; do
+          for commit in "$PRODUCT_BASE" "$HELP_SOURCE" "$DIAGNOSTIC_SOURCE" "$CONVERGENCE_MERGE" "$DIAGNOSTIC_HELP_HEAD"; do
             git cat-file -e "$commit^{commit}"
           done
 
           test "$(git rev-parse "$CONVERGENCE_MERGE^1")" = "$HELP_SOURCE"
           test "$(git rev-parse "$CONVERGENCE_MERGE^2")" = "$DIAGNOSTIC_SOURCE"
-          git merge-base --is-ancestor "$HELP_SOURCE" HEAD
-          git merge-base --is-ancestor "$DIAGNOSTIC_SOURCE" HEAD
-          git merge-base --is-ancestor "$CONVERGENCE_MERGE" HEAD
+          git merge-base --is-ancestor "$HELP_SOURCE" "$DIAGNOSTIC_HELP_HEAD"
+          git merge-base --is-ancestor "$DIAGNOSTIC_SOURCE" "$DIAGNOSTIC_HELP_HEAD"
+          git merge-base --is-ancestor "$CONVERGENCE_MERGE" "$DIAGNOSTIC_HELP_HEAD"
+          git merge-base --is-ancestor "$DIAGNOSTIC_HELP_HEAD" HEAD
+          test "$(git merge-base "$PRODUCT_BASE" "$DIAGNOSTIC_HELP_HEAD")" = "$PRODUCT_BASE"
           test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
           git diff --check "$PRODUCT_BASE"...HEAD
 
-          changed="$(git diff --name-only "$PRODUCT_BASE"...HEAD | sort)"
+          source_changed="$(git diff --name-only "$PRODUCT_BASE"..."$DIAGNOSTIC_HELP_HEAD" | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml' \
             '.github/workflows/keybindings-current-apex-dom-native.yml' \
@@ -92,8 +95,8 @@ jobs:
             'tests/test_dynamic_keymap_help_contract.py' \
             'tests/test_keybindings.py' \
             'web/index.html' | sort)"
-          test "$changed" = "$expected_paths" || {
-            printf 'Unexpected convergence scope.\nExpected:\n%s\nActual:\n%s\n' "$expected_paths" "$changed" >&2
+          test "$source_changed" = "$expected_paths" || {
+            printf 'Frozen diagnostic/Help source scope changed.\nExpected:\n%s\nActual:\n%s\n' "$expected_paths" "$source_changed" >&2
             exit 1
           }
 
