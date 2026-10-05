@@ -31,6 +31,7 @@ on:
       - 'tests/js/pgn_remaining_keybindings_test.js'
       - 'tests/js/books_training_surface_dom_test.js'
       - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_dynamic_keymap_help_contract.py'
       - 'tests/test_dev1_release_ui_regressions.py'
@@ -171,7 +172,8 @@ jobs:
                 git diff --name-only "$CURRENT_PRODUCT"..."$BOOKS_SOURCE"
                 printf '%s\n' \
                   '.github/workflows/current-books-keymap-semantic-convergence.yml' \
-                  'tests/js/books_training_toolbar_keymap_convergence_test.js'
+                  'tests/js/books_training_toolbar_keymap_convergence_test.js' \
+                  'tests/test_current_books_keymap_semantic_convergence_workflow.py'
               } | sort -u
             )"
             test "$successor_changed" = "$successor_expected" || {
@@ -202,6 +204,7 @@ jobs:
           acs/gametree_legality.py
           acs/import_contract.py
           acs/version2_windows_file_workflows.py
+          tests/test_current_books_keymap_semantic_convergence_workflow.py
           tests/test_dynamic_keymap_help_contract.py
           tests/test_pgn_tree_remaining_keybindings.py
           tests/test_book_html_pgn_loss_accounting.py
@@ -218,6 +221,7 @@ jobs:
       - name: Run focused Python convergence regressions
         run: >-
           python -m unittest -v
+          tests.test_current_books_keymap_semantic_convergence_workflow
           tests.test_keybindings
           tests.test_dynamic_keymap_help_contract
           tests.test_dev1_release_ui_regressions
