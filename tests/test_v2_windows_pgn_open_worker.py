@@ -159,6 +159,38 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-worker-source", repr(event))
 
+    def test_recovered_legacy_open_preserves_warning_count_and_overwrite_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "legacy-warning.pgn"
+            source.write_bytes(
+                (
+                    '[Event "Русская шахматная книга"]\n'
+                    '[Result "*"]\n\n'
+                    '1. e4 {главный план} e5 *\n'
+                ).encode("cp1251")
+            )
+            owner_async_events: list[FileWorkflowEvent] = []
+            controller, _, poster, sync_events, session_box, _ = self._controller(
+                source,
+                owner_async_events=owner_async_events,
+            )
+
+            started = controller("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            poster.drain()
+
+            terminal = owner_async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertGreaterEqual(terminal.warning_count, 1)
+            session = session_box["value"]
+            self.assertIsInstance(session, PgnDocumentSession)
+            view = session.view()
+            self.assertFalse(view.source_overwrite_safe)
+            self.assertGreaterEqual(len(view.global_warnings), 1)
+            self.assertEqual(sync_events, [started])
+            self.assertNotIn(str(source), repr(terminal))
+
     def test_owner_async_terminal_uses_distinct_delivery_sink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "owner-async.pgn"
