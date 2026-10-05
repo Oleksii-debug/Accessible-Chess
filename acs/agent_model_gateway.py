@@ -244,6 +244,11 @@ class AgentModelGateway:
                 raise last_error
             if last_error.code not in self._SAFE_FALLBACK_CODES:
                 raise last_error
+            if (
+                last_error.code is AgentModelErrorCode.TIMEOUT
+                and not last_error.retryable
+            ):
+                raise last_error
 
         raise AgentModelGatewayError(
             AgentModelErrorCode.UNAVAILABLE,
