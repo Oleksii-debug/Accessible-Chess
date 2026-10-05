@@ -104,16 +104,25 @@ def _sanitize_browser_arguments(value: str) -> str:
         token = tokens[index]
         comparable = _unquote_token(token)
         name = comparable.split("=", 1)[0].casefold()
-        blocked_feature = (
-            name == "--enable-features"
-            and _REMOTE_DEBUG_FEATURE in comparable.casefold()
-        )
+
+        following_value = ""
+        has_separate_value = False
+        if "=" not in comparable and index + 1 < len(tokens):
+            following_value = _unquote_token(tokens[index + 1])
+            has_separate_value = not following_value.startswith("--")
+
+        feature_value = ""
+        if name == "--enable-features":
+            if "=" in comparable:
+                feature_value = comparable.split("=", 1)[1]
+            elif has_separate_value:
+                feature_value = following_value
+        blocked_feature = _REMOTE_DEBUG_FEATURE in feature_value.casefold()
+
         if name in _BLOCKED_BROWSER_ARGUMENTS or blocked_feature:
-            if "=" not in comparable and index + 1 < len(tokens):
-                following = _unquote_token(tokens[index + 1])
-                if not following.startswith("--"):
-                    index += 2
-                    continue
+            if has_separate_value:
+                index += 2
+                continue
             index += 1
             continue
         kept.append(token)
