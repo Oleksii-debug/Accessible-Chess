@@ -8,7 +8,7 @@ from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
 
 class BookWebViewBridge:
     def __init__(self, projection: BookWebViewProjection) -> None:
-        if not isinstance(projection, BookWebViewProjection):
+        if type(projection) is not BookWebViewProjection:
             raise TypeError("projection must be BookWebViewProjection")
         self._projection = projection
 
@@ -85,6 +85,6 @@ class BookWebViewBridge:
                 self._exact(data, {"language"})
                 return self._projection.set_language(data["language"])
             raise ValueError("unsupported book browser command")
-        except Exception:
+        except BaseException:
             # Do not echo FEN, bookmark input, local paths, source data or internals.
             return self._projection.generic_error()
