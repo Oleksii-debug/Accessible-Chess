@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 import sys
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_actions import FullProductActionRouter, build_full_product_action_registry
 from acs.full_product_native_menu import (
@@ -145,6 +146,28 @@ def make_controller(*, language=UILanguage.EN, bindings=None):
 
 
 class FullProductNativeMenuTests(unittest.TestCase):
+    def test_conversion_is_a_trusted_native_copy_workflow_with_live_language(self):
+        controller, calls, commands, exits = make_controller()
+        item = next(item for menu in controller.spec() for item in menu.items if item.host_command == "pgn.convert_utf8")
+        self.assertIn("new copy", item.label)
+        with patch("acs.pgn_conversion_windows.show_pgn_conversion_dialog") as dialog:
+            controller.activate(item)
+            dialog.assert_called_once_with(language="en", owner=None)
+        self.assertEqual((calls, commands, exits), ([], [], []))
+        ua = build_full_product_menu_spec(build_full_product_action_registry(), language=UILanguage.UA)
+        self.assertIn("нова копія", next(item.label for menu in ua for item in menu.items if item.host_command == "pgn.convert_utf8"))
+
+    def test_conversion_dialog_uses_real_menu_owner(self):
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+        item = next(item for menu in controller.spec() for item in menu.items if item.host_command == "pgn.convert_utf8")
+        with patch("acs.pgn_conversion_windows.show_pgn_conversion_dialog") as dialog:
+            controller.activate(item)
+            dialog.assert_called_once_with(language="en", owner=form)
+
     def test_inventory_is_complete_localized_and_registry_validated(self) -> None:
         registry = build_full_product_action_registry(
             bindings={"analysis.restart": "Ctrl+Alt+R"}
