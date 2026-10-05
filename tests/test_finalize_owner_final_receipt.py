@@ -8,14 +8,17 @@ import tempfile
 import unittest
 from unittest import mock
 
+from scripts import finalize_owner_final_receipt as finalizer_module
 from scripts.build_owner_portable_candidate import OwnerPortableCandidateReport
 from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
 from scripts.finalize_owner_final_receipt import (
     BASE_RECEIPT_KEYS,
+    FINAL_RECEIPT_KEYS,
     OwnerFinalReceiptError,
     finalize_owner_final_receipt,
     main,
 )
+from scripts.record_owner_physical_acceptance import FINAL_MACHINE_RECEIPT_KEYS
 
 
 PRODUCT_SHA = "a" * 40
@@ -85,6 +88,9 @@ class OwnerFinalReceiptTests(unittest.TestCase):
         self.assertIs(report["human_tested"], False)
         self.assertIs(report["nvda_verified"], False)
         self.assertEqual(report["result"], "PASS")
+
+    def test_final_schema_is_exact_physical_acceptance_machine_schema(self) -> None:
+        self.assertEqual(FINAL_RECEIPT_KEYS, FINAL_MACHINE_RECEIPT_KEYS)
 
     def test_finalizes_exact_machine_provenance_deterministically(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -259,6 +265,180 @@ class OwnerFinalReceiptTests(unittest.TestCase):
                 with self.assertRaisesRegex(OwnerFinalReceiptError, message):
                     _finalize(receipt, final_zip, **overrides)
 
+    def test_rejects_derived_document_digest_tuple_before_iteration_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActiveTuple(tuple):
+            def __iter__(self):
+                touched.append("iter")
+                raise AssertionError("derived tuple iteration executed")
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+
+            with self.assertRaisesRegex(TypeError, "exact two-item tuple"):
+                _finalize(
+                    receipt,
+                    final_zip,
+                    expected_document_sha256=ActiveTuple(
+                        (FIRST_DOC_SHA, SECOND_DOC_SHA)
+                    ),
+                )
+
+        self.assertEqual(touched, [])
+
+    def test_exact_finalized_receipt_retry_is_idempotent_and_durable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+
+            first = _finalize(receipt, final_zip)
+            first_bytes = receipt.read_bytes()
+            real_sync = finalizer_module._sync_published_zip_namespace
+
+            with mock.patch.object(
+                finalizer_module,
+                "_sync_published_zip_namespace",
+                wraps=real_sync,
+            ) as sync, mock.patch.object(
+                finalizer_module.os,
+                "replace",
+                side_effect=AssertionError("idempotent retry must not replace"),
+            ):
+                second = _finalize(receipt, final_zip)
+
+            self.assertEqual(second, first)
+            self.assertEqual(receipt.read_bytes(), first_bytes)
+            self.assertEqual(sync.call_count, 1)
+            self.assertEqual(set(second), FINAL_RECEIPT_KEYS)
+            self.assertEqual(list(root.glob(".receipt.json.publish-*.tmp")), [])
+
+    def test_post_replace_durability_failure_is_retryable_from_finalized_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+
+            with mock.patch.object(
+                finalizer_module,
+                "_sync_published_zip_namespace",
+                side_effect=finalizer_module.Version2PortablePackageError(
+                    "simulated final receipt durability failure"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    OwnerFinalReceiptError,
+                    "publication durability could not be confirmed",
+                ):
+                    _finalize(receipt, final_zip)
+
+            replaced = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual(set(replaced), FINAL_RECEIPT_KEYS)
+            self.assertEqual(replaced["finalizer_run_id"], 37180000000)
+            self.assertEqual(list(root.glob(".receipt.json.publish-*.tmp")), [])
+
+            recovered = _finalize(receipt, final_zip)
+            self.assertEqual(recovered, replaced)
+            self.assertEqual(set(recovered), FINAL_RECEIPT_KEYS)
+
+    def test_finalized_retry_rejects_mismatched_provenance_without_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+            _finalize(receipt, final_zip)
+
+            value = json.loads(receipt.read_text(encoding="utf-8"))
+            value["finalizer_run_id"] = 37180000001
+            receipt.write_text(
+                json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            before = receipt.read_bytes()
+
+            with mock.patch.object(
+                finalizer_module.os,
+                "replace",
+                side_effect=AssertionError("mismatch must not rewrite"),
+            ):
+                with self.assertRaisesRegex(
+                    OwnerFinalReceiptError,
+                    "finalized provenance mismatch: finalizer_run_id",
+                ):
+                    _finalize(receipt, final_zip)
+
+            self.assertEqual(receipt.read_bytes(), before)
+
+    def test_stale_prior_staging_never_blocks_or_gets_deleted_by_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps(_receipt(final_zip)), encoding="utf-8")
+            stale = root / ".receipt.json.publish-stale.tmp"
+            stale.write_bytes(b"prior-crash-residue")
+
+            value = _finalize(receipt, final_zip)
+
+            self.assertEqual(set(value), FINAL_RECEIPT_KEYS)
+            self.assertEqual(stale.read_bytes(), b"prior-crash-residue")
+            self.assertEqual(
+                list(root.glob(".receipt.json.publish-*.tmp")),
+                [stale],
+            )
+
+    def test_failed_publication_preserves_replaced_staging_path(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            receipt = root / "receipt.json"
+            original = json.dumps(_receipt(final_zip), sort_keys=True) + "\n"
+            receipt.write_text(original, encoding="utf-8")
+            foreign = b"foreign-staging-owned-by-another-writer"
+            replaced_path: list[Path] = []
+
+            def replace_staging_then_fail(source, _destination):
+                staged = Path(source)
+                staged.unlink()
+                staged.write_bytes(foreign)
+                replaced_path.append(staged)
+                raise OSError("simulated replace failure after staging substitution")
+
+            with mock.patch.object(
+                finalizer_module.os,
+                "replace",
+                side_effect=replace_staging_then_fail,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerFinalReceiptError,
+                    "could not be published",
+                ):
+                    _finalize(receipt, final_zip)
+
+            self.assertEqual(receipt.read_text(encoding="utf-8"), original)
+            self.assertEqual(len(replaced_path), 1)
+            self.assertTrue(replaced_path[0].is_file())
+            self.assertEqual(replaced_path[0].read_bytes(), foreign)
+
     def test_publication_failure_keeps_original_receipt_and_cleans_temp(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -273,7 +453,7 @@ class OwnerFinalReceiptTests(unittest.TestCase):
                     _finalize(receipt, final_zip)
 
             self.assertEqual(receipt.read_text(encoding="utf-8"), original)
-            self.assertFalse((root / ".receipt.json.publish.tmp").exists())
+            self.assertEqual(list(root.glob(".receipt.json.publish-*.tmp")), [])
 
 
 if __name__ == "__main__":
