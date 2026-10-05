@@ -102,6 +102,7 @@ assert.deepStrictEqual(announcements, []);
 
 const install = indexFunction('installKeymapSnapshot');
 const load = indexFunction('loadKeymap');
+const language = indexFunction('applyUiLanguage');
 assert.ok(
     install.includes('renderKeymapRecovery(snapshot,false)'),
     'every installed authority snapshot must update/clear visible recovery guidance'
@@ -109,6 +110,10 @@ assert.ok(
 assert.ok(
     load.includes('renderKeymapRecovery(nextBase,true)'),
     'initial canonical recovery must announce the same exact visible guidance'
+);
+assert.ok(
+    language.includes('renderKeymapRecovery(keymapBase,false)'),
+    'language changes must rerender recovery guidance from the canonical snapshot'
 );
 
 console.log('keymap recovery accessibility regression: ok');
