@@ -67,6 +67,11 @@ class MediaCoreContractTests(unittest.TestCase):
             ["tree:game-1:path-a", "tree:game-1:path-b"],
         )
 
+    def test_links_at_missing_timestamp_is_empty(self):
+        timeline = MediaPositionTimeline("lesson-1", [self.link(1_000, "tree:a")])
+        self.assertEqual(timeline.links_at(999), ())
+        self.assertEqual(timeline.links_at(1_001), ())
+
     def test_resolution_uses_latest_confirmed_anchor_at_or_before_media_time(self):
         timeline = MediaPositionTimeline(
             "lesson-1",
@@ -76,6 +81,27 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertTrue(resolved.resolved)
         self.assertEqual(resolved.anchor_timestamp_ms, 5_000)
         self.assertEqual(resolved.chess_ref, "tree:a")
+
+    def test_resolution_before_first_anchor_is_safely_unresolved(self):
+        timeline = MediaPositionTimeline("lesson-1", [self.link(5_000, "tree:a")])
+        resolved = timeline.resolve_at_or_before(4_999)
+        self.assertFalse(resolved.resolved)
+        self.assertFalse(resolved.ambiguous)
+        self.assertIsNone(resolved.anchor_timestamp_ms)
+        self.assertEqual(resolved.links, ())
+
+    def test_new_uncertain_anchor_blocks_stale_confirmed_fallback(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            [
+                self.link(5_000, "tree:old"),
+                self.link(10_000, "candidate:new", confirmed=False, confidence=0.9),
+            ],
+        )
+        resolved = timeline.resolve_at_or_before(12_000)
+        self.assertFalse(resolved.resolved)
+        self.assertEqual(resolved.anchor_timestamp_ms, 10_000)
+        self.assertIsNone(resolved.chess_ref)
 
     def test_unconfirmed_recognition_never_silently_moves_chess_cursor(self):
         timeline = MediaPositionTimeline(
@@ -104,6 +130,19 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertIsNone(resolution.chess_ref)
         self.assertEqual(updated.chess_ref, "tree:old")
 
+    def test_confirmed_link_wins_over_other_candidates_at_same_anchor(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            [
+                self.link(9_000, "tree:confirmed"),
+                self.link(9_000, "candidate:other", confirmed=False, confidence=0.99),
+            ],
+        )
+        resolved = timeline.resolve_exact(9_000)
+        self.assertTrue(resolved.resolved)
+        self.assertFalse(resolved.ambiguous)
+        self.assertEqual(resolved.chess_ref, "tree:confirmed")
+
     def test_multiple_unconfirmed_candidates_are_explicitly_ambiguous(self):
         timeline = MediaPositionTimeline(
             "lesson-1",
@@ -118,6 +157,77 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertTrue(resolution.ambiguous)
         self.assertFalse(resolution.resolved)
         self.assertEqual(updated.chess_ref, "tree:old")
+
+    def test_explicit_candidate_confirmation_resolves_ambiguity(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            [
+                self.link(9_000, "candidate:a", confirmed=False, confidence=0.8),
+                self.link(9_000, "candidate:b", confirmed=False, confidence=0.7),
+            ],
+        )
+        confirmed = timeline.confirm_candidate(
+            9_000, "candidate:b", evidence="user confirmed after review"
+        )
+        resolved = confirmed.resolve_exact(9_000)
+        self.assertTrue(resolved.resolved)
+        self.assertEqual(resolved.chess_ref, "candidate:b")
+        selected = next(link for link in confirmed.links_at(9_000) if link.chess_ref == "candidate:b")
+        self.assertTrue(selected.confirmed)
+        self.assertEqual(selected.evidence, "user confirmed after review")
+        other = next(link for link in confirmed.links_at(9_000) if link.chess_ref == "candidate:a")
+        self.assertFalse(other.confirmed)
+
+    def test_confirmation_cannot_invent_unknown_chess_reference(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            [self.link(9_000, "candidate:a", confirmed=False)],
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            timeline.confirm_candidate(9_000, "candidate:missing")
+        self.assertEqual(caught.exception.code, MediaErrorCode.LINK_NOT_FOUND)
+
+    def test_confirmation_conflict_requires_explicit_replace(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            [
+                self.link(9_000, "tree:confirmed"),
+                self.link(9_000, "candidate:new", confirmed=False, confidence=0.9),
+            ],
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            timeline.confirm_candidate(9_000, "candidate:new")
+        self.assertEqual(caught.exception.code, MediaErrorCode.CONFIRMATION_CONFLICT)
+
+        replaced = timeline.confirm_candidate(
+            9_000, "candidate:new", replace_confirmed=True
+        )
+        resolved = replaced.resolve_exact(9_000)
+        self.assertTrue(resolved.resolved)
+        self.assertEqual(resolved.chess_ref, "candidate:new")
+        old = next(link for link in replaced.links_at(9_000) if link.chess_ref == "tree:confirmed")
+        self.assertFalse(old.confirmed)
+
+    def test_reconfirm_is_idempotent_when_nothing_changes(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            [self.link(9_000, "tree:confirmed")],
+        )
+        self.assertIs(
+            timeline.confirm_candidate(9_000, "tree:confirmed"),
+            timeline,
+        )
+
+    def test_same_timestamp_and_chess_ref_cannot_exist_with_two_statuses(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline(
+                "lesson-1",
+                [
+                    self.link(9_000, "tree:a"),
+                    self.link(9_000, "tree:a", confirmed=False),
+                ],
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.DUPLICATE_LINK)
 
     def test_media_and_chess_cursors_are_independent_until_explicit_sync(self):
         timeline = MediaPositionTimeline(
@@ -241,6 +351,16 @@ class MediaCoreContractTests(unittest.TestCase):
                     deserialize_media_state(text)
                 self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_SCHEMA)
 
+    def test_loader_rejects_duplicate_json_keys_instead_of_last_write_wins(self):
+        duplicate = (
+            '{"schema":"accessible-chess.media-state",'
+            '"schema":"attacker-controlled",'
+            '"version":1,"source":{},"timeline":{},"session":{}}'
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            deserialize_media_state(duplicate)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_SCHEMA)
+
     def test_loader_rejects_saved_cursor_past_source_duration(self):
         source = self.source()
         timeline = MediaPositionTimeline("lesson-1", [])
@@ -251,8 +371,10 @@ class MediaCoreContractTests(unittest.TestCase):
             deserialize_media_state(json.dumps(payload))
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
 
-    def test_timeline_link_limit_is_enforced_before_large_state_can_expand(self):
-        self.assertEqual(MAX_MEDIA_LINKS, 100_000)
+    def test_timeline_link_limit_is_enforced_before_element_validation(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline("lesson-1", [None] * (MAX_MEDIA_LINKS + 1))
+        self.assertEqual(caught.exception.code, MediaErrorCode.LINK_LIMIT)
 
     def test_schema_identifier_is_stable(self):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")
