@@ -4,6 +4,7 @@
   const RESTORE_ID = "media-restore-position";
   const STATUS_ID = "media-sync-status";
   const ANNOUNCEMENT_ID = "media-restore-announcement";
+  const renderGenerations = new WeakMap();
 
   function requiredText(value, name) {
     if (typeof value !== "string" || !value || value.length > 4096 || value.includes("\u0000")) {
@@ -55,6 +56,16 @@
     };
   }
 
+  function nextRenderGeneration(root) {
+    const next = (renderGenerations.get(root) || 0) + 1;
+    renderGenerations.set(root, next);
+    return next;
+  }
+
+  function isCurrentRender(root, generation) {
+    return renderGenerations.get(root) === generation;
+  }
+
   function appendText(parent, tagName, id, text) {
     const node = document.createElement(tagName);
     node.id = id;
@@ -85,6 +96,7 @@
       throw new Error("media restore command is unavailable");
     }
     const state = validateState(value);
+    const generation = nextRenderGeneration(root);
     const region = document.createElement("section");
     region.setAttribute("aria-label", state.restoreLabel);
 
@@ -121,8 +133,10 @@
       restore.setAttribute("aria-busy", "true");
       try {
         const next = await invokeRestore();
+        if (!isCurrentRender(root, generation)) return;
         render(root, next, invokeRestore, true);
       } catch (_error) {
+        if (!isCurrentRender(root, generation)) return;
         busy = false;
         restore.removeAttribute("aria-busy");
         restore.disabled = !state.restoreEnabled;
