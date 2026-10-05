@@ -57,6 +57,7 @@ jobs:
             ".github/workflows/pgn-save-snapshot-transaction.yml"
             "acs/import_contract.py"
             "acs/pgn_save_snapshot.py"
+            "tests/test_import_contract.py"
             "tests/test_pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot_cancel.py"
           )
@@ -70,6 +71,7 @@ jobs:
           python -m py_compile
           acs/import_contract.py
           acs/pgn_save_snapshot.py
+          tests/test_import_contract.py
           tests/test_pgn_save_snapshot.py
           tests/test_pgn_save_snapshot_cancel.py
 
