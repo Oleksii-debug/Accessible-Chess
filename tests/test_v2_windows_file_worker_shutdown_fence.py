@@ -613,6 +613,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
 
         class SuccessfulLibrary:
             def import_games(self, *args, **kwargs):
+                progress = kwargs["progress_callback"]
+                progress(LibraryImportProgress(1, 0, 1))
+                progress(LibraryImportProgress(1, 1, 1))
                 return LibraryImportResult(
                     attempt_id=1,
                     source_id=1,
