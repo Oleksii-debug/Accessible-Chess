@@ -169,6 +169,8 @@ function snapshot(route) {
     current: routeId === route
   }));
   return {
+    shell_publication_token:
+      pendingShellPublication === null ? 0 : pendingShellPublication.token,
     document: { lang: "en", title: headings[route] },
     navigation,
     screen: { route_id: route, heading: headings[route], focus_target: focus },
@@ -387,10 +389,27 @@ async function clickRoute(routeId) {
 }
 
 (async () => {
+  // Simulate a WebView process reload after Python accepted Teacher but before
+  // the browser received its route-start response. The new JS instance knows
+  // neither request_id nor token; snapshot recovery must roll the candidate
+  // back before publishing the initial surface.
+  currentRoute = "teacher";
+  pendingShellPublication = {
+    token: 777,
+    previousRoute: "board",
+    requestId: 777,
+    command: "screen.teacher"
+  };
+
   const source = fs.readFileSync("web/version2_release_bootstrap.js", "utf8");
   vm.runInThisContext(source, { filename: "version2_release_bootstrap.js" });
-  await flush();
-  await flush();
+  for (let index = 0; index < 8; index += 1) await flush();
+
+  check(currentRoute === "board", "bootstrap did not roll back orphaned Teacher publication");
+  check(pendingShellPublication === null, "bootstrap left orphaned host publication pending");
+  check(shellPublicationRollbacks === 1, "bootstrap did not perform exactly one orphan rollback");
+  shellPublicationRollbacks = 0;
+  lastShellPublicationResolution = null;
 
   const workspace = documentRef.getElementById("v2-workspace");
   check(workspace !== null, "V2 workspace missing");
