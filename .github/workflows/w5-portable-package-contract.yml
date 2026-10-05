@@ -77,9 +77,12 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$EXPECTED_PHYSICAL_EVIDENCE_BASE"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
           expected=(
+            ".github/workflows/owner-final-receipt-publication-durability.yml"
             ".github/workflows/w5-portable-package-contract.yml"
             ".github/workflows/w5-release-receipt-contract.yml"
             "acs/version2_release_receipt.py"
+            "scripts/finalize_owner_final_receipt.py"
+            "tests/test_finalize_owner_final_receipt.py"
             "tests/test_version2_release_receipt.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
