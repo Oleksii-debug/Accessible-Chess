@@ -348,5 +348,118 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertNotIn("secret", command.payload["message"])
 
 
+    def test_language_abort_restores_application_shell_locale(self):
+        class AbortSignal(BaseException):
+            pass
+
+        adapter, _ = self.make_adapter()
+        before = adapter.snapshot()
+        with patch.object(
+            adapter,
+            "snapshot",
+            side_effect=AbortSignal("private locale abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                adapter.set_language("en")
+
+        restored = adapter.snapshot()
+        self.assertEqual("uk", restored["document"]["lang"])
+        self.assertEqual(before["screen"]["heading"], restored["screen"]["heading"])
+
+    def test_delegate_abort_restores_shell_route_and_projects_safe_error(self):
+        class AbortSignal(BaseException):
+            pass
+
+        shell = AccessibleShellState(language=UILanguage.EN)
+
+        def delegate(action_id, payload):
+            self.assertEqual("teacher.highlight", action_id)
+            shell.open_route("teacher")
+            raise AbortSignal("private provider abort")
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+        failed = adapter.activate_action(
+            "teacher.highlight",
+            {"square": "f3"},
+            current_focus_id="board-launcher",
+        )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", shell.restore_focus_target())
+        self.assertNotIn("private provider abort", repr(failed))
+
+    def test_route_snapshot_abort_restores_route_and_observed_focus(self):
+        class AbortSignal(BaseException):
+            pass
+
+        adapter, _ = self.make_adapter()
+        with patch.object(
+            adapter,
+            "snapshot",
+            side_effect=AbortSignal("private route render abort"),
+        ):
+            failed = adapter.activate_action(
+                "screen.teacher",
+                current_focus_id="board-launcher",
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", adapter.shell.current_route.route_id)
+        self.assertEqual("board-launcher", adapter.shell.restore_focus_target())
+        self.assertNotIn("private route render abort", repr(failed))
+
+    def test_open_dialog_abort_restores_dialog_stack(self):
+        class AbortSignal(BaseException):
+            pass
+
+        adapter, _ = self.make_adapter()
+        original_open = adapter.shell.open_dialog
+
+        def abort_after_open(*args, **kwargs):
+            original_open(*args, **kwargs)
+            raise AbortSignal("private dialog-open abort")
+
+        with patch.object(adapter.shell, "open_dialog", side_effect=abort_after_open):
+            failed = adapter.open_dialog(
+                "settings-dialog",
+                opener_focus_id="open-settings",
+                initial_focus_id="settings-list",
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertIsNone(adapter.shell.active_dialog_id)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+        self.assertNotIn("private dialog-open abort", repr(failed))
+
+    def test_close_dialog_abort_restores_dialog_and_focus_contract(self):
+        class AbortSignal(BaseException):
+            pass
+
+        adapter, _ = self.make_adapter()
+        opened = adapter.open_dialog(
+            "settings-dialog",
+            opener_focus_id="open-settings",
+            initial_focus_id="settings-list",
+        )
+        self.assertEqual("dialog-open", opened.kind)
+        original_close = adapter.shell.close_dialog
+
+        def abort_after_close(*args, **kwargs):
+            original_close(*args, **kwargs)
+            raise AbortSignal("private dialog-close abort")
+
+        with patch.object(adapter.shell, "close_dialog", side_effect=abort_after_close):
+            failed = adapter.close_dialog("settings-dialog")
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("settings-dialog", adapter.shell.active_dialog_id)
+        self.assertEqual("settings-list", adapter.shell.restore_focus_target())
+        self.assertNotIn("private dialog-close abort", repr(failed))
+
+
 if __name__ == "__main__":
     unittest.main()
