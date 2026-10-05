@@ -15,6 +15,7 @@ on:
       - 'acs/agent_accessibility.py'
       - 'acs/media_audio.py'
       - 'acs/media_core.py'
+      - 'acs/media_timeline_store.py'
       - 'acs/universal_chess_agent.py'
       - 'acs/media_application.py'
       - 'acs/durable_checkpoint.py'
@@ -65,6 +66,7 @@ jobs:
           acs/agent_accessibility.py
           acs/media_audio.py
           acs/media_core.py
+          acs/media_timeline_store.py
           acs/universal_chess_agent.py
           acs/media_application.py
           acs/durable_checkpoint.py
