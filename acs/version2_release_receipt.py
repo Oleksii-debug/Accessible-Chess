@@ -120,6 +120,44 @@ def _inventory_digest(inventory: tuple[str, ...]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _is_reparse(info: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(getattr(info, "st_file_attributes", 0) & flag)
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare path/handle identity plus content-relevant receipt metadata."""
+    try:
+        same_identity = os.path.samestat(left, right)
+    except (AttributeError, OSError):
+        same_identity = (
+            getattr(left, "st_dev", None),
+            getattr(left, "st_ino", None),
+        ) == (
+            getattr(right, "st_dev", None),
+            getattr(right, "st_ino", None),
+        )
+    return bool(
+        same_identity
+        and int(left.st_size) == int(right.st_size)
+        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    )
+
+
+def _safe_receipt_lstat(path: Path) -> os.stat_result:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise Version2ReleaseReceiptError(
+            f"release receipt cannot be inspected: {type(exc).__name__}"
+        ) from exc
+    if stat.S_ISLNK(info.st_mode) or _is_reparse(info):
+        raise Version2ReleaseReceiptError(
+            "release receipt must not be a symlink or reparse point"
+        )
+    return info
+
+
 def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -178,21 +216,36 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
 def read_version2_release_receipt(
     receipt_path: str | Path,
 ) -> Version2ReleaseReceipt:
-    """Read one bounded, byte-canonical receipt with a strict JSON schema."""
+    """Read one bounded, byte-canonical receipt from one stable file identity."""
 
     path = Path(receipt_path)
+    before = _safe_receipt_lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        raise Version2ReleaseReceiptError("release receipt must be a regular file")
+    if before.st_size > _MAX_RECEIPT_BYTES:
+        raise Version2ReleaseReceiptError("release receipt exceeds size limit")
     try:
         with path.open("rb") as handle:
-            info = os.fstat(handle.fileno())
-            if not stat.S_ISREG(info.st_mode):
+            opened = os.fstat(handle.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _is_reparse(opened):
                 raise Version2ReleaseReceiptError(
-                    "release receipt must be a regular file"
+                    "release receipt must remain a regular non-reparse file"
                 )
-            if info.st_size > _MAX_RECEIPT_BYTES:
+            if not _same_file_snapshot(before, opened):
                 raise Version2ReleaseReceiptError(
-                    "release receipt exceeds size limit"
+                    "release receipt changed while being opened"
                 )
             raw = handle.read(_MAX_RECEIPT_BYTES + 1)
+            after_read = os.fstat(handle.fileno())
+            after_path = _safe_receipt_lstat(path)
+            if (
+                not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+                or len(raw) != int(after_read.st_size)
+            ):
+                raise Version2ReleaseReceiptError(
+                    "release receipt changed while being read"
+                )
     except Version2ReleaseReceiptError:
         raise
     except OSError as exc:
@@ -299,20 +352,36 @@ def write_version2_release_receipt(
     output_path: str | Path,
     receipt: Version2ReleaseReceipt,
 ) -> None:
-    """Write one receipt without replacing any existing release evidence."""
+    """Durably write one receipt without replacing existing release evidence."""
 
     if not isinstance(receipt, Version2ReleaseReceipt):
         raise TypeError("receipt must be Version2ReleaseReceipt")
     path = Path(output_path)
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
+    payload = receipt.to_json()
     try:
         with path.open("x", encoding="utf-8", newline="\n") as handle:
-            handle.write(receipt.to_json())
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+            opened = os.fstat(handle.fileno())
+            after_path = _safe_receipt_lstat(path)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or _is_reparse(opened)
+                or not _same_file_snapshot(opened, after_path)
+                or int(opened.st_size) != len(payload.encode("utf-8"))
+            ):
+                raise Version2ReleaseReceiptError(
+                    "release receipt changed while being written"
+                )
     except FileExistsError as exc:
         raise Version2ReleaseReceiptError(
             "release receipt already exists; overwrite is forbidden"
         ) from exc
+    except Version2ReleaseReceiptError:
+        raise
     except OSError as exc:
         raise Version2ReleaseReceiptError(
             f"release receipt could not be written: {type(exc).__name__}"
