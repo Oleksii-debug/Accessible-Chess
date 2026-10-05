@@ -516,6 +516,7 @@ class Version2Application:
 
     def set_document(self, session):
         self._assert_thread()
+        self.shell._assert_action_dispatch_ready()
         if not isinstance(session, PgnDocumentSession): raise TypeError("invalid PGN document")
         # Library/native domain actions can reach this seam without a shell route
         # action. Reject before publishing a new PGN session while modal focus is
@@ -628,6 +629,11 @@ class Version2Application:
         """Reject Book owner replacement before source I/O or UI publication."""
 
         self._assert_thread()
+        # Background Book preparation commits outside ActionRouter.dispatch().
+        # Reuse the shell publication fence explicitly so a worker completion
+        # cannot replace route/Book ownership while the browser is still
+        # deciding whether another candidate route is visible.
+        self.shell._assert_action_dispatch_ready()
         if self.shell.active_dialog_id is not None:
             raise ValueError("close the active dialog before opening a book")
         if self.book_workflow is not None and self.book_workflow.active:
