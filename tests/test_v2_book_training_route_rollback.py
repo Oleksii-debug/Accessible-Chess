@@ -259,6 +259,30 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual(self.app.drain_events(), ())
 
 
+
+    def test_browser_focusin_survives_same_route_presentation_rollback(self):
+        self._open_exercise_book()
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        before = self.app.shell._capture_presentation_state()
+        sequence_before = self.app.shell._focus_observation_sequence
+
+        self.app.record_focus("book-bookmark-name")
+        self.assertGreater(
+            self.app.shell._focus_observation_sequence,
+            sequence_before,
+        )
+        self.assertEqual("book-bookmark-name", self.app._focus)
+
+        self.app.shell._restore_presentation_state(before)
+
+        self.assertEqual("books", self.app.shell.current_route.route_id)
+        self.assertEqual(
+            "book-bookmark-name",
+            self.app.shell.restore_focus_target(),
+        )
+        self.assertEqual("book-bookmark-name", self.app._focus)
+
+
     def test_acknowledged_training_route_rolls_back_unpublished_owner_and_focus(self):
         self._open_exercise_book()
         prior_route = self.app.shell.current_route.route_id
