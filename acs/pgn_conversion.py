@@ -176,7 +176,12 @@ def convert_pgn(source_path: str | Path, destination: str | Path, *, reviewed_pl
         _poll(cancel_check)
 
     try:
-        return save_pgn_atomic(destination, checked_games(), overwrite=False)
+        return save_pgn_atomic(
+            destination,
+            checked_games(),
+            overwrite=False,
+            pre_publish_check=lambda: _poll(cancel_check),
+        )
     except FileExistsError:
         raise PgnConversionError("destination_exists", "Файл призначення вже існує. Виберіть нове ім’я.") from None
     except (OSError, PgnFileError):
@@ -206,14 +211,20 @@ def main(argv=None) -> int:
     parser.add_argument("--encoding", choices=ENCODINGS, default="auto", help="Кодування джерела")
     parser.add_argument("--output", help="Новий PGN файл; без цього параметра виконується лише перегляд")
     parser.add_argument("--expect-sha256", help="SHA-256 джерела з попереднього перегляду")
+    parser.add_argument("--expect-output-sha256", help="SHA-256 UTF-8 результату з попереднього перегляду")
     parser.add_argument("--json", action="store_true", help="Звіт JSON без шляхів і приватного тексту")
     args = parser.parse_args(argv)
-    if args.output and not args.expect_sha256:
-        parser.error("Для запису потрібен --expect-sha256 зі звіту перегляду.")
+    if args.output and (not args.expect_sha256 or not args.expect_output_sha256):
+        parser.error("Для запису потрібні --expect-sha256 і --expect-output-sha256 зі звіту перегляду.")
     try:
         plan = preview_conversion(args.source, encoding=args.encoding)
         if args.expect_sha256 is not None and args.expect_sha256 != plan.source.sha256:
             raise PgnConversionError("source_changed", "SHA-256 джерела не збігається з переглядом.")
+        if args.expect_output_sha256 is not None and args.expect_output_sha256 != plan.output_sha256:
+            raise PgnConversionError(
+                "review_changed",
+                "SHA-256 UTF-8 результату не збігається з попереднім переглядом. Перевірте кодування й виконайте перегляд знову.",
+            )
         report = plan.public_report()
         if args.output:
             saved = convert_pgn(args.source, args.output, reviewed_plan=plan)
@@ -223,6 +234,7 @@ def main(argv=None) -> int:
         else:
             print(format_conversion_review(plan))
             print("SHA-256 джерела: " + plan.source.sha256)
+            print("SHA-256 UTF-8 результату: " + plan.output_sha256)
             if args.output:
                 print("Новий UTF-8 PGN збережено.")
         return 0
