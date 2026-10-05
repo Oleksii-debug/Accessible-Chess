@@ -262,9 +262,24 @@ class PgnWorkspace:
         return serialize_pgn_bytes(tuple(self._games))
 
     def mark_saved(self) -> PgnWorkspaceView:
-        self._baseline_digest = self.content_digest
+        # Build the complete post-save projection before mutating the baseline.
+        # view() computes semantic record identity and can fail if internal
+        # state was corrupted; mutating the baseline first would then leave a
+        # falsely-clean workspace after a failed save commit.
+        content_digest = self.content_digest
+        game = self._current_game_ref()
+        next_view = PgnWorkspaceView(
+            game_count=self.game_count,
+            selected_game_index=self._selected_game_index,
+            cursor=self._cursor,
+            dirty=False,
+            content_revision=self._content_revision,
+            content_digest=content_digest,
+            current_record_digest=identity_for_game(game).record_digest,
+        )
+        self._baseline_digest = content_digest
         self._dirty = False
-        return self.view()
+        return next_view
 
     def _current_game_ref(self) -> PgnGame:
         return self._games[self._selected_game_index]
