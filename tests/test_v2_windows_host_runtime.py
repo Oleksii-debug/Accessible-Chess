@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 
 from acs.pgn_document import PgnDocumentSession
@@ -80,6 +81,20 @@ class _Owner:
     def BeginInvoke(self, delegate):  # noqa: N802
         self.posted.append(delegate)
         return len(self.posted)
+
+
+class _FlakyOwner(_Owner):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.begin_invoke_calls = 0
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        self.begin_invoke_calls += 1
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("transient BeginInvoke failure")
+        return super().BeginInvoke(delegate)
 
 
 class _Library:
@@ -256,6 +271,94 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 [FileWorkflowEventKind.PGN_SAVED],
             )
             self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_retries_transient_owner_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Retry owner callback")
+            owner = _FlakyOwner(1)
+            imported_events: list[object] = []
+            runtime = self._runtime(owner, pgn_session=session, imported_events=imported_events)
+            self.assertEqual(
+                runtime("pgn.save", {}).kind, FileWorkflowEventKind.PGN_SAVE_STARTED
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            self.assertIn("Retry owner callback", source.read_text(encoding="utf-8"))
+            self.assertTrue(session.dirty)
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertTrue(runtime.pgn_save_running)
+            owner.posted.pop(0)()
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_next_owner_action_recovers_save_after_retry_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-owner-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Recover before next action")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+            )
+            runtime("pgn.save", {})
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(owner.posted, [])
+            self.assertTrue(session.dirty)
+            self.assertTrue(runtime.pgn_save_running)
+            result = runtime("analysis.restart", {"source": "board"})
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls, [("analysis.restart", {"source": "board"})]
+            )
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_shutdown_commits_durable_save_after_owner_post_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-shutdown-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Shutdown owner recovery")
+            owner = _FlakyOwner(2)
+            runtime = self._runtime(owner, pgn_session=session)
+            runtime("pgn.save", {})
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(session.dirty)
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertIn("Shutdown owner recovery", source.read_text(encoding="utf-8"))
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
 
     def test_real_pgn_import_posts_one_ui_wakeup_and_owner_drains_on_ui_thread(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

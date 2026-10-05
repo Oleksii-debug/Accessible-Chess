@@ -44,6 +44,19 @@ class _QueuedPoster:
         self.callbacks.append(callback)
 
 
+class _CountedFailurePoster(_QueuedPoster):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+
+    def __call__(self, callback) -> None:
+        self.calls += 1
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("poster failed")
+        self.callbacks.append(callback)
+
+
 class _FakeControl:
     def __init__(self) -> None:
         self.IsDisposed = False
@@ -232,6 +245,65 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         self.assertEqual(delivered, [terminal])
         self.assertEqual(mailbox.pending_count, 0)
         self.assertFalse(pump.wakeup_pending)
+
+    def test_owner_callback_post_failure_retries_exact_callback_once(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _CountedFailurePoster(1)
+        delivered: list[int] = []
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: None)
+        errors = _run_thread(
+            lambda: pump.post_owner_callback(
+                lambda: delivered.append(threading.get_ident())
+            )
+        )
+        self.assertEqual(errors, [])
+        self.assertTrue(pump.owner_callback_pending)
+        deadline = time.monotonic() + 1.0
+        while not poster.callbacks and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(poster.calls, 2)
+        self.assertEqual(pump.owner_post_failure_count, 1)
+        self.assertEqual(len(poster.callbacks), 1)
+        poster.callbacks.pop(0)()
+        self.assertEqual(delivered, [mailbox.ui_thread_id])
+        self.assertFalse(pump.owner_callback_pending)
+
+    def test_owner_callback_survives_failed_retry_and_owner_can_recover(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _CountedFailurePoster(2)
+        delivered = []
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: None)
+        with patch("acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS", 0.01):
+            errors = _run_thread(
+                lambda: pump.post_owner_callback(lambda: delivered.append("done"))
+            )
+            self.assertEqual(errors, [])
+            deadline = time.monotonic() + 1.0
+            while poster.calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+        self.assertEqual(poster.calls, 2)
+        self.assertEqual(poster.callbacks, [])
+        self.assertTrue(pump.owner_callback_pending)
+        self.assertEqual(pump.owner_post_failure_count, 2)
+        self.assertTrue(pump.request_pending_owner_callback())
+        self.assertEqual(delivered, ["done"])
+        self.assertFalse(pump.owner_callback_pending)
+
+    def test_close_cancels_scheduled_owner_callback_retry(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _CountedFailurePoster(1)
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: None)
+        with patch("acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS", 0.2):
+            self.assertEqual(
+                _run_thread(lambda: pump.post_owner_callback(lambda: None)), []
+            )
+            self.assertTrue(pump.owner_callback_pending)
+            pump.close()
+            time.sleep(0.25)
+        self.assertTrue(pump.closed)
+        self.assertFalse(pump.owner_callback_pending)
+        self.assertEqual(poster.calls, 1)
+        self.assertEqual(poster.callbacks, [])
 
     def test_close_cancels_scheduled_automatic_retry(self) -> None:
         mailbox = Version2ImportUiEventMailbox()

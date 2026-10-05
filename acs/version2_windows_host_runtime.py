@@ -125,7 +125,7 @@ class Version2WindowsFileWorkflowRuntime:
             event_sink=self._pump,
             next_delegate=self._export_delegate,
             current_focus_provider=current_focus_provider,
-            post_to_ui=self._poster,
+            post_to_ui=self._pump.post_owner_callback,
             owner_async_event_sink=self._pump.owner_async_event_sink,
         )
 
@@ -168,6 +168,7 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+        self._pump.request_pending_owner_callback()
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
@@ -183,7 +184,9 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 return False
-        return self._pump.request_pending_wakeup()
+        owner_recovered = self._pump.request_pending_owner_callback()
+        mailbox_recovered = self._pump.request_pending_wakeup()
+        return owner_recovered or mailbox_recovered
 
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join active file worker before closing the UI pump."""
