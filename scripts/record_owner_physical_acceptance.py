@@ -680,6 +680,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"OWNER_PHYSICAL_ACCEPTANCE_RESULT={value['result']}")
     print(f"OWNER_PHYSICAL_ACCEPTANCE_ZIP_SHA256={value['final_zip_sha256']}")
+    print(
+        "OWNER_PHYSICAL_ACCEPTANCE_RELEASE_RECEIPT_SHA256="
+        f"{value['release_receipt_sha256']}"
+    )
     print(f"HUMAN_TESTED={'YES' if value['human_tested'] else 'NO'}")
     print(f"NVDA_VERIFIED={'YES' if value['nvda_verified'] else 'NO'}")
     return 0
