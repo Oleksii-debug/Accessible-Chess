@@ -128,6 +128,44 @@ class PgnFileServiceTests(unittest.TestCase):
                 save_pgn_atomic(path, opened.games, overwrite=True, expected_sha256=opened.source.sha256)
             self.assertIn("Other editor", path.read_text(encoding="utf-8"))
 
+    def test_expected_hash_boundary_rejects_noncanonical_or_active_digest_before_mutation(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *')
+
+        class HostileDigest(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("digest equality hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("digest iteration hook must not execute")
+
+        invalid_values = (
+            HostileDigest("0" * 64),
+            True,
+            0,
+            "0" * 63,
+            "0" * 65,
+            "A" * 64,
+            "g" * 64,
+        )
+        for index, digest in enumerate(invalid_values):
+            with self.subTest(index=index, digest_type=type(digest).__name__):
+                with tempfile.TemporaryDirectory() as tmp:
+                    parent = Path(tmp) / "not-created"
+                    path = parent / "out.pgn"
+                    with self.assertRaises((TypeError, ValueError)):
+                        save_pgn_atomic(
+                            path,
+                            games,
+                            overwrite=True,
+                            expected_sha256=digest,  # type: ignore[arg-type]
+                        )
+                    self.assertFalse(parent.exists())
+        self.assertFalse(HostileDigest.touched)
+
     def test_expected_hash_preserves_writer_racing_at_replace_boundary(self):
         games = parse_games('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
