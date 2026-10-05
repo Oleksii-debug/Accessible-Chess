@@ -553,7 +553,7 @@ class Version2WindowsFileActionDelegate:
                 session = PgnDocumentSession.open(source_path)
                 view = session.view()
                 self._set_pgn_session(session)
-            except Exception:
+            except BaseException:
                 return self._failed(
                     "pgn.open", "pgn_open_failed", focus_target=previous_focus
                 )
@@ -894,7 +894,7 @@ class Version2WindowsFileActionDelegate:
                 return self._failed(
                     "pgn.save", error_code, focus_target=previous_focus
                 )
-            except Exception:
+            except BaseException:
                 return self._failed(
                     "pgn.save", "pgn_save_failed", focus_target=previous_focus
                 )
@@ -981,7 +981,7 @@ class Version2WindowsFileActionDelegate:
             try:
                 view = current.view()
                 expected_revision = current.document_revision
-            except Exception:
+            except BaseException:
                 return self._failed(
                     "pgn.save_as",
                     "pgn_save_as_failed",
@@ -1073,7 +1073,7 @@ class Version2WindowsFileActionDelegate:
                     error_code,
                     focus_target=previous_focus,
                 )
-            except Exception:
+            except BaseException:
                 return self._failed(
                     "pgn.save_as",
                     "pgn_save_as_failed",
