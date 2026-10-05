@@ -294,6 +294,24 @@ async function run() {
   check(!calls.some((item) => item[0] === "student.move" || item[0] === "board.input"), "pointer/hover/selection became a move");
   check(announcements.length === 3 && announcements[2] === "Selected e4", "hover flooded or selection failed to announce once");
 
+  for (const failedInvoke of [
+    function () { throw new Error("private backend failure"); },
+    function () { return Promise.reject(new Error("private backend failure")); }
+  ]) {
+    const failedRoot = new FakeElement("div");
+    const failureMessages = [];
+    window.AccessibleChessTeacherSurface.render(failedRoot, snapshot(null), failedInvoke,
+      (message) => failureMessages.push(message), "teacher-pointer-input", "Action failed");
+    const failedInput = failedRoot.querySelector("#teacher-pointer-input");
+    failedInput.value = "e4";
+    failedInput.listeners.input();
+    await flushPromises();
+    await flushPromises();
+    check(failureMessages.length === 1 && failureMessages[0] === "Action failed", "Teacher failure did not announce one safe result");
+    check(document.activeElement === failedInput, "failed pointer request lost editor focus");
+    check(failedRoot.querySelector("#teacher-square-e4").getAttribute("data-pointer") !== "true", "failed pointer request invented a result");
+  }
+
   console.log("Teacher canonical-piece/spatial-arrow/pointer/hover/selection DOM contract PASS");
 }
 

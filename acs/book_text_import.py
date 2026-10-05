@@ -111,7 +111,7 @@ def _source_text(source: object) -> tuple[str, bytes, bool]:
             decoded = decode_book_text_bytes(source)
         except LegacyTextEncodingError as exc:
             raise BookTextImportError(
-                "Text book source must use UTF-8 or qualified Windows-1251 encoding",
+                "Text book source must use UTF-8, BOM UTF-16 or qualified Windows-1251 encoding",
                 code=BookTextImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
         return decoded.text, source, decoded.legacy
@@ -682,7 +682,7 @@ def import_text_book(
     author: str | None = None,
     language: str | None = None,
 ) -> BookTextImportResult:
-    """Import UTF-8 or qualified Windows-1251 TXT/Markdown into ``BookDocument``.
+    """Import UTF-8, BOM UTF-16 or qualified Windows-1251 into ``BookDocument``.
 
     The adapter performs no filesystem or network access. Plain TXT is readable
     text only: it never guesses headings, games, FENs, or ASCII chess diagrams.
@@ -742,13 +742,13 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
     {
         "TXT": {
             "status": "SUPPORTED",
-            "encoding": "UTF-8; evidence-gated Windows-1251",
+            "encoding": "UTF-8; BOM-declared UTF-16; evidence-gated Windows-1251",
             "semantics": ("Paragraph",),
             "chess_inference": "NONE",
         },
         "Markdown": {
             "status": "PARTIAL",
-            "encoding": "UTF-8; evidence-gated Windows-1251",
+            "encoding": "UTF-8; BOM-declared UTF-16; evidence-gated Windows-1251",
             "semantics": (
                 "Heading",
                 "Paragraph",

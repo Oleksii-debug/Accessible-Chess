@@ -2143,6 +2143,7 @@ SUPPORTED_EPUB_BOOK_CAPABILITY = MappingProxyType(
             "explicit data-acs-fen positions/diagrams",
             "canonically accepted embedded PGN",
             "package-relative source anchors",
+            "BOM-declared UTF-16 spine text",
         ),
         "does_not_claim": (
             "DRM or encrypted spine bypass",
@@ -2154,7 +2155,6 @@ SUPPORTED_EPUB_BOOK_CAPABILITY = MappingProxyType(
             "audio/video playback",
             "Media Overlay playback/synchronization",
             "NCX navigation rendering",
-            "UTF-16 spine ingestion",
             "PDF/OCR",
         ),
     }

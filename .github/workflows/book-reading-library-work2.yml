@@ -33,6 +33,10 @@ on:
       - 'tests/test_chessbase_active_import_cancellation.py'
       - 'tests/test_chessbase_decoder.py'
       - 'tests/test_cbv_extractor.py'
+      - 'tests/test_v2_book_epub*.py'
+      - 'tests/test_epub_dc_metadata_identity.py'
+      - 'tests/test_legacy_book_utf16_integration.py'
+      - 'tests/test_legacy_text_encoding.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_version2_epub_application_reachability.py'
       - 'tests/test_v2_book_training_route_rollback.py'
@@ -69,6 +73,8 @@ jobs:
       - name: Book Library Board Training and persistence journeys
         shell: python
         run: |
+          import importlib
+          import inspect
           import unittest
           patterns = (
             'test_book_html_pgn_loss_accounting.py', 'test_pgn_board_start_authority.py',
@@ -95,10 +101,20 @@ jobs:
             'test_d04_cbv_windows_path_safety.py', 'test_d04_chessbase_integrity_handle_identity.py',
             'test_dev4_chessbase_integrity_atomicity.py', 'test_dev4_chessbase_symlink_security.py',
             'test_v2_chessbase_capability_manifest.py', 'test_v2_chessbase_chess960_capability_boundary.py',
+            'test_v2_book_epub_import.py', 'test_v2_book_epub_package_contract.py',
+            'test_epub_dc_metadata_identity.py',
+            'test_legacy_book_utf16_integration.py', 'test_legacy_text_encoding.py',
+            'test_education_webview_bridge.py', 'test_education_webview_projection.py',
+            'test_version2_classroom_orchestration_binding.py', 'test_full_product_education_keybindings.py',
+            'test_child_coaching_final_product_binding.py', 'test_p0g_final_product_runtime_reachability.py',
           )
           suite = unittest.TestSuite()
           for pattern in patterns:
             suite.addTests(unittest.defaultTestLoader.discover('tests', pattern=pattern))
+          composition = importlib.import_module('test_version2_final_product_composition')
+          for name, function in inspect.getmembers(composition, inspect.isfunction):
+            if name.startswith('test_') and not inspect.signature(function).parameters:
+              suite.addTest(unittest.FunctionTestCase(function))
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           raise SystemExit(not result.wasSuccessful())
       - name: Actual Books Training DOM focus and metadata behavior

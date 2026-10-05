@@ -194,7 +194,7 @@ def _source_text(source: object) -> tuple[str, bytes, bool]:
             decoded = decode_book_text_bytes(source, html=True)
         except LegacyTextEncodingError as exc:
             raise BookHtmlImportError(
-                "HTML book source must use UTF-8 or qualified Windows-1251 encoding",
+                "HTML book source must use UTF-8, BOM UTF-16 or qualified Windows-1251 encoding",
                 code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
         return decoded.text, source, decoded.legacy
@@ -1370,7 +1370,7 @@ def import_html_book(
     language: str | None = None,
     available_assets: object = None,
 ) -> BookHtmlImportResult:
-    """Import UTF-8 or qualified Windows-1251 HTML/XHTML into ``BookDocument``.
+    """Import UTF-8, BOM UTF-16 or qualified Windows-1251 into ``BookDocument``.
 
     Network/file access is deliberately outside this adapter.  A trusted host may
     provide a source byte string and, optionally, the names of assets it has
@@ -1509,7 +1509,7 @@ def import_html_book(
 SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
     {
         "format": "HTML/XHTML",
-        "encoding": "UTF-8; evidence-gated Windows-1251",
+        "encoding": "UTF-8; BOM-declared UTF-16; evidence-gated Windows-1251",
         "semantic_blocks": (
             "Heading",
             "Paragraph",
