@@ -495,6 +495,34 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         finally:
             database.close()
 
+    def test_invalid_zero_count_synchronous_result_is_bounded_failure(self) -> None:
+        database = AcsDatabase()
+        try:
+            service = _ZeroCountLibraryExportService(database)
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "invalid-sync-zero-result.pgn"
+                events: list[LibraryExportHostEvent] = []
+                delegate = Version2WindowsLibraryExportDelegate(
+                    dialogs=_Dialogs(destination),
+                    service=service,
+                    event_sink=events.append,
+                    next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                    current_focus_provider=lambda: "library-results",
+                )
+
+                result = delegate(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+
+                self.assertIs(result, events[-1])
+                self.assertEqual(result.kind, LibraryExportHostEventKind.FAILED)
+                self.assertEqual(result.error_code, "library_export_failed")
+                self.assertEqual(result.focus_target, "library-results")
+                self.assertFalse(destination.exists())
+        finally:
+            database.close()
+
     def test_invalid_zero_count_worker_result_fails_without_stranding_busy_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
