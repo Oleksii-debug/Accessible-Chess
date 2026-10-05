@@ -138,6 +138,36 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(reopened.kind, FileWorkflowEventKind.PGN_OPENED)
             self.assertFalse(delegate.pgn_open_running)
 
+    def test_import_worker_base_exception_publishes_failure_and_releases_slot(self) -> None:
+        class WorkerAbort(BaseException):
+            pass
+
+        class AbortingLibrary:
+            def import_games(self, *args, **kwargs):
+                raise WorkerAbort("provider abort")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "worker-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    AbortingLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            delegate("library.import", {})
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertFalse(delegate.import_running)
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
     def test_import_rejects_derived_worker_services_before_field_or_cleanup_hooks(self) -> None:
         touched = []
 
