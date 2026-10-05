@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from acs.gametree import parse_games, serialize_games
+import acs.pgn_service as pgn_service_module
 from acs.import_contract import ImportQuality
 from acs.pgn_service import (
     PgnConcurrentWriteError,
@@ -179,7 +180,7 @@ class PgnFileServiceTests(unittest.TestCase):
             path = Path(tmp) / "shared.pgn"
             path.write_text('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n', encoding="utf-8")
             opened = open_pgn(path)
-            real_replace = os.replace
+            real_replace = pgn_service_module._replace_published_path
 
             def racing_replace(src, dst):
                 Path(dst).write_text(
@@ -188,7 +189,7 @@ class PgnFileServiceTests(unittest.TestCase):
                 )
                 return real_replace(src, dst)
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+            with mock.patch("acs.pgn_service._replace_published_path", side_effect=racing_replace):
                 with self.assertRaises(PgnConcurrentWriteError):
                     save_pgn_atomic(
                         path,
@@ -202,7 +203,7 @@ class PgnFileServiceTests(unittest.TestCase):
         games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "new-shared.pgn"
-            real_link = os.link
+            real_link = pgn_service_module._publish_no_clobber
 
             def racing_link(src, dst, *args, **kwargs):
                 Path(dst).write_text(
@@ -211,7 +212,7 @@ class PgnFileServiceTests(unittest.TestCase):
                 )
                 return real_link(src, dst, *args, **kwargs)
 
-            with mock.patch("acs.pgn_service.os.link", side_effect=racing_link):
+            with mock.patch("acs.pgn_service._publish_no_clobber", side_effect=racing_link):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(path, games, overwrite=False)
             self.assertIn("Created by another writer", path.read_text(encoding="utf-8"))
