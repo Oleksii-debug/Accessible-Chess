@@ -55,6 +55,48 @@ def _require_private_regular(info: os.stat_result, label: str) -> None:
         raise OSError(f"{label} must be one private regular file")
 
 
+def _read_exact_private_file(
+    path: Path,
+    *,
+    expected: os.stat_result,
+    max_bytes: int,
+    label: str,
+) -> bytes:
+    """Read one bounded private inode and reject pathname substitution."""
+    _require_private_regular(expected, label)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        _require_private_regular(opened, label)
+        if not _same_file_identity(expected, opened):
+            raise OSError(f"{label} changed before it could be read")
+
+        remaining = max_bytes + 1
+        chunks: list[bytes] = []
+        while remaining:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        encoded = b"".join(chunks)
+
+        after_descriptor = os.fstat(descriptor)
+        after_path = path.lstat()
+        _require_private_regular(after_descriptor, label)
+        _require_private_regular(after_path, label)
+        if not _same_file_identity(opened, after_descriptor) or not _same_file_identity(
+            opened, after_path
+        ):
+            raise OSError(f"{label} changed while it was being read")
+        return encoded
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _fsync_directory(path: Path) -> None:
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     try:
@@ -345,11 +387,21 @@ class UsageStatisticsStore:
     def load(self, installation_id: str) -> UsageStatisticsSnapshot:
         normalized = normalize_installation_id(installation_id)
         self.recovered_invalid_data = False
-        if not self.path.exists():
-            return UsageStatisticsSnapshot(normalized)
         try:
-            with self.path.open("rb") as handle:
-                encoded = handle.read(_MAX_STATS_FILE_BYTES + 1)
+            expected = self.path.lstat()
+        except FileNotFoundError:
+            return UsageStatisticsSnapshot(normalized)
+        except OSError:
+            self.recovered_invalid_data = True
+            return UsageStatisticsSnapshot(normalized)
+
+        try:
+            encoded = _read_exact_private_file(
+                self.path,
+                expected=expected,
+                max_bytes=_MAX_STATS_FILE_BYTES,
+                label="statistics file",
+            )
             if len(encoded) > _MAX_STATS_FILE_BYTES:
                 raise ValueError("statistics payload exceeds the supported size")
             raw = json.loads(
@@ -362,7 +414,14 @@ class UsageStatisticsStore:
             if snapshot.installation_id != normalized:
                 raise ValueError("statistics belong to another installation")
             return snapshot
-        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            TypeError,
+            ValueError,
+        ):
             self.recovered_invalid_data = True
             return UsageStatisticsSnapshot(normalized)
 
