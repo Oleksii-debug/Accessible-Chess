@@ -191,8 +191,49 @@ class FullProductWebViewAdapter:
         tag_name: str,
         content_editable: bool = False,
     ) -> bool:
-        tag = str(tag_name or "").strip().lower()
-        return bool(content_editable) or tag in _EDITABLE_TAGS
+        # Browser KeyboardEvent/DOM metadata is passive JSON-like data. Reject
+        # active Python values before truthiness, len/strip/lower or iteration
+        # can execute provider-defined hooks.
+        if type(tag_name) is not str:
+            raise TypeError("keyboard target tag must be text")
+        if len(tag_name) > 32 or "\x00" in tag_name:
+            raise ValueError("keyboard target tag is invalid")
+        if type(content_editable) is not bool:
+            raise TypeError("content-editable flag must be boolean")
+        tag = tag_name.strip().lower()
+        return content_editable or tag in _EDITABLE_TAGS
+
+    @staticmethod
+    def _keyboard_ingress(
+        *,
+        key: object,
+        modifiers: object,
+        tag_name: object,
+        content_editable: object,
+    ) -> tuple[str, tuple[str, ...], bool]:
+        if type(key) is not str:
+            raise TypeError("keyboard key must be text")
+        if not key or len(key) > 64 or "\x00" in key:
+            raise ValueError("keyboard key is invalid")
+        if type(modifiers) not in (list, tuple):
+            raise TypeError("keyboard modifiers must be a list or tuple")
+        if len(modifiers) > 8:
+            raise ValueError("too many keyboard modifiers")
+        normalized_modifiers: list[str] = []
+        for item in modifiers:
+            if type(item) is not str:
+                raise TypeError("keyboard modifiers must contain text")
+            if not item or len(item) > 16 or "\x00" in item:
+                raise ValueError("keyboard modifier is invalid")
+            token = item.strip().lower()
+            if not token:
+                raise ValueError("keyboard modifier is invalid")
+            normalized_modifiers.append(token)
+        editable = FullProductWebViewAdapter.is_editable_target(
+            tag_name=tag_name,
+            content_editable=content_editable,
+        )
+        return key, tuple(normalized_modifiers), editable
 
     def keydown_policy(
         self,
@@ -202,13 +243,28 @@ class FullProductWebViewAdapter:
         tag_name: str = "",
         content_editable: bool = False,
     ) -> WebViewCommand:
-        editable = self.is_editable_target(
-            tag_name=tag_name,
-            content_editable=content_editable,
-        )
+        try:
+            safe_key, safe_modifiers, editable = self._keyboard_ingress(
+                key=key,
+                modifiers=modifiers,
+                tag_name=tag_name,
+                content_editable=content_editable,
+            )
+        except (TypeError, ValueError):
+            # Malformed browser metadata must never cause the application to
+            # steal a keystroke. Treat the uncertain target as editable and let
+            # the browser/native control own the event.
+            return WebViewCommand(
+                "keydown-policy",
+                {
+                    "global_keymap": False,
+                    "prevent_default": False,
+                    "editable": True,
+                },
+            )
         handle = should_global_keymap_handle(
-            key=key,
-            modifiers=modifiers,
+            key=safe_key,
+            modifiers=safe_modifiers,
             editable=editable,
         )
         return WebViewCommand(
