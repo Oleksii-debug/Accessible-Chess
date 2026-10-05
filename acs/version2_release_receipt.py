@@ -358,7 +358,7 @@ def verify_version2_release_receipt(
 
 
 def _remove_private_staging_file(path: Path) -> None:
-    """Best-effort cleanup for a private staging pathname only."""
+    """Best-effort cleanup for this invocation's private staging pathname."""
 
     try:
         path.unlink()
@@ -377,9 +377,9 @@ def write_version2_release_receipt(
     The canonical output pathname is never used as the mutable staging file.
     A private sibling is fully written and fsynced first; publication then uses
     one hard-link create, which is atomic and refuses to replace an existing
-    destination. This removes the check-then-unlink race from failed-create
-    recovery: failures before publication can only leave a private staging
-    pathname, never partial canonical release evidence.
+    destination. The staged file handle remains open through publication so the
+    canonical pathname is verified against the exact fsynced filesystem object,
+    not merely against a pathname that could have been replaced in between.
     """
 
     if not isinstance(receipt, Version2ReleaseReceipt):
@@ -393,7 +393,7 @@ def write_version2_release_receipt(
     parent = path.parent
     staging: Path | None = None
     fd: int | None = None
-    published = False
+    cleanup_staging = True
 
     try:
         try:
@@ -416,16 +416,64 @@ def write_version2_release_receipt(
                     raise Version2ReleaseReceiptError(
                         "release receipt staging file must be a regular non-reparse file"
                     )
+
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-                after_write = os.fstat(handle.fileno())
+
+                staged = os.fstat(handle.fileno())
                 if (
-                    not _same_file_identity(created, after_write)
-                    or int(after_write.st_size) != len(payload_bytes)
+                    not _same_file_identity(created, staged)
+                    or int(staged.st_size) != len(payload_bytes)
                 ):
                     raise Version2ReleaseReceiptError(
                         "release receipt staging file changed while being written"
+                    )
+
+                staged_path_before_link = _safe_receipt_lstat(staging)
+                if (
+                    not stat.S_ISREG(staged_path_before_link.st_mode)
+                    or _is_reparse(staged_path_before_link)
+                    or not _same_file_snapshot(staged, staged_path_before_link)
+                ):
+                    cleanup_staging = False
+                    raise Version2ReleaseReceiptError(
+                        "release receipt staging pathname changed before publication"
+                    )
+
+                try:
+                    os.link(staging, path, follow_symlinks=False)
+                except FileExistsError as exc:
+                    raise Version2ReleaseReceiptError(
+                        "release receipt already exists; overwrite is forbidden"
+                    ) from exc
+                except OSError as exc:
+                    raise Version2ReleaseReceiptError(
+                        "release receipt filesystem does not support safe atomic no-replace "
+                        f"publication: {type(exc).__name__}"
+                    ) from exc
+
+                after_link_handle = os.fstat(handle.fileno())
+                current_staging = _safe_receipt_lstat(staging)
+                published_info = _safe_receipt_lstat(path)
+                staging_still_owned = bool(
+                    stat.S_ISREG(current_staging.st_mode)
+                    and not _is_reparse(current_staging)
+                    and _same_file_snapshot(after_link_handle, current_staging)
+                )
+                if not staging_still_owned:
+                    cleanup_staging = False
+
+                if (
+                    not _same_file_snapshot(staged, after_link_handle)
+                    or not staging_still_owned
+                    or not stat.S_ISREG(published_info.st_mode)
+                    or _is_reparse(published_info)
+                    or not _same_file_snapshot(after_link_handle, published_info)
+                    or int(published_info.st_size) != len(payload_bytes)
+                ):
+                    raise Version2ReleaseReceiptError(
+                        "release receipt changed during atomic publication"
                     )
         except Version2ReleaseReceiptError:
             raise
@@ -433,44 +481,14 @@ def write_version2_release_receipt(
             raise Version2ReleaseReceiptError(
                 f"release receipt could not be written: {type(exc).__name__}"
             ) from exc
-
-        try:
-            os.link(staging, path, follow_symlinks=False)
-            published = True
-        except FileExistsError as exc:
-            raise Version2ReleaseReceiptError(
-                "release receipt already exists; overwrite is forbidden"
-            ) from exc
-        except OSError as exc:
-            raise Version2ReleaseReceiptError(
-                "release receipt filesystem does not support safe atomic no-replace "
-                f"publication: {type(exc).__name__}"
-            ) from exc
-
-        staged_info = _safe_receipt_lstat(staging)
-        published_info = _safe_receipt_lstat(path)
-        if (
-            not stat.S_ISREG(staged_info.st_mode)
-            or not stat.S_ISREG(published_info.st_mode)
-            or _is_reparse(staged_info)
-            or _is_reparse(published_info)
-            or not _same_file_snapshot(staged_info, published_info)
-            or int(published_info.st_size) != len(payload_bytes)
-        ):
-            raise Version2ReleaseReceiptError(
-                "release receipt changed during atomic publication"
-            )
     finally:
         if fd is not None:
             try:
                 os.close(fd)
             except OSError:
                 pass
-        if staging is not None:
+        if staging is not None and cleanup_staging:
             _remove_private_staging_file(staging)
-
-    if not published:
-        raise Version2ReleaseReceiptError("release receipt publication did not complete")
 
 
 def _parser() -> argparse.ArgumentParser:
