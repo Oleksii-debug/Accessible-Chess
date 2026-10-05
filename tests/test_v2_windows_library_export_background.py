@@ -12,7 +12,10 @@ from acs.full_product_ui_shell import UILanguage
 from acs.keybindings import BindingContext
 from acs.library_export_service import (
     LibraryExportCancelledError,
+    LibraryExportError,
     LibraryExportRequest,
+    LibraryExportResult,
+    LibraryExportScope,
     LibraryExportService,
 )
 from acs.library_export_workspace import build_library_export_webview
@@ -70,6 +73,14 @@ class _BlockingLibraryExportService(LibraryExportService):
         return super().expected_destination_sha256(
             destination,
             cancel_check=cancel_check,
+        )
+
+
+class _ZeroCountLibraryExportService(LibraryExportService):
+    def export_to(self, destination, request, *, expected_sha256=None, cancel_check=None):
+        return LibraryExportResult(
+            game_count=0,
+            destination_fingerprint=SimpleNamespace(),
         )
 
 
@@ -141,6 +152,61 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
                 self.assertGreaterEqual(polls, 3)
         finally:
             database.close()
+
+    def test_direct_empty_selected_request_fails_before_any_file_write(self) -> None:
+        database = AcsDatabase()
+        try:
+            service = LibraryExportService(database)
+            request = LibraryExportRequest(
+                scope=LibraryExportScope.SELECTED,
+                game_ids=(),
+            )
+            with tempfile.TemporaryDirectory() as directory:
+                destination = Path(directory) / "must-not-exist.pgn"
+                with self.assertRaisesRegex(
+                    LibraryExportError,
+                    "selected Library export contains no games",
+                ):
+                    service.export_to(destination, request)
+                self.assertFalse(destination.exists())
+                self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+        finally:
+            database.close()
+
+    def test_invalid_zero_count_worker_result_fails_without_stranding_busy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "invalid-zero-result.pgn"
+            events: list = []
+            posted: list = []
+
+            def worker_factory() -> LibraryExportWorkerServices:
+                database = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    _ZeroCountLibraryExportService(database),
+                    database.close,
+                )
+
+            delegate, _ = self._delegate(
+                destination,
+                worker_factory,
+                events,
+                posted,
+            )
+            started = delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertTrue(delegate.export_running)
+            self.assertEqual(len(posted), 1)
+
+            posted.pop()()
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_export_failed")
+            self.assertFalse(destination.exists())
 
     def test_cancel_at_prepublication_gate_leaves_no_output_or_temp_file(self) -> None:
         database = AcsDatabase()
