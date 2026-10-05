@@ -45,6 +45,16 @@ from .pgn_roundtrip import (
 from .game_identity import GameIdentityContractError, identity_for_game
 
 
+# A bounded provider can expose parser-derived diagnostics in addition to source
+# tokens. D06 emits at most token-/tag-correlated warnings plus a small number of
+# whole-game consistency diagnostics, so retain explicit headroom without making
+# the external Library port an unbounded diagnostic channel.
+MAX_BOOK_PROVIDER_WARNINGS = (
+    MAX_PGN_LEXICAL_TOKENS + MAX_PGN_TAGS_PER_GAME + 16
+)
+MAX_BOOK_PROVIDER_WARNING_TEXT_CHARS = MAX_PGN_TEXT_CHARS * 2
+
+
 class BookGameContentErrorCode(str, Enum):
     INVALID_BLOCK = "invalid_block"
     AMBIGUOUS_SOURCE = "ambiguous_source"
@@ -189,7 +199,7 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
             raise ValueError(f"{field} exceeds the canonical PGN field limit")
         if diagnostic:
             warning_chars += length
-            if warning_chars > MAX_PGN_TEXT_CHARS:
+            if warning_chars > MAX_BOOK_PROVIDER_WARNING_TEXT_CHARS:
                 raise ValueError(
                     "canonical provider warnings exceed the PGN text resource limit"
                 )
@@ -230,13 +240,16 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
         raise TypeError("game source_index must be a non-negative exact integer")
     if type(game.warnings) is not list:
         raise TypeError("game warnings must be a built-in list of exact text")
-    if len(game.warnings) > MAX_PGN_LEXICAL_TOKENS:
+    if len(game.warnings) > MAX_BOOK_PROVIDER_WARNINGS:
         raise ValueError("canonical provider game contains too many warnings")
     for warning in game.warnings:
         charge_text(
             warning,
             field="game warning",
-            limit=MAX_PGN_COMMENT_CHARS,
+            # Recovery warnings may quote one complete bounded source field plus
+            # explanatory text, so bound them by the whole-source scalar ceiling
+            # and the separate aggregate diagnostic budget above.
+            limit=MAX_PGN_TEXT_CHARS,
             diagnostic=True,
         )
 
