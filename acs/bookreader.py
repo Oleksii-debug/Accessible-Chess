@@ -451,7 +451,7 @@ class BookReader:
             location = self._location_after_verified()
             self._require_indexed_revision()
             return location
-        except Exception:
+        except BaseException:
             # Preserve the original final live-revision barrier without paying
             # for additional whole-document hashes through nested helper calls.
             if had_previous:
