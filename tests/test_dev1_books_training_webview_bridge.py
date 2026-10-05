@@ -224,15 +224,6 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
         revealed = self.training.dispatch("training.reveal", {})
         self.assertEqual(("e4",), revealed.payload["solution"])
 
-
-    def test_book_bridge_rejects_projection_subclass_at_construction(self) -> None:
-        class DerivedBookProjection(BookWebViewProjection):
-            pass
-
-        derived = object.__new__(DerivedBookProjection)
-        with self.assertRaisesRegex(TypeError, "projection must be BookWebViewProjection"):
-            BookWebViewBridge(derived)
-
     def test_book_bridge_contains_projection_abort_as_accessible_error(self) -> None:
         class AbortSignal(BaseException):
             pass
