@@ -6,7 +6,7 @@ accept worker-thread calls; their exact D07 DTOs never enter a browser payload.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import hashlib
 import hmac
 import json
@@ -24,11 +24,12 @@ from .book_progress_store import (
     BookProgressStoreError,
     BookProgressStoreErrorCode,
 )
+from .bookdocument import BookDocument
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .input_limits import MAX_FEN_CHARS
-from .import_contract import read_source_snapshot
+from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
@@ -50,6 +51,19 @@ from .version2_windows_library_import_observer import Version2ObservedImportServ
 
 class _BookBrowserLeaseRejected(ValueError):
     """Rendered Books presentation no longer owns canonical Book intent."""
+
+
+class BookOpenCancelled(RuntimeError):
+    """Trusted Book Open preparation was cancelled before UI publication."""
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedBookOpen:
+    """Immutable semantic result prepared without touching application UI state."""
+
+    book_key: str
+    document: BookDocument
+    warnings: tuple[str, ...]
 
 
 class Version2Application:
@@ -335,14 +349,34 @@ class Version2Application:
         self.pgn_board_active = False
         self._focus = route_focus
 
-    def open_book(self, source: Path):
-        self._assert_thread()
-        # Domain/native Book Open can bypass shell route dispatch. Reject it
-        # before any reader/progress mutation while a modal owns keyboard focus.
-        if self.shell.active_dialog_id is not None:
-            raise ValueError("close the active dialog before opening a book")
-        if self.book_workflow is not None and self.book_workflow.active:
-            raise ValueError("return to the book before opening another source")
+    @staticmethod
+    def prepare_book_open(
+        source: Path,
+        *,
+        cancel_check=None,
+    ) -> PreparedBookOpen:
+        """Read and semantically import one Book without touching live UI state.
+
+        This phase is safe to run outside the application UI thread. It uses the
+        canonical stable-source reader and each format owner\'s existing control
+        checkpoint seam so cancellation is observed during source read/import.
+        """
+
+        if not isinstance(source, Path):
+            raise TypeError("Book source must be a Path")
+        if cancel_check is not None and not callable(cancel_check):
+            raise TypeError("Book Open cancel_check must be callable")
+
+        def checkpoint() -> None:
+            if cancel_check is None:
+                return
+            cancelled = cancel_check()
+            if type(cancelled) is not bool:
+                raise TypeError("Book Open cancel_check must return bool")
+            if cancelled:
+                raise BookOpenCancelled("Book Open preparation cancelled")
+
+        checkpoint()
         suffix = source.suffix.casefold()
         if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
             raise ValueError("unsupported book source")
@@ -352,51 +386,98 @@ class Version2Application:
             limit = MAX_HTML_SOURCE_BYTES
         else:
             limit = MAX_TEXT_SOURCE_BYTES
-        # Book Open and Library must bind the same stable read-only source
-        # authority. A normal path open can follow a reparse point or publish
-        # mixed bytes from a concurrently modified book under a durable key.
-        _, raw = read_source_snapshot(source, max_bytes=limit)
+
+        try:
+            _, raw = read_source_snapshot(
+                source,
+                max_bytes=limit,
+                cancel_check=(None if cancel_check is None else cancel_check),
+            )
+        except SourceReadCancelledError:
+            raise BookOpenCancelled("Book Open preparation cancelled") from None
+        checkpoint()
+        safe_name = report_safe_name(source)
         if suffix == ".epub":
-            imported = import_epub_book(raw, source_name=report_safe_name(source))
+            imported = import_epub_book(
+                raw,
+                source_name=safe_name,
+                control_checkpoint=checkpoint,
+            )
         elif suffix in {".html", ".htm", ".xhtml"}:
-            imported = import_html_book(raw, source_name=report_safe_name(source), available_assets=())
+            imported = import_html_book(
+                raw,
+                source_name=safe_name,
+                available_assets=(),
+                control_checkpoint=checkpoint,
+            )
         else:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
-            imported = import_text_book(raw, source_name=report_safe_name(source), source_format=kind)
-        # Persist the old durable state before staging a replacement.
+            imported = import_text_book(
+                raw,
+                source_name=safe_name,
+                source_format=kind,
+                control_checkpoint=checkpoint,
+            )
+        checkpoint()
+        return PreparedBookOpen(
+            book_key=imported.book_key,
+            document=imported.document,
+            warnings=tuple(imported.warnings),
+        )
+
+    def _assert_book_open_allowed(self) -> None:
+        """Reject Book owner replacement before source I/O or UI publication."""
+
+        self._assert_thread()
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before opening a book")
+        if self.book_workflow is not None and self.book_workflow.active:
+            raise ValueError("return to the book before opening another source")
+
+    def commit_prepared_book_open(self, prepared: PreparedBookOpen) -> int:
+        """Transactionally publish one already-prepared Book on the UI thread."""
+
+        self._assert_book_open_allowed()
+        if type(prepared) is not PreparedBookOpen:
+            raise TypeError("prepared Book Open result is invalid")
+
         self.save_training_progress()
         self.save_book_progress()
-        reader = self.progress_store.restore(imported.book_key, imported.document) if self.progress_store.has(imported.book_key) else BookReader(imported.document)
-        workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
-        delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
-        bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
-        # Rendering is part of accepting an external Book source. Validate the
-        # exact initial projection while every published application owner still
-        # points at the previous Book. This matches bundled starter-content
-        # staging and prevents a malformed/unrenderable import from creating new
-        # durable progress for a Book the user never actually saw open.
+        reader = (
+            self.progress_store.restore(prepared.book_key, prepared.document)
+            if self.progress_store.has(prepared.book_key)
+            else BookReader(prepared.document)
+        )
+        workflow = BookBoardWorkflow(
+            reader,
+            self.engine_assistance,
+            game_lookup=AcsdbBookGameLookup(self.database),
+        )
+        delegate = Version2WindowsBookBoardActionDelegate(
+            workflow,
+            event_sink=self._book_event,
+            next_delegate=self._board_dispatch,
+        )
+        bridge = build_version2_book_webview(
+            reader,
+            workflow,
+            self.router.dispatch,
+            language=self.shell.language,
+        )
         bridge.projection.snapshot()
-        # Do not publish either durable candidate progress or the staged
-        # reader/workflow until shell route ownership has accepted Books. This is
-        # the same transaction boundary used for Board ownership: a hidden or
-        # rejected Book open must not leave an on-disk entry for a source the
-        # user never actually acquired.
+
         origin_route = self.shell.current_route.route_id
         try:
             route_focus = self.shell.open_route("books")
             try:
-                self._persist_book_progress(imported.book_key, reader)
+                self._persist_book_progress(prepared.book_key, reader)
             except BookProgressStoreError as error:
                 if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
                     raise
-                # Atomic replacement already succeeded before this code can be
-                # reported. Storage, not the speculative caller, decides whether
-                # rollback is safe: accept the staged owner only when the current
-                # canonical primary rereads as the exact staged snapshot.
                 try:
                     canonical = self.progress_store.restore_primary(
-                        imported.book_key,
-                        imported.document,
+                        prepared.book_key,
+                        prepared.document,
                     )
                     canonical_matches = canonical.snapshot() == reader.snapshot()
                 except Exception:
@@ -404,16 +485,13 @@ class Version2Application:
                 if not canonical_matches:
                     raise error
         except Exception:
-            # Version2ShellState.open_route() writes its route before restoring
-            # focus. Persistence is also fallible after route acquisition. In
-            # either case recover the previously published route/owner; owner
-            # fields are still untouched at this point.
             if self.shell.current_route.route_id != origin_route:
                 self._focus = self.shell.open_route(origin_route)
             raise
+
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (
             reader,
-            imported.book_key,
+            prepared.book_key,
             workflow,
             delegate,
             bridge,
@@ -421,19 +499,27 @@ class Version2Application:
         self.training_workspace = self.training = None
         self._focus = route_focus
         self._repair_book_block_focus_after_rebind()
-        warning_count = len(imported.warnings)
+        warning_count = len(prepared.warnings)
         if warning_count:
             announcement = (
                 f"Книгу відкрито з попередженнями імпорту: {warning_count}."
                 if self.shell.language is UILanguage.UA
                 else f"Book opened with import warnings: {warning_count}."
             )
-            # Importer diagnostics remain trusted-host data. Publish only the
-            # bounded count through the existing path-free status event.
             self._events.append(
                 {"kind": "status", "payload": {"announcement": announcement}}
             )
         return warning_count
+
+    def open_book(self, source: Path):
+        """Compatibility wrapper preserving current synchronous Book Open."""
+
+        # Preserve the historical fail-before-read authority fence for direct
+        # callers. The commit repeats it because a future background preparation
+        # can race with a modal or Book-Board owner becoming active.
+        self._assert_book_open_allowed()
+        prepared = self.prepare_book_open(source)
+        return self.commit_prepared_book_open(prepared)
 
     def _persist_book_progress(self, book_key, reader):
         """Publish Book progress, offering only explicit bounded backup rollback."""
