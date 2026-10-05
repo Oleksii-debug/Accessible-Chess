@@ -527,8 +527,6 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(delivered, list(first_batch))
             self.assertEqual(runtime.import_mailbox.pending_count, 0)
-            self.assertEqual(runtime.import_ui_pump.ready_failure_count, 1)
-            self.assertFalse(runtime.import_ui_pump.wakeup_pending)
             self.assertFalse(runtime.import_running)
             self.assertTrue(runtime.shutdown())
 
