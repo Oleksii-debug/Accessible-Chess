@@ -778,18 +778,33 @@ class Version2WindowsFileActionDelegate:
                         error_code="pgn_session_unavailable",
                     )
                 else:
-                    stale = live_session is not expected_session
-                    if (
-                        not stale
-                        and expected_session is not None
-                        and expected_revision is not None
-                        and expected_session.document_revision != expected_revision
-                    ):
+                    try:
+                        stale = live_session is not expected_session
+                        if not stale and expected_session is not None:
+                            if (
+                                type(expected_revision) is not int
+                                or expected_revision < 0
+                            ):
+                                raise TypeError(
+                                    "PGN Open expected revision is invalid"
+                                )
+                            live_revision = expected_session.document_revision
+                            stale = live_revision != expected_revision
+                        elif not stale and expected_revision is not None:
+                            raise TypeError(
+                                "PGN Open unexpected revision without session"
+                            )
+                    except BaseException:
+                        _LOG.warning(
+                            "Version 2 PGN Open stale-generation check failed",
+                            exc_info=True,
+                        )
                         stale = True
                     if stale:
-                        # The user changed or replaced the document while bounded
-                        # parsing/materialization was in flight. Preserve that newer
-                        # authority and discard the prepared replacement.
+                        # The user changed, replaced, or invalidated the document
+                        # while bounded parsing/materialization was in flight.
+                        # Preserve that newer/uncertain authority and discard the
+                        # prepared replacement.
                         terminal = FileWorkflowEvent(
                             FileWorkflowEventKind.FAILED,
                             "pgn.open",
