@@ -125,7 +125,7 @@ def _read_member(archive: ZipFile, info: ZipInfo, *, maximum: int) -> bytes:
 
 
 def _parse_xml(payload: bytes, *, label: str) -> ET.Element:
-    lowered = payload.lower()
+    lowered = payload.lower().replace(b"\x00", b"")
     if b"<!doctype" in lowered or b"<!entity" in lowered:
         _fail(f"{label} contains forbidden XML declarations")
     try:
