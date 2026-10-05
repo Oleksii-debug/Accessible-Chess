@@ -734,6 +734,11 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
             event_count = len(async_events)
 
+            reopened = PgnDocumentSession.open(source)
+            self.assertIn("Durable before shutdown", reopened.copy_pgn())
+            self.assertFalse(reopened.dirty)
+            self.assertEqual(reopened.source, session.source)
+
             poster.drain()
             self.assertEqual(len(async_events), event_count)
 
