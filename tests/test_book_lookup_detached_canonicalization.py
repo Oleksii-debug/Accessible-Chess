@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+from acs import book_game_content
 from acs.book_game_content import (
     BookGameContentError,
     BookGameContentErrorCode,
@@ -109,6 +111,113 @@ class BookLookupDetachedCanonicalizationTests(unittest.TestCase):
             BookGameContentErrorCode.INVALID_CANONICAL_GAME,
         )
         self.assertFalse(HostileText.touched)
+
+    def test_provider_warning_count_is_bounded_before_warning_iteration(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(moves=[MoveNode("e4")]),
+            warnings=["warning one", "warning two"],
+        )
+        with patch.object(book_game_content, "MAX_PGN_LEXICAL_TOKENS", 1):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=31), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_tag_count_is_bounded_before_tag_iteration(self) -> None:
+        source = PgnGame(
+            tags={"Event": "One", "Site": "Two"},
+            line=VariationLine(moves=[MoveNode("e4")]),
+        )
+        with patch.object(book_game_content, "MAX_PGN_TAGS_PER_GAME", 1):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=32), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_comment_text_is_bounded_before_serializer_scan(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        comments_after=[Comment("xxxxx")],
+                    )
+                ]
+            ),
+        )
+        with patch.object(book_game_content, "MAX_PGN_COMMENT_CHARS", 4):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=33), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_token_text_is_bounded_before_serializer_grammar(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(moves=[MoveNode("Nf3")]),
+        )
+        with patch.object(book_game_content, "MAX_PGN_TOKEN_CHARS", 2):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=34), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_aggregate_lexical_items_are_bounded_across_lists(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(
+                leading_comments=[Comment("one")],
+                moves=[
+                    MoveNode(
+                        "e4",
+                        comments_after=[Comment("two")],
+                    )
+                ],
+            ),
+        )
+        with patch.object(book_game_content, "MAX_PGN_LEXICAL_TOKENS", 1):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=35), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
+
+    def test_provider_content_text_has_one_aggregate_d06_budget(self) -> None:
+        source = PgnGame(
+            tags={},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        comments_after=[Comment("abcd")],
+                    )
+                ],
+            ),
+        )
+        with patch.object(book_game_content, "MAX_PGN_TEXT_CHARS", 5):
+            with self.assertRaises(BookGameContentError) as caught:
+                resolve_book_game(Game(game_id=36), lookup=_Lookup(source))
+
+        self.assertEqual(
+            caught.exception.code,
+            BookGameContentErrorCode.INVALID_CANONICAL_GAME,
+        )
 
     def test_exact_graph_is_detached_and_preserves_provider_metadata(self) -> None:
         source = parse_games(PGN)[0]
