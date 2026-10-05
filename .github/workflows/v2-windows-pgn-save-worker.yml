@@ -74,6 +74,7 @@ jobs:
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_import_event_mailbox.py"
             "tests/test_v2_windows_host_runtime.py"
+            "tests/test_v2_windows_nvda_file_workflows.py"
             "tests/test_v2_windows_pgn_open_invalid_session.py"
             "tests/test_v2_windows_pgn_open_worker.py"
             "tests/test_v2_windows_pgn_save_worker.py"
@@ -109,6 +110,7 @@ jobs:
           tests/test_v2_windows_pgn_open_worker.py
           tests/test_v2_windows_import_event_mailbox.py
           tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_nvda_file_workflows.py
           tests/test_version2_application.py
           tests/test_full_product_native_menu.py
 
@@ -125,6 +127,7 @@ jobs:
           tests.test_v2_windows_import_event_mailbox
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_nvda_file_workflows
           tests.test_version2_application
           tests.test_full_product_native_menu
 
