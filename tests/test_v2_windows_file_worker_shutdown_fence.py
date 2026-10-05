@@ -584,6 +584,24 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "library_import_failed")
 
+    def test_worker_services_constructor_rejects_derived_dto_before_field_hooks(self) -> None:
+        touched = []
+
+        class HostileServices(Version2ImportWorkerServices):
+            def __getattribute__(self, name):
+                if name in {"library", "chessbase", "close"}:
+                    touched.append(name)
+                    raise AssertionError("derived service field hook must not execute")
+                return super().__getattribute__(name)
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^worker service bundle must be an exact passive DTO$",
+        ):
+            HostileServices(_UnusedLibrary(), None, lambda: None)
+
+        self.assertEqual(touched, [])
+
     def test_import_rejects_derived_worker_services_before_field_or_cleanup_hooks(self) -> None:
         touched = []
 
