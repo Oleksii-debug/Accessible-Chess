@@ -31,6 +31,8 @@ on:
       - 'acs/version2_education_mutation_application.py'
       - 'web/full_product_books_training.js'
       - 'tests/test_book*.py'
+      - 'tests/test_v2_book_html*.py'
+      - 'tests/test_v2_html_semantic_lists.py'
       - 'tests/test_markdown_library_journey.py'
       - 'tests/test_education_create_resume_journey.py'
       - 'tests/test_version2_education*.py'
@@ -106,6 +108,8 @@ jobs:
             'test_bookdocument_identity_bounds_current.py', 'test_bookdocument_scalar_bounds_current.py',
             'test_bookdocument_total_text_budget_current.py', 'test_v2_book_game_content.py',
             'test_v2_book_library_game_lookup.py',
+            'test_v2_book_html_import.py', 'test_v2_book_html_head_metadata_semantics.py',
+            'test_book_html_inline_image_order.py', 'test_v2_html_semantic_lists.py',
             'test_education_create_resume_journey.py', 'test_version2_education_class_create.py',
             'test_version2_education_open_selected.py', 'test_version2_teacher_session_runtime_binding.py',
             'test_teacher_webview_bridge.py', 'test_dev1_teacher_webview_projection.py',
