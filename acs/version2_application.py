@@ -2105,6 +2105,10 @@ class Version2Application:
                 "Попередній імпорт ще завершується. Повторіть дію після завершення.",
                 "The previous import is still finishing. Retry after it completes.",
             ),
+            "import_worker_unavailable": (
+                "Не вдалося запустити фоновий імпорт. Бібліотеку не змінено. Повторіть імпорт.",
+                "Background import could not be started. The Library was not changed. Retry the import.",
+            ),
             "no_import_running": (
                 "Імпорт уже завершився або не був розпочатий.",
                 "The import has finished or has not started.",
@@ -2112,6 +2116,10 @@ class Version2Application:
             "file_worker_busy": (
                 "Інша файлова операція ще виконується. Завершіть або скасуйте її та повторіть дію.",
                 "Another file operation is still running. Finish or cancel it, then retry.",
+            ),
+            "file_dialog_failed": (
+                "Не вдалося відкрити системне вікно вибору файла. Файлова операція не розпочалася. Повторіть дію.",
+                "The system file picker could not be opened. The file operation was not started. Retry the action.",
             ),
             "file_workflow_closed": (
                 "Файлові операції вже завершуються.",
@@ -2121,6 +2129,14 @@ class Version2Application:
                 "Поточний PGN-документ має некоректний внутрішній стан. Файлову операцію зупинено без зміни документа або файла. Перезапустіть програму, відкрийте PGN заново та повторіть дію.",
                 "The current PGN document has an invalid internal state. The file operation was stopped without changing the document or file. Restart the application, reopen the PGN, and retry.",
             ),
+            "pgn_session_unavailable": (
+                "Не вдалося безпечно отримати поточний PGN. Файлову операцію зупинено без зміни документа або файла. Перезапустіть програму та повторіть дію.",
+                "The current PGN could not be accessed safely. The file operation was stopped without changing the document or file. Restart the application and retry.",
+            ),
+            "no_pgn_document": (
+                "Немає відкритого PGN для збереження. Відкрийте або створіть PGN і повторіть дію.",
+                "There is no open PGN to save. Open or create a PGN and retry.",
+            ),
             "no_pgn_open_running": (
                 "Фонове відкриття PGN уже завершилося або не було розпочате.",
                 "Background PGN opening has finished or has not started.",
@@ -2128,6 +2144,10 @@ class Version2Application:
             "pgn_open_stale": (
                 "PGN не замінено, бо поточний документ змінився під час відкриття. Повторіть дію за потреби.",
                 "The PGN was not replaced because the current document changed while opening. Retry if needed.",
+            ),
+            "pgn_open_failed": (
+                "Не вдалося відкрити вибраний PGN. Поточний документ не змінено. Перевірте файл і повторіть дію.",
+                "The selected PGN could not be opened. The current document was not changed. Check the file and retry.",
             ),
             "pgn_open_worker_unavailable": (
                 "Не вдалося запустити фонове відкриття PGN.",
