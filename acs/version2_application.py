@@ -54,6 +54,38 @@ from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEven
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
 
+class _BoundedApplicationEventQueue(deque):
+    """Bounded event FIFO that records actual truncation, not mere fullness."""
+
+    def __init__(self, *, maxlen: int) -> None:
+        if type(maxlen) is not int or maxlen <= 0:
+            raise ValueError("event queue maxlen must be a positive integer")
+        super().__init__(maxlen=maxlen)
+        self.overflowed = False
+
+    def append(self, value) -> None:
+        if self.maxlen is not None and len(self) >= self.maxlen:
+            self.overflowed = True
+        super().append(value)
+
+    def appendleft(self, value) -> None:
+        if self.maxlen is not None and len(self) >= self.maxlen:
+            self.overflowed = True
+        super().appendleft(value)
+
+    def extend(self, values) -> None:
+        for value in values:
+            self.append(value)
+
+    def extendleft(self, values) -> None:
+        for value in values:
+            self.appendleft(value)
+
+    def clear(self) -> None:
+        super().clear()
+        self.overflowed = False
+
+
 class _BookBrowserLeaseRejected(ValueError):
     """Rendered Books presentation no longer owns canonical Book intent."""
 
@@ -137,7 +169,7 @@ class Version2Application:
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
-        self._events = deque(maxlen=64)
+        self._events = _BoundedApplicationEventQueue(maxlen=64)
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
@@ -2063,16 +2095,13 @@ class Version2Application:
             # either committed or rolled back; applying an event to the
             # unpublished DOM would create a second presentation authority.
             return ()
-        if (
-            self._events.maxlen is not None
-            and len(self._events) >= self._events.maxlen
-        ):
-            # deque(maxlen=64) silently discards the oldest item on the 65th
-            # append, so a full queue cannot prove that all causal presentation
-            # events are still present. Never publish a potentially truncated
-            # sequence as authoritative. One route event asks the browser to
-            # re-read the canonical snapshot, recovering route, Library/export,
-            # Training, PGN and focus state without inventing lost event order.
+        if self._events.overflowed:
+            # The bounded queue records the exact moment an append evicts an
+            # older causal event. Never publish that truncated sequence as
+            # authoritative. One route event asks the browser to re-read the
+            # canonical snapshot, recovering route, Library/export, Training,
+            # PGN and focus state without inventing lost event order. A merely
+            # full 64-event queue with no eviction is still delivered intact.
             self._events.clear()
             return (
                 {
