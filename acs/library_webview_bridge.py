@@ -208,5 +208,5 @@ class LibraryWebViewBridge:
                     raise ValueError("invalid language")
                 return self._projection.set_language(language)
             raise ValueError("unsupported library browser command")
-        except Exception:
+        except BaseException:
             return self._error()
