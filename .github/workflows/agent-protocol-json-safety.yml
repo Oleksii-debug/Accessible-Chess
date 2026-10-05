@@ -1,0 +1,85 @@
+name: Agent Protocol JSON Safety
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+    paths:
+      - acs/universal_chess_agent.py
+      - tests/test_agent_protocol_json_safety.py
+      - .github/workflows/agent-protocol-json-safety.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-protocol-json-safety-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  exact-protocol-boundary:
+    name: Exact protocol boundary (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove live parent, exact head and bounded scope
+        shell: bash
+        env:
+          PINNED_BASE: e2aa2402e19f793a7f0fa1c0876ca57a0df62178
+          BASE_BRANCH: work/media-agent-crossrepo-intake-20261005
+          EXPECTED_SOURCE_BLOB: 1190dd7e39a88692f3de5dfcba92c698913e711c
+          EXPECTED_TEST_BLOB: 816f35f3baca039115d8d9db33adb3d9bb1d31bf
+        run: |
+          set -euo pipefail
+          CANDIDATE="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/protocol-base"
+          test "$(git rev-parse refs/remotes/origin/protocol-base)" = "$PINNED_BASE"
+          test "$(git merge-base "$PINNED_BASE" "$CANDIDATE")" = "$PINNED_BASE"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/origin/protocol-live-head"
+            test "$(git rev-parse refs/remotes/origin/protocol-live-head)" = "$CANDIDATE"
+          fi
+
+          mapfile -t changed < <(git diff --name-only "$PINNED_BASE"..."$CANDIDATE" | LC_ALL=C sort)
+          expected=(
+            ".github/workflows/agent-protocol-json-safety.yml"
+            "acs/universal_chess_agent.py"
+            "tests/test_agent_protocol_json_safety.py"
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${changed[$i]}" = "${expected[$i]}"
+          done
+          test "$(git hash-object acs/universal_chess_agent.py)" = "$EXPECTED_SOURCE_BLOB"
+          test "$(git hash-object tests/test_agent_protocol_json_safety.py)" = "$EXPECTED_TEST_BLOB"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile protocol boundary
+        run: >-
+          python -m py_compile
+          acs/universal_chess_agent.py
+          tests/test_agent_protocol_json_safety.py
+          tests/test_universal_chess_agent_crossrepo.py
+
+      - name: Run focused malformed-response regressions
+        run: python -m unittest discover -s tests -p "test_agent_protocol_json_safety.py" -v
+
+      - name: Run retained runtime integration regressions
+        run: python -m unittest discover -s tests -p "test_crossrepo_runtime_integration.py" -v
