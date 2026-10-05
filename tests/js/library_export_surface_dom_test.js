@@ -476,8 +476,32 @@ function snapshot(checked) {
   staleCheckbox.listeners.change({});
   await new Promise((resolve) => setImmediate(resolve));
   check(staleCalls.length === 1, "stale-response setup did not enter host");
-  const retainedCheckbox = staleRoot.querySelector("#library-game-0123456789abcdefabcd-export");
   window.AccessibleChessLibrarySurface.deactivate(staleRoot);
+
+  // A fresh Library incarnation must not wait behind the detached unresolved
+  // command. It gets a new epoch/queue immediately.
+  const reentryCalls = [];
+  const reentryInvoke = (command, payload) => {
+    reentryCalls.push([command, Object.assign({}, payload)]);
+    return Promise.resolve(null);
+  };
+  window.AccessibleChessLibrarySurface.render(
+    staleRoot,
+    snapshot(false),
+    reentryInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const reentryFiltered = staleRoot.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === "library.export_filtered");
+  reentryFiltered.listeners.click({});
+  await new Promise((resolve) => setImmediate(resolve));
+  check(
+    reentryCalls.length === 1 && reentryCalls[0][0] === "library.export_filtered",
+    "fresh Library re-entry remained blocked behind detached stale command"
+  );
+  const retainedCheckbox = staleRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+
   resolveStale({
     kind: "render",
     payload: {
@@ -490,11 +514,11 @@ function snapshot(checked) {
   await new Promise((resolve) => setImmediate(resolve));
   check(
     staleRoot.querySelector("#library-game-0123456789abcdefabcd-export") === retainedCheckbox,
-    "late Library response repainted a surface after route deactivation"
+    "late Library response repainted the fresh surface after route re-entry"
   );
   check(
     staleRoot.__accessibleChessLibrarySnapshot.export_selection_count === 0,
-    "late Library response replaced canonical browser snapshot after deactivation"
+    "late Library response replaced fresh canonical browser snapshot after re-entry"
   );
 
   console.log("Library export checkbox DOM contract PASS");
