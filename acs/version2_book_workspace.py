@@ -742,12 +742,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if valid_source_language:
                 snapshot["block"]["content_language"] = source_language
         board_active, workflow_revision = self._workflow_presentation_state()
-        can_open_position = isinstance(
-            semantic,
-            (Position, Diagram, Exercise, VariationTree),
-        )
-        can_open_game = isinstance(semantic, Game)
-        if isinstance(semantic, (Game, VariationTree)):
+        semantic_type = type(semantic)
+        can_open_position = semantic_type in {
+            Position,
+            Diagram,
+            Exercise,
+            VariationTree,
+        }
+        can_open_game = semantic_type is Game
+        if semantic_type in {Game, VariationTree}:
             recovery_warning_count = 0
             try:
                 semantic_tree = self._semantic_tree_snapshot(block.index)
@@ -764,7 +767,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     raise _BookSemanticProjectionError(
                         "semantic recovery warning count is invalid"
                     )
-                expected_kind = "game" if isinstance(semantic, Game) else "variation"
+                expected_kind = "game" if semantic_type is Game else "variation"
                 if semantic_tree.get("kind") != expected_kind:
                     raise _BookSemanticProjectionError(
                         "semantic GameTree mode disagrees with the Book block"
@@ -779,7 +782,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     raise
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["content_unavailable"]
-                if isinstance(semantic, Game):
+                if semantic_type is Game:
                     can_open_game = False
                 else:
                     can_open_position = False

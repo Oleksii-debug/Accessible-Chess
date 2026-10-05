@@ -176,6 +176,50 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
         self.assertFalse(workflow.active)
         self.assertEqual(workflow.revision, 0)
 
+    def test_book_workspace_rejects_semantic_subclass_for_board_enablement(self) -> None:
+        class HostilePosition(Position):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name == "fen":
+                    type(self).touched = True
+                    raise AssertionError("semantic subclass field hook must not execute")
+                return super().__getattribute__(name)
+
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: None,
+        )
+        block = projection._presenter.current()
+        hostile = HostilePosition(fen=Board.START, block_id="hostile")
+        HostilePosition.armed = True
+
+        with patch.object(
+            BookReader,
+            "block_reading_snapshot",
+            return_value=(hostile, "Engine authority", None, None),
+        ):
+            snapshot = projection._snapshot_from_block(block)
+
+        open_action = next(
+            action
+            for action in snapshot["actions"]
+            if action["command"] == "book.open_position"
+        )
+        self.assertFalse(open_action["enabled"])
+        self.assertFalse(HostilePosition.touched)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+
     def test_book_workspace_contains_semantic_dispatch_base_exception(self) -> None:
         class DispatchAbort(BaseException):
             pass
