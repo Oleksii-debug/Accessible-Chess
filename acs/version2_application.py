@@ -1897,8 +1897,14 @@ class Version2Application:
         book_snapshot = None if self.books is None else self.books.projection.snapshot()
         if book_snapshot is not None:
             book_snapshot = self._lease_book_snapshot(book_snapshot)
+        pending_shell_publication_token = (
+            self._pending_shell_publication[0]
+            if self._pending_shell_publication is not None
+            else 0
+        )
         return {
             **self.adapter.snapshot(),
+            "shell_publication_token": pending_shell_publication_token,
             "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
             "books": book_snapshot,
