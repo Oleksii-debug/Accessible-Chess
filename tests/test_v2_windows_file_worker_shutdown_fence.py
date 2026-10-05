@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -87,6 +88,48 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 [FileWorkflowEventKind.IMPORT_STARTED, FileWorkflowEventKind.FAILED],
             )
             self.assertFalse(delegate.import_running)
+
+    def test_import_cleanup_base_exception_releases_shared_worker_slot(self) -> None:
+        class CleanupAbort(BaseException):
+            pass
+
+        class SuccessfulLibrary:
+            def import_games(self, *args, **kwargs):
+                return SimpleNamespace(game_count=1, warning_count=0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "import-cleanup-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            cleanup_calls = []
+
+            def cleanup() -> None:
+                cleanup_calls.append("close")
+                raise CleanupAbort("secondary cleanup failure")
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    SuccessfulLibrary(), None, cleanup
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=None,
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertEqual(cleanup_calls, ["close"])
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+            self.assertFalse(delegate.import_running)
+
+            reopened = delegate("pgn.open", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertFalse(delegate.pgn_open_running)
 
     def test_pgn_open_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
