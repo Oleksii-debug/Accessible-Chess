@@ -100,7 +100,9 @@ class FileWorkflowEvent:
     retained_book_blocks: int = 0
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, FileWorkflowEventKind):
+        if type(self) is not FileWorkflowEvent:
+            raise TypeError("file workflow event must be an exact passive DTO")
+        if type(self.kind) is not FileWorkflowEventKind:
             raise TypeError("file workflow event kind is invalid")
         for name in ("action_id", "focus_target", "error_code", "source_format"):
             if type(getattr(self, name)) is not str:
