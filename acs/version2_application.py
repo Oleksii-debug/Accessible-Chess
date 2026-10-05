@@ -1702,6 +1702,11 @@ class Version2Application:
                     ):
                         return pending[3]
                     raise ValueError("shell publication acknowledgement is pending")
+                if (
+                    self.shell.current_route.route_id != "library"
+                    or self.shell.active_dialog_id is not None
+                ):
+                    raise ValueError("Library game open requires the visible Library")
                 if self._shell_publication_sequence >= 9007199254740990:
                     raise RuntimeError("shell publication sequence exhausted")
 
