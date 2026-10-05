@@ -2063,6 +2063,23 @@ class Version2Application:
             # either committed or rolled back; applying an event to the
             # unpublished DOM would create a second presentation authority.
             return ()
+        if (
+            self._events.maxlen is not None
+            and len(self._events) >= self._events.maxlen
+        ):
+            # deque(maxlen=64) silently discards the oldest item on the 65th
+            # append, so a full queue cannot prove that all causal presentation
+            # events are still present. Never publish a potentially truncated
+            # sequence as authoritative. One route event asks the browser to
+            # re-read the canonical snapshot, recovering route, Library/export,
+            # Training, PGN and focus state without inventing lost event order.
+            self._events.clear()
+            return (
+                {
+                    "kind": "route",
+                    "payload": {"route_id": self.shell.current_route.route_id},
+                },
+            )
         events = tuple(self._events)
         self._events.clear()
         return events
