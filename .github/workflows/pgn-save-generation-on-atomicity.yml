@@ -71,6 +71,7 @@ jobs:
             ".github/workflows/pgn-save-generation-on-atomicity.yml"
             "acs/pgn_save_snapshot.py"
             "tests/test_pgn_save_snapshot.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
