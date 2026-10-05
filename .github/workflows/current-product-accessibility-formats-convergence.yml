@@ -87,6 +87,7 @@ jobs:
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PRODUCT_BASE: bf418985e9e20dc3491db7e229a33052a399e1a6
           DIAGNOSTIC_HELP: 7baaaa5f6b90987b60b08595808b5ab2808141d4
@@ -102,10 +103,13 @@ jobs:
           MERGED_BOOKS_RUNTIME_BLOB: a269a5771c87bb39837b0d78247fbe938da794c9
           SEMANTIC_BOOKS_DOM_BLOB: a1ce64e2ded06518f0e0c9f5e623bf78a8de1855
           TOOLBAR_CONVERGENCE_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
-          LEGACY_SHIPPING_BASE: integration/current-product-main-candidate-20261004-c2mbezb
+          CURRENT_SHIPPING_BASE: integration/current-product-main-candidate-20261004-c2mbezb
+          CURRENT_SHIPPING_BASE_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75
           ACTIVE_SHIPPING_BRANCH: integrate/current-product-to-shipping-20261005-sol56f8k2
-          LEGACY_PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
-          LEGACY_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          CURRENT_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
+          CURRENT_PRODUCT_SHA: 0c18ee1baa5bec8c9d75656597723bd94785df25
+          PRODUCT_SHIPPING_MERGE: a22b06f4331a786f5df5f8f8182c24a48ac995be
+          PRIOR_SHIPPING_HEAD: e77b8f1ee2b2a4e46e990c6117b348f8004880d1
           EXPANDED_PRODUCT_BRANCH: converge/current-product-books-formats-20261005-c2mbezb
           EXPANDED_MARKER: 211d985c3f0c780516d76ff13e650b521183e2f7
           EXPANDED_BOOK_BLOB: 9bc1594f1f5141dfa843f54755e670f392ba926d
@@ -170,7 +174,49 @@ jobs:
             'web/full_product_pgn.js' \
             'web/index.html' | sort)"
 
-          if git cat-file -e "$EXPANDED_MARKER^{commit}" 2>/dev/null && git merge-base --is-ancestor "$EXPANDED_MARKER" HEAD; then
+          if [ "${EVENT_BASE_REF:-}" = "$CURRENT_SHIPPING_BASE" ]; then
+            git fetch --no-tags origin "+refs/heads/$CURRENT_SHIPPING_BASE:refs/remotes/origin/$CURRENT_SHIPPING_BASE"
+            live_shipping="$(git rev-parse "refs/remotes/origin/$CURRENT_SHIPPING_BASE")"
+            test "$live_shipping" = "$CURRENT_SHIPPING_BASE_SHA"
+            if [ -n "${EVENT_BASE_SHA:-}" ]; then
+              test "$EVENT_BASE_SHA" = "$live_shipping"
+            fi
+
+            git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"
+            live_current_product="$(git rev-parse "refs/remotes/origin/$CURRENT_PRODUCT_BRANCH")"
+            test "$live_current_product" = "$CURRENT_PRODUCT_SHA"
+            git merge-base --is-ancestor "$live_current_product" HEAD
+            test "$(git merge-base "$live_shipping" "$live_current_product")" = "$live_shipping"
+            git merge-base --is-ancestor "$PRODUCT_SHIPPING_MERGE" HEAD
+            test "$(git show -s --format=%P "$PRODUCT_SHIPPING_MERGE")" = "$PRIOR_SHIPPING_HEAD $CURRENT_PRODUCT_SHA"
+            git diff --check "$live_shipping"...HEAD
+
+            product_paths="$(git diff --name-only "$live_shipping"..."$live_current_product" | sort)"
+            product_count="$(printf '%s\n' "$product_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
+            test "$product_count" -eq 199
+
+            extra="$(git diff --name-only "$live_current_product"...HEAD | sort)"
+            expected_extra="$(printf '%s\n' \
+              '.github/workflows/current-product-accessibility-formats-convergence.yml' \
+              "$MANIFEST_SOURCE_GATE" \
+              "$PORTABLE_GATE" \
+              "$SHIPPING_GATE" \
+              "$SHIPPING_TEST" | sort)"
+            test "$extra" = "$expected_extra" || {
+              printf 'Unexpected shipping qualification delta in accessibility/formats gate.\n%s\n' "$extra" >&2
+              exit 1
+            }
+
+            candidate_paths="$(git diff --name-only "$live_shipping"...HEAD | sort)"
+            expected_candidate="$(printf '%s\n%s\n' "$product_paths" "$SHIPPING_GATE" "$SHIPPING_TEST" | sed '/^$/d' | sort -u)"
+            test "$candidate_paths" = "$expected_candidate" || {
+              printf 'Unexpected current shipping candidate scope in accessibility/formats gate.\n%s\n' "$candidate_paths" >&2
+              exit 1
+            }
+            candidate_count="$(printf '%s\n' "$candidate_paths" | sed '/^$/d' | wc -l | tr -d ' ')"
+            test "$candidate_count" -eq 201
+            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
+          elif git cat-file -e "$EXPANDED_MARKER^{commit}" 2>/dev/null && git merge-base --is-ancestor "$EXPANDED_MARKER" HEAD; then
             git merge-base --is-ancestor "$KEYMAP_SOURCE" HEAD
             git merge-base --is-ancestor "$BOOKS_SOURCE" HEAD
             test "$(git rev-parse HEAD:acs/book_game_content.py)" = "$EXPANDED_BOOK_BLOB"
@@ -188,30 +234,6 @@ jobs:
             fi
 
             echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=EXPANDED_PRODUCT'
-          elif [ "${EVENT_BASE_REF:-}" = "$LEGACY_SHIPPING_BASE" ]; then
-            git fetch --no-tags origin "+refs/heads/$LEGACY_PRODUCT_BRANCH:refs/remotes/origin/$LEGACY_PRODUCT_BRANCH"
-            live_current_product="$(git rev-parse "refs/remotes/origin/$LEGACY_PRODUCT_BRANCH")"
-            test "$live_current_product" = "$LEGACY_PRODUCT_SHA"
-            git merge-base --is-ancestor "$live_current_product" HEAD
-
-            product_scope="$(git diff --name-only "$PRODUCT_BASE"..."$live_current_product" | sort)"
-            test "$product_scope" = "$expected_paths" || {
-              printf 'Pinned Product no longer has the reviewed accessibility/formats scope.\n%s\n' "$product_scope" >&2
-              exit 1
-            }
-
-            extra="$(git diff --name-only "$live_current_product"...HEAD | sort)"
-            expected_extra="$(printf '%s\n' \
-              '.github/workflows/current-product-accessibility-formats-convergence.yml' \
-              "$MANIFEST_SOURCE_GATE" \
-              "$PORTABLE_GATE" \
-              "$SHIPPING_GATE" \
-              "$SHIPPING_TEST" | sort)"
-            test "$extra" = "$expected_extra" || {
-              printf 'Unexpected shipping qualification delta in accessibility/formats gate.\n%s\n' "$extra" >&2
-              exit 1
-            }
-            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=LEGACY_SHIPPING'
           else
             changed="$(git diff --name-only "$PRODUCT_BASE"...HEAD | sort)"
             if [ "$changed" = "$expected_paths" ]; then
