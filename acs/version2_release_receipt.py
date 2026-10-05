@@ -316,21 +316,38 @@ def write_version2_release_receipt(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate a Version 2 package ZIP and write an attributable release receipt."
+        description="Create or verify an attributable Accessible Chess Version 2 release receipt."
     )
-    parser.add_argument("--package", required=True)
-    parser.add_argument("--expected-integration-sha", required=True)
-    parser.add_argument("--workflow-run-id", required=True, type=int)
-    parser.add_argument("--workflow-run-attempt", required=True, type=int)
-    parser.add_argument("--qualification-head-sha", required=True)
-    parser.add_argument("--artifact-id", required=True, type=int)
-    parser.add_argument("--artifact-name", required=True)
-    parser.add_argument("--output", required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    create = commands.add_parser(
+        "create",
+        help="validate a Version 2 package ZIP and write an immutable receipt",
+    )
+    create.add_argument("--package", required=True)
+    create.add_argument("--expected-integration-sha", required=True)
+    create.add_argument("--workflow-run-id", required=True, type=int)
+    create.add_argument("--workflow-run-attempt", required=True, type=int)
+    create.add_argument("--qualification-head-sha", required=True)
+    create.add_argument("--artifact-id", required=True, type=int)
+    create.add_argument("--artifact-name", required=True)
+    create.add_argument("--output", required=True)
+
+    verify = commands.add_parser(
+        "verify",
+        help="revalidate package bytes against an existing immutable receipt",
+    )
+    verify.add_argument("--package", required=True)
+    verify.add_argument("--receipt", required=True)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "verify":
+        verify_version2_release_receipt(args.receipt, args.package)
+        return 0
+
     receipt = build_version2_release_receipt(
         args.package,
         expected_integration_sha=args.expected_integration_sha,
