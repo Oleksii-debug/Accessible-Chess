@@ -208,6 +208,24 @@ function snapshot(checked) {
     "independent Library render did not restore toolbar action focus"
   );
 
+  const disabledActionSnapshot = snapshot(false);
+  disabledActionSnapshot.actions = disabledActionSnapshot.actions.map((action) =>
+    action.action === "library.export_filtered"
+      ? Object.assign({}, action, { enabled: false })
+      : action
+  );
+  window.AccessibleChessLibrarySurface.render(
+    root,
+    disabledActionSnapshot,
+    invoke,
+    announce,
+    "library-export-filtered"
+  );
+  check(
+    document.activeElement === root.querySelector("#library-search-player"),
+    "disabled Library toolbar focus target did not fall back to stable search"
+  );
+
   const beforePartialRenderCalls = root.replaceChildrenCalls;
   const focusedBeforeBusy = document.activeElement;
   window.AccessibleChessLibrarySurface.apply(root, {
