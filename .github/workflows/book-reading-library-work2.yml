@@ -10,6 +10,9 @@ on:
       - 'acs/teacher_webview_bridge.py'
       - 'acs/teacher_webview_projection.py'
       - 'acs/student_progress_store.py'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/chessbase_library_import.py'
+      - 'acs/cbv_extractor.py'
       - 'web/full_product_teacher.js'
       - 'acs/version2_final_product_application.py'
       - 'acs/version2_education_mutation_application.py'
@@ -27,6 +30,9 @@ on:
       - 'tests/test_dev3_student_progress*.py'
       - 'tests/test_student_progress*.py'
       - 'tests/test_version2_student_progress_context_binding.py'
+      - 'tests/test_chessbase_active_import_cancellation.py'
+      - 'tests/test_chessbase_decoder.py'
+      - 'tests/test_cbv_extractor.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_version2_epub_application_reachability.py'
       - 'tests/test_v2_book_training_route_rollback.py'
@@ -84,6 +90,11 @@ jobs:
             'test_dev3_student_progress.py', 'test_dev3_student_progress_store.py',
             'test_student_progress_store_safety.py', 'test_student_progress_final_product_binding.py',
             'test_version2_student_progress_context_binding.py',
+            'test_chessbase_active_import_cancellation.py', 'test_chessbase_decoder.py',
+            'test_cbv_extractor.py', 'test_chessbase_adapter.py', 'test_chessbase_integrity.py',
+            'test_d04_cbv_windows_path_safety.py', 'test_d04_chessbase_integrity_handle_identity.py',
+            'test_dev4_chessbase_integrity_atomicity.py', 'test_dev4_chessbase_symlink_security.py',
+            'test_v2_chessbase_capability_manifest.py', 'test_v2_chessbase_chess960_capability_boundary.py',
           )
           suite = unittest.TestSuite()
           for pattern in patterns:
