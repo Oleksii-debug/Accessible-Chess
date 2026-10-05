@@ -825,6 +825,28 @@ async function clickRoute(routeId) {
     "late Library export terminal announcement was lost while preserving newer focus"
   );
 
+  const newerLibraryNavigationFocus = documentRef.getElementById("v2-nav-library");
+  check(newerLibraryNavigationFocus !== null, "Library navigation focus target missing");
+  newerLibraryNavigationFocus.focus();
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed after navigation focus moved.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === newerLibraryNavigationFocus,
+    "late Library export terminal event stole newer navigation focus"
+  );
+  check(
+    live.textContent === "Export completed after navigation focus moved.",
+    "terminal announcement was lost while preserving newer navigation focus"
+  );
+
   live.focus();
   eventQueue = [{
     kind: "error",
