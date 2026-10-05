@@ -4,11 +4,14 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from acs.acsdb import AcsDatabase
+from acs.chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
@@ -528,9 +531,18 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
                         progress(LibraryImportProgress(9, 0, 2))
                         progress(LibraryImportProgress(9, 1, 2))
                         progress(LibraryImportProgress(9, 2, 2))
-                        return SimpleNamespace(
-                            library_result=LibraryImportResult(9, 1, 2, 0, 10, 11),
-                            warning_count=0,
+                        return ChessBaseLibraryImportReport(
+                            status=ChessBaseLibraryImportStatus.IMPORTED,
+                            source_name="private-source" + suffix,
+                            source_sha256="a" * 64,
+                            backend_name="test-backend",
+                            backend_commit="b" * 40,
+                            decoded_game_count=2,
+                            warnings=(),
+                            library_result=LibraryImportResult(
+                                9, 1, 2, 0, 10, 11
+                            ),
+                            source_format=suffix.lstrip("."),
                         )
 
                 def services_factory():
