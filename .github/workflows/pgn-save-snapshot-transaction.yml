@@ -34,6 +34,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Prove exact current Product ancestry and bounded scope
+        if: github.head_ref == 'work/pgn-save-snapshot-commit-20261005-sol56k4r9' || github.ref_name == 'work/pgn-save-snapshot-commit-20261005-sol56k4r9'
         shell: bash
         run: |
           set -euo pipefail
@@ -72,15 +73,18 @@ jobs:
           python -m py_compile
           acs/import_contract.py
           acs/pgn_save_snapshot.py
+          acs/pgn_workspace.py
           tests/test_import_contract.py
           tests/test_pgn_save_snapshot.py
           tests/test_pgn_save_snapshot_cancel.py
+          tests/test_pgn_workspace.py
 
       - name: Execute snapshot transaction regressions
         run: >-
           python -m unittest -v
           tests.test_pgn_save_snapshot
           tests.test_pgn_save_snapshot_cancel
+          tests.test_pgn_workspace
 
       - name: Retain canonical PGN and fingerprint regressions
         run: >-
