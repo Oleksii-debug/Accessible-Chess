@@ -590,6 +590,15 @@ jobs:
           if($launchedChildPath -ne $childPath){
             throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PATH_MISMATCH'
           }
+          # The packaged WebView HTTP listener may serve only this machine.
+          $listeners=@(Get-NetTCPConnection -OwningProcess $reportedChildPid -State Listen -ErrorAction SilentlyContinue)
+          if($listeners.Count -lt 1){throw 'OWNER_ROOT_WEBVIEW_LOOPBACK_LISTENER_MISSING'}
+          foreach($listener in $listeners){
+            if($listener.LocalAddress -notin @('127.0.0.1','::1')){
+              throw "OWNER_ROOT_NON_LOOPBACK_LISTENER address=$($listener.LocalAddress)"
+            }
+          }
+          Write-Host 'OWNER_ROOT_LOOPBACK_ONLY=PASS'
           $launchedChild.Refresh()
           if(-not $launchedChild.CloseMainWindow()){throw 'OWNER_ROOT_WINDOW_CLEAN_CLOSE_REQUEST_FAILED'}
           if(-not $launchedChild.WaitForExit(15000)){throw 'OWNER_ROOT_WINDOW_CLEAN_CLOSE_TIMEOUT'}
