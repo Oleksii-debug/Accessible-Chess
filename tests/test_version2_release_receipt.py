@@ -215,12 +215,13 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 verify_version2_release_receipt(output, archive)
 
-    def test_cli_writes_the_same_qualified_receipt(self):
+    def test_cli_create_and_verify_same_qualified_receipt(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
             output = Path(td) / "receipt.json"
-            result = main(
+            create_result = main(
                 [
+                    "create",
                     "--package",
                     str(archive),
                     "--expected-integration-sha",
@@ -239,13 +240,24 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     str(output),
                 ]
             )
-            self.assertEqual(result, 0)
+            self.assertEqual(create_result, 0)
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(payload["repository"], REPOSITORY_FULL_NAME)
             self.assertEqual(payload["workflow_run_id"], 37139145605)
             self.assertEqual(payload["workflow_run_attempt"], 1)
             self.assertEqual(payload["artifact_id"], 11282014673)
             self.assertEqual(payload["qualification_head_sha"], _HEAD_SHA)
+
+            verify_result = main(
+                [
+                    "verify",
+                    "--package",
+                    str(archive),
+                    "--receipt",
+                    str(output),
+                ]
+            )
+            self.assertEqual(verify_result, 0)
             self.assertEqual(
                 verify_version2_release_receipt(output, archive),
                 read_version2_release_receipt(output),
