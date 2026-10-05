@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import PropertyMock, patch
 
 from acs.analysis_service import AnalysisService
 from acs.book_board_workflow import BookBoardWorkflow
@@ -259,6 +260,44 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
             )
         )
         self.assertFalse(ActiveActionId.touched)
+
+    def test_book_workspace_rejects_event_when_workflow_revision_drifts_during_validation(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=7,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        with patch.object(
+            BookBoardWorkflow,
+            "revision",
+            new_callable=PropertyMock,
+            side_effect=(7, 8),
+        ), patch.object(
+            BookBoardWorkflow,
+            "active",
+            new_callable=PropertyMock,
+            return_value=True,
+        ):
+            self.assertFalse(
+                projection._workflow_action(
+                    "book.open_position",
+                    BookBoardUiEventKind.BOARD_OPENED,
+                )
+            )
 
     def test_book_workspace_accepts_exact_router_result_with_exact_ui_event(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
