@@ -49,7 +49,7 @@ on:
         required: true
         type: string
       sound_archive_sha256:
-        description: SHA-256 of the exact authorized 330-WAV source archive already bound into W4
+        description: SHA-256 of the exact owner sound archive already bound into W4; final release separately enforces the current owner sound-count authority
         required: true
         type: string
 
@@ -63,6 +63,7 @@ concurrency:
 
 env:
   RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
+  OWNER_REQUIRED_SOUND_WAV_COUNT: '332'
 
 jobs:
   finalize:
@@ -102,6 +103,24 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
+
+      - name: Enforce current owner sound release authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import os
+          from scripts.build_user_sound_pack import EXPECTED_SOURCE_WAV_COUNT
+
+          required = int(os.environ["OWNER_REQUIRED_SOUND_WAV_COUNT"])
+          if EXPECTED_SOURCE_WAV_COUNT != required:
+              raise SystemExit(
+                  f"OWNER_FINAL_SOUND_AUTHORITY_NOT_READY "
+                  f"current={EXPECTED_SOURCE_WAV_COUNT} required={required}"
+              )
+          print("OWNER_FINAL_SOUND_AUTHORITY_READY=PASS")
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'OWNER_FINAL_SOUND_AUTHORITY_NOT_READY'}
 
       - name: Bind explicit owner inputs and exact product identity
         shell: pwsh
