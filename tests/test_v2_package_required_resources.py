@@ -191,11 +191,37 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
         for relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES:
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
                 root = self._package(td)
-                root.joinpath(*relative.split("/")).write_bytes(_minimal_windows_pe())
+                machine = (
+                    0x014C
+                    if relative in preflight._REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                    else 0x8664
+                )
+                root.joinpath(*relative.split("/")).write_bytes(
+                    _minimal_windows_pe(machine=machine)
+                )
                 _write_checksums(root)
                 with self.assertRaisesRegex(
                     Version2PackagePreflightError,
                     "managed CLR assembly",
+                ):
+                    _validate_tree(root)
+
+    def test_preflight_rejects_wrong_machine_for_managed_runtime(self):
+        for relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES:
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                root = self._package(td)
+                machine = (
+                    0x8664
+                    if relative in preflight._REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                    else 0x014C
+                )
+                root.joinpath(*relative.split("/")).write_bytes(
+                    _minimal_windows_pe(machine=machine, managed=True)
+                )
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "unexpected Windows PE machine",
                 ):
                     _validate_tree(root)
 
@@ -204,7 +230,9 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             root = self._package(td)
-            root.joinpath(*relative.split("/")).write_bytes(_minimal_windows_pe())
+            root.joinpath(*relative.split("/")).write_bytes(
+                _minimal_windows_pe(machine=0x014C)
+            )
             _write_checksums(root)
             archive = base / "native-python-runtime.zip"
             _zip_tree(root, archive)
