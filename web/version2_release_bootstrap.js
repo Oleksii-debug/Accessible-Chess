@@ -249,6 +249,26 @@
     return attempt().catch(function () { return attempt(); });
   }
 
+  function recoverShellPublication(bridge, token, failedMessage) {
+    return finishShellPublication(
+      bridge,
+      "shell.presentation_rollback",
+      token
+    ).then(function () {
+      return refresh(true);
+    }, function () {
+      // The commit may already have reached Python even if its response was
+      // lost. In that case opposite rollback is correctly rejected; refresh
+      // reads whichever route is actually authoritative.
+      return refresh(true);
+    }).catch(function () {
+      // Preserve the last usable DOM and avoid an unhandled rejection if the
+      // bridge itself remains unavailable.
+    }).then(function () {
+      announce(failedMessage);
+    });
+  }
+
   function renderNavigation(snapshot) {
     if (!Array.isArray(snapshot.navigation) ||
         snapshot.navigation.length < 1 ||
@@ -312,26 +332,10 @@
               "shell.presentation_commit",
               token
             ).catch(function () {
-              announce(failedMessage);
+              return recoverShellPublication(bridge, token, failedMessage);
             });
           }, function () {
-            return finishShellPublication(
-              bridge,
-              "shell.presentation_rollback",
-              token
-            ).then(function () {
-              return refresh(true);
-            }, function () {
-              // A rollback transport failure is still followed by one canonical
-              // refresh attempt. The user gets a bounded failure announcement;
-              // the next interaction cannot create a second pending route.
-              return refresh(true);
-            }).catch(function () {
-              // Preserve the already-visible usable surface and avoid an
-              // unhandled promise rejection if recovery rendering also fails.
-            }).then(function () {
-              announce(failedMessage);
-            });
+            return recoverShellPublication(bridge, token, failedMessage);
           });
         }, function () {
           announce(failedMessage);
