@@ -30,6 +30,8 @@ env:
   RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
   RESOURCE_PAYLOAD_BLOB: f93db09b617e5ec3cd4149153e5bff3fb5e68efb
   RESOURCE_PAYLOAD_TEST_BLOB: ab29624c6be6a16f0158aa4c34f460b3f84cc98c
+  RUNTIME_PREFLIGHT_BLOB: dd5fdf3774ad89edadb5aaa6d3e88ec354d82d21
+  RUNTIME_PAYLOAD_TEST_BLOB: d5d8d2525b076508ad18a8bf05a3b9a67c4a7e9a
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
@@ -73,7 +75,7 @@ jobs:
             # remain byte-identical to the historical assembler parent.
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
             case "$(git rev-parse HEAD:acs/version2_package_preflight.py)" in
-              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB") ;;
               *) echo 'Unqualified canonical preflight identity' >&2; exit 1 ;;
             esac
             echo 'W6_PAYLOAD_TOPOLOGY=CURRENT_RUNTIME_COMPOSITION'
@@ -81,7 +83,7 @@ jobs:
 
           payload_pair="$(git rev-parse HEAD:acs/version2_release_payload.py):$(git rev-parse HEAD:tests/test_version2_release_payload.py)"
           case "$payload_pair" in
-            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB") ;;
+            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RUNTIME_PAYLOAD_TEST_BLOB") ;;
             *) echo 'Unqualified release payload/test pair' >&2; exit 1 ;;
           esac
 
