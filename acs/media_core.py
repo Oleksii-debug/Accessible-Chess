@@ -143,6 +143,13 @@ class ChessStateReconciler:
             if not isinstance(position_id, str) or not position_id.strip():
                 raise ValueError("legal position identity must not be empty")
             canonical[move_id] = position_id
+        if isinstance(observed_confidence, bool) or not isinstance(
+            observed_confidence, (int, float)
+        ):
+            raise TypeError("observed_confidence must be numeric")
+        if not 0.0 <= float(observed_confidence) <= 1.0:
+            raise ValueError("observed_confidence must be between 0 and 1")
+
         if observed_position_id == current_position_id and structured_move_id is None:
             return ReconciliationResult(
                 ReconciliationStatus.NO_CHANGE,
@@ -235,11 +242,12 @@ class TimelineEntry:
 class MediaPositionTimeline:
     def __init__(self, entries: tuple[TimelineEntry, ...] = ()) -> None:
         ordered = tuple(sorted(entries, key=lambda item: item.start_ms))
-        previous_end: int | None = None
+        previous: TimelineEntry | None = None
         for entry in ordered:
-            if previous_end is not None and entry.start_ms < previous_end:
-                raise ValueError("timeline entries must not overlap")
-            previous_end = entry.end_ms
+            if previous is not None:
+                if previous.end_ms is None or entry.start_ms < previous.end_ms:
+                    raise ValueError("timeline entries must not overlap")
+            previous = entry
         self._entries = ordered
         self._starts = tuple(item.start_ms for item in ordered)
 
