@@ -1721,35 +1721,64 @@ class Version2Application:
                     self._pgn_browser_lease_required,
                 )
 
-                value = self.library.dispatch(command, {})
-                projected = asdict(value)
-                if value.kind == "error":
-                    return projected
-                projected_payload = projected.get("payload")
-                if (
-                    value.kind != "delegated"
-                    or type(projected_payload) is not dict
-                    or projected_payload.get("action") != "library.open_game"
-                    or self.shell.current_route.route_id != "pgn"
-                ):
-                    raise RuntimeError("Library game open did not publish canonical PGN")
+                hold_was_active = self.shell._publication_hold_active
+                if hold_was_active:
+                    raise ValueError("shell presentation publication is pending")
 
-                self._shell_publication_sequence += 1
-                token = self._shell_publication_sequence
-                self.shell._begin_publication_hold()
-                projected_payload["publication_token"] = token
-                self._pending_shell_publication_restore = prior_domain
-                self._pending_shell_publication = (
-                    token,
-                    command,
-                    publication_request_id,
-                    projected,
-                    prior_shell,
-                    prior_focus,
-                    prior_training_workspace,
-                    prior_training,
-                )
-                return projected
+                def restore_rejected_library_open() -> None:
+                    if (
+                        not hold_was_active
+                        and self.shell._publication_hold_active
+                    ):
+                        self.shell._end_publication_hold()
+                    self.shell._restore_presentation_state(prior_shell)
+                    self._focus = prior_focus
+                    self.training_workspace = prior_training_workspace
+                    self.training = prior_training
+                    (
+                        self.session,
+                        self.pgn,
+                        self.pgn_board_active,
+                        self._pgn_browser_lease_required,
+                    ) = prior_domain
+
+                try:
+                    value = self.library.dispatch(command, {})
+                    projected = asdict(value)
+                    if value.kind == "error":
+                        restore_rejected_library_open()
+                        return projected
+                    projected_payload = projected.get("payload")
+                    if (
+                        value.kind != "delegated"
+                        or type(projected_payload) is not dict
+                        or set(projected_payload) != {"action"}
+                        or projected_payload.get("action") != "library.open_game"
+                        or self.shell.current_route.route_id != "pgn"
+                    ):
+                        raise RuntimeError(
+                            "Library game open did not publish canonical PGN"
+                        )
+
+                    self._shell_publication_sequence += 1
+                    token = self._shell_publication_sequence
+                    self.shell._begin_publication_hold()
+                    projected_payload["publication_token"] = token
+                    self._pending_shell_publication_restore = prior_domain
+                    self._pending_shell_publication = (
+                        token,
+                        command,
+                        publication_request_id,
+                        projected,
+                        prior_shell,
+                        prior_focus,
+                        prior_training_workspace,
+                        prior_training,
+                    )
+                    return projected
+                except Exception:
+                    restore_rejected_library_open()
+                    raise
 
             if (
                 self._pending_shell_publication is not None
