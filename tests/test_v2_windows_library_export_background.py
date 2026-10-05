@@ -210,7 +210,7 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
 
             request = LibraryExportRequest.filtered(GameSearchQuery())
             for mode, message in (
-                ("backward-id", "paging did not advance"),
+                ("backward-id", "ids are not strictly increasing"),
                 ("empty-more", "paging did not advance"),
                 ("terminal-cursor", "terminal search page has a cursor"),
             ):
