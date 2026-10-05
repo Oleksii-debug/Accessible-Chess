@@ -125,20 +125,26 @@ def _is_reparse(info: os.stat_result) -> bool:
     return bool(getattr(info, "st_file_attributes", 0) & flag)
 
 
-def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare path/handle identity plus content-relevant receipt metadata."""
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare only filesystem object identity, not mutable file metadata."""
     try:
-        same_identity = os.path.samestat(left, right)
+        return bool(os.path.samestat(left, right))
     except (AttributeError, OSError):
-        same_identity = (
+        left_identity = (
             getattr(left, "st_dev", None),
             getattr(left, "st_ino", None),
-        ) == (
+        )
+        right_identity = (
             getattr(right, "st_dev", None),
             getattr(right, "st_ino", None),
         )
+        return None not in left_identity and left_identity == right_identity
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare path/handle identity plus content-relevant receipt metadata."""
     return bool(
-        same_identity
+        _same_file_identity(left, right)
         and int(left.st_size) == int(right.st_size)
         and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
     )
@@ -156,6 +162,40 @@ def _safe_receipt_lstat(path: Path) -> os.stat_result:
             "release receipt must not be a symlink or reparse point"
         )
     return info
+
+
+def _discard_failed_created_receipt(
+    path: Path,
+    created: os.stat_result,
+) -> bool:
+    """Remove only this invocation's failed create when identity is still exact.
+
+    A failed durable publication must not leave partial bytes that permanently
+    poison the exclusive-create retry path. Conversely, a pathname that no
+    longer names the file we created is never unlinked here: preserving an
+    unknown replacement is safer than guessing ownership during recovery.
+    """
+
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    if (
+        not stat.S_ISREG(current.st_mode)
+        or stat.S_ISLNK(current.st_mode)
+        or _is_reparse(current)
+        or not _same_file_identity(created, current)
+    ):
+        return False
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -360,8 +400,16 @@ def write_version2_release_receipt(
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
     payload = receipt.to_json()
+    payload_bytes = payload.encode("utf-8")
+    created: os.stat_result | None = None
+    publication_verified = False
     try:
         with path.open("x", encoding="utf-8", newline="\n") as handle:
+            created = os.fstat(handle.fileno())
+            if not stat.S_ISREG(created.st_mode) or _is_reparse(created):
+                raise Version2ReleaseReceiptError(
+                    "release receipt must be created as a regular non-reparse file"
+                )
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
@@ -371,20 +419,36 @@ def write_version2_release_receipt(
                 not stat.S_ISREG(opened.st_mode)
                 or _is_reparse(opened)
                 or not _same_file_snapshot(opened, after_path)
-                or int(opened.st_size) != len(payload.encode("utf-8"))
+                or int(opened.st_size) != len(payload_bytes)
             ):
                 raise Version2ReleaseReceiptError(
                     "release receipt changed while being written"
                 )
+            publication_verified = True
     except FileExistsError as exc:
         raise Version2ReleaseReceiptError(
             "release receipt already exists; overwrite is forbidden"
         ) from exc
-    except Version2ReleaseReceiptError:
+    except Version2ReleaseReceiptError as exc:
+        cleanup_safe = (
+            publication_verified
+            or created is None
+            or _discard_failed_created_receipt(path, created)
+        )
+        if not cleanup_safe:
+            raise Version2ReleaseReceiptError(
+                f"{exc}; failed receipt cleanup could not be proven safe"
+            ) from exc
         raise
     except OSError as exc:
+        cleanup_safe = (
+            publication_verified
+            or created is None
+            or _discard_failed_created_receipt(path, created)
+        )
+        suffix = "" if cleanup_safe else "; failed receipt cleanup could not be proven safe"
         raise Version2ReleaseReceiptError(
-            f"release receipt could not be written: {type(exc).__name__}"
+            f"release receipt could not be written: {type(exc).__name__}{suffix}"
         ) from exc
 
 
