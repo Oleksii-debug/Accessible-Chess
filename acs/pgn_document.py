@@ -548,9 +548,19 @@ class PgnDocumentSession:
 
     def bookmark(self) -> PgnDocumentContext:
         view = self._workspace.view()
+        content_digest = view.content_digest
+        selected_game_index = view.selected_game_index
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(character not in "0123456789abcdef" for character in content_digest)
+            or type(selected_game_index) is not int
+            or selected_game_index < 0
+        ):
+            raise TypeError("PGN workspace bookmark state is invalid")
         return PgnDocumentContext(
-            content_digest=view.content_digest,
-            selected_game_index=view.selected_game_index,
+            content_digest=content_digest,
+            selected_game_index=selected_game_index,
             cursor=_passive_context_cursor(view.cursor),
         )
 
@@ -573,7 +583,20 @@ class PgnDocumentSession:
                 PgnDocumentErrorCode.CONTEXT_STALE,
             )
         cursor = _passive_context_cursor(context_cursor)
-        if self._workspace.content_digest != content_digest:
+        live_content_digest = self._workspace.content_digest
+        if (
+            type(live_content_digest) is not str
+            or len(live_content_digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in live_content_digest
+            )
+        ):
+            raise _error(
+                "PGN live content identity is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        if live_content_digest != content_digest:
             raise _error(
                 "PGN content changed; exact saved context is stale",
                 PgnDocumentErrorCode.CONTEXT_STALE,
