@@ -7,9 +7,11 @@ on:
     paths:
       - 'acs/full_product_actions.py'
       - 'acs/library_export_service.py'
+      - 'acs/version2_application.py'
       - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
       - 'tests/test_v2_windows_library_export_background.py'
+      - 'web/version2_release_bootstrap.js'
       - '.github/workflows/current-library-export-destination-cas.yml'
   workflow_dispatch:
 
@@ -80,9 +82,11 @@ jobs:
             '.github/workflows/current-library-export-destination-cas.yml' \
             'acs/full_product_actions.py' \
             'acs/library_export_service.py' \
+            'acs/version2_application.py' \
             'acs/version2_windows_host_runtime.py' \
             'acs/version2_windows_library_export.py' \
-            'tests/test_v2_windows_library_export_background.py' | sort)"
+            'tests/test_v2_windows_library_export_background.py' \
+            'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Library export background/CAS scope:\n%s\n' "$changed" >&2
             exit 1
@@ -104,9 +108,13 @@ jobs:
           python -m compileall -q
           acs/full_product_actions.py
           acs/library_export_service.py
+          acs/version2_application.py
           acs/version2_windows_host_runtime.py
           acs/version2_windows_library_export.py
           tests/test_v2_windows_library_export_background.py
+
+      - name: Syntax-check release event bridge
+        run: node --check web/version2_release_bootstrap.js
 
       - name: Execute Library export, host-runtime, and canonical writer regressions
         run: >-
