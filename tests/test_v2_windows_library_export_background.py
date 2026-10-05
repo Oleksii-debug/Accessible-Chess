@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
 
 from acs.acsdb import AcsDatabase
+from acs.full_product_ui_shell import UILanguage
 from acs.library_export_service import (
     LibraryExportCancelledError,
     LibraryExportRequest,
@@ -13,7 +15,9 @@ from acs.library_export_service import (
 )
 from acs.pgn_service import open_pgn
 from acs.search_service import GameSearchQuery
+from acs.version2_application import Version2Application
 from acs.version2_windows_library_export import (
+    LibraryExportHostEvent,
     LibraryExportHostEventKind,
     LibraryExportWorkerServices,
     Version2WindowsLibraryExportDelegate,
@@ -359,6 +363,108 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertFalse(delegate.export_running)
             self.assertEqual(post_attempts, 2)
             self.assertEqual(len(open_pgn(destination).games), 1)
+
+    def test_application_projects_worker_lifecycle_and_terminal_focus(self) -> None:
+        fake = SimpleNamespace(
+            _events=[],
+            shell=SimpleNamespace(language=UILanguage.EN),
+        )
+
+        started = LibraryExportHostEvent(
+            LibraryExportHostEventKind.STARTED,
+            focus_target="library-export-selected",
+        )
+        Version2Application._file_event(fake, started)
+        self.assertEqual(
+            fake._events,
+            [
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Export started. You can cancel the operation.",
+                    },
+                }
+            ],
+        )
+
+        fake._events.clear()
+        cancelling = LibraryExportHostEvent(
+            LibraryExportHostEventKind.CANCELLING,
+            focus_target="library-export-selected",
+        )
+        Version2Application._file_event(fake, cancelling)
+        self.assertEqual(
+            fake._events,
+            [
+                {
+                    "kind": "status",
+                    "payload": {"announcement": "Cancelling export."},
+                }
+            ],
+        )
+
+        fake._events.clear()
+        exported = LibraryExportHostEvent(
+            LibraryExportHostEventKind.EXPORTED,
+            focus_target="library-export-selected",
+            game_count=1,
+        )
+        Version2Application._file_event(fake, exported)
+        self.assertEqual(
+            fake._events,
+            [
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": "Export completed.",
+                        "focus_target": "library-export-selected",
+                    },
+                }
+            ],
+        )
+
+        fake._events.clear()
+        failed = LibraryExportHostEvent(
+            LibraryExportHostEventKind.FAILED,
+            focus_target="library-export-filtered",
+            error_code="library_export_failed",
+        )
+        Version2Application._file_event(fake, failed)
+        self.assertEqual(fake._events[-1]["kind"], "error")
+        self.assertEqual(
+            fake._events[-1]["payload"]["focus_target"],
+            "library-export-filtered",
+        )
+        self.assertNotIn("library_export_failed", repr(fake._events[-1]))
+
+        fake._events.clear()
+        invalid_focus = LibraryExportHostEvent(
+            LibraryExportHostEventKind.DIALOG_CANCELLED,
+            focus_target="not a valid dom id",
+        )
+        Version2Application._file_event(fake, invalid_focus)
+        self.assertEqual(
+            fake._events,
+            [{"kind": "status", "payload": {"announcement": "Cancelled."}}],
+        )
+
+    def test_release_bootstrap_serializes_terminal_export_focus_without_repaint(self) -> None:
+        source = (
+            Path(__file__).parents[1] / "web" / "version2_release_bootstrap.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('actionId === "library.export";', source)
+        self.assertIn("function restoreQueuedNativeFocus(id)", source)
+        self.assertIn("workspace.contains(active)", source)
+        self.assertIn('event.kind === "status" || event.kind === "error"', source)
+        self.assertIn(
+            "if (queuedTerminalFocus) restoreQueuedNativeFocus(queuedTerminalFocus);",
+            source,
+        )
+        self.assertIn(
+            "Raw terminal focus is used",
+            source,
+        )
 
     def test_shutdown_is_retryable_and_stale_queued_terminal_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
