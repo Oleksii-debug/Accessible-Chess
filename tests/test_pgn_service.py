@@ -424,6 +424,45 @@ class PgnFileServiceTests(unittest.TestCase):
             self.assertIn("Concurrent writer", snapshots[0].read_text(encoding="utf-8"))
             self.assertIn("Our save", path.read_text(encoding="utf-8"))
 
+    def test_pre_publish_failure_survives_temp_cleanup_base_exception(self):
+        class CleanupAbort(BaseException):
+            pass
+
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pre-publish-cleanup-abort.pgn"
+            real_unlink = Path.unlink
+
+            def abort_temp_cleanup(candidate, *args, **kwargs):
+                candidate = Path(candidate)
+                if candidate.name.startswith(path.name + ".") and candidate.suffix == ".tmp":
+                    raise CleanupAbort("temporary cleanup aborted")
+                return real_unlink(candidate, *args, **kwargs)
+
+            def primary_failure():
+                raise RuntimeError("primary pre-publication failure")
+
+            with mock.patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=abort_temp_cleanup,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "primary pre-publication failure",
+                ):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        pre_publish_check=primary_failure,
+                    )
+
+            self.assertFalse(path.exists())
+            residual = list(Path(tmp).glob("pre-publish-cleanup-abort.pgn.*.tmp"))
+            self.assertEqual(len(residual), 1)
+            real_unlink(residual[0])
+
     def test_pre_publish_check_aborts_after_fsync_without_publication(self):
         games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
