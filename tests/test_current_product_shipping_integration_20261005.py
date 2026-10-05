@@ -109,14 +109,16 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
     def test_inherited_accessibility_gate_retains_focused_mode_and_exact_shipping_mode(self) -> None:
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
-            "CURRENT_PRODUCT_SHA: 3c3102d810635107f5116926eace15cd055f932f",
+            "SHIPPING_PRODUCT_BRANCH: converge/current-product-books-formats-20261005-c2mbezb",
+            "SHIPPING_PRODUCT_SHA: 3c3102d810635107f5116926eace15cd055f932f",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
-            'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_scope" = "$expected_paths"',
+            'test "$live_shipping_product" = "$SHIPPING_PRODUCT_SHA"',
+            'git merge-base --is-ancestor "$live_shipping_product" HEAD',
             'test "$extra" = "$expected_extra"',
-            "ACCESSIBILITY_FORMATS_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
-            "ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_PRODUCT",
+            "CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
+            "CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_SCOPE",
+            "CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=BOOKS_KEYMAP_SUCCESSOR",
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
