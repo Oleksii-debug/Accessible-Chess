@@ -80,6 +80,13 @@ class PgnPublicationUnverifiedError(PgnFileError):
     """
 
 
+class PgnPublishedPathChangedError(
+    PgnUnsafePathError,
+    PgnPublicationUnverifiedError,
+):
+    """Published bytes exist, but the selected pathname stopped naming them."""
+
+
 def _same_direct_path(left: str | Path, right: str | Path) -> bool:
     """Compare direct path spellings with platform path/case normalization."""
 
@@ -821,9 +828,21 @@ def save_pgn_atomic(
     # retry against stale in-memory provenance.
     try:
         _sync_published_namespace(destination)
+    except Exception as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN publication completed but namespace durability could not be confirmed"
+        ) from exc
+    try:
         _assert_bound_export_parent(destination.parent, parent_identity)
         published = fingerprint(destination)
         _assert_bound_export_parent(destination.parent, parent_identity)
+    except PgnUnsafePathError as exc:
+        # Preserve the historical path-safety type for security callers while
+        # also marking the failure as post-publication uncertainty for the
+        # Windows terminal-truth layer.
+        raise PgnPublishedPathChangedError(
+            "PGN publication completed but the selected pathname changed before confirmation"
+        ) from exc
     except Exception as exc:
         raise PgnPublicationUnverifiedError(
             "PGN publication completed but final destination provenance could not be verified"
