@@ -72,6 +72,17 @@ _LOG = logging.getLogger(__name__)
 _PLATFORM_PATH_TYPE = type(Path("."))
 
 
+def _safe_warning(message: str) -> None:
+    """Best-effort fixed telemetry that can never alter workflow authority."""
+
+    try:
+        _LOG.warning(message)
+    except BaseException:
+        # Diagnostics are secondary. A broken/hostile handler must never replace
+        # an already selected path-free terminal or strand worker ownership.
+        pass
+
+
 class FileWorkflowEventKind(str, Enum):
     PGN_OPEN_STARTED = "pgn_open_started"
     PGN_OPEN_CANCELLING = "pgn_open_cancelling"
@@ -375,7 +386,7 @@ class Version2WindowsFileActionDelegate:
         try:
             self._event_sink(event)
         except BaseException:
-            _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
+            _safe_warning("Version 2 file workflow event sink failed")
         return event
 
     def _emit_owner_async(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
@@ -384,9 +395,8 @@ class Version2WindowsFileActionDelegate:
         try:
             self._owner_async_event_sink(event)
         except BaseException:
-            _LOG.warning(
-                "Version 2 owner asynchronous file event sink failed",
-                exc_info=True,
+            _safe_warning(
+                "Version 2 owner asynchronous file event sink failed"
             )
         return event
 
@@ -725,7 +735,7 @@ class Version2WindowsFileActionDelegate:
                     if cancel_event.is_set():
                         error_code = "pgn_open_cancelled"
         except BaseException:
-            _LOG.warning("Version 2 PGN Open preparation failed", exc_info=True)
+            _safe_warning("Version 2 PGN Open preparation failed")
             error_code = "pgn_open_failed"
 
         def finish_on_owner() -> None:
@@ -744,7 +754,7 @@ class Version2WindowsFileActionDelegate:
             assert self._post_to_ui is not None
             self._post_to_ui(finish_on_owner)
         except BaseException:
-            _LOG.warning("Version 2 PGN Open UI publication post failed", exc_info=True)
+            _safe_warning("Version 2 PGN Open UI publication post failed")
             with self._lock:
                 current = (
                     generation == self._generation
@@ -818,10 +828,7 @@ class Version2WindowsFileActionDelegate:
                     raise TypeError("prepared PGN warnings are invalid")
                 warning_count = len(global_warnings)
             except BaseException:
-                _LOG.warning(
-                    "Version 2 PGN Open prepared result rejected",
-                    exc_info=True,
-                )
+                _safe_warning("Version 2 PGN Open prepared result rejected")
                 terminal = FileWorkflowEvent(
                     FileWorkflowEventKind.FAILED,
                     "pgn.open",
@@ -851,9 +858,8 @@ class Version2WindowsFileActionDelegate:
                                 "PGN Open unexpected generation without session"
                             )
                     except BaseException:
-                        _LOG.warning(
-                            "Version 2 PGN Open stale-generation check failed",
-                            exc_info=True,
+                        _safe_warning(
+                            "Version 2 PGN Open stale-generation check failed"
                         )
                         stale = True
                     if stale:
@@ -873,9 +879,8 @@ class Version2WindowsFileActionDelegate:
                             # owner-thread poster supplied by the production Windows runtime.
                             self._set_pgn_session(session)
                         except BaseException:
-                            _LOG.warning(
-                                "Version 2 PGN Open session publication failed",
-                                exc_info=True,
+                            _safe_warning(
+                                "Version 2 PGN Open session publication failed"
                             )
                             terminal = FileWorkflowEvent(
                                 FileWorkflowEventKind.FAILED,
@@ -1393,10 +1398,10 @@ class Version2WindowsFileActionDelegate:
             ):
                 error_code = "pgn_save_as_preserve_original"
             else:
-                _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
+                _safe_warning("Version 2 PGN save publication failed")
                 error_code = ordinary_failure_code
         except BaseException:
-            _LOG.warning("Version 2 PGN save publication failed", exc_info=True)
+            _safe_warning("Version 2 PGN save publication failed")
             error_code = ordinary_failure_code
 
         pending = (
@@ -1420,7 +1425,7 @@ class Version2WindowsFileActionDelegate:
             assert self._post_to_ui is not None
             self._post_to_ui(finish_on_owner)
         except BaseException:
-            _LOG.warning("Version 2 PGN save UI publication post failed", exc_info=True)
+            _safe_warning("Version 2 PGN save UI publication post failed")
             # Keep the result recoverable. A durable publication must be
             # committed on the owner thread during shutdown or the next posted
             # owner callback; do not clear its worker authority here.
@@ -1508,9 +1513,8 @@ class Version2WindowsFileActionDelegate:
                     try:
                         commit_pgn_save_publication(session, publication)
                     except BaseException:
-                        _LOG.warning(
-                            "Version 2 PGN save owner commit failed",
-                            exc_info=True,
+                        _safe_warning(
+                            "Version 2 PGN save owner commit failed"
                         )
                         terminal = FileWorkflowEvent(
                             FileWorkflowEventKind.FAILED,
@@ -2006,7 +2010,7 @@ class Version2WindowsFileActionDelegate:
                 ),
             )
         except BaseException:
-            _LOG.warning("Version 2 Library import failed", exc_info=True)
+            _safe_warning("Version 2 Library import failed")
             self._emit_if_current(
                 generation,
                 FileWorkflowEvent(
@@ -2027,9 +2031,7 @@ class Version2WindowsFileActionDelegate:
                 except BaseException:
                     # Cleanup is secondary to the already selected terminal and
                     # must never strand shared file-worker ownership.
-                    _LOG.warning(
-                        "Version 2 import worker cleanup failed", exc_info=True
-                    )
+                    _safe_warning("Version 2 import worker cleanup failed")
             with self._lock:
                 if (
                     generation == self._generation
