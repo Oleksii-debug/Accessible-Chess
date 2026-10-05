@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import acs.gametree_resume as resume_module
 from acs.game_identity import identity_for_game
 from acs.gametree import parse_games, serialize_game
 from acs.gametree_navigation import (
@@ -366,6 +367,53 @@ class D06GameTreeSnapshotResumeTests(unittest.TestCase):
             self.assertEqual(visible.token, error.published_token)
             self.assertEqual(visible.cursor, updated_cursor)
             self._assert_no_transaction_debris(folder, path.name)
+
+    def test_update_post_replace_recovery_snapshot_failure_preserves_uncertainty_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "resume.json"
+            store = GameTreeResumeStore(path)
+            first = store.save(self.game, self.cursor)
+            first_bytes = path.read_bytes()
+            original_read = resume_module._read_store_bytes
+            backup_reads = 0
+
+            def fail_second_backup_read(candidate):
+                nonlocal backup_reads
+                candidate_path = Path(candidate)
+                if ".cas-" in candidate_path.name and candidate_path.suffix == ".bak":
+                    backup_reads += 1
+                    if backup_reads == 2:
+                        raise GameTreeResumeError(
+                            "simulated post-replace recovery snapshot failure",
+                            code=GameTreeResumeCode.IO_FAILURE,
+                        )
+                return original_read(candidate_path)
+
+            with mock.patch.object(
+                resume_module,
+                "_read_store_bytes",
+                side_effect=fail_second_backup_read,
+            ):
+                with self.assertRaises(
+                    GameTreeResumeDurabilityUnknownError
+                ) as caught:
+                    store.save(
+                        self.game,
+                        GameTreeCursor((), 3),
+                        expected_token=first.token,
+                    )
+
+            error = caught.exception
+            self.assertEqual(error.code, GameTreeResumeCode.DURABILITY_UNKNOWN)
+            self.assertEqual(error.published_generation, 2)
+            visible = GameTreeResumeStore(path).load()
+            self.assertEqual(visible.token, error.published_token)
+            self.assertEqual(visible.generation, 2)
+            self.assertEqual(visible.cursor, GameTreeCursor((), 3))
+
+            backups = list(Path(folder).glob(path.name + ".cas-*.bak"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_bytes(), first_bytes)
 
     def test_post_publication_readback_change_is_not_misreported_as_precommit_stale_writer(self):
         with tempfile.TemporaryDirectory() as folder:
