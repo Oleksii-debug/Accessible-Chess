@@ -58,8 +58,8 @@ jobs:
             exit 1
           }
 
-          test "$(git rev-parse HEAD:acs/media_application.py)" = '1807dd36e426907633d6773f6173b47247dc9ef7'
-          test "$(git rev-parse HEAD:tests/test_media_application.py)" = 'bb33753cc0c592dafdeee8bca23990df36398616'
+          test "$(git rev-parse HEAD:acs/media_application.py)" = 'eb3461d57bf625027439c5dc08827977462ee70e'
+          test "$(git rev-parse HEAD:tests/test_media_application.py)" = 'a1eaa2747928fb79f346cd399840e9a758f7a547'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
