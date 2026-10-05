@@ -1,6 +1,9 @@
 name: Current PGN Document Passive Ingress
 
 on:
+  push:
+    branches:
+      - fix/current-pgn-document-passive-ingress-20261005-sol56t3k8
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
