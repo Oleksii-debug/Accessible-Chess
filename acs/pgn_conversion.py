@@ -234,6 +234,7 @@ def main(argv=None) -> int:
         else:
             print(format_conversion_review(plan))
             print("SHA-256 джерела: " + plan.source.sha256)
+            print("SHA-256 UTF-8 результату: " + plan.output_sha256)
             if args.output:
                 print("Новий UTF-8 PGN збережено.")
         return 0
