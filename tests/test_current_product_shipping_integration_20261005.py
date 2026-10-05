@@ -44,7 +44,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
             "PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75",
-            "PINNED_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
+            "PINNED_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc",
             'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
             'test "$live_shipping" = "$PINNED_SHIPPING_SHA"',
             'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
@@ -61,8 +61,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             'git merge-base --is-ancestor "$live_product" HEAD',
             'test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"',
             'git diff --check "$live_shipping"...HEAD',
-            'test "$product_count" -eq 217',
-            'test "$candidate_count" -eq 228',
+            'test "$product_count" -eq 222',
+            'test "$candidate_count" -eq 233',
             "CURRENT_PRODUCT_SHIPPING_GEOMETRY=PASS",
         )
         for fragment in required:
@@ -72,9 +72,9 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
     def test_gate_pins_evidence_stack_and_rejects_late_mutation(self) -> None:
         required = (
             "WINDOWS_EVIDENCE_REF: converge/current-product-windows-evidence-20261005-zftrkmo",
-            "WINDOWS_EVIDENCE_SHA: 4326c3621fcfa95c32adb9bad2ac4d304f9c52a5",
+            "WINDOWS_EVIDENCE_SHA: 8a9583c366a18fa7e4b65418efe1a77667ac4abd",
             "TRAINING_DURABILITY_REF: converge/current-product-training-durability-evidence-20261005-zftrkmo",
-            "TRAINING_DURABILITY_SHA: 305726025e62f2acaa41e83ebed1ccc3e18df04b",
+            "TRAINING_DURABILITY_SHA: d93d8e93c6e92eb9f1d64e29bf026b50828ee51c",
             "SHIPPING_WINDOWS_EVIDENCE_MOVED",
             "SHIPPING_TRAINING_DURABILITY_MOVED",
             "EVIDENCE_STACK_LIVE_HEADS=PASS",
@@ -116,14 +116,14 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_manifest_source_gate_retains_two_legacy_modes_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
+            "CURRENT_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=FOCUSED_SOURCE",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 217',
+            'test "$product_count" -eq 222',
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 228',
+            'test "$candidate_count" -eq 233',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -131,15 +131,15 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_inherited_package_gate_retains_legacy_mode_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
+            "CURRENT_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
-            'test "$product_count" -eq 217',
+            'test "$product_count" -eq 222',
             "PACKAGE_MANIFEST_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
             "PACKAGE_MANIFEST_TOPOLOGY=LEGACY_FOCUSED_INTEGRATION",
             'test "$extra" = "$expected_extra"',
-            'test "$candidate_count" -eq 228',
+            'test "$candidate_count" -eq 233',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
@@ -149,7 +149,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "SHIPPING_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
-            "SHIPPING_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62",
+            "SHIPPING_PRODUCT_SHA: 858e25841ccfd0e362083b28f6da17dfc5fcabdc",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
             'test "$live_shipping_product" = "$SHIPPING_PRODUCT_SHA"',
