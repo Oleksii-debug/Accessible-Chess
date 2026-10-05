@@ -208,6 +208,7 @@ class Version2Application:
             raise ValueError("stale shell publication acknowledgement")
         self._pending_shell_publication = None
         if commit:
+            self.shell._end_publication_hold()
             self._last_shell_publication_resolution = (token, True)
             return {
                 "kind": "presentation-commit",
@@ -225,6 +226,7 @@ class Version2Application:
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
+        self.shell._end_publication_hold()
         self._last_shell_publication_resolution = (token, False)
         return {
             "kind": "presentation-rollback",
@@ -1773,6 +1775,7 @@ class Version2Application:
                                 prior_training_workspace,
                                 prior_training,
                             ) = publication_before
+                            self.shell._begin_publication_hold()
                             self._pending_shell_publication = (
                                 token,
                                 prior_shell,
