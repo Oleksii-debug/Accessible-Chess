@@ -831,16 +831,20 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             or type(result.revision) is not int
         ):
             return False
+        try:
+            workflow_active, workflow_revision = self._workflow_presentation_state()
+        except BookBoardWorkflowError:
+            return False
         if (
             result.kind is not expected
             or result.action_id != action
-            or result.revision != self._workflow.revision
+            or result.revision != workflow_revision
         ):
             return False
         if expected is BookBoardUiEventKind.BOARD_OPENED:
-            return self._workflow.active
+            return workflow_active
         if expected is BookBoardUiEventKind.RETURNED_TO_BOOK:
-            return not self._workflow.active
+            return not workflow_active
         return True
 
     def open_position(self) -> BookWebViewEvent:
