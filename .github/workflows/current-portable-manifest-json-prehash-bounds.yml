@@ -43,7 +43,7 @@ jobs:
           SOURCE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
           INTEGRATION_BRANCH: converge/current-product-package-manifest-integration-20261004-3pg7jcgq
           CURRENT_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          CURRENT_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50
+          CURRENT_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           PACKAGE_INTEGRATION_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
