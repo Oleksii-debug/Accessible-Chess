@@ -34,7 +34,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
             "PINNED_SHIPPING_SHA: 0a9e0db1663c04cf67fac2d249ba197fa22cde75",
-            "PINNED_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
+            "PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152",
             'git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
             'test "$live_shipping" = "$PINNED_SHIPPING_SHA"',
             'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
@@ -77,7 +77,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_manifest_source_gate_retains_two_legacy_modes_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
+            "CURRENT_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=FOCUSED_SOURCE",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
             "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
@@ -92,7 +92,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
 
     def test_inherited_package_gate_retains_legacy_mode_and_exact_shipping_mode(self) -> None:
         required = (
-            "CURRENT_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
+            "CURRENT_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
@@ -110,7 +110,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "SHIPPING_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7",
-            "SHIPPING_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
+            "SHIPPING_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152",
             "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
             'test "$live_shipping_product" = "$SHIPPING_PRODUCT_SHA"',
