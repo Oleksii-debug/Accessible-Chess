@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -168,6 +169,46 @@ class Version2WindowsLibraryExportTests(unittest.TestCase):
             reopened.games,
             self.service.resolve_games(request),
         )
+
+    def test_concurrent_destination_write_survives_host_export_failure(self) -> None:
+        request = LibraryExportRequest.selected([self.game_id])
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "private-shared-export.pgn"
+            destination.write_text(
+                '[Event "Reviewed"]\n[Result "*"]\n\n1. e4 *\n',
+                encoding="utf-8",
+            )
+            real_replace = os.replace
+            replace_calls = 0
+
+            def racing_replace(src, dst):
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    destination.write_text(
+                        '[Event "External winner"]\n[Result "*"]\n\n1. c4 *\n',
+                        encoding="utf-8",
+                    )
+                return real_replace(src, dst)
+
+            events: list[object] = []
+            with mock.patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+                event = self._delegate(_Dialogs(destination), events, [])(
+                    "library.export",
+                    request.browser_payload(),
+                )
+
+            self.assertEqual(event.kind, LibraryExportHostEventKind.FAILED)
+            self.assertEqual(event.error_code, "library_export_failed")
+            self.assertEqual(event.focus_target, "library-results")
+            self.assertNotIn(str(destination), repr(event))
+            self.assertIn(
+                "External winner",
+                destination.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+            self.assertEqual(list(Path(directory).glob("*.cas-*.bak")), [])
+            self.assertEqual(events, [event])
 
     def test_destination_binding_failure_is_path_free_and_never_starts_export(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
