@@ -348,6 +348,74 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assertEqual(exposed_again.sha256, "0" * 64)
         self.assertEqual(session.document_revision, 0)
 
+    def test_dirty_rejects_active_saved_digest_before_comparison(self) -> None:
+        session = self.session()
+        digest = GuardedText(session.workspace.content_digest)
+        digest.armed = True
+        session._saved_digest = digest
+
+        with self.assertRaises(TypeError):
+            _ = session.dirty
+
+    def test_dirty_rejects_active_workspace_digest_before_comparison(self) -> None:
+        session = self.session()
+        canonical = session.workspace.content_digest
+        session._saved_digest = canonical
+        digest = GuardedText(canonical)
+        digest.armed = True
+        session.workspace._content_digest = digest
+
+        with self.assertRaises(TypeError):
+            _ = session.dirty
+
+    def test_source_rejects_active_internal_provenance_before_text_hooks(self) -> None:
+        workspace = PgnWorkspace.from_text(PGN)
+        source = SourceFingerprint(
+            path="source.pgn",
+            size=100,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+        session = PgnDocumentSession(
+            workspace,
+            source=source,
+            saved_digest=workspace.content_digest,
+        )
+        internal = session._source
+        assert internal is not None
+        digest = GuardedText(internal.sha256)
+        digest.armed = True
+        object.__setattr__(internal, "sha256", digest)
+
+        with self.assertRaises(TypeError):
+            _ = session.source
+
+    def test_view_rejects_active_recovery_scalars_before_hooks(self) -> None:
+        session = self.session()
+        warning = GuardedText("recovery warning")
+        warning.armed = True
+        session._global_warnings = (warning,)
+        session._source_overwrite_safe = ActiveBool()  # type: ignore[assignment]
+
+        with self.assertRaises(TypeError):
+            session.view()
+
+    def test_document_revision_rejects_active_int_before_arithmetic_hooks(self) -> None:
+        class ActiveInt(int):
+            def __lt__(self, other):
+                raise AssertionError("active revision ordering executed")
+
+            def __add__(self, other):
+                raise AssertionError("active revision arithmetic executed")
+
+        session = self.session()
+        session._document_revision = ActiveInt(0)
+
+        with self.assertRaises(TypeError):
+            _ = session.document_revision
+        with self.assertRaises(TypeError):
+            session.view()
+
     def test_view_and_bookmark_detach_cursor_from_live_workspace(self) -> None:
         session = self.session()
         live_cursor = session.workspace.cursor
