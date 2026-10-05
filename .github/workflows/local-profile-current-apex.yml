@@ -111,9 +111,9 @@ jobs:
                   raise SystemExit(f"unexpected local-profile scope: {sorted(actual_paths ^ expected_paths)!r}")
 
           canonical = {
-              "acs/local_profile.py": "e689fd88d62bab9794ad1d837e851fdcd6aa3e5b",
+              "acs/local_profile.py": "2253534b99d9083bbb459a322f26bad7cd06c36c",
               "acs/version2_local_profile_api.py": "47dbd22b1f764fdfd81f2dc6e0cf75191e4274ac",
-              "tests/test_local_profile.py": "0403c33a2e79d66893c45c907ed752ff631474c0",
+              "tests/test_local_profile.py": "b95e5510be193ba6f2aa909147e24615e1f69d0f",
               "tests/test_local_profile_recursion_boundary.py": "a387d76a343b30dd1adf7e1831ba292d0371c19f",
               "tests/test_local_profile_path_identity.py": "4373cb4e997200a1eca4b0dcb03e71acfc56f862",
               "tests/test_version2_local_profile_api.py": "34b50a89ade850a20a49d0dc83a8b64eb3b1c0f9",
