@@ -19,6 +19,7 @@ from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
 from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.library_webview_projection import LibraryImportPhase
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
