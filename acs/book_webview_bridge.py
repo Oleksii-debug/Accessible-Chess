@@ -8,7 +8,7 @@ from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
 
 class BookWebViewBridge:
     def __init__(self, projection: BookWebViewProjection) -> None:
-        if type(projection) is not BookWebViewProjection:
+        if not isinstance(projection, BookWebViewProjection):
             raise TypeError("projection must be BookWebViewProjection")
         self._projection = projection
 
