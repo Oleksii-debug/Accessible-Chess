@@ -190,6 +190,65 @@ class Version2WindowsFileWorkerPreflightTests(unittest.TestCase):
             release.set()
             self.assertTrue(delegate.wait_for_import(2.0))
 
+    def test_pgn_picker_reentrant_save_focuses_active_save_cancel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "reentrant-save-focus.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            entered = threading.Event()
+            release = threading.Event()
+            dialogs = _Dialogs(source)
+            current = PgnDocumentSession.open(source)
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=lambda: current,
+                set_pgn_session=lambda session: self.fail(
+                    "busy reentrant PGN Open must not publish a session"
+                ),
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    SimpleNamespace(import_games=lambda *args, **kwargs: None),
+                    None,
+                    lambda: None,
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: None,
+            )
+            started_save = []
+
+            def block_publication(*args, **kwargs):
+                entered.set()
+                if not release.wait(2.0):
+                    raise AssertionError("test did not release PGN save")
+                return None
+
+            def start_save_during_picker() -> None:
+                started_save.append(delegate("pgn.save", {}))
+                self.assertTrue(entered.wait(1.0))
+
+            dialogs.open_hook = start_save_during_picker
+            with mock.patch(
+                "acs.version2_windows_file_workflows.publish_pgn_save_snapshot",
+                side_effect=block_publication,
+            ):
+                result = delegate("pgn.open", {})
+
+                self.assertEqual(len(started_save), 1)
+                self.assertEqual(
+                    started_save[0].kind,
+                    FileWorkflowEventKind.PGN_SAVE_STARTED,
+                )
+                self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(result.error_code, "file_worker_busy")
+                self.assertEqual(result.focus_target, "pgn-save-cancel")
+                self.assertEqual(dialogs.open_calls, 1)
+                self.assertTrue(delegate.pgn_save_running)
+
+                release.set()
+                self.assertTrue(delegate.wait_for_pgn_save(2.0))
+                self.assertTrue(delegate.shutdown(2.0))
+
     def test_save_as_picker_reentrant_import_skips_snapshot_capture(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "save-as-reentrant-source.pgn"
