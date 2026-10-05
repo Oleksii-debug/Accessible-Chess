@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.library_export_service import (
@@ -147,6 +148,11 @@ class _CancellableLibrary(_Library):
                 raise LibraryImportCancelledError("cancelled")
             threading.Event().wait(0.001)
         raise AssertionError("runtime shutdown did not request cancellation")
+
+
+class _ImportCapableLibrary:
+    def import_games(self, *args, **kwargs):
+        raise AssertionError("import service must not run")
 
 
 class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
@@ -412,6 +418,79 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 callback()
             self.assertTrue(runtime.shutdown(5.0))
             self.assertTrue(runtime.closed)
+
+    def test_library_export_worker_factory_rejects_active_service_containers_passively(self) -> None:
+        touched: list[str] = []
+
+        class HostileServices(Version2ImportWorkerServices):
+            def __getattribute__(self, name):
+                if name in {"close", "library", "chessbase"}:
+                    touched.append(name)
+                    raise AssertionError("rejected services hook executed")
+                return super().__getattribute__(name)
+
+        hostile = HostileServices.__new__(HostileServices)
+        object.__setattr__(hostile, "library", _ImportCapableLibrary())
+        object.__setattr__(hostile, "chessbase", None)
+        object.__setattr__(hostile, "close", lambda: touched.append("close-call"))
+
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: hostile
+        )
+
+        with self.assertRaisesRegex(TypeError, "invalid bundle"):
+            create()
+        self.assertEqual(touched, [])
+
+    def test_library_export_worker_factory_rejects_active_cleanup_before_owner_lookup(self) -> None:
+        touched: list[str] = []
+
+        class ActiveClose:
+            def __call__(self):
+                touched.append("call")
+
+            def __getattribute__(self, name):
+                if name == "__self__":
+                    touched.append("owner")
+                    raise AssertionError("active cleanup owner hook executed")
+                return super().__getattribute__(name)
+
+        services = Version2ImportWorkerServices(
+            _ImportCapableLibrary(),
+            None,
+            ActiveClose(),
+        )
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: services
+        )
+
+        with self.assertRaisesRegex(TypeError, "canonical AcsDatabase owner"):
+            create()
+        self.assertEqual(touched, [])
+
+    def test_library_export_worker_factory_preserves_constructor_abort_and_closes_database(self) -> None:
+        class ConstructionAbort(BaseException):
+            pass
+
+        database = AcsDatabase()
+        services = Version2ImportWorkerServices(
+            _ImportCapableLibrary(),
+            None,
+            database.close,
+        )
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: services
+        )
+
+        with patch(
+            "acs.version2_windows_host_runtime.LibraryExportService",
+            side_effect=ConstructionAbort("Library export service construction aborted"),
+        ):
+            with self.assertRaises(ConstructionAbort):
+                create()
+
+        with self.assertRaises(Exception):
+            database.conn.execute("SELECT 1")
 
     def test_next_library_start_recovers_export_terminal_after_both_ui_posts_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
