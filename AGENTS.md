@@ -32,3 +32,24 @@ Chat history is temporary working memory. Preserve meaningful implementation sta
 ### Completion behavior
 
 Use the full execution window for real progress. Do not stop after the first commit, PR, green test, queued check, review request, or blocker while useful safe work remains.
+
+### Active required product lanes — owner directive 2026-10-05
+
+All autonomous workers must also read:
+
+- `docs/CANONICAL_PRODUCT_VISION_AMENDMENT_2026-10-05.md`
+- `docs/MEDIA_INTELLIGENCE_AND_CHESS_AGENT_ARCHITECTURE.md`
+
+The following are **active required product scope now**, not distant backlog:
+
+- Formats / Library / ChessBase correctness and real-corpus qualification;
+- Media Intelligence for live and recorded chess, including synchronized canonical board state;
+- the Universal Chess Agent over typed Accessible Chess application tools;
+- simplified Classroom/teaching core where it delivers concrete value.
+
+These are parallel implementation lanes, not a mandatory serial queue. If a worker's original lane is complete or genuinely blocked, it should refresh live ownership and take another highest-value unowned active lane rather than stop.
+
+Any older repository text that says the AI Coach/Agent or media intelligence must not be implemented yet is superseded by the 2026-10-05 owner amendment.
+
+The repository is currently public. Do not publish proprietary/private source-discovery, game-identification, ranking or synchronization heuristics merely to document implementation. Public code/docs should expose stable interfaces, correctness rules, tests and provider-compliance boundaries. Private commercial strategy remains in the owner's private project records.
+
