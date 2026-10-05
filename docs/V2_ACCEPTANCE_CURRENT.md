@@ -26,10 +26,7 @@ Stable release spine at audit read:
 
 Current Product-facing unfinished fronts at audit read:
 - Library convergence: PR #2073, same bounded 17-path lineage, exact-head CI nonterminal;
-- PGN Open Windows host: issue #2041 / PR #2095, exact-head CI nonterminal;
-- PGN Save snapshot primitive: issue #2085 / PR #2091, lower-level and not yet host-integrated, exact-head CI nonterminal;
-- PGN document passive-ingress hardening: PR #2092, exact-head CI nonterminal;
-- PGN writer passive-overwrite hardening: PR #2093, exact-head CI nonterminal;
+- integrated Windows PGN file-flow: issues #2041/#2085 / PR #2098; it is the surviving Open/Save/Save As host lineage and absorbs the former component fronts #2091/#2092/#2093/#2095. Its exact live head must be late-bound; hosted qualification remains nonterminal, so the issues stay open and no Product-intake claim is made;
 - child-coaching completed-rotation recovery: PR #2097, exact-head CI nonterminal.
 
 The default branch and executable Product are intentionally not treated as the same tree. Product contains the large executable implementation history, while `main` contains newer owner policy/architecture amendments for Media Intelligence, the Universal Chess Agent and Web reuse. Documentation ancestry is not release evidence.
@@ -54,7 +51,7 @@ Issue #1601 remains open after the owner-observed one-click launch failure. The 
 
 These observations record current truth; they are **non-binding** and do not create a new mandatory task order.
 
-- **Chess core / PGN / positions.** Product has one substantial Position/GameTree/SAN/FEN/PGN authority with round-trip, nested variation, source-binding, malformed-input, resource-bound, concurrency and recovery coverage. The active #2091/#2092/#2093/#2095 work represents unfinished transaction/host hardening and must converge without creating another PGN/GameTree authority.
+- **Chess core / PGN / positions.** Product has one substantial Position/GameTree/SAN/FEN/PGN authority with round-trip, nested variation, source-binding, malformed-input, resource-bound, concurrency and recovery coverage. PR #2098 is now the single surviving Windows PGN host convergence: it combines Open, detached Save/Save As transaction/CAS, passive document ingress and passive writer-overwrite hardening without creating another PGN/GameTree/parser/serializer authority. It is not qualified or Product-integrated until its exact live head reaches attributable terminal acceptance.
 - **Books / semantic reading / navigation.** Product contains semantic BookDocument/BookReader models, EPUB/HTML/text ingestion, game/position blocks, deterministic navigation, progress/restart recovery and board/training handoffs. No audit evidence supports replacing these with another parser or reading model. Final Windows acceptance remains outstanding.
 - **Library / ACSDB / formats.** Product contains ACSDB search/import/export, source catalog, ChessBase adapters and real-corpus/format qualification. PR #2073 is the active Library user-path convergence and owns background cancellable export plus Library-to-PGN publication recovery; its exact-head Library CAS/Open/Windows/P0 gates remain nonterminal.
 - **ChessBase correctness.** Existing format adapters and safety gates do not justify a claim of full CBF/CBI semantic compatibility. That claim remains blocked by lawful real fixtures and an independent semantic oracle.
@@ -70,7 +67,9 @@ These observations record current truth; they are **non-binding** and do not cre
 
 Earlier stale pull-request fronts whose exact heads were already proven ancestors of current Product were retired without deleting their branches or commits. Superseded helper PRs discovered during Library/release convergence were likewise closed when their work was absorbed into the surviving lineage.
 
-The Drive project plan was re-read during this audit. Its top-level rule makes live GitHub exact heads/checks authoritative over stale snapshots. The historical AUTOPILOT ledger is explicitly superseded and must not schedule new work.
+This final pass also retired PGN component PRs #2091/#2092/#2093/#2095 in favor of integrated successor #2098. #2095 and #2092 were proven ancestors of #2098; #2091's current Save-As CAS/no-clobber behavior was source-verified in #2098; #2093's canonical writer source and passive-overwrite regression were byte-identical in #2098 and are explicitly executed by its integrated Save-worker gate. Issues #2041/#2085 remain open until #2098 has terminal exact-head qualification and Product intake.
+
+The Drive project plan was re-read during this audit. Its top-level rule makes live GitHub exact heads/checks authoritative over stale snapshots; its older fast-moving PGN PR snapshot is therefore historical after the #2098 convergence. The historical AUTOPILOT ledger is explicitly superseded and must not schedule new work.
 
 ## Nearest honest completion path
 
