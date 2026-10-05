@@ -756,8 +756,12 @@
     drainEvents();
   }
 
+  function browserOwnsPendingShellPublication() {
+    return !!pendingShellPublicationToken || !!pendingShellPublicationRequestId;
+  }
+
   function drainEvents() {
-    if (pendingShellPublicationToken) {
+    if (browserOwnsPendingShellPublication()) {
       eventDrainPending = true;
       return;
     }
@@ -783,7 +787,11 @@
     }
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
-      if (pendingShellPublicationToken) {
+      if (browserOwnsPendingShellPublication()) {
+        // A route-start response may be lost after Python acquired its hold but
+        // before this browser learned the token. Treat the retained request_id
+        // as the same publication fence so a previously started native-event
+        // drain cannot publish stale UI while route authority is unresolved.
         deferredNativeEventBatch = events;
         eventDrainPending = true;
         return;
