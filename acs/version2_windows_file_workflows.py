@@ -879,8 +879,13 @@ class Version2WindowsFileActionDelegate:
                     return self._save_pgn_as(
                         session=current, prior_focus=previous_focus
                     )
+                error_code = (
+                    "pgn_save_commit_failed"
+                    if exc.code is PgnDocumentErrorCode.SAVE_COMMIT_FAILED
+                    else "pgn_save_failed"
+                )
                 return self._failed(
-                    "pgn.save", "pgn_save_failed", focus_target=previous_focus
+                    "pgn.save", error_code, focus_target=previous_focus
                 )
             except Exception:
                 return self._failed(
@@ -1045,12 +1050,15 @@ class Version2WindowsFileActionDelegate:
                     focus_target=previous_focus,
                 )
             except PgnDocumentError as exc:
-                error_code = (
-                    "pgn_save_as_preserve_original"
-                    if exc.code
+                if (
+                    exc.code
                     is PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION
-                    else "pgn_save_as_failed"
-                )
+                ):
+                    error_code = "pgn_save_as_preserve_original"
+                elif exc.code is PgnDocumentErrorCode.SAVE_COMMIT_FAILED:
+                    error_code = "pgn_save_commit_failed"
+                else:
+                    error_code = "pgn_save_as_failed"
                 return self._failed(
                     "pgn.save_as",
                     error_code,
