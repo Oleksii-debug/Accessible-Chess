@@ -91,6 +91,60 @@ class Version2WindowsPgnOpenInvalidSessionTests(unittest.TestCase):
         self.assertEqual(events, [result])
         self.assertEqual(dialogs.open_calls, 0)
 
+    def test_direct_delegate_rejects_active_session_subclass_without_hooks(self) -> None:
+        dialogs = _Dialogs()
+        active_session = object.__new__(_ActiveSession)
+        events = []
+        delegate = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: active_session,
+            set_pgn_session=lambda session: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                _UnusedLibrary(), None, lambda: None
+            ),
+            event_sink=events.append,
+            next_delegate=lambda action_id, payload: None,
+            current_focus_provider=lambda: "pgn-tree",
+        )
+
+        result = delegate("pgn.open", {})
+
+        self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(result.error_code, "pgn_session_invalid")
+        self.assertEqual(result.focus_target, "pgn-tree")
+        self.assertEqual(events, [result])
+        self.assertEqual(dialogs.open_calls, 0)
+
+    def test_direct_delegate_contains_corrupted_canonical_session_revision(self) -> None:
+        class ActiveInt(int):
+            def __lt__(self, other):
+                raise AssertionError("active session revision ordering executed")
+
+        dialogs = _Dialogs()
+        session = PgnDocumentSession.from_text(
+            '[Event "Corrupted revision"]\n[Result "*"]\n\n*\n'
+        )
+        session._document_revision = ActiveInt(0)
+        events = []
+        delegate = Version2WindowsFileActionDelegate(
+            dialogs=dialogs,
+            get_pgn_session=lambda: session,
+            set_pgn_session=lambda replacement: None,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                _UnusedLibrary(), None, lambda: None
+            ),
+            event_sink=events.append,
+            next_delegate=lambda action_id, payload: None,
+            current_focus_provider=lambda: "pgn-tree",
+        )
+
+        result = delegate("pgn.open", {})
+
+        self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(result.error_code, "pgn_session_invalid")
+        self.assertEqual(events, [result])
+        self.assertEqual(dialogs.open_calls, 0)
+
     def test_production_runtime_rejects_active_session_subclass_without_hooks(self) -> None:
         # Bypass the canonical constructor deliberately. If the production
         # runtime leaked this active subclass into the shared delegate, Open
