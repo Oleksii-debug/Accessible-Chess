@@ -608,12 +608,17 @@ class PgnDocumentSession:
         selected_game_index: int,
         cursor: GameTreeCursor,
     ) -> PgnWorkspaceView:
+        revision = self.document_revision
         replacement = PgnWorkspace(games)
         replacement.select_game(selected_game_index)
         replacement.set_cursor(cursor)
+        # Materialize the complete candidate presentation before publishing the
+        # replacement workspace. A projection abort must not leave document
+        # content advanced while the caller receives a failure.
+        replacement_view = replacement.view()
         self._workspace = replacement
-        self._document_revision += 1
-        return replacement.view()
+        self._document_revision = revision + 1
+        return replacement_view
 
     def append_text(self, text: object) -> int:
         """Append all games from pasted/imported PGN without flattening trees."""
