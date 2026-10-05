@@ -47,6 +47,10 @@ class UnsupportedLocalProfileSchema(LocalProfileError):
     """The profile uses a newer schema and must not be silently downgraded."""
 
 
+class LocalProfileDurabilityUnknownError(LocalProfileError):
+    """Atomic profile publication happened, but durable confirmation failed."""
+
+
 class LocalProfileConflict(LocalProfileError):
     """A stale in-memory profile attempted to overwrite newer durable state."""
 
@@ -187,6 +191,62 @@ def serialize_local_profile(profile: LocalProfile) -> bytes:
         "schema_version": valid.schema_version,
     }
     return (json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+_MOVEFILE_REPLACE_EXISTING = 0x00000001
+_MOVEFILE_WRITE_THROUGH = 0x00000008
+
+
+def _replace_profile_path(source: Path, destination: Path) -> None:
+    """Atomically publish one prepared local-profile file with durability intent."""
+    if os.name != "nt":
+        os.replace(source, destination)
+        return
+
+    import ctypes
+
+    move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move_file_ex.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+    )
+    move_file_ex.restype = ctypes.c_int
+    if not move_file_ex(
+        os.fspath(source),
+        os.fspath(destination),
+        _MOVEFILE_REPLACE_EXISTING | _MOVEFILE_WRITE_THROUGH,
+    ):
+        error_code = ctypes.get_last_error()
+        raise OSError(error_code, "durable local-profile replacement failed")
+
+
+def _sync_profile_publication(path: Path) -> None:
+    """Confirm the published namespace entry reached stable storage."""
+    if os.name == "nt":
+        # MoveFileExW WRITE_THROUGH is the namespace durability barrier. Re-open
+        # the file and fsync it as a second content barrier before acknowledgement.
+        flags = os.O_RDWR | getattr(os, "O_BINARY", 0)
+        no_follow = getattr(os, "O_NOFOLLOW", 0)
+        if no_follow:
+            flags |= no_follow
+        fd = os.open(path, flags)
+        try:
+            opened = os.fstat(fd)
+            current = path.stat(follow_symlinks=False)
+            if not os.path.samestat(opened, current):
+                raise OSError("published local-profile path changed before durability sync")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(os.fspath(path.parent), flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 class LocalProfileStore:
@@ -418,28 +478,42 @@ class LocalProfileStore:
     def _atomic_replace_bytes(self, target: Path, payload: bytes) -> None:
         self._assert_safe_target(target)
         temp_name: str | None = None
+        published = False
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
-                mode="wb", prefix=target.name + ".", suffix=".tmp", dir=target.parent, delete=False
+                mode="wb",
+                prefix=target.name + ".",
+                suffix=".tmp",
+                dir=target.parent,
+                delete=False,
             ) as handle:
                 temp_name = handle.name
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temp_name, target)
+
+            _replace_profile_path(Path(temp_name), target)
             temp_name = None
-            # Best effort directory durability on platforms that support it.
-            if os.name != "nt":
-                try:
-                    directory_fd = os.open(target.parent, os.O_RDONLY)
-                    try:
-                        os.fsync(directory_fd)
-                    finally:
-                        os.close(directory_fd)
-                except OSError:
-                    pass
+            published = True
+            try:
+                _sync_profile_publication(target)
+                visible = self._read_bounded(target)
+                if visible != payload:
+                    raise LocalProfileError(
+                        "local profile canonical storage changed after publication"
+                    )
+            except Exception as exc:
+                raise LocalProfileDurabilityUnknownError(
+                    "local profile was published but durable canonical storage could not be confirmed"
+                ) from exc
+        except LocalProfileDurabilityUnknownError:
+            raise
         except OSError:
+            if published:
+                raise LocalProfileDurabilityUnknownError(
+                    "local profile was published but durable canonical storage could not be confirmed"
+                ) from None
             raise LocalProfileError("local profile could not be saved") from None
         finally:
             if temp_name is not None:
