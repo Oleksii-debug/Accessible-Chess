@@ -20,7 +20,10 @@ from acs.pgn_save_snapshot import (
     expected_pgn_destination_sha256,
     publish_pgn_save_snapshot,
 )
-from acs.pgn_service import save_pgn_atomic as canonical_save_pgn_atomic
+from acs.pgn_service import (
+    PgnPublicationUnverifiedError,
+    save_pgn_atomic as canonical_save_pgn_atomic,
+)
 from acs.pgn_workspace import PgnWorkspace
 
 
@@ -86,6 +89,53 @@ class PgnSaveSnapshotTests(unittest.TestCase):
             )
 
         self.assertFalse(target.exists())
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+
+    def test_save_rejects_writer_provenance_for_different_path(self) -> None:
+        source = self.write_document("writer-path-save-source.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Requested source generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        wrong_path = self.root / "writer-path-wrong-save.pgn"
+        wrong = SourceFingerprint(
+            path=str(wrong_path.absolute()),
+            size=123,
+            sha256="0" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=wrong,
+        ) as writer:
+            with self.assertRaises(PgnPublicationUnverifiedError):
+                publish_pgn_save_snapshot(snapshot)
+
+        writer.assert_called_once()
+        self.assertEqual(Path(session.source.path), source)
+        self.assertTrue(session.dirty)
+
+    def test_save_as_rejects_writer_provenance_for_different_path(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        requested = self.root / "writer-path-requested-save-as.pgn"
+        wrong_path = self.root / "writer-path-wrong-save-as.pgn"
+        wrong = SourceFingerprint(
+            path=str(wrong_path.absolute()),
+            size=456,
+            sha256="1" * 64,
+            suffix=".pgn",
+        )
+
+        with patch(
+            "acs.pgn_save_snapshot.save_pgn_atomic",
+            return_value=wrong,
+        ) as writer:
+            with self.assertRaises(PgnPublicationUnverifiedError):
+                publish_pgn_save_snapshot(snapshot, path=requested)
+
+        writer.assert_called_once()
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
 
