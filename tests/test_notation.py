@@ -12,6 +12,7 @@ class NotationFormatterTests(unittest.TestCase):
     def test_san_profile_preserves_san_and_normalises_zero_castling(self):
         self.assertEqual(format_san("Nf3", "san"), "Nf3")
         self.assertEqual(format_san("0-0+", "san"), "O-O+")
+        self.assertEqual(format_san("0-0-0#", "san"), "O-O-O#")
 
     def test_ukrainian_piece_names_replace_san_letters(self):
         self.assertEqual(format_san("Nf3", "uk_literal"), "кінь f 3")
@@ -52,6 +53,16 @@ class NotationFormatterTests(unittest.TestCase):
         self.assertEqual(format_san("O-O", "uk_literal"), "коротка рокіровка")
         self.assertEqual(format_san("O-O-O+", "uk_literal"), "довга рокіровка, шах")
         self.assertEqual(format_san("0-0#", "en_literal"), "kingside castling, checkmate")
+
+    def test_mixed_zero_letter_castling_is_not_san(self):
+        for token in ("0-O", "O-0", "0-O-O", "O-0-O", "O-O-0", "0-0-O"):
+            with self.subTest(token=token):
+                with self.assertRaises(NotationError):
+                    format_san(token, "san")
+                with self.assertRaises(NotationError):
+                    format_san(token, "uk_literal")
+                with self.assertRaises(NotationError):
+                    format_accessible_compact_san(token, "en")
 
     def test_compact_accessible_profile_spaces_piece_file_rank(self):
         self.assertEqual(format_accessible_compact_san("Nf3", "en"), "N f 3")
