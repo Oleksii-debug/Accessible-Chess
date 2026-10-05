@@ -62,6 +62,30 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
     def export_running(self) -> bool:
         return self._export_running
 
+    def _capture_native_navigation_state(self) -> tuple[object, GameSearchQuery, frozenset[int]]:
+        """Freeze all Library state a native route-changing command may mutate."""
+        return (
+            self._presenter._capture_presentation_state(),
+            self._query,
+            frozenset(self._export_game_ids),
+        )
+
+    def _restore_native_navigation_state(
+        self,
+        state: tuple[object, GameSearchQuery, frozenset[int]],
+    ) -> None:
+        """Restore one exact pre-command state after route publication fails."""
+        if type(state) is not tuple or len(state) != 3:
+            raise TypeError("Library native navigation rollback state is invalid")
+        presenter_state, query, export_ids = state
+        if not isinstance(query, GameSearchQuery) or type(export_ids) is not frozenset:
+            raise TypeError("Library native navigation rollback state is invalid")
+        if any(type(game_id) is not int or game_id <= 0 for game_id in export_ids):
+            raise ValueError("Library native navigation rollback selection is invalid")
+        self._presenter._restore_presentation_state(presenter_state)
+        self._query = query
+        self._export_game_ids = set(export_ids)
+
     def _operation_import_snapshot(self) -> dict[str, object]:
         snapshot = dict(self._import.snapshot())
         raw_actions = snapshot.get("actions")
