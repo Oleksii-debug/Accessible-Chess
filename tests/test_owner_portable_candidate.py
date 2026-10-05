@@ -62,7 +62,7 @@ def _sound_pack(root: Path, *, archive_sha256: str = _ARCHIVE_SHA) -> str:
     library.mkdir(parents=True)
     rows: list[tuple[str, bytes]] = []
     files: list[dict[str, object]] = []
-    for index in range(owner_candidate.EXPECTED_SOURCE_WAV_COUNT):
+    for index in range(330):
         relative = f"Test/{index:03d}.wav"
         packaged = f"library/{relative}"
         payload = b"WAV" + index.to_bytes(2, "little")
@@ -90,7 +90,7 @@ def _sound_pack(root: Path, *, archive_sha256: str = _ARCHIVE_SHA) -> str:
         "source": owner_candidate.PROVENANCE_SOURCE,
         "license_id": owner_candidate.PROVENANCE_LICENSE,
         "creator": owner_candidate.PROVENANCE_CREATOR,
-        "file_count": owner_candidate.EXPECTED_SOURCE_WAV_COUNT,
+        "file_count": 330,
         "source_inventory_sha256": fingerprint,
         "source_archive_sha256": archive_sha256,
         "source_archive_bytes": 123456,
@@ -150,9 +150,7 @@ class OwnerPortableCandidateValidationTests(unittest.TestCase):
                 expected_integration_sha=_SHA,
                 require_user_seed=True,
             )
-            self.assertEqual(
-                report["sound_wav_count"], owner_candidate.EXPECTED_SOURCE_WAV_COUNT
-            )
+            self.assertEqual(report["sound_wav_count"], 330)
             self.assertEqual(report["sound_inventory_sha256"], fingerprint)
             self.assertEqual(report["package_checksum_sha256"], _PACKAGE_CHECKSUM_SHA)
             self.assertEqual(report["seed_source_count"], 6)
@@ -382,7 +380,7 @@ class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
             qualification = {
                 "sound_archive_sha256": _ARCHIVE_SHA,
                 "sound_inventory_sha256": "d" * 64,
-                "sound_wav_count": owner_candidate.EXPECTED_SOURCE_WAV_COUNT,
+                "sound_wav_count": 330,
                 "package_checksum_sha256": _PACKAGE_CHECKSUM_SHA,
                 "seed_source_count": 6,
                 "seed_game_count": 3738,
@@ -443,9 +441,7 @@ class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
             )
             self.assertEqual(report.archive_sha256, _digest(b"zip"))
             self.assertEqual(report.package_checksum_sha256, _PACKAGE_CHECKSUM_SHA)
-            self.assertEqual(
-                report.sound_wav_count, owner_candidate.EXPECTED_SOURCE_WAV_COUNT
-            )
+            self.assertEqual(report.sound_wav_count, 330)
             self.assertEqual(report.seed_game_count, 3738)
 
     def test_builder_rejects_wrong_authorized_document_hash_before_zip_publication(self) -> None:

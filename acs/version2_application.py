@@ -142,6 +142,9 @@ class Version2Application:
         self._files = None
         self._book_open_worker: Version2BookOpenWorker | None = None
         self._focus = ""
+        self._shell_publication_sequence = 0
+        self._pending_shell_publication = None
+        self._last_shell_publication_resolution = None
         self.session = None
         self.pgn_board_active = False
         self.pgn = None
@@ -167,6 +170,75 @@ class Version2Application:
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
             raise RuntimeError("V2 application requires the native UI thread")
+
+    @staticmethod
+    def _shell_publication_token(payload):
+        """Validate one browser presentation acknowledgement token."""
+        if type(payload) is not dict or len(payload) != 1:
+            raise ValueError("invalid shell publication acknowledgement")
+        key = next(iter(payload))
+        if type(key) is not str or key != "token":
+            raise ValueError("invalid shell publication acknowledgement")
+        token = payload[key]
+        if type(token) is not int or token <= 0 or token > 9007199254740991:
+            raise ValueError("invalid shell publication acknowledgement")
+        return token
+
+    def _finish_shell_publication(self, token: int, *, commit: bool):
+        """Commit or roll back one browser route only after DOM publication."""
+        pending = self._pending_shell_publication
+        if pending is None:
+            last = self._last_shell_publication_resolution
+            if last is not None and last == (token, commit):
+                if commit:
+                    return {
+                        "kind": "presentation-commit",
+                        "payload": {"token": token},
+                    }
+                return {
+                    "kind": "presentation-rollback",
+                    "payload": {
+                        "token": token,
+                        "route_id": self.shell.current_route.route_id,
+                        "focus_target": self._focus,
+                    },
+                }
+            raise ValueError("stale shell publication acknowledgement")
+        if pending[0] != token:
+            raise ValueError("stale shell publication acknowledgement")
+        self._pending_shell_publication = None
+        if commit:
+            self.shell._end_publication_hold()
+            self._last_shell_publication_resolution = (token, True)
+            return {
+                "kind": "presentation-commit",
+                "payload": {"token": token},
+            }
+
+        (
+            _token,
+            _route_command,
+            _request_id,
+            _projected_route,
+            shell_state,
+            prior_focus,
+            prior_training_workspace,
+            prior_training,
+        ) = pending
+        self.shell._restore_presentation_state(shell_state)
+        self._focus = prior_focus
+        self.training_workspace = prior_training_workspace
+        self.training = prior_training
+        self.shell._end_publication_hold()
+        self._last_shell_publication_resolution = (token, False)
+        return {
+            "kind": "presentation-rollback",
+            "payload": {
+                "token": token,
+                "route_id": self.shell.current_route.route_id,
+                "focus_target": self._focus,
+            },
+        }
 
     @staticmethod
     def _valid_book_browser_token(value):
@@ -1566,6 +1638,15 @@ class Version2Application:
             empty_authority_payload = payload is None or (
                 type(payload) is dict and len(payload) == 0
             )
+            if (
+                self._pending_shell_publication is not None
+                and area_id != "shell"
+            ):
+                # Until the browser commits or rolls back its route snapshot,
+                # the old DOM may still be interactive while Python already
+                # holds the candidate route. Never reinterpret those stale
+                # surface commands against the unpublished owner.
+                raise ValueError("shell presentation publication is pending")
             if area_id == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
@@ -1588,7 +1669,43 @@ class Version2Application:
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
             if area_id == "shell":
-                if not empty_authority_payload:
+                is_publication_control = (
+                    type(command) is str
+                    and command in {
+                        "shell.presentation_commit",
+                        "shell.presentation_rollback",
+                    }
+                )
+                if is_publication_control:
+                    token = self._shell_publication_token(payload)
+                    return self._finish_shell_publication(
+                        token,
+                        commit=command == "shell.presentation_commit",
+                    )
+
+                publication_protocol = False
+                publication_request_id = None
+                if type(payload) is dict and "publication_protocol" in payload:
+                    keys = tuple(payload)
+                    if (
+                        len(keys) != 2
+                        or any(type(key) is not str for key in keys)
+                        or "request_id" not in payload
+                    ):
+                        raise ValueError("invalid shell publication request")
+                    value = payload["publication_protocol"]
+                    if type(value) is not str or value != "ack-v1":
+                        raise ValueError("unsupported shell publication protocol")
+                    publication_request_id = payload["request_id"]
+                    if (
+                        type(publication_request_id) is not int
+                        or publication_request_id <= 0
+                        or publication_request_id > 9007199254740991
+                    ):
+                        raise ValueError("invalid shell publication request")
+                    publication_protocol = True
+
+                if not empty_authority_payload and not publication_protocol:
                     raise ValueError("shell accepts no authority payload")
                 if (
                     type(command) is not str
@@ -1599,6 +1716,31 @@ class Version2Application:
                     )
                 ):
                     raise ValueError("unsupported shell command")
+                if publication_protocol and not command.startswith("screen."):
+                    raise ValueError("shell publication protocol requires a route command")
+                if publication_protocol and self._pending_shell_publication is not None:
+                    pending = self._pending_shell_publication
+                    if (
+                        pending[1] == command
+                        and pending[2] == publication_request_id
+                    ):
+                        return pending[3]
+                    raise ValueError("shell publication acknowledgement is pending")
+                if (
+                    publication_protocol
+                    and self._shell_publication_sequence >= 9007199254740990
+                ):
+                    raise RuntimeError("shell publication sequence exhausted")
+
+                publication_before = None
+                if publication_protocol:
+                    publication_before = (
+                        self.shell._capture_presentation_state(),
+                        self._focus,
+                        self.training_workspace,
+                        self.training,
+                    )
+
                 training_transition = None
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
@@ -1653,6 +1795,27 @@ class Version2Application:
                             projected_screen = projected_snapshot.get("screen")
                             if isinstance(projected_screen, dict):
                                 projected_screen["focus_target"] = self._focus
+                        if publication_protocol:
+                            self._shell_publication_sequence += 1
+                            token = self._shell_publication_sequence
+                            (
+                                prior_shell,
+                                prior_focus,
+                                prior_training_workspace,
+                                prior_training,
+                            ) = publication_before
+                            self.shell._begin_publication_hold()
+                            projected_payload["publication_token"] = token
+                            self._pending_shell_publication = (
+                                token,
+                                command,
+                                publication_request_id,
+                                projected,
+                                prior_shell,
+                                prior_focus,
+                                prior_training_workspace,
+                                prior_training,
+                            )
                 return projected
             if area_id == "training":
                 try:
@@ -1734,8 +1897,14 @@ class Version2Application:
         book_snapshot = None if self.books is None else self.books.projection.snapshot()
         if book_snapshot is not None:
             book_snapshot = self._lease_book_snapshot(book_snapshot)
+        pending_shell_publication_token = (
+            self._pending_shell_publication[0]
+            if self._pending_shell_publication is not None
+            else 0
+        )
         return {
             **self.adapter.snapshot(),
+            "shell_publication_token": pending_shell_publication_token,
             "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
             "books": book_snapshot,
@@ -1747,6 +1916,12 @@ class Version2Application:
 
     def drain_events(self):
         self._assert_thread()
+        if self._pending_shell_publication is not None:
+            # The browser is rendering a candidate route. Preserve every prior
+            # native/domain presentation event in order until that route is
+            # either committed or rolled back; applying an event to the
+            # unpublished DOM would create a second presentation authority.
+            return ()
         events = tuple(self._events)
         self._events.clear()
         return events
@@ -1841,7 +2016,7 @@ class Version2Application:
         # AccessibleShellState owns the one canonical DOM focus-ID contract.
         # Validate there before publishing the token to native-menu ingress so
         # _focus can never diverge from the route-local shell memory.
-        self.shell.record_focus(token)
+        self.shell.record_observed_focus(token)
         self._focus = token
 
     def import_ui_ready(self, mailbox):
@@ -1964,6 +2139,15 @@ class Version2Application:
             return False
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
+        if self._pending_shell_publication is not None:
+            # Native close/Alt+F4 can race a browser route render. An
+            # unacknowledged candidate route is not user-visible authority and
+            # must never become durable merely because shutdown began. Retire
+            # workers first so a refused close can keep the pending browser
+            # transaction alive; once shutdown may proceed, roll it back before
+            # any Training or Book progress publication.
+            token = self._pending_shell_publication[0]
+            self._finish_shell_publication(token, commit=False)
         self.save_training_progress()
         try:
             self.save_book_progress()
