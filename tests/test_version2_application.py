@@ -1128,6 +1128,32 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.open_book(book)
         self.assertEqual(self.app.reader.location(), origin)
 
+    def test_browser_screen_route_post_adapter_failure_restores_shell_and_focus(self):
+        self.app.record_focus("board-square-e4")
+        route_before = self.app.shell.current_route.route_id
+        focus_before = self.app._focus
+        remembered_before = self.app.shell.restore_focus_target()
+
+        with patch.object(
+            self.app,
+            "_repair_book_block_focus_after_rebind",
+            side_effect=RuntimeError("route projection repair failed"),
+        ):
+            result = self.app.browser_command("shell", "screen.library")
+
+        self.assertEqual("error", result["kind"])
+        self.assertEqual(route_before, self.app.shell.current_route.route_id)
+        self.assertEqual(focus_before, self.app._focus)
+        self.assertEqual(remembered_before, self.app.shell.restore_focus_target())
+
+        committed = self.app.browser_command("shell", "screen.library")
+        self.assertEqual("route", committed["kind"])
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertEqual(
+            "library-search-player",
+            committed["payload"]["focus_target"],
+        )
+
     def test_browser_route_chain_never_reuses_previous_route_focus_token(self):
         _book, _origin = self._open_book_game()
         book_focus = f"book-block-{self.app.reader.index}"
