@@ -131,6 +131,25 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[-1]["kind"], "status")
         self.assertIn("Скасовую", events[-1]["payload"]["announcement"])
 
+    def test_pgn_save_preflight_and_postpublication_stale_messages_are_truthful(self):
+        preflight = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save_as",
+            error_code="pgn_save_preflight_stale",
+        )
+        durable = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save",
+            error_code="pgn_save_stale",
+        )
+
+        preflight_message = self.app._native_file_error_message(preflight)
+        durable_message = self.app._native_file_error_message(durable)
+
+        self.assertIn("не розпочато", preflight_message)
+        self.assertNotIn("уже записано", preflight_message)
+        self.assertIn("уже записано", durable_message)
+
     def test_async_pgn_save_completion_announces_without_route_replacement(self):
         saved = FileWorkflowEvent(
             kind=FileWorkflowEventKind.PGN_SAVED,
