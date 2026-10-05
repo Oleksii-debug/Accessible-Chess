@@ -103,6 +103,10 @@ jobs:
           BOOK_OPEN_HEAD: f0895d6b90bd59403698cb3869f3767d6e0a6086
           PRE_BOOK_OPEN_PRODUCT: 858e25841ccfd0e362083b28f6da17dfc5fcabdc
           BOOK_OPEN_MERGE: 9b058767515b1d326611933e6bc0b70c54311898
+          ROUTE_ATOMIC_REF: fix/full-product-route-publication-atomicity-20261005-hy6ez0h
+          ROUTE_ATOMIC_HEAD: 0054e15a010f30722d49041a14ddbc2a0f1cfdf8
+          PRE_ROUTE_ATOMIC_PRODUCT: 5e257a008da11fbc6149a73ec7e34dbb5ee3c1d5
+          ROUTE_ATOMIC_MERGE: 89d9833ad00f97958e3b40fcddf28f8894e7807c
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -135,6 +139,7 @@ jobs:
           fetch_exact "$LIBRARY_EXPORT_REF" "$LIBRARY_EXPORT_HEAD" CURRENT_PRODUCT_LIBRARY_EXPORT
           fetch_exact "$LANGUAGE_ATOMIC_REF" "$LANGUAGE_ATOMIC_HEAD" CURRENT_PRODUCT_LANGUAGE_ATOMICITY
           fetch_exact "$BOOK_OPEN_REF" "$BOOK_OPEN_HEAD" CURRENT_PRODUCT_BOOK_OPEN
+          fetch_exact "$ROUTE_ATOMIC_REF" "$ROUTE_ATOMIC_HEAD" CURRENT_PRODUCT_ROUTE_ATOMICITY
 
           test "$(git show -s --format=%P "$BOOKS_MERGE")" = "$SERIAL_HEAD $BOOKS_INITIAL_HEAD"
           test "$(git show -s --format=%P "$LOCAL_PROFILE_MERGE")" = "b8770e46d0b7b0ba5070b8fff78224bb3341ba7a e90d3735912a3a86f33b1175adcc2d76dfe3011d"
@@ -163,8 +168,10 @@ jobs:
           git merge-base --is-ancestor "$LANGUAGE_ATOMIC_MERGE" HEAD
           test "$(git show -s --format=%P "$BOOK_OPEN_MERGE")" = "$PRE_BOOK_OPEN_PRODUCT $BOOK_OPEN_HEAD"
           git merge-base --is-ancestor "$BOOK_OPEN_MERGE" HEAD
+          test "$(git show -s --format=%P "$ROUTE_ATOMIC_MERGE")" = "$PRE_ROUTE_ATOMIC_PRODUCT $ROUTE_ATOMIC_HEAD"
+          git merge-base --is-ancestor "$ROUTE_ATOMIC_MERGE" HEAD
 
-          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD" "$PRESENTATION_HEAD" "$LIBRARY_EXPORT_HEAD" "$LANGUAGE_ATOMIC_HEAD" "$BOOK_OPEN_HEAD"; do
+          for source in "$SERIAL_HEAD" "$BOOKS_HEAD" "$LOCAL_PROFILE_HEAD" "$KEYMAP_HEAD" "$FORMAT_HEAD" "$REPORT_HEAD" "$CONVERSION_INTEGRITY_HEAD" "$CONVERSION_CAS_HEAD" "$EXPORT_PARENT_HEAD" "$PRESENTATION_HEAD" "$LIBRARY_EXPORT_HEAD" "$LANGUAGE_ATOMIC_HEAD" "$BOOK_OPEN_HEAD" "$ROUTE_ATOMIC_HEAD"; do
             git merge-base --is-ancestor "$source" HEAD
           done
 
@@ -188,6 +195,7 @@ jobs:
             'acs/full_product_actions.py' \
             'acs/full_product_native_menu.py' \
             'acs/full_product_presenters.py' \
+            'acs/full_product_ui_shell.py' \
             'acs/full_product_webview_adapter.py' \
             'acs/library_export_service.py' \
             'acs/library_webview_projection.py' \
@@ -199,6 +207,7 @@ jobs:
             'acs/report_paths.py' \
             'acs/version2_application.py' \
             'acs/version2_release_app.py' \
+            'acs/version2_release_ui.py' \
             'acs/version2_windows_book_open_worker.py' \
             'acs/version2_windows_library_export.py' \
             'docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md' \
@@ -222,6 +231,7 @@ jobs:
             'tests/test_pgn_presenter_graph_safety_current.py' \
             'tests/test_pgn_service.py' \
             'tests/test_report_paths.py' \
+            'tests/test_version2_release_ui.py' \
             'tests/test_v2_book_epub_import.py' \
             'tests/test_v2_book_html_import.py' \
             'tests/test_v2_book_text_import.py' \
@@ -239,14 +249,14 @@ jobs:
           test "$(git rev-parse HEAD:acs/bookdocument.py)" = '23249894e2e7d9c3b2c0602515188000ea846a41'
           test "$(git rev-parse HEAD:acs/local_profile.py)" = '96d9b523a93a18eb4cc473ef0c87abee49d84512'
           test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = '7a91103062b76b541d370ec3a3247974d5cd0b80'
-          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = '29602a1a6b7666d6366b63428e22c4d94d6edf28'
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = 'a104e95645cbdfa5700a407326b99f437e6a2682'
           test "$(git rev-parse HEAD:.github/workflows/current-book-open-background-preparation.yml)" = '5bba1f61d4359ed4243d02a091b95c92fbdc79e2'
           test "$(git rev-parse HEAD:acs/full_product_actions.py)" = 'cf4e68ebd5bec184f4a6d11ec5b949000c448bcb'
           test "$(git rev-parse HEAD:acs/version2_application.py)" = 'a14fbfa1a96ba3b25307aee99657a35e322e09f8'
           test "$(git rev-parse HEAD:acs/version2_release_app.py)" = '4b104deb653efae90e05d7bd0204b1f83d74b0fb'
           test "$(git rev-parse HEAD:acs/version2_windows_book_open_worker.py)" = 'd2676876930061c9e951ab2329096a4886e3ff29'
           test "$(git rev-parse HEAD:tests/test_book_open_preparation.py)" = '11788da414132fb3fa55b13d96c13846abc9b229'
-          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = '43fa0c52ef58507f7202eef8ae0cfff97a7c9630'
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = 'f00dc790dbead7e459ff8bd39674a090f95b6855'
           test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = '623a0c7ef5b5d0e11d2d17eed6bd13e3ead0d2c4'
           test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = '731f55c8c91ecdcdb2ec716e9840eee43a4b4889'
           test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = '12a0167c93ed7b60898262314319ad181acb7094'
@@ -266,9 +276,12 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_d07_library_export_service.py)" = 'a2e6422314106c16a233070800b3e0c9c6f41d78'
           test "$(git rev-parse HEAD:tests/test_v2_windows_library_export.py)" = '071eecf8523cf8eb0ca1b42c362da5686dc0b437'
           test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = 'c3f71baee9fbcc4ad6f93a931d3deeb80fd37d51'
-          test "$(git rev-parse HEAD:acs/full_product_webview_adapter.py)" = 'b5204e87a1e5491e23f9f7767a25a4436cf44b89'
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '2a33ec341a25a6458ab582dd35ba8143a6e9211d'
+          test "$(git rev-parse HEAD:acs/full_product_webview_adapter.py)" = '2f72cc8489de87bb3ae126cda9b3869a0135daa7'
           test "$(git rev-parse HEAD:tests/test_dev1_library_webview_projection.py)" = 'a6151636c03e59a28e57a4a1ebbfa75ee6b6fb67'
-          test "$(git rev-parse HEAD:tests/test_dev1_full_product_webview_adapter.py)" = 'e836cf6f0eca3121cae64582d73e159dc7d5dc07'
+          test "$(git rev-parse HEAD:tests/test_dev1_full_product_webview_adapter.py)" = '4c2c409179f0938e99b7e68c0a699cbb0a1a4dfa'
+          test "$(git rev-parse HEAD:acs/version2_release_ui.py)" = '6f723269938ed0bc654ef03ab6a1a60f0fe34a6c'
+          test "$(git rev-parse HEAD:tests/test_version2_release_ui.py)" = '63ee74995fbcb0de2e8cb83508d38af04982587a'
           test "$(git rev-parse HEAD:acs/report_paths.py)" = 'fafc8696a846a1b9c96a8ce89a76ce82593fd582'
           test "$(git rev-parse HEAD:tests/test_report_paths.py)" = 'dc3bd5c1be6259b83cb6316648663a213aeeae0e'
           test "$(git rev-parse HEAD:.github/workflows/pgn-reviewed-encoding-conversion.yml)" = '90494595a4158d302999575601a76440a7e1b9f4'
@@ -289,6 +302,7 @@ jobs:
           acs/book_epub_import.py
           acs/full_product_actions.py
           acs/full_product_presenters.py
+          acs/full_product_ui_shell.py
           acs/full_product_webview_adapter.py
           acs/library_export_service.py
           acs/library_webview_projection.py
@@ -304,6 +318,7 @@ jobs:
           acs/report_paths.py
           acs/version2_application.py
           acs/version2_release_app.py
+          acs/version2_release_ui.py
           acs/version2_windows_book_open_worker.py
           acs/version2_windows_library_export.py
           scripts/qualify_pgn_conversion_corpus.py
@@ -332,6 +347,7 @@ jobs:
           tests.test_local_profile_recursion_boundary
           tests.test_local_profile_path_identity
           tests.test_full_product_native_menu
+          tests.test_version2_release_ui
           tests.test_version2_release_app
           tests.test_pgn_conversion
           tests.test_pgn_conversion_windows
