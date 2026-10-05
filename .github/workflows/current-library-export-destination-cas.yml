@@ -5,10 +5,11 @@ on:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
     paths:
+      - 'acs/full_product_actions.py'
       - 'acs/library_export_service.py'
+      - 'acs/version2_windows_host_runtime.py'
       - 'acs/version2_windows_library_export.py'
-      - 'tests/test_d07_library_export_service.py'
-      - 'tests/test_v2_windows_library_export.py'
+      - 'tests/test_v2_windows_library_export_background.py'
       - '.github/workflows/current-library-export-destination-cas.yml'
   workflow_dispatch:
 
@@ -42,7 +43,7 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
-          PINNED_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62
+          PINNED_PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
           PINNED_PGN_SERVICE_BLOB: aa74b3727d0313b76676b753e32100cf8f6d90b8
           PINNED_PGN_EXPORT_HOST_BLOB: 913a74348f1323887d9d880285814a7680869ae1
           PINNED_PGN_COMMANDS_BLOB: 74a94b45597fbdc1607e7b3452df41b88837b42f
@@ -77,12 +78,13 @@ jobs:
           changed="$(git diff --name-only "$live_product"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-library-export-destination-cas.yml' \
+            'acs/full_product_actions.py' \
             'acs/library_export_service.py' \
+            'acs/version2_windows_host_runtime.py' \
             'acs/version2_windows_library_export.py' \
-            'tests/test_d07_library_export_service.py' \
-            'tests/test_v2_windows_library_export.py' | sort)"
+            'tests/test_v2_windows_library_export_background.py' | sort)"
           test "$changed" = "$expected" || {
-            printf 'Unexpected Library export destination-CAS scope:\n%s\n' "$changed" >&2
+            printf 'Unexpected Library export background/CAS scope:\n%s\n' "$changed" >&2
             exit 1
           }
 
@@ -100,14 +102,16 @@ jobs:
       - name: Compile changed boundary
         run: >-
           python -m compileall -q
+          acs/full_product_actions.py
           acs/library_export_service.py
+          acs/version2_windows_host_runtime.py
           acs/version2_windows_library_export.py
-          tests/test_d07_library_export_service.py
-          tests/test_v2_windows_library_export.py
+          tests/test_v2_windows_library_export_background.py
 
-      - name: Execute Library export and canonical writer regressions
+      - name: Execute Library export, host-runtime, and canonical writer regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_windows_library_export_background
           tests.test_d07_library_export_service
           tests.test_v2_windows_library_export
           tests.test_pgn_service
