@@ -90,6 +90,44 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
                 analysis.close()
                 database.close()
 
+    def test_library_file_error_message_rejects_active_event_subclass_before_field_access(self) -> None:
+        class ActiveLibraryExportHostEvent(LibraryExportHostEvent):
+            armed = False
+
+            def __getattribute__(self, name):
+                if name in {"action_id", "error_code"} and object.__getattribute__(
+                    self, "armed"
+                ):
+                    raise AssertionError("active event field accessor executed")
+                return super().__getattribute__(name)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "book-progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_args: None,
+                    copy_text=lambda _text: None,
+                )
+                event = ActiveLibraryExportHostEvent(
+                    LibraryExportHostEventKind.FAILED,
+                    focus_target="library-search-player",
+                    error_code="library_export_failed",
+                )
+                object.__setattr__(event, "armed", True)
+
+                self.assertEqual(
+                    "Не вдалося виконати дію.",
+                    app._native_file_error_message(event),
+                )
+            finally:
+                analysis.close()
+                database.close()
+
     def test_library_home_end_are_central_remappable_actions(self) -> None:
         registry = build_full_product_action_registry()
 
