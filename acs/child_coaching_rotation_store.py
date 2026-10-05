@@ -91,6 +91,39 @@ def _canonical_bytes(plan: RotationPlan, state: RotationState) -> bytes:
     return data
 
 
+def _reachable_revision(plan: RotationPlan, state: RotationState) -> int:
+    """Return the only revision reachable through the canonical transition API."""
+
+    if state.phase is RotationPhase.PLANNED:
+        return 0
+
+    # start_rotation() publishes ACTIVE round zero at revision 1. Every completed
+    # prior round contributes one advance, while every prior pair-play round also
+    # contributes its mandatory bind before that advance.
+    expected = 1 + state.round_index
+    expected += sum(
+        1
+        for item in plan.rounds[: state.round_index]
+        if item.activity is RotationActivity.PAIR_PLAY
+    )
+
+    item = plan.rounds[state.round_index]
+    if state.phase is RotationPhase.COMPLETED:
+        # Completion is the final round's advance. A final pair-play round must
+        # also have been bound before that advance, even though completion clears
+        # the opaque batch reference from durable state.
+        expected += 1
+        if item.activity is RotationActivity.PAIR_PLAY:
+            expected += 1
+    elif (
+        item.activity is RotationActivity.PAIR_PLAY
+        and state.pair_play_batch_ref is not None
+    ):
+        # The current pair-play binding is itself one canonical transition.
+        expected += 1
+    return expected
+
+
 def _validate_pair(plan: RotationPlan, state: RotationState) -> None:
     if type(plan) is not RotationPlan or type(state) is not RotationState:
         raise TypeError("rotation store requires RotationPlan and RotationState")
@@ -113,6 +146,11 @@ def _validate_pair(plan: RotationPlan, state: RotationState) -> None:
     elif state.round_index != len(plan.rounds) - 1:
         raise ChildCoachingRotationStoreError(
             "completed rotation must reference the final plan round"
+        )
+
+    if state.revision != _reachable_revision(plan, state):
+        raise ChildCoachingRotationStoreError(
+            "rotation state revision is unreachable for the plan"
         )
 
 
