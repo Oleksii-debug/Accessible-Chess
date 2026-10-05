@@ -144,6 +144,92 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
         )
         self.assertFalse(ActiveBookBoardUiEvent.touched)
 
+    def test_book_workspace_rejects_active_wrapper_action_id_before_comparison(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveActionId(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("active wrapper action comparison must not execute")
+
+            def __ne__(self, other):
+                type(self).touched = True
+                raise AssertionError("active wrapper action comparison must not execute")
+
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=workflow.revision,
+        )
+        wrapped = ActionDispatchResult(
+            action_id=ActiveActionId("book.open_position"),
+            handled_by_shell=False,
+            value=event,
+        )
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: wrapped,
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveActionId.touched)
+
+    def test_book_workspace_rejects_mutated_active_event_scalar_before_comparison(self) -> None:
+        analysis = AnalysisService(lambda: _IdleEngine())
+        self.addCleanup(analysis.close)
+        reader = self._reader()
+        workflow = BookBoardWorkflow(
+            reader,
+            EngineAssistedWorkflowService(analysis),
+        )
+
+        class ActiveActionId(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("active event action comparison must not execute")
+
+            def __ne__(self, other):
+                type(self).touched = True
+                raise AssertionError("active event action comparison must not execute")
+
+        event = BookBoardUiEvent(
+            BookBoardUiEventKind.BOARD_OPENED,
+            "book.open_position",
+            focus_target="board",
+            revision=workflow.revision,
+        )
+        object.__setattr__(event, "action_id", ActiveActionId("book.open_position"))
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda *_args: event,
+        )
+
+        self.assertFalse(
+            projection._workflow_action(
+                "book.open_position",
+                BookBoardUiEventKind.BOARD_OPENED,
+            )
+        )
+        self.assertFalse(ActiveActionId.touched)
+
     def test_book_workspace_accepts_exact_router_result_with_exact_ui_event(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
