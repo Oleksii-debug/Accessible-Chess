@@ -228,6 +228,38 @@ function snapshot(checked) {
     "partial operation event left canonical browser export action state enabled"
   );
 
+  // A user-initiated Library refresh/search may publish newer rows while the
+  // worker is still exporting the immutable request it captured earlier. The
+  // later worker terminal event must update only operation controls; it must
+  // not resurrect the stale selection/checkbox presentation from export start.
+  const newerBusySnapshot = snapshot(false);
+  newerBusySnapshot.actions = newerBusySnapshot.actions.map((action) => {
+    if (action.action.indexOf("library.export_") === 0 ||
+        action.action === "library.clear_export_selection") {
+      return Object.assign({}, action, { enabled: false });
+    }
+    return action;
+  });
+  newerBusySnapshot.import = {
+    phase: "idle", heading: "Import", description: "Import games",
+    processed_games: 0, total_games: 0, progress_label: "", message: "",
+    actions: [
+      { action: "library.import", dom_id: "library-import-file", label: "Import", enabled: false },
+      { action: "library.cancel_import", dom_id: "library-import-cancel", label: "Cancel export", enabled: true }
+    ]
+  };
+  window.AccessibleChessLibrarySurface.render(
+    root,
+    newerBusySnapshot,
+    invoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const newerCheckbox = root.querySelector("#library-game-0123456789abcdefabcd-export");
+  check(newerCheckbox !== null && newerCheckbox.checked === false,
+    "newer Library presentation did not replace the export selection");
+  const rendersBeforeTerminal = root.replaceChildrenCalls;
+
   window.AccessibleChessLibrarySurface.apply(root, {
     kind: "render-import",
     payload: {
@@ -248,9 +280,21 @@ function snapshot(checked) {
     document.activeElement !== focusedBeforeBusy,
     "partial terminal projection restored the pre-dialog export control too early"
   );
-  check(!actionButton("library.export_selected").disabled, "selected export action was not restored");
-  check(!actionButton("library.export_filtered").disabled, "filtered export action was not restored");
-  check(!actionButton("library.clear_export_selection").disabled, "clear export action was not restored");
+  check(
+    root.replaceChildrenCalls === rendersBeforeTerminal,
+    "late export terminal result replaced the newer Library presentation"
+  );
+  check(
+    root.querySelector("#library-game-0123456789abcdefabcd-export") === newerCheckbox &&
+      newerCheckbox.checked === false,
+    "late export terminal result resurrected stale export selection"
+  );
+  check(actionButton("library.export_selected").disabled,
+    "terminal event enabled selected export without a current selection");
+  check(!actionButton("library.export_filtered").disabled,
+    "terminal event did not restore filtered export for current rows");
+  check(actionButton("library.clear_export_selection").disabled,
+    "terminal event enabled clear export without a current selection");
 
   console.log("Library export checkbox DOM contract PASS");
 })().catch((error) => {
