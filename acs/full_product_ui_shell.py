@@ -87,6 +87,8 @@ class _ShellPresentationState:
     route_id: str
     focus_by_route: tuple[tuple[str, str], ...]
     dialogs: tuple[DialogFocusFrame, ...]
+    focus_observation_sequence: int
+    last_observed_focus: tuple[int, str, str] | None
 
 
 class AccessibleShellState:
@@ -111,6 +113,8 @@ class AccessibleShellState:
         self._route_id = initial_route
         self._focus_by_route: dict[str, str] = {}
         self._dialogs: list[DialogFocusFrame] = []
+        self._focus_observation_sequence = 0
+        self._last_observed_focus: tuple[int, str, str] | None = None
 
     @property
     def language(self) -> UILanguage:
@@ -131,15 +135,30 @@ class AccessibleShellState:
             route_id=self._route_id,
             focus_by_route=tuple(self._focus_by_route.items()),
             dialogs=tuple(self._dialogs),
+            focus_observation_sequence=self._focus_observation_sequence,
+            last_observed_focus=self._last_observed_focus,
         )
 
     def _restore_presentation_state(self, state: _ShellPresentationState) -> None:
         if type(state) is not _ShellPresentationState:
             raise TypeError("shell presentation rollback state is invalid")
+        newer_observation = (
+            self._last_observed_focus
+            if self._focus_observation_sequence > state.focus_observation_sequence
+            else None
+        )
         self._language = state.language
         self._route_id = state.route_id
         self._focus_by_route = dict(state.focus_by_route)
         self._dialogs = list(state.dialogs)
+        self._focus_observation_sequence = state.focus_observation_sequence
+        self._last_observed_focus = state.last_observed_focus
+        if newer_observation is not None:
+            sequence, route_id, focus_id = newer_observation
+            self._focus_observation_sequence = sequence
+            self._last_observed_focus = newer_observation
+            if route_id == self._route_id and not self._dialogs:
+                self._focus_by_route[route_id] = focus_id
 
     def set_language(self, language: UILanguage) -> None:
         if not isinstance(language, UILanguage):
@@ -164,13 +183,33 @@ class AccessibleShellState:
         if clean:
             self._focus_by_route[self._route_id] = clean
 
+    def record_observed_focus(self, element_id: str) -> None:
+        """Record focus supplied by the already-visible browser/native host.
+
+        Publication rollback may discard speculative route/dialog changes, but it
+        must not forget a newer focus value that the host had already exposed to
+        the user before dispatch began. Internal/delegate focus mutations use
+        ``record_focus`` and therefore never acquire this preservation marker.
+        """
+        clean = self._clean_focus_id(element_id)
+        if not clean:
+            return
+        self._focus_by_route[self._route_id] = clean
+        if not self._dialogs:
+            self._focus_observation_sequence += 1
+            self._last_observed_focus = (
+                self._focus_observation_sequence,
+                self._route_id,
+                clean,
+            )
+
     def open_route(self, route_id: str, *, current_focus_id: str = "") -> str:
         if route_id not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
         if self._dialogs:
             raise RuntimeError("close active dialog before changing application route")
         if self._clean_focus_id(current_focus_id):
-            self.record_focus(current_focus_id)
+            self.record_observed_focus(current_focus_id)
         self._route_id = route_id
         return self.restore_focus_target()
 
