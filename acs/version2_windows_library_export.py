@@ -317,9 +317,10 @@ class Version2WindowsLibraryExportDelegate:
         terminal: LibraryExportHostEvent
         try:
             assert self._worker_services_factory is not None
-            services = self._worker_services_factory()
-            if not isinstance(services, LibraryExportWorkerServices):
+            candidate_services = self._worker_services_factory()
+            if type(candidate_services) is not LibraryExportWorkerServices:
                 raise TypeError("Library export worker factory returned invalid services")
+            services = candidate_services
             expected_sha256 = services.library.expected_destination_sha256(
                 destination,
                 cancel_check=cancel.is_set,
