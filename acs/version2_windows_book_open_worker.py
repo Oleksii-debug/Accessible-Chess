@@ -72,12 +72,7 @@ class Version2BookOpenWorker:
     @property
     def active(self) -> bool:
         with self._lock:
-            thread = self._thread
-            return (
-                not self._closed
-                and thread is not None
-                and thread.is_alive()
-            )
+            return not self._closed and self._cancel is not None
 
     @property
     def closed(self) -> bool:
@@ -97,7 +92,7 @@ class Version2BookOpenWorker:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Book Open worker is closed")
-            if self._thread is not None and self._thread.is_alive():
+            if self._cancel is not None:
                 raise RuntimeError("Book Open is already running")
             self._generation += 1
             generation = self._generation
@@ -117,9 +112,7 @@ class Version2BookOpenWorker:
     def cancel(self, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
         with self._lock:
-            if self._closed or self._cancel is None or self._thread is None:
-                return False
-            if not self._thread.is_alive():
+            if self._closed or self._cancel is None:
                 return False
             self._cancel.set()
         self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
