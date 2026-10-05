@@ -155,6 +155,31 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertNotIn("уже записано", preflight_message)
         self.assertIn("уже записано", durable_message)
 
+    def test_unverified_pgn_publication_error_warns_against_blind_retry(self):
+        event = FileWorkflowEvent(
+            kind=FileWorkflowEventKind.FAILED,
+            action_id="pgn.save",
+            focus_target="pgn-game-list",
+            error_code="pgn_save_publication_unverified",
+        )
+
+        self.app._file_event(event)
+
+        events = self.app.drain_events()
+        self.assertEqual(events[-1]["kind"], "error")
+        message = events[-1]["payload"]["message"]
+        self.assertIn("межу публікації", message)
+        self.assertIn("Не повторюйте збереження навмання", message)
+        self.assertIn("перевірте його вміст", message)
+        self.assertNotIn(str(self.root), message)
+
+        self.app.shell.set_language(UILanguage.EN)
+        english = self.app._native_file_error_message(event)
+        self.assertIn("crossed the publication boundary", english)
+        self.assertIn("Do not retry blindly", english)
+        self.assertIn("verify its contents", english)
+        self.assertNotIn(str(self.root), english)
+
     def test_invalid_pgn_session_error_is_actionable_and_path_free(self):
         event = FileWorkflowEvent(
             kind=FileWorkflowEventKind.FAILED,
