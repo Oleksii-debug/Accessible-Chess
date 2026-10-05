@@ -176,6 +176,13 @@ _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES = frozenset(
         "AccessibleChess/webview/lib/Microsoft.Web.WebView2.WinForms.dll",
     }
 )
+_REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES = frozenset(
+    {
+        "AccessibleChess/pythonnet/runtime/Python.Runtime.dll",
+        "AccessibleChess/webview/lib/Microsoft.Web.WebView2.Core.dll",
+        "AccessibleChess/webview/lib/Microsoft.Web.WebView2.WinForms.dll",
+    }
+)
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -1312,6 +1319,8 @@ def _validate_required_runtime_resources(
             expected_machine=(
                 0x8664
                 if relative in _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES
+                else 0x014C
+                if relative in _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
                 else None
             ),
             require_clr=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
