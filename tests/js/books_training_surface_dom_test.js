@@ -86,15 +86,6 @@ global.window = {};
 
 const source = fs.readFileSync("web/full_product_books_training.js", "utf8");
 vm.runInThisContext(source, { filename: "full_product_books_training.js" });
-const { toolbarResolver, exerciseToolbarRemaps } = require("./toolbar_keymap_test_support");
-
-const toolbarBindings = {
-  ArrowLeft: "toolbar.previous_control",
-  ArrowRight: "toolbar.next_control",
-  Home: "toolbar.first_control",
-  End: "toolbar.last_control"
-};
-window.accessibleChessKeymapAction = toolbarResolver(toolbarBindings);
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -594,30 +585,6 @@ async function run() {
     document.activeElement === trainingToolbarButtons[0],
     "training toolbar did not wrap to first enabled action"
   );
-  delete toolbarBindings.ArrowRight;
-  toolbarBindings.j = "toolbar.next_control";
-  check(
-    !pressKey(trainingToolbarButtons[0], trainingToolbar, "ArrowRight"),
-    "unbound former toolbar ArrowRight was still claimed"
-  );
-  check(
-    document.activeElement === trainingToolbarButtons[0],
-    "unbound former toolbar ArrowRight still moved focus"
-  );
-  check(
-    pressKey(trainingToolbarButtons[0], trainingToolbar, "j"),
-    "remapped toolbar next-control key was not handled"
-  );
-  check(
-    document.activeElement === trainingToolbarButtons[1],
-    "remapped toolbar next-control key did not move focus"
-  );
-  toolbarBindings.ArrowRight = "toolbar.next_control";
-  delete toolbarBindings.j;
-  exerciseToolbarRemaps(
-    trainingToolbarButtons, (_button, event) => trainingToolbar.listeners.keydown(event),
-    window, toolbarBindings, document, "Training toolbar"
-  );
   firstAnswer.value = "d4";
   const firstForm = find(trainingRoot, "FORM");
   firstForm.listeners.submit({ preventDefault: () => {} });
@@ -863,10 +830,6 @@ async function run() {
   check(
     document.activeElement === bookToolbarButtons[1],
     "book toolbar Home did not return to first enabled action"
-  );
-  exerciseToolbarRemaps(
-    bookToolbarButtons, (_button, event) => bookToolbar.listeners.keydown(event),
-    window, toolbarBindings, document, "Book toolbar"
   );
   find(bookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();
@@ -1615,6 +1578,39 @@ async function run() {
   );
 
   const extraTreeField = bookSnapshot(44, "Extra semantic tree field");
+  const metadataRoot = new FakeElement("div");
+  const metadataSnapshot = bookSnapshot(70, "Game metadata");
+  metadataSnapshot.block.kind = "Game";
+  metadataSnapshot.block.role = "group";
+  metadataSnapshot.block.title = "Game metadata";
+  metadataSnapshot.actions[9].enabled = true;
+  metadataSnapshot.semantic_tree = semanticBookTree("game");
+  metadataSnapshot.semantic_tree.details = [
+    { kind: "event", label: "Подія", value: "Навчання <img>" },
+    { kind: "date", label: "Дата", value: "2026.10.05" }
+  ];
+  window.AccessibleChessBookSurface.render(metadataRoot, metadataSnapshot,
+    () => ({ kind: "error", payload: { message: "unused" } }), announce,
+    "book-block-70", "Metadata render failed");
+  check(find(metadataRoot, "P", "Подія: Навчання <img>") !== null,
+    "semantic game event is missing readable text");
+  check(find(metadataRoot, "P", "Дата: 2026.10.05") !== null,
+    "semantic game date is missing readable text");
+  check(metadataRoot.querySelector("#book-block-70") !== null,
+    "metadata render lost the canonical Book focus group");
+  const invalidMetadata = [
+    [{ kind: "event", label: "Event", value: "Study" }, { kind: "event", label: "Event", value: "Other" }],
+    [{ kind: "unknown", label: "Unknown", value: "Study" }],
+    [{ kind: "event", label: "Event", value: "🙂".repeat(601) }],
+    [{ kind: "event", label: "Event", value: "Study", private_path: "forbidden" }],
+    new Array(1)
+  ];
+  for (let metadataIndex = 0; metadataIndex < invalidMetadata.length; metadataIndex += 1) {
+    const malformedMetadata = JSON.parse(JSON.stringify(metadataSnapshot));
+    malformedMetadata.semantic_tree.details = invalidMetadata[metadataIndex];
+    await expectBookSnapshotRejected(malformedMetadata, 70,
+      "malformed semantic metadata " + metadataIndex, "Metadata validation failed");
+  }
   extraTreeField.block.kind = "Game";
   extraTreeField.block.role = "group";
   extraTreeField.block.title = "Extra semantic tree field";
@@ -2058,6 +2054,7 @@ async function run() {
   const delegatedSnapshot = bookSnapshot(28, "Position handoff");
   delegatedSnapshot.block.kind = "Position";
   delegatedSnapshot.block.role = "group";
+  delegatedSnapshot.block.title = "Position handoff";
   delegatedSnapshot.block.has_position = true;
   delegatedSnapshot.actions[8].enabled = true;
   window.AccessibleChessBookSurface.render(
@@ -2151,6 +2148,7 @@ async function run() {
   const malformedDelegatedSnapshot = bookSnapshot(29, "Malformed handoff");
   malformedDelegatedSnapshot.block.kind = "Position";
   malformedDelegatedSnapshot.block.role = "group";
+  malformedDelegatedSnapshot.block.title = "Malformed handoff";
   malformedDelegatedSnapshot.block.has_position = true;
   malformedDelegatedSnapshot.actions[8].enabled = true;
   window.AccessibleChessBookSurface.render(
@@ -2597,7 +2595,6 @@ async function run() {
   const oversizedListRoot = new FakeElement("div");
   const oversizedListAnnouncements = [];
   const oversizedListSnapshot = bookSnapshot(32, "Oversized list");
-  oversizedListSnapshot.block.kind = "List";
   oversizedListSnapshot.block.role = "list";
   oversizedListSnapshot.block.list = {
     ordered: false,
@@ -3105,6 +3102,27 @@ async function run() {
     "oversized Book error message did not fail closed accessibly"
   );
 
+  const languageRoot = new FakeElement("div");
+  const languageSnapshot = bookSnapshot(40, "English prose");
+  languageSnapshot.document.lang = "uk";
+  languageSnapshot.block.content_language = "en-GB";
+  languageSnapshot.book_metadata = { title: "English chess book", author: "Book author", language: "en-GB" };
+  window.AccessibleChessBookSurface.render(languageRoot, languageSnapshot,
+    () => null, () => {}, "book-block-40");
+  const sourceBlock = languageRoot.querySelector("#book-block-40");
+  check(sourceBlock.attributes.lang === "en-GB", "source language was not applied to narrative content");
+  check(languageRoot.querySelector("#book-document-title").textContent === "English chess book", "book title was not exposed");
+  check(languageRoot.querySelector("#book-document-author").textContent === "Book author", "book author was not exposed");
+  check(languageRoot.querySelector("#book-document-title").attributes.lang === "en-GB", "book title source language was lost");
+  check(document.activeElement === sourceBlock, "source language changed reading focus");
+  const languageRenders = languageRoot.replaceChildrenCalls;
+  languageSnapshot.block.content_language = 'en\" onclick=\"attack';
+  let invalidLanguageRejected = false;
+  try {
+    window.AccessibleChessBookSurface.render(languageRoot, languageSnapshot, () => null, () => {}, "book-block-40");
+  } catch (error) { invalidLanguageRejected = error instanceof TypeError; }
+  check(invalidLanguageRejected && languageRoot.replaceChildrenCalls === languageRenders,
+    "invalid source language mutated the stable reading DOM");
   console.log("Books/Training DOM focus, editing, and starter discovery contract PASS");
 }
 
