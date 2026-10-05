@@ -248,18 +248,6 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             observed_progress = []
             observed_results = []
 
-            class SnapshotLibrary:
-                def import_games(self, *_args, **kwargs):
-                    callback = kwargs["progress_callback"]
-                    callback(canonical_progress)
-                    self_progress_after_callback = (
-                        canonical_progress.attempt_id,
-                        canonical_progress.processed_games,
-                        canonical_progress.total_games,
-                    )
-                    self.assertEqual(self_progress_after_callback, (41, 2, 2))
-                    return canonical_result
-
             # Bind the test case explicitly so the synthetic service can assert
             # that observer mutation never reaches the canonical DTO.
             test_case = self
