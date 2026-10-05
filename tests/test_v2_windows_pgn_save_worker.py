@@ -391,13 +391,29 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             result = controller("pgn.save_as", {})
 
             self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
-            self.assertEqual(result.error_code, "pgn_save_stale")
+            self.assertEqual(result.error_code, "pgn_save_preflight_stale")
             self.assertFalse(target.exists())
             self.assertFalse(controller.pgn_save_running)
             self.assertEqual(poster.callbacks, [])
             self.assertEqual(async_events, [])
             self.assertEqual(sync_events[-1], result)
             self.assertIn("Edited by modal reentry", session.copy_pgn())
+
+    def test_async_boundary_rejects_session_subclass_before_save_as_dialog(self) -> None:
+        class DerivedSession(PgnDocumentSession):
+            pass
+
+        session = DerivedSession.from_text(PGN_TEXT)
+        controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(session)
+
+        result = controller("pgn.save_as", {})
+
+        self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(result.error_code, "pgn_session_invalid")
+        self.assertEqual(dialogs.save_calls, 0)
+        self.assertEqual(poster.callbacks, [])
+        self.assertEqual(async_events, [])
+        self.assertEqual(sync_events[-1], result)
 
     def test_save_worker_blocks_open_and_import_before_their_dialogs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
