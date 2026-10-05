@@ -239,6 +239,7 @@ class _SemanticHtmlParser(HTMLParser):
         self.available_assets = available_assets
         self.blocks = []
         self.warnings: list[str] = []
+        self._warnings_suppressed = False
         self.title: str | None = None
         self.language: str | None = None
         self.author: str | None = None
@@ -259,10 +260,16 @@ class _SemanticHtmlParser(HTMLParser):
         self._warned_list_fallback = False
 
     def _warning(self, message: str) -> None:
+        if self._warnings_suppressed:
+            return
         if len(self.warnings) < MAX_HTML_WARNINGS:
             self.warnings.append(message)
-        elif len(self.warnings) == MAX_HTML_WARNINGS:
-            self.warnings.append("additional HTML import warnings were suppressed")
+            return
+        # The configured maximum is a total-output bound, not a pre-marker
+        # allowance. Only a real overflow sacrifices the final warning slot.
+        if MAX_HTML_WARNINGS > 0:
+            self.warnings[-1] = "additional HTML import warnings were suppressed"
+        self._warnings_suppressed = True
 
     def _list_warning(self, message: str) -> None:
         if not self._warned_list_fallback:
