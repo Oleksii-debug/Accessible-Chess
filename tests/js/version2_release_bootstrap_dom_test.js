@@ -376,10 +376,14 @@ const windowObject = {
       input.id = "library-search-player";
       const exportFiltered = new FakeElement("button");
       exportFiltered.id = "library-export-filtered";
+      const importFile = new FakeElement("button");
+      importFile.id = "library-import-file";
       root.replaceChildren(input);
       root.appendChild(exportFiltered);
+      root.appendChild(importFile);
       if (requestedFocus === input.id) input.focus();
       else if (requestedFocus === exportFiltered.id) exportFiltered.focus();
+      else if (requestedFocus === importFile.id) importFile.focus();
     },
     apply: (_root, event) => {
       if (!event || event.kind !== "render-import") throw new Error("unexpected Library event");
@@ -873,6 +877,34 @@ async function clickRoute(routeId) {
   check(
     live.textContent === "Export state and terminal focus committed.",
     "Library export operation-state batch lost its terminal announcement"
+  );
+
+  const libraryImportFile = documentRef.getElementById("library-import-file");
+  check(libraryImportFile !== null, "Library import recovery focus target missing");
+  live.focus();
+  eventQueue = [
+    {
+      kind: "render-import",
+      payload: { import: {}, focus_target: "", announcement: "" }
+    },
+    {
+      kind: "status",
+      payload: {
+        announcement: "The Library operation has already finished.",
+        focus_target: "library-import-file"
+      }
+    }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === libraryImportFile,
+    "stale export recovery did not restore shared Library operation focus"
+  );
+  check(
+    live.textContent === "The Library operation has already finished.",
+    "stale export recovery status was not announced"
   );
 
   const newerLibraryFocus = new FakeElement("button");
