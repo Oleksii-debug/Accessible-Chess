@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'acs/full_product_presenters.py'
+      - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_presenter_graph_guard.py'
       - 'tests/test_pgn_presenter_graph_safety_current.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
@@ -51,13 +52,15 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          CURRENT_PRODUCT: c1b203dbb0cce877e1f48244e9379bfde6d3a3b0
-          CURRENT_PRODUCT_REF: fix/current-san-boundary-20261005-sol56r3k9
+          CURRENT_PRODUCT: a59a46810fd189b1e8bf2c4efadda9dfebcc3af1
+          CURRENT_PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+          PREDECESSOR_PGN_HEAD: f43b0f5b8f764da8572b318ad343a7069df759de
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PRESENTER_BLOB: 412e37aa089659d8f46a82471d1d92a58ed21115
+          PRESENTER_BLOB: 99ee7dcb21484b25d037a28a9e7f611a795938a0
+          PROJECTION_BLOB: ac0b7c9fda7bed09366c4999f329399427715cf5
           GUARD_BLOB: 327446465c048cf418ef2e3fdb206488a7c524c0
-          GRAPH_TEST_BLOB: 6ac1bc63650602b820fa9a1bff5f7f2d0086beff
-          WEBVIEW_TEST_BLOB: 857346eb082305194fe559f44a27a8a15640bc77
+          GRAPH_TEST_BLOB: c66f1473f46f1595add938b27f9e8ea553e91348
+          WEBVIEW_TEST_BLOB: a75698cc44a0a92cb35e5b04c1c46e7dfedf0fc1
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -76,6 +79,8 @@ jobs:
             exit 1
           }
 
+          git cat-file -e "$PREDECESSOR_PGN_HEAD^{commit}"
+          git merge-base --is-ancestor "$PREDECESSOR_PGN_HEAD" "$live_product"
           test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
           git diff --check "$CURRENT_PRODUCT"...HEAD
 
@@ -83,7 +88,7 @@ jobs:
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-pgn-accessible-label-resource-bounds.yml' \
             'acs/full_product_presenters.py' \
-            'acs/pgn_presenter_graph_guard.py' \
+            'acs/pgn_webview_projection.py' \
             'tests/test_dev1_pgn_webview_projection.py' \
             'tests/test_pgn_presenter_graph_safety_current.py' | sort)"
           test "$changed" = "$expected_paths" || {
@@ -92,7 +97,9 @@ jobs:
           }
 
           test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "$PRESENTER_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PROJECTION_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_presenter_graph_guard.py)" = "$GUARD_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_presenter_graph_guard.py)" = "$(git rev-parse "$live_product:acs/pgn_presenter_graph_guard.py")"
           test "$(git rev-parse HEAD:tests/test_pgn_presenter_graph_safety_current.py)" = "$GRAPH_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$WEBVIEW_TEST_BLOB"
           echo 'CURRENT_PGN_ACCESSIBLE_LABELS_GEOMETRY=PASS'
@@ -105,6 +112,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/full_product_presenters.py
+          acs/pgn_webview_projection.py
           acs/pgn_presenter_graph_guard.py
           tests/test_pgn_presenter_graph_safety_current.py
           tests/test_dev1_pgn_webview_projection.py
