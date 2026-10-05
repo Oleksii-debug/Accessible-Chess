@@ -1307,7 +1307,11 @@ class Version2WindowsFileActionDelegate:
                     FileWorkflowEventKind.FAILED,
                     action_id,
                     focus_target=previous_focus,
-                    error_code="pgn_session_unavailable",
+                    # Durable publication has already succeeded. Reuse the
+                    # post-publication commit failure classification so the
+                    # accessible status truthfully says the file was written
+                    # even though document provenance could not be finalized.
+                    error_code="pgn_save_commit_failed",
                 )
             else:
                 if live_session is not session:
