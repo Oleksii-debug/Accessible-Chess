@@ -82,8 +82,9 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
     def test_book_workspace_rejects_active_action_result_before_value_probe(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
+        reader = self._reader()
         workflow = BookBoardWorkflow(
-            self._reader(),
+            reader,
             EngineAssistedWorkflowService(analysis),
         )
 
@@ -97,7 +98,7 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
                 return super().__getattribute__(name)
 
         projection = Version2BookWebViewProjection(
-            workflow.reader,
+            reader,
             workflow,
             lambda *_args: ActiveResult(),
         )
@@ -129,7 +130,7 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
 
         active = ActiveBookBoardUiEvent.__new__(ActiveBookBoardUiEvent)
         projection = Version2BookWebViewProjection(
-            workflow.reader,
+            reader,
             workflow,
             lambda *_args: active,
         )
@@ -145,8 +146,9 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
     def test_book_workspace_accepts_exact_router_result_with_exact_ui_event(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
         self.addCleanup(analysis.close)
+        reader = self._reader()
         workflow = BookBoardWorkflow(
-            self._reader(),
+            reader,
             EngineAssistedWorkflowService(analysis),
         )
         workflow.open_current()
@@ -162,7 +164,7 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
             value=event,
         )
         projection = Version2BookWebViewProjection(
-            workflow.reader,
+            reader,
             workflow,
             lambda *_args: wrapped,
         )
