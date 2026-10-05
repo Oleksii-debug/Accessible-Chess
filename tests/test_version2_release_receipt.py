@@ -277,10 +277,9 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     write_version2_release_receipt(output, receipt)
 
             self.assertFalse(output.exists())
-            self.assertEqual(
-                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
-                [],
-            )
+            leftovers = list(Path(td).glob(".receipt.json.receipt-*.tmp"))
+            self.assertEqual(len(leftovers), 1)
+            self.assertEqual(leftovers[0].read_bytes(), b"")
 
     def test_publication_identity_failure_never_unlinks_replacement_path(self):
         with tempfile.TemporaryDirectory() as td:
@@ -341,6 +340,38 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 output.read_bytes(),
                 b"replacement-staging-owned-by-another-writer",
             )
+            leftovers = list(Path(td).glob(".receipt.json.receipt-*.tmp"))
+            self.assertEqual(len(leftovers), 1)
+            self.assertEqual(
+                leftovers[0].read_bytes(),
+                b"replacement-staging-owned-by-another-writer",
+            )
+
+    def test_cleanup_refuses_replaced_staging_after_post_link_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_link = __import__("os").link
+
+            def link_then_replace_and_fail(source, destination, **kwargs):
+                real_link(source, destination, **kwargs)
+                staged = Path(source)
+                staged.unlink()
+                staged.write_bytes(b"replacement-staging-owned-by-another-writer")
+                raise OSError("simulated post-link failure")
+
+            with patch(
+                "acs.version2_release_receipt.os.link",
+                side_effect=link_then_replace_and_fail,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "does not support safe atomic no-replace publication: OSError",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(output.read_text(encoding="utf-8"), receipt.to_json())
             leftovers = list(Path(td).glob(".receipt.json.receipt-*.tmp"))
             self.assertEqual(len(leftovers), 1)
             self.assertEqual(
