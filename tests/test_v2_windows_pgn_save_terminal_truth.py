@@ -6,6 +6,7 @@ import threading
 import unittest
 from unittest import mock
 
+from acs.import_contract import SourceFingerprint
 from acs.pgn_document import (
     PgnDocumentError,
     PgnDocumentErrorCode,
