@@ -57,6 +57,26 @@ def _confidence(value: object) -> float:
     return value
 
 
+def _bounded_tuple(
+    values: Iterable[object],
+    *,
+    limit: int,
+    too_many: str,
+) -> tuple[object, ...]:
+    """Materialize at most the configured limit without exhausting an untrusted iterable."""
+
+    try:
+        iterator = iter(values)
+    except TypeError as exc:
+        raise PreprocessContractError("invalid iterable", code=PreprocessErrorCode.INVALID) from exc
+    items: list[object] = []
+    for index, item in enumerate(iterator):
+        if index >= limit:
+            raise PreprocessContractError(too_many, code=PreprocessErrorCode.LIMIT)
+        items.append(item)
+    return tuple(items)
+
+
 class FrameDisposition(str, Enum):
     STABLE = "stable"
     TRANSITION = "transition"
@@ -156,9 +176,11 @@ class AdaptiveSamplingPolicy:
         duration = _nat(duration_ms, "duration_ms")
         if duration > MAX_DURATION_MS:
             raise PreprocessContractError("duration too large", code=PreprocessErrorCode.LIMIT)
-        hints = tuple(transition_hints_ms)
-        if len(hints) > MAX_HINTS:
-            raise PreprocessContractError("too many hints", code=PreprocessErrorCode.LIMIT)
+        hints = _bounded_tuple(
+            transition_hints_ms,
+            limit=MAX_HINTS,
+            too_many="too many hints",
+        )
         baseline_count = duration // self.baseline_interval_ms + 1
         if duration % self.baseline_interval_ms:
             baseline_count += 1  # explicit terminal sample
@@ -336,7 +358,11 @@ class RecordedMediaPreprocessRun:
         self._next += 1; self._boards += 1
         if self._next == len(self.plan.requests): self._status = PreprocessStatus.COMPLETE
 
-    def accept_speech(self, evidence: SpeechEvidence):
+    @property
+    def speech_count(self) -> int:
+        return self._speech
+
+    def validate_speech(self, evidence: SpeechEvidence) -> None:
         if self._status is not PreprocessStatus.RUNNING:
             raise PreprocessContractError("run not running", code=PreprocessErrorCode.INVALID_STATE)
         if not isinstance(evidence, SpeechEvidence):
@@ -347,6 +373,9 @@ class RecordedMediaPreprocessRun:
             raise PreprocessContractError("stale source revision", code=PreprocessErrorCode.REVISION_MISMATCH)
         if evidence.end_ms > self.plan.source.duration_ms:
             raise PreprocessContractError("speech outside duration", code=PreprocessErrorCode.INVALID)
+
+    def accept_speech(self, evidence: SpeechEvidence):
+        self.validate_speech(evidence)
         if self._speech >= MAX_SPEECH:
             raise PreprocessContractError("speech evidence limit", code=PreprocessErrorCode.LIMIT)
         self._speech += 1
