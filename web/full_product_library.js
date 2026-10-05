@@ -470,6 +470,48 @@
     }
   }
 
+  function reconcileOperationActions(snapshot, importSnapshot) {
+    const busy = importSnapshot.actions[0].enabled === false;
+    const count = Number(snapshot.export_selection_count) || 0;
+    const hasRows = Array.isArray(snapshot.rows) && snapshot.rows.length > 0;
+    const actions = (Array.isArray(snapshot.actions) ? snapshot.actions : []).map(function (action) {
+      if (!action || typeof action.action !== "string") return action;
+      let enabled = action.enabled;
+      if (action.action === "library.export_selected" ||
+          action.action === "library.clear_export_selection") {
+        enabled = count > 0 && !busy;
+      } else if (action.action === "library.export_filtered") {
+        enabled = hasRows && !busy;
+      }
+      return enabled === action.enabled
+        ? action
+        : Object.assign({}, action, { enabled: enabled });
+    });
+    return Object.assign({}, snapshot, {
+      import: importSnapshot,
+      actions: actions
+    });
+  }
+
+  function syncOperationActionButtons(root, snapshot) {
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    const enabledByAction = {};
+    (Array.isArray(snapshot.actions) ? snapshot.actions : []).forEach(function (action) {
+      if (action && typeof action.action === "string" &&
+          LIBRARY_EXPORT_ACTIONS.indexOf(action.action) >= 0) {
+        enabledByAction[action.action] = action.enabled === true;
+      }
+    });
+    const buttons = root.querySelectorAll('button[data-action]');
+    for (let index = 0; index < buttons.length; index += 1) {
+      const button = buttons[index];
+      const actionId = button && button.dataset ? button.dataset.action : "";
+      if (Object.prototype.hasOwnProperty.call(enabledByAction, actionId)) {
+        button.disabled = !enabledByAction[actionId];
+      }
+    }
+  }
+
   function applyEvent(root, result, invoke, announce) {
     if (result == null) return;
     if (!plainObject(result)) throw new TypeError("Library event must be an object");
@@ -489,7 +531,7 @@
       const importPayload = requireImportEvent(result);
       const current = root.__accessibleChessLibrarySnapshot;
       if (current && typeof current === "object") {
-        const updated = Object.assign({}, current, { import: importPayload.import });
+        const updated = reconcileOperationActions(current, importPayload.import);
         const region = root.querySelector("#library-import-region");
         const active = document.activeElement;
         const restore = region && active && region.contains(active) &&
@@ -498,6 +540,7 @@
         if (region && replacement && typeof region.replaceWith === "function") {
           region.replaceWith(replacement);
           root.__accessibleChessLibrarySnapshot = updated;
+          syncOperationActionButtons(root, updated);
           importTokens.set(root, {});
           focusRequestedOption(root, importPayload.focus_target || restore);
         } else {
