@@ -335,8 +335,16 @@ def capture_pgn_save_snapshot(
     workspace_revision = workspace.content_revision
     source_overwrite_safe = current._source_overwrite_safe
     saved_digest = current._saved_digest
+    if type(workspace_revision) is not int or workspace_revision < 0:
+        raise TypeError("PGN save workspace revision is invalid")
     if type(source_overwrite_safe) is not bool:
         raise TypeError("PGN save source safety flag is invalid")
+    if saved_digest is not None and (
+        type(saved_digest) is not str
+        or len(saved_digest) != 64
+        or any(character not in "0123456789abcdef" for character in saved_digest)
+    ):
+        raise TypeError("PGN save saved digest is invalid")
 
     if mode is PgnSaveMode.SAVE:
         if source is None:
@@ -358,13 +366,39 @@ def capture_pgn_save_snapshot(
     # before publication, so malformed/tampered snapshots still fail closed.
     games = workspace.games()
     detached_digest = workspace.content_digest
+    workspace_revision_after = workspace.content_revision
     source_after = _detached_source_fingerprint(current.source, allow_none=True)
+    source_overwrite_safe_after = current._source_overwrite_safe
+    saved_digest_after = current._saved_digest
+    if (
+        type(detached_digest) is not str
+        or len(detached_digest) != 64
+        or any(character not in "0123456789abcdef" for character in detached_digest)
+    ):
+        raise TypeError("PGN save workspace digest is invalid")
+    if (
+        type(workspace_revision_after) is not int
+        or workspace_revision_after < 0
+    ):
+        raise TypeError("PGN save workspace revision is invalid")
+    if type(source_overwrite_safe_after) is not bool:
+        raise TypeError("PGN save source safety flag is invalid")
+    if saved_digest_after is not None and (
+        type(saved_digest_after) is not str
+        or len(saved_digest_after) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in saved_digest_after
+        )
+    ):
+        raise TypeError("PGN save saved digest is invalid")
     if (
         current.workspace is not workspace
         or current.document_revision != document_revision
-        or workspace.content_revision != workspace_revision
+        or workspace_revision_after != workspace_revision
         or source_after != source
-        or current._source_overwrite_safe is not source_overwrite_safe
+        or source_overwrite_safe_after is not source_overwrite_safe
+        or saved_digest_after != saved_digest
     ):
         raise _stale("PGN document state changed while the save snapshot was being captured")
 
