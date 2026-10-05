@@ -72,10 +72,6 @@ class _BookSemanticProjectionError(ValueError):
     pass
 
 
-class Version2BookReaderPresenter(BookReaderPresenter):
-    """V2 presentation reuses the canonical BookReader semantic block projection."""
-
-
 class Version2BookWebViewProjection(BookWebViewProjection):
     def __init__(
         self,
@@ -89,7 +85,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             raise TypeError("V2 Books requires the canonical reader and workflow")
         self._reader = reader
         self._workflow = workflow
-        super().__init__(Version2BookReaderPresenter(reader, language=language), dispatch, language=language)
+        # BookWebViewProjection deliberately accepts only the exact canonical
+        # presenter type so subclasses cannot override publication behavior. V2
+        # adds its GameTree projection here and needs no presenter subclass.
+        super().__init__(BookReaderPresenter(reader, language=language), dispatch, language=language)
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
         mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)

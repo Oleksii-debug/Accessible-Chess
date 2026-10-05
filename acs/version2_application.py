@@ -27,6 +27,7 @@ from .book_progress_store import (
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .input_limits import MAX_FEN_CHARS
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
@@ -996,7 +997,7 @@ class Version2Application:
         if type(position) is not str:
             raise RuntimeError("canonical board position is unavailable")
         if (
-            len(position) > self._MAX_CANONICAL_BOARD_POSITION_CHARS
+            len(position) > MAX_FEN_CHARS
             or "\x00" in position
             or not position.strip()
         ):

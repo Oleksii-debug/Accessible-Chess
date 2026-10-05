@@ -1,4 +1,4 @@
-name: Current Portable Manifest Recursion Fail-Closed
+name: Current Release Boundary Fail-Closed Qualification
 
 on:
   pull_request:
@@ -7,6 +7,10 @@ on:
     paths:
       - 'acs/version2_portable_package.py'
       - 'tests/test_portable_manifest_json_prehash_bounds_current.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_book_workspace.py'
+      - 'tests/test_full_product_book_command_authority.py'
       - '.github/workflows/owner-oneclick-from-w4.yml'
       - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/current-portable-manifest-recursion-failclosed.yml'
@@ -53,11 +57,15 @@ jobs:
           test "$(git merge-base "$live_base" HEAD)" = "$live_base"
           git diff --check "$live_base"...HEAD
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/current-portable-manifest-recursion-failclosed.yml' \
-            '.github/workflows/owner-oneclick-from-w4.yml' \
-            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
-            'acs/version2_portable_package.py' \
+          expected="$(printf '%s\\n' \\
+            '.github/workflows/current-portable-manifest-recursion-failclosed.yml' \\
+            '.github/workflows/owner-oneclick-from-w4.yml' \\
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \\
+            'acs/full_product_actions.py' \\
+            'acs/version2_application.py' \\
+            'acs/version2_book_workspace.py' \\
+            'acs/version2_portable_package.py' \\
+            'tests/test_full_product_book_command_authority.py' \\
             'tests/test_portable_manifest_json_prehash_bounds_current.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected portable-manifest recursion repair scope:\n%s\n' "$changed" >&2
@@ -68,11 +76,21 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile repaired manifest surfaces
+      - name: Compile release and Book launch surfaces
         run: >-
           python -m compileall -q
           acs/version2_portable_package.py
+          acs/version2_book_workspace.py
+          acs/version2_application.py
+          acs/full_product_actions.py
           tests/test_portable_manifest_json_prehash_bounds_current.py
+          tests/test_full_product_book_command_authority.py
+
+      - name: Execute Book-to-board launch regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_board_progress_failure_exact
+          tests.test_full_product_book_command_authority
 
       - name: Execute focused manifest resource regressions
         run: >-
