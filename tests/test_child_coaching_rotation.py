@@ -280,6 +280,33 @@ class ChildCoachingRotationTests(unittest.TestCase):
             )
 
 
+    def test_rotation_plan_constructor_enforces_wire_size_limit(self) -> None:
+        target_ids = tuple(
+            f"s{index:04d}" + ("x" * 122)
+            for index in range(2000)
+        )
+        rounds = tuple(
+            RotationRound(
+                f"large-{index}",
+                RotationActivity.REVIEW,
+                "Large bounded round",
+                1,
+                RotationTarget.GROUP,
+                target_ids,
+            )
+            for index in range(2)
+        )
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "rotation JSON exceeds size limit",
+        ):
+            RotationPlan(
+                rotation_id="oversized-rotation",
+                lesson_session_id="oversized-session",
+                lesson_plan_digest="0" * 64,
+                rounds=rounds,
+            )
+
     def test_rotation_round_rejects_unpaired_surrogate_title(self) -> None:
         with self.assertRaisesRegex(
             ChildCoachingRotationError,
