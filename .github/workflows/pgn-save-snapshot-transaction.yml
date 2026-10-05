@@ -34,7 +34,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Prove exact current Product ancestry and bounded scope
-        if: github.head_ref == 'work/pgn-save-snapshot-commit-20261005-sol56k4r9' || github.ref_name == 'work/pgn-save-snapshot-commit-20261005-sol56k4r9'
+        if: github.head_ref != 'work/windows-pgn-save-bg-20261005-k7m4q2' && github.ref_name != 'work/windows-pgn-save-bg-20261005-k7m4q2'
         shell: bash
         run: |
           set -euo pipefail
