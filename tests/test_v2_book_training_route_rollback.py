@@ -466,6 +466,10 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertEqual(token, replayed["payload"]["publication_token"])
         self.assertEqual("library", self.app.shell.current_route.route_id)
         self.assertTrue(self.app.shell._publication_hold_active)
+        self.assertEqual(
+            token,
+            self.app.snapshot()["shell_publication_token"],
+        )
 
         conflicting = self.app.browser_command(
             "shell",
@@ -482,6 +486,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         )
         self.assertEqual("presentation-commit", committed["kind"])
         self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertEqual(0, self.app.snapshot()["shell_publication_token"])
 
 
     def test_invalid_publication_protocol_fails_before_route_or_training_staging(self):
