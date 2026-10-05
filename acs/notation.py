@@ -231,15 +231,27 @@ def format_accessible_compact_san(san: str, lang: str = "uk") -> str:
                 result += f", {_SUFFIX_WORDS[language][suffix]}"
             return result
 
-    suffix = token[-1] if token[-1:] in {"+", "#"} else None
-    if suffix:
-        token = token[:-1]
+    parsed = parse_san(token)
+    parts: list[str] = []
+    if parsed.piece != "P":
+        parts.append(parsed.piece)
 
-    token = re.sub(r"^([KQRBN])(?=[a-h1-8])", r"\1 ", token)
-    token = re.sub(r"([a-h])([1-8])", r"\1 \2", token)
-    token = token.replace("x", " captures " if language == "en" else " б’є ")
-    token = re.sub(r"\s+", " ", token).strip()
+    if parsed.disambiguation:
+        if len(parsed.disambiguation) == 2:
+            parts.extend(parsed.disambiguation)
+        else:
+            parts.append(parsed.disambiguation)
 
-    if suffix:
-        token += f", {_SUFFIX_WORDS[language][suffix]}"
-    return token
+    if parsed.capture:
+        parts.append("captures" if language == "en" else "б’є")
+
+    parts.append(parsed.destination[0])
+    destination_rank = parsed.destination[1]
+    if parsed.promotion:
+        destination_rank += f"={parsed.promotion}"
+    parts.append(destination_rank)
+
+    result = " ".join(parts)
+    if parsed.suffix:
+        result += f", {_SUFFIX_WORDS[language][parsed.suffix]}"
+    return result
