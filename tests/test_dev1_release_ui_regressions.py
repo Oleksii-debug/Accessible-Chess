@@ -19,6 +19,18 @@ class _PartialMenuAPI:
 
 
 class Dev1ReleaseUiRegressionTests(unittest.TestCase):
+    def test_invalid_move_keeps_position_and_speaks_localized_domain_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            api = Stage1ReleaseAccessibleChessAPI(
+                keymap_path=Path(td) / "keymap.json"
+            )
+            api.make_move("e4")
+            fen = api.board.fen()
+            result = api.make_move("e9")
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["announcement"], api._t("move_invalid"))
+            self.assertEqual(api.board.fen(), fen)
+
     def test_native_menu_proxy_accepts_partial_release_seam_but_registry_actions_fail_closed(self) -> None:
         api = _PartialMenuAPI()
         proxy = Stage1NativeMenuActionProxy(api)
