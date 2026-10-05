@@ -9,10 +9,11 @@ and ``LibraryImportResult`` carry the stable attempt identity needed by the
 existing Library projection to reject stale/mixed attempts.
 
 This module decorates the per-worker service factory used by
-``Version2WindowsFileActionDelegate``.  It observes the exact canonical DTO
-objects without changing the import transaction, parser/decoder, database, or
-browser event contract.  Observer failures are non-authoritative: they are
-logged and never turn an otherwise valid canonical import into a rollback.
+``Version2WindowsFileActionDelegate``. It snapshots exact canonical DTO
+values into detached, revalidated observer objects without changing the import
+transaction, parser/decoder, database, or browser event contract. Observer
+failures and mutations are non-authoritative: they are contained and cannot
+alter the worker-visible DTO or turn a valid canonical import into a rollback.
 """
 
 from collections.abc import Callable
