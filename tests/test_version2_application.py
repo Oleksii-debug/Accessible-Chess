@@ -496,6 +496,51 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[1]["kind"], "status")
         self.assertEqual(events[1]["payload"]["announcement"], "PGN відкрито.")
 
+    def test_native_import_cannot_restart_before_prior_terminal_is_presented(self):
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(self.files.wait_for_import(5))
+
+        ui = self.app.library.projection.import_projection
+        self.assertIn(
+            ui.phase,
+            {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING},
+        )
+        pending_before = self.mailbox.pending_count
+        attempts_before = tuple(self.database.list_import_attempts())
+        with self.app._observation_lock:
+            result_before = self.app._result
+            progress_before = self.app._progress
+        self.assertIsNotNone(result_before)
+
+        blocked = self.app._delegate("library.import", {})
+
+        self.assertIsInstance(blocked, FileWorkflowEvent)
+        self.assertEqual(blocked.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(blocked.error_code, "import_already_running")
+        self.assertFalse(self.files.import_running)
+        self.assertEqual(self.mailbox.pending_count, pending_before)
+        self.assertEqual(tuple(self.database.list_import_attempts()), attempts_before)
+        with self.app._observation_lock:
+            self.assertIs(self.app._result, result_before)
+            self.assertIs(self.app._progress, progress_before)
+        self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
+
+        refusal_events = self.app.drain_events()
+        self.assertTrue(refusal_events)
+        self.assertEqual(refusal_events[-1]["kind"], "error")
+        self.assertNotIn(str(self.root), repr(refusal_events[-1]))
+
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
+        self.assertEqual(self.mailbox.pending_count, 0)
+
+        retry = self.app._delegate("library.import", {})
+        self.assertIsInstance(retry, FileWorkflowEvent)
+        self.assertEqual(retry.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertTrue(self.files.wait_for_import(5))
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
+
     def test_import_ui_delivery_rolls_back_terminal_projection_and_retries(self):
         self.app.browser_command("library", "library.import")
         self.assertTrue(self.files.wait_for_import(5))
