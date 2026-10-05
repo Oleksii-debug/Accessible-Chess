@@ -188,6 +188,25 @@ function snapshot(checked) {
   check(exportSelected && !exportSelected.disabled, "selected export action should be enabled");
   check(exportFiltered && !exportFiltered.disabled, "filtered export action should be enabled");
   check(clearExport && !clearExport.disabled, "clear export action should be enabled");
+  check(exportSelected.id === "library-export-selected", "selected export action lacks stable focus id");
+  check(exportFiltered.id === "library-export-filtered", "filtered export action lacks stable focus id");
+  check(clearExport.id === "library-clear-export-selection", "clear export action lacks stable focus id");
+
+  exportFiltered.focus();
+  check(document.activeElement === exportFiltered, "filtered export action did not accept keyboard focus");
+  window.AccessibleChessLibrarySurface.render(
+    root,
+    snapshot(false),
+    invoke,
+    announce,
+    "library-export-filtered"
+  );
+  const restoredExportFiltered = actionButton("library.export_filtered");
+  check(
+    restoredExportFiltered !== exportFiltered &&
+      document.activeElement === restoredExportFiltered,
+    "independent Library render did not restore toolbar action focus"
+  );
 
   const beforePartialRenderCalls = root.replaceChildrenCalls;
   const focusedBeforeBusy = document.activeElement;
