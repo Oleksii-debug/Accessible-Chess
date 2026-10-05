@@ -7,8 +7,10 @@ on:
     paths:
       - 'acs/full_product_actions.py'
       - 'acs/full_product_ui_shell.py'
-      - 'tests/test_dev1_full_product_webview_adapter.py'
-      - 'tests/test_full_product_native_menu.py'
+      - 'acs/version2_application.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'web/version2_release_bootstrap.js'
       - '.github/workflows/current-focus-publication-rollback.yml'
 
 permissions:
@@ -73,8 +75,10 @@ jobs:
             '.github/workflows/current-focus-publication-rollback.yml' \
             'acs/full_product_actions.py' \
             'acs/full_product_ui_shell.py' \
-            'tests/test_dev1_full_product_webview_adapter.py' \
-            'tests/test_full_product_native_menu.py' | sort)"
+            'acs/version2_application.py' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
+            'tests/test_v2_book_training_route_rollback.py' \
+            'web/version2_release_bootstrap.js' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected focus-publication rollback scope:\n%s\n' "$changed" >&2
             exit 1
@@ -92,14 +96,23 @@ jobs:
           python -m compileall -q
           acs/full_product_actions.py
           acs/full_product_ui_shell.py
-          tests/test_dev1_full_product_webview_adapter.py
-          tests/test_full_product_native_menu.py
+          acs/version2_application.py
+          tests/test_v2_book_training_route_rollback.py
+
+      - name: Validate and execute browser publication oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
 
       - name: Execute focus publication and adjacent regressions
         run: >-
           python -m unittest -v
           tests.test_dev1_full_product_webview_adapter
           tests.test_full_product_native_menu
+          tests.test_v2_book_training_route_rollback
           tests.test_version2_application
           tests.test_version2_release_app
 

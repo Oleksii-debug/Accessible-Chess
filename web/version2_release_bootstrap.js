@@ -10,8 +10,10 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  let pendingShellPublicationToken = 0;
   let eventDrainInFlight = false;
   let eventDrainPending = false;
+  let deferredNativeEventBatch = null;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
   const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
@@ -219,6 +221,104 @@
     };
   }
 
+  function shellPublicationToken(result) {
+    if (!plainObject(result) || result.kind !== "route" || !plainObject(result.payload)) {
+      return 0;
+    }
+    const token = result.payload.publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
+  function finishShellPublication(bridge, command, token) {
+    const expectedKind =
+      command === "shell.presentation_commit"
+        ? "presentation-commit"
+        : "presentation-rollback";
+
+    function hostResponseError(message) {
+      const error = new Error(message);
+      error.hostResponded = true;
+      return error;
+    }
+
+    function attempt() {
+      return bridge.v2_browser_command("shell", command, { token: token }).then(function (result) {
+        if (plainObject(result) && result.kind === "error") {
+          throw hostResponseError("shell publication acknowledgement rejected");
+        }
+        if (!plainObject(result) || result.kind !== expectedKind ||
+            !plainObject(result.payload) || result.payload.token !== token) {
+          throw hostResponseError("invalid shell publication acknowledgement");
+        }
+        return result;
+      });
+    }
+
+    // The Python boundary is idempotent for the same token/outcome. A single
+    // retry therefore closes local bridge response loss without duplicating a
+    // route commit or rollback.
+    return attempt().catch(function (firstError) {
+      return attempt().catch(function (secondError) {
+        const hostResponded =
+          !!(firstError && firstError.hostResponded) ||
+          !!(secondError && secondError.hostResponded);
+        if (hostResponded && secondError && typeof secondError === "object") {
+          secondError.hostResponded = true;
+        }
+        if (hostResponded && (!secondError || typeof secondError !== "object")) {
+          const wrapped = hostResponseError("shell publication acknowledgement rejected");
+          wrapped.cause = secondError;
+          throw wrapped;
+        }
+        throw secondError;
+      });
+    });
+  }
+
+  function clearPendingShellPublication(token) {
+    if (pendingShellPublicationToken !== token) return;
+    pendingShellPublicationToken = 0;
+    if (eventDrainPending || deferredNativeEventBatch !== null) {
+      eventDrainPending = false;
+      global.setTimeout(drainEvents, 0);
+    }
+  }
+
+  function recoverShellPublication(bridge, token, failedMessage) {
+    return finishShellPublication(
+      bridge,
+      "shell.presentation_rollback",
+      token
+    ).then(function () {
+      return refresh(true).then(function () {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }, function () {
+        announce(failedMessage);
+        return false;
+      });
+    }, function (error) {
+      // A host-level rejection means Python definitely answered and the token
+      // no longer identifies a rollbackable pending route (normally because a
+      // previously uncertain commit actually completed). Re-read canonical
+      // authority before allowing another route. A pure transport rejection
+      // remains uncertain, so retain the token for the next interaction.
+      if (error && error.hostResponded) {
+        return refresh(true).then(function () {
+          clearPendingShellPublication(token);
+          announce(failedMessage);
+          return true;
+        }, function () {
+          announce(failedMessage);
+          return false;
+        });
+      }
+      announce(failedMessage);
+      return false;
+    });
+  }
+
   function renderNavigation(snapshot) {
     if (!Array.isArray(snapshot.navigation) ||
         snapshot.navigation.length < 1 ||
@@ -257,12 +357,61 @@
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
-          if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          return refresh(true).catch(function () {
-            announce(uiText("Не вдалося відкрити розділ.", "Could not open the section."));
+        const failedMessage = uiText(
+          "Не вдалося відкрити розділ.",
+          "Could not open the section."
+        );
+
+        function requestRoute() {
+          return bridge.v2_browser_command(
+            "shell",
+            actionId,
+            { publication_protocol: "ack-v1" }
+          ).then(function (result) {
+            if (result && result.kind === "error") {
+              if (result.payload) announce(result.payload.message || "");
+              return false;
+            }
+            const token = shellPublicationToken(result);
+            if (!token) {
+              announce(failedMessage);
+              return false;
+            }
+            pendingShellPublicationToken = token;
+
+            return refresh(true).then(function () {
+              return finishShellPublication(
+                bridge,
+                "shell.presentation_commit",
+                token
+              ).then(function () {
+                clearPendingShellPublication(token);
+                return true;
+              }, function () {
+                return recoverShellPublication(bridge, token, failedMessage);
+              });
+            }, function () {
+              return recoverShellPublication(bridge, token, failedMessage);
+            });
+          }, function () {
+            announce(failedMessage);
+            return false;
           });
-        }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
+        }
+
+        if (pendingShellPublicationToken) {
+          const previousToken = pendingShellPublicationToken;
+          recoverShellPublication(
+            bridge,
+            previousToken,
+            failedMessage
+          ).then(function (recovered) {
+            if (recovered) return requestRoute();
+            return false;
+          });
+          return;
+        }
+        requestRoute();
       });
       row.appendChild(button);
       fragment.appendChild(row);
@@ -502,6 +651,10 @@
   }
 
   function drainEvents() {
+    if (pendingShellPublicationToken) {
+      eventDrainPending = true;
+      return;
+    }
     if (eventDrainInFlight) {
       eventDrainPending = true;
       return;
@@ -512,13 +665,23 @@
     eventDrainPending = false;
     let drained;
     try {
-      drained = bridge.v2_drain_events();
+      if (deferredNativeEventBatch !== null) {
+        drained = deferredNativeEventBatch;
+        deferredNativeEventBatch = null;
+      } else {
+        drained = bridge.v2_drain_events();
+      }
     } catch (_) {
       finishEventDrain();
       return;
     }
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
+      if (pendingShellPublicationToken) {
+        deferredNativeEventBatch = events;
+        eventDrainPending = true;
+        return;
+      }
       let needsRefresh = false;
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
