@@ -685,6 +685,36 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(terminal.error_code, "pgn_save_conflict")
             self.assertNotIn(str(source), repr(terminal))
 
+    def test_recovered_legacy_save_command_routes_to_background_save_as(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "legacy-background-source.pgn"
+            destination = Path(tmp) / "legacy-background-converted.pgn"
+            original = (
+                '[Event "Русская шахматная книга"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 *\n'
+            ).encode("cp1251")
+            source.write_bytes(original)
+            session = PgnDocumentSession.open(source)
+            self.assertFalse(session.view().source_overwrite_safe)
+            controller, dialogs, poster, _, async_events, box, _ = self._controller(session)
+            dialogs.save_destination = destination
+
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertEqual(started.action_id, "pgn.save_as")
+            self.assertEqual(dialogs.save_calls, 1)
+            self.assertTrue(controller.wait_for_pgn_save(5.0))
+            poster.drain()
+
+            terminal = async_events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED_AS)
+            self.assertEqual(terminal.action_id, "pgn.save_as")
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(Path(box["session"].source.path), destination)
+            self.assertTrue(box["session"].view().source_overwrite_safe)
+            self.assertFalse(box["session"].view().global_warnings)
+
     def test_recovery_source_save_as_same_path_preserves_original_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "recovery-source.pgn"
