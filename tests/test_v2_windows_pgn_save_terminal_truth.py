@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 from acs.pgn_document import PgnDocumentSession
+from acs.pgn_service import PgnConcurrentWriteError
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
     FileWorkflowEventKind,
@@ -103,6 +104,58 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
 
             # The worker's already-queued owner callback is now stale and must
             # not publish the same terminal a second time when the UI pump drains.
+            self.assertTrue(poster.callbacks)
+            event_count = len(async_events)
+            poster.drain()
+            self.assertEqual(len(async_events), event_count)
+
+    def test_late_cancel_preserves_completed_conflict_classification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "conflict.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            original = source.read_bytes()
+            session = PgnDocumentSession.open(source)
+            old_source = session.source
+            session.edit_tag("Event", "Must remain dirty after conflict")
+            poster = _OwnerPoster()
+            sync_events: list[FileWorkflowEvent] = []
+            async_events: list[FileWorkflowEvent] = []
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: None,
+                event_sink=sync_events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-game-list",
+                post_to_ui=poster,
+                owner_async_event_sink=async_events.append,
+            )
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.publish_pgn_save_snapshot",
+                side_effect=PgnConcurrentWriteError("private conflict detail"),
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+
+            # A no-clobber conflict has already been classified. Late Cancel must
+            # preserve that actionable safety result instead of rewriting it to
+            # cancellation or a generic failure in the accessible status path.
+            terminal = controller("pgn.cancel_save", {})
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_save_conflict")
+            self.assertEqual(async_events, [terminal])
+            self.assertEqual(sync_events, [started])
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(session.source, old_source)
+            self.assertTrue(session.dirty)
+            self.assertNotIn("private conflict detail", repr(terminal))
+            self.assertFalse(controller.pgn_save_running)
+
+            # The worker's queued owner callback becomes stale once the exact
+            # conflict terminal has been synchronously resolved on the UI thread.
             self.assertTrue(poster.callbacks)
             event_count = len(async_events)
             poster.drain()
