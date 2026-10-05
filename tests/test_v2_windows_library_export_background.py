@@ -155,6 +155,27 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         )
         return delegate, dialogs
 
+    def test_export_host_event_rejects_active_action_id_without_comparison(self) -> None:
+        touched: list[str] = []
+
+        class ActiveActionId(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action-id equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active action-id inequality executed")
+
+        with self.assertRaisesRegex(ValueError, "event action is invalid"):
+            LibraryExportHostEvent(
+                LibraryExportHostEventKind.FAILED,
+                action_id=ActiveActionId("library.export"),
+                error_code="library_export_failed",
+            )
+
+        self.assertEqual([], touched)
+
     def test_reentrant_shutdown_during_started_event_never_starts_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
