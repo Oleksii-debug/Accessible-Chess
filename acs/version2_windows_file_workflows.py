@@ -433,7 +433,7 @@ class Version2WindowsFileActionDelegate:
         previous_focus = self._focus()
         try:
             current = self._get_pgn_session()
-        except Exception:
+        except BaseException:
             return None, self._failed(
                 "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
             ), previous_focus, None, None
@@ -511,7 +511,7 @@ class Version2WindowsFileActionDelegate:
         # different or newer document generation.
         try:
             live_session = self._get_pgn_session()
-        except Exception:
+        except BaseException:
             return self._failed(
                 "pgn.open", "pgn_session_unavailable", focus_target=previous_focus
             )
@@ -830,7 +830,7 @@ class Version2WindowsFileActionDelegate:
     ) -> PgnDocumentSession | FileWorkflowEvent:
         try:
             session = self._get_pgn_session()
-        except Exception:
+        except BaseException:
             return self._failed(
                 action_id, "pgn_session_unavailable", focus_target=self._focus()
             )
