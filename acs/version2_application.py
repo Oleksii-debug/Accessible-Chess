@@ -453,10 +453,12 @@ class Version2Application:
             raise ValueError("return to the book before replacing the PGN document")
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
             raise ValueError("PGN replacement cancelled")
+        document_view = session.view()
         projection = PgnWorkspaceWebViewProjection(
             session.workspace,
             self.router,
             language=self.shell.language,
+            document_warnings=document_view.global_warnings,
         )
         bridge = PgnWebViewBridge(projection)
         # Route acquisition is part of accepting a replacement owner. Do not
