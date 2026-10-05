@@ -53,10 +53,15 @@ class WebviewKeymapBridgeIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(td) / "keymap.json")
             self.assertTrue(api.keymap_save("move.undo", "z")["ok"])
-            self.assertTrue(api.make_move("e4")["ok"])
+            initial_fen = api.get_state()["fen"]
+            moved = api.make_move("e4")
+            self.assertTrue(moved["ok"], moved)
+            self.assertNotEqual(moved["fen"], initial_fen)
+            self.assertEqual(api.get_state()["fen"], moved["fen"])
             self.assertEqual(len(api.sans), 1)
             self.assertTrue(api.make_move("z")["ok"])
             self.assertEqual(len(api.sans), 0)
+            self.assertEqual(api.get_state()["fen"], initial_fen)
 
 
 if __name__ == "__main__":
