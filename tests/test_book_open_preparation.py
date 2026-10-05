@@ -46,7 +46,7 @@ class BookOpenPreparationTests(unittest.TestCase):
             prepared = result[0]
             self.assertIs(type(prepared), PreparedBookOpen)
             self.assertTrue(prepared.book_key)
-            self.assertEqual(prepared.document.language, "")
+            self.assertIsNone(prepared.document.language)
             self.assertEqual(prepared.warnings, ())
             self.assertIn("Доступні шахи", prepared.document.title)
 
