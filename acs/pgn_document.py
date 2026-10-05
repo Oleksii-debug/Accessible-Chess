@@ -698,7 +698,7 @@ class PgnDocumentSession:
         )
         try:
             self._workspace.mark_saved()
-        except Exception as exc:
+        except BaseException as exc:
             raise _error(
                 "PGN file was written but the document checkpoint could not be finalized",
                 PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
