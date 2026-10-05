@@ -1,10 +1,12 @@
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.bookdocument import (
     BookDocument,
     BookDocumentError,
     BookDocumentErrorCode,
+    BOOK_STRUCTURE_WARNING_TRUNCATION_NOTICE,
     Diagram,
     Exercise,
     Game,
@@ -435,6 +437,69 @@ class BookDocumentTests(unittest.TestCase):
         warnings = book.validate_structure()
         self.assertTrue(any("heading level jumps" in warning for warning in warnings))
         self.assertTrue(any("duplicate block_id" in warning for warning in warnings))
+
+    def test_structure_validation_bounds_generated_warning_count_and_preserves_sources(self):
+        blocks = [
+            Paragraph(text=f"Paragraph {index}", block_id="duplicate")
+            for index in range(6)
+        ]
+        with patch("acs.bookdocument.MAX_BOOK_DOCUMENT_WARNINGS", 4):
+            book = BookDocument(
+                "Book",
+                warnings=["source warning"],
+                blocks=blocks,
+            )
+            warnings = book.validate_structure()
+
+        self.assertEqual(warnings[0], "source warning")
+        self.assertEqual(len(warnings), 4)
+        self.assertEqual(
+            warnings[-1],
+            BOOK_STRUCTURE_WARNING_TRUNCATION_NOTICE,
+        )
+        self.assertTrue(
+            any("duplicate block_id" in warning for warning in warnings[1:-1])
+        )
+
+    def test_structure_validation_bounds_generated_warning_text_budget(self):
+        long_id = "x" * 80
+        blocks = [
+            Paragraph(text=f"Paragraph {index}", block_id=long_id)
+            for index in range(5)
+        ]
+        budget = len(BOOK_STRUCTURE_WARNING_TRUNCATION_NOTICE) + 140
+        with patch("acs.bookdocument.MAX_BOOK_WARNING_TOTAL_CHARS", budget):
+            book = BookDocument("Book", blocks=blocks)
+            warnings = book.validate_structure()
+
+        self.assertLessEqual(sum(len(warning) for warning in warnings), budget)
+        self.assertEqual(
+            warnings[-1],
+            BOOK_STRUCTURE_WARNING_TRUNCATION_NOTICE,
+        )
+
+    def test_structure_validation_fails_closed_when_source_warnings_leave_no_notice_slot(self):
+        blocks = [
+            Paragraph(text="One", block_id="duplicate"),
+            Paragraph(text="Two", block_id="duplicate"),
+        ]
+        with patch("acs.bookdocument.MAX_BOOK_DOCUMENT_WARNINGS", 2):
+            book = BookDocument(
+                "Book",
+                warnings=["source one", "source two"],
+                blocks=blocks,
+            )
+            with self.assertRaisesRegex(
+                BookDocumentError,
+                "structural warnings exceed the canonical diagnostic budget",
+            ) as caught:
+                book.validate_structure()
+
+        self.assertEqual(
+            caught.exception.code,
+            BookDocumentErrorCode.INVALID_FIELD,
+        )
+        self.assertEqual(book.warnings, ["source one", "source two"])
 
     def test_exercise_carries_prompt_and_solution(self):
         exercise = Exercise(
