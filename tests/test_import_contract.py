@@ -6,6 +6,7 @@ from acs.import_contract import (
     ImportQuality,
     ImportedRecord,
     ImportReport,
+    SourceReadCancelledError,
     UnsupportedChessBaseImporter,
     fingerprint,
     summarize_reports,
@@ -20,9 +21,37 @@ class ImportContractTests(unittest.TestCase):
             path.write_bytes(b'abc123')
             before = fingerprint(path)
             self.assertEqual(before.size, 6)
+            self.assertEqual(fingerprint(path, cancel_check=lambda: False), before)
             self.assertTrue(verify_source_unchanged(before, path))
             path.write_bytes(b'abc124')
             self.assertFalse(verify_source_unchanged(before, path))
+
+    def test_fingerprint_cancel_check_stops_between_chunks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'large.pgn'
+            original = b'x' * (3 * 1024 * 1024 + 17)
+            path.write_bytes(original)
+            calls = 0
+
+            def cancel_check():
+                nonlocal calls
+                calls += 1
+                # Entry and the first 1 MiB read are allowed. The next chunk
+                # poll cancels inside the first digest pass.
+                return calls >= 3
+
+            with self.assertRaises(SourceReadCancelledError):
+                fingerprint(path, cancel_check=cancel_check)
+
+            self.assertEqual(calls, 3)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_fingerprint_cancel_check_must_return_boolean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'invalid-cancel.pgn'
+            path.write_bytes(b'abc')
+            with self.assertRaisesRegex(TypeError, 'must return a boolean'):
+                fingerprint(path, cancel_check=lambda: 1)
 
     def test_chessbase_placeholder_never_claims_full_import(self):
         with tempfile.TemporaryDirectory() as tmp:
