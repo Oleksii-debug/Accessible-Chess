@@ -43,6 +43,7 @@ class PgnDocumentErrorCode(str, Enum):
         "recovery_source_requires_different_destination"
     )
     DESTINATION_VERSION_REQUIRED = "destination_version_required"
+    SAVE_COMMIT_FAILED = "save_commit_failed"
     INVALID_TAG = "invalid_tag"
     INVALID_RESULT = "invalid_result"
     INVALID_POSITION = "invalid_position"
@@ -640,6 +641,76 @@ class PgnDocumentSession:
             cursor=old.cursor,
         )
 
+    def _commit_saved_file(
+        self,
+        saved: SourceFingerprint,
+        *,
+        save_as: bool,
+    ) -> None:
+        """Finalize verified durable bytes without a partially updated session."""
+
+        if type(saved) is not SourceFingerprint:
+            raise _error(
+                "PGN file was written but returned provenance is not canonical",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+        path = saved.path
+        size = saved.size
+        sha256 = saved.sha256
+        suffix = saved.suffix
+        if (
+            type(path) is not str
+            or not path
+            or type(size) is not int
+            or size < 0
+            or type(sha256) is not str
+            or len(sha256) != 64
+            or any(character not in "0123456789abcdef" for character in sha256)
+            or type(suffix) is not str
+            or suffix != suffix.lower()
+            or suffix != Path(path).suffix.lower()
+        ):
+            raise _error(
+                "PGN file was written but returned provenance is invalid",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+        content_digest = self._workspace.content_digest
+        document_revision = self._document_revision
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in content_digest
+            )
+            or type(document_revision) is not int
+            or document_revision < 0
+        ):
+            raise _error(
+                "PGN file was written but live document state is invalid",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+        next_source = SourceFingerprint(
+            path=path,
+            size=size,
+            sha256=sha256,
+            suffix=suffix,
+        )
+        try:
+            self._workspace.mark_saved()
+        except Exception as exc:
+            raise _error(
+                "PGN file was written but the document checkpoint could not be finalized",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            ) from exc
+
+        self._source = next_source
+        if save_as:
+            self._source_overwrite_safe = True
+            self._global_warnings = ()
+        self._saved_digest = content_digest
+        self._document_revision = document_revision + 1
+
     def save(self) -> SourceFingerprint:
         if self._source is None:
             raise _error("document has no source; use Save As", PgnDocumentErrorCode.NO_SOURCE)
@@ -654,15 +725,7 @@ class PgnDocumentSession:
             overwrite=True,
             expected_sha256=self._source.sha256,
         )
-        self._source = SourceFingerprint(
-            path=saved.path,
-            size=saved.size,
-            sha256=saved.sha256,
-            suffix=saved.suffix,
-        )
-        self._saved_digest = self._workspace.content_digest
-        self._workspace.mark_saved()
-        self._document_revision += 1
+        self._commit_saved_file(saved, save_as=False)
         return saved
 
     @staticmethod
@@ -724,17 +787,7 @@ class PgnDocumentSession:
             overwrite=overwrite,
             expected_sha256=expected,
         )
-        self._source = SourceFingerprint(
-            path=saved.path,
-            size=saved.size,
-            sha256=saved.sha256,
-            suffix=saved.suffix,
-        )
-        self._source_overwrite_safe = True
-        self._global_warnings = ()
-        self._saved_digest = self._workspace.content_digest
-        self._workspace.mark_saved()
-        self._document_revision += 1
+        self._commit_saved_file(saved, save_as=True)
         return saved
 
     def export_selected(
