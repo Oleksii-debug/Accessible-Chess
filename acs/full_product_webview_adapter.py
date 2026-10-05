@@ -113,6 +113,7 @@ class FullProductWebViewAdapter:
         *,
         current_focus_id: str = "",
     ) -> WebViewCommand:
+        previous_shell = self._shell._capture_presentation_state()
         try:
             result = self._router.dispatch(
                 action_id,
@@ -120,14 +121,24 @@ class FullProductWebViewAdapter:
                 current_focus_id=current_focus_id,
             )
         except Exception as exc:  # UI boundary: sanitize before user projection.
+            # Dispatch may already have recorded focus or a delegate may have
+            # changed routes before failing.  Domain effects are not reversible
+            # here, but unpublished presentation state must stay aligned with
+            # the WebView/NVDA document the user actually has.
+            self._shell._restore_presentation_state(previous_shell)
             return self._safe_error(exc)
         if result.handled_by_shell:
+            try:
+                snapshot = self.snapshot()
+            except Exception as exc:
+                self._shell._restore_presentation_state(previous_shell)
+                return self._safe_error(exc)
             return WebViewCommand(
                 "route",
                 {
                     "route_id": result.route_id or "",
                     "focus_target": result.focus_target or "",
-                    "snapshot": self.snapshot(),
+                    "snapshot": snapshot,
                 },
             )
         return WebViewCommand(
