@@ -588,6 +588,20 @@ def _write_games_incrementally(handle: TextIO, games: Iterable[PgnGame]) -> None
         handle.write("\n")
 
 
+def _validated_expected_sha256(value: object) -> str | None:
+    """Validate optimistic-CAS identity before any filesystem mutation."""
+
+    if value is None:
+        return None
+    # Digests cross CLI/application boundaries. Require passive canonical text
+    # before equality/hash work so a str subclass cannot execute provider hooks.
+    if type(value) is not str:
+        raise TypeError("expected_sha256 must be lowercase SHA-256 hex or None")
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("expected_sha256 must be lowercase SHA-256 hex")
+    return value
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
@@ -618,6 +632,7 @@ def save_pgn_atomic(
 
     if pre_publish_check is not None and not callable(pre_publish_check):
         raise TypeError("pre_publish_check must be callable")
+    expected_sha256 = _validated_expected_sha256(expected_sha256)
     destination = Path(path)
     _reject_export_indirection(destination)
     if destination.exists() and not overwrite:
