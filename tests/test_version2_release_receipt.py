@@ -255,12 +255,9 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     write_version2_release_receipt(output, receipt)
 
             self.assertFalse(output.exists())
-            leftovers = list(Path(td).glob(".receipt.json.receipt-*.tmp"))
-            self.assertEqual(len(leftovers), 1)
-            self.assertTrue(leftovers[0].is_file())
             self.assertEqual(
-                leftovers[0].read_bytes(),
-                receipt.to_json().encode("utf-8"),
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
             )
 
     def test_failed_staging_identity_read_never_creates_canonical_path(self):
@@ -280,10 +277,9 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     write_version2_release_receipt(output, receipt)
 
             self.assertFalse(output.exists())
-            self.assertEqual(
-                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
-                [],
-            )
+            leftovers = list(Path(td).glob(".receipt.json.receipt-*.tmp"))
+            self.assertEqual(len(leftovers), 1)
+            self.assertEqual(leftovers[0].read_bytes(), b"")
 
     def test_publication_identity_failure_never_unlinks_replacement_path(self):
         with tempfile.TemporaryDirectory() as td:
