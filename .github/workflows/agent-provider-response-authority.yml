@@ -1,0 +1,79 @@
+name: Agent Provider Response Authority
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+    paths:
+      - acs/agent_model_gateway.py
+      - tests/test_agent_model_response_authority.py
+      - .github/workflows/agent-provider-response-authority.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-provider-response-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  exact-authority:
+    name: Exact authority (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove pinned parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=e2aa2402e19f793a7f0fa1c0876ca57a0df62178
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          mapfile -t changed < <(git diff --name-only "$BASE"...HEAD | LC_ALL=C sort)
+          expected=(
+            ".github/workflows/agent-provider-response-authority.yml"
+            "acs/agent_model_gateway.py"
+            "tests/test_agent_model_response_authority.py"
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${changed[$i]}" = "${expected[$i]}"
+          done
+          test "$(git hash-object acs/agent_model_gateway.py)" = "e9127b209ec8c1fb50dd4f916753763084d783f1"
+          test "$(git hash-object tests/test_agent_model_response_authority.py)" = "682bd87b21a3f440e563965a0cbb07c63b29d5c8"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile provider boundary
+        run: >-
+          python -m py_compile
+          acs/agent_model_contracts.py
+          acs/agent_model_gateway.py
+          acs/universal_chess_agent.py
+          tests/test_agent_model_response_authority.py
+
+      - name: Run provider response authority regressions
+        run: python -m unittest discover -s tests -p "test_agent_model_response_authority.py" -v
+
+      - name: Run retained cross-repository gateway integration
+        run: python -m unittest discover -s tests -p "test_crossrepo_runtime_integration.py" -v
+
+      - name: Run retained model numeric contracts
+        run: python -m unittest discover -s tests -p "test_crossrepo_agent_model_numeric.py" -v
+
+      - name: Run retained Universal Agent regressions
+        run: python -m unittest discover -s tests -p "test_universal_chess_agent_crossrepo.py" -v
