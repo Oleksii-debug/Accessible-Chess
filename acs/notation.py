@@ -81,7 +81,14 @@ def _square_spoken(square: str) -> str:
 
 
 def _normalise_castling(san: str) -> str:
-    return san.replace("0", "O")
+    # Tolerate the common legacy all-zero spelling, but do not silently repair
+    # mixed glyph forms such as ``0-O`` or ``O-0`` into canonical SAN.
+    for legacy, canonical in (("0-0-0", "O-O-O"), ("0-0", "O-O")):
+        if san.startswith(legacy):
+            suffix = san[len(legacy):]
+            if suffix in {"", "+", "#"}:
+                return canonical + suffix
+    return san
 
 
 def parse_san(san: str) -> ParsedSan:
