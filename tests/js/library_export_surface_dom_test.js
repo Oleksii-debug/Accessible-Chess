@@ -472,10 +472,17 @@ function snapshot(checked) {
     "library-game-0123456789abcdefabcd"
   );
   const staleCheckbox = staleRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  const staleQueuedFiltered = staleRoot.querySelectorAll('button[data-action]')
+    .find((button) => button.dataset.action === "library.export_filtered");
   staleCheckbox.checked = true;
   staleCheckbox.listeners.change({});
+  staleQueuedFiltered.listeners.click({});
   await new Promise((resolve) => setImmediate(resolve));
   check(staleCalls.length === 1, "stale-response setup did not enter host");
+  check(
+    staleCalls[0][0] === "library.toggle_export_selection",
+    "stale-response setup changed first command identity"
+  );
   window.AccessibleChessLibrarySurface.deactivate(staleRoot);
 
   // A fresh Library incarnation must not wait behind the detached unresolved
@@ -512,6 +519,10 @@ function snapshot(checked) {
   });
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
+  check(
+    staleCalls.length === 1,
+    "queued stale Library command reached host after route deactivation"
+  );
   check(
     staleRoot.querySelector("#library-game-0123456789abcdefabcd-export") === retainedCheckbox,
     "late Library response repainted the fresh surface after route re-entry"
