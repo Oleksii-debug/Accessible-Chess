@@ -646,6 +646,9 @@ def commit_pgn_save_publication(
         )
     ):
         raise TypeError("PGN live workspace digest is invalid")
+    live_document_revision = current.document_revision
+    if type(live_document_revision) is not int or live_document_revision < 0:
+        raise TypeError("PGN live document revision is invalid")
 
     # Exact replay after a successful owner-thread commit is harmless.  This is
     # checked before source-staleness because an unchanged Save can legitimately
@@ -670,28 +673,29 @@ def commit_pgn_save_publication(
     elif binding.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
 
-    # ``PgnDocumentSession`` owns these fields.  This companion module is the
-    # only background-save friend boundary: it updates provenance only after the
-    # canonical writer returned a verified SourceFingerprint.  No GameTree or
-    # serializer state is fabricated here.
-    current._source = SourceFingerprint(
+    # Prepare all values and complete the workspace checkpoint before mutating
+    # session provenance. If semantic mark_saved() fails, the host can report a
+    # post-publication commit failure while source/saved/revision still describe
+    # the pre-commit in-memory document.
+    next_source = SourceFingerprint(
         path=saved.path,
         size=saved.size,
         sha256=saved.sha256,
         suffix=saved.suffix,
     )
+    if live_content_digest == binding.content_digest:
+        current.workspace.mark_saved()
+
+    # PgnDocumentSession owns these fields. This companion module is the only
+    # background-save friend boundary: provenance advances only after the
+    # canonical writer returned verified bytes and the local workspace checkpoint
+    # (when applicable) completed successfully.
+    current._source = next_source
     if binding.mode is PgnSaveMode.SAVE_AS:
         current._source_overwrite_safe = True
         current._global_warnings = ()
     current._saved_digest = binding.content_digest
-
-    # Mark the live workspace clean only when it is still exactly the generation
-    # that was written.  If the user edited during the worker run, retain the
-    # newer workspace baseline and let ``dirty`` compare it to the saved digest.
-    if live_content_digest == binding.content_digest:
-        current.workspace.mark_saved()
-
-    current._document_revision += 1
+    current._document_revision = live_document_revision + 1
     return current.view()
 
 
