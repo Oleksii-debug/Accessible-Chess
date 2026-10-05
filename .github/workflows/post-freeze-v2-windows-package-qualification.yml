@@ -1,0 +1,830 @@
+# exact-package-reconvergence: a610243 / p0g a610243 / p0-document a610243 / publication-parent 74f5c93
+# qualification-request: ACCESSIBLE-CHESS-20261005-0931-SOL56K9T3-A610-EXACT
+name: Post-freeze V2 Windows Package Qualification
+
+on:
+  push:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+  pull_request:
+    branches:
+      - work/post-freeze-v2-windows-package-qualification-20260911
+    paths:
+      - .github/workflows/post-freeze-v2-windows-package-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-freeze-v2-windows-package-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_PARENT_SHA: a6102439b09c2e180296e163be6e6da8d748e617
+  PREVIOUS_PACKAGE_SHA: c0feedc282c7670a298946c3f44950dd06f547dd
+  RECONVERGENCE_MERGE_SHA: 74f5c935d82707212b618206fb82dafe56d83fcb
+  PUBLICATION_PARENT_SHA: 74f5c935d82707212b618206fb82dafe56d83fcb
+  PREVIOUS_WORKFLOW_BLOB_SHA: f2001e73e1359aa93b5dc266b367cb951179a199
+  EXECUTOR_TEMPLATE_SHA: c5cb1b53c73bea68a34df6123ea51a9bba0d7e02
+  EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA: ed8d3ff3fa88bf530c92ef8b1fc7a40085305599
+  QUALIFICATION_AUTHORITY_SHA: 679393e2d4f490d47923c607e75b5555e0ba869c
+  PRIOR_WORKFLOW_BLOB_SHA: 9fa2373462bb43378a06681740b22f3f7f465b63
+  QUALIFICATION_SOURCE_PATH: .github/workflows/post-freeze-v2-windows-package-qualification.yml
+  WINFORMS_ACCESSIBILITY_CONFIG_BLOB: 8cfd9b64f1a019cda4ae914017f8077f5aba3013
+  P0G_QA_SHA: a6102439b09c2e180296e163be6e6da8d748e617
+  P0G_PROBE_BLOB_SHA: 8fdd8dfb1f6b7b9118980f7fdea09d336035ac72
+  P0G_PROBE_PATH: scripts/p0g_packaged_hotkey_result_probe.ps1
+  P0_DOCUMENT_QA_SHA: a6102439b09c2e180296e163be6e6da8d748e617
+  P0_DOCUMENT_PROBE_BLOB_SHA: 08c343f04b6383445b9360f5cee346d7a4a414a5
+  P0_DOCUMENT_PROBE_PATH: scripts/p0_packaged_document_copy_probe.ps1
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+  STARTER_ZSTANDARD_VERSION: '0.23.0'
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+
+jobs:
+  qualify-package:
+    runs-on: windows-2025
+    timeout-minutes: 85
+    steps:
+      - name: Checkout exact package qualification child
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact W5 qualification child
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+      - name: Bind exact current Product and preserved W5 lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
+          git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
+          git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
+          git cat-file -e "$P0G_QA_SHA^{commit}"
+          git cat-file -e "$P0_DOCUMENT_QA_SHA^{commit}"
+          git cat-file -e "$RECONVERGENCE_MERGE_SHA^{commit}"
+          git cat-file -e "$PUBLICATION_PARENT_SHA^{commit}"
+          test "$(git merge-base "$PUBLICATION_PARENT_SHA" HEAD)" = "$PUBLICATION_PARENT_SHA"
+          test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" "$PUBLICATION_PARENT_SHA")" = "$RECONVERGENCE_MERGE_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PRODUCT_PARENT_SHA"
+          test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" "$RECONVERGENCE_MERGE_SHA")" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$RECONVERGENCE_MERGE_SHA" HEAD)" = "$RECONVERGENCE_MERGE_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" HEAD)" = "$PRODUCT_PARENT_SHA"
+          test "$(git merge-base "$PREVIOUS_PACKAGE_SHA" HEAD)" = "$PREVIOUS_PACKAGE_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$P0G_QA_SHA")" = "$PRODUCT_PARENT_SHA"
+          test "$(git merge-base "$PRODUCT_PARENT_SHA" "$P0_DOCUMENT_QA_SHA")" = "$PRODUCT_PARENT_SHA"
+          changed="$(git diff --name-only "$PRODUCT_PARENT_SHA" HEAD)"
+          test "$changed" = "$QUALIFICATION_SOURCE_PATH"
+          git diff --check "$PRODUCT_PARENT_SHA" HEAD
+          if git cat-file -e "$PRODUCT_PARENT_SHA:$QUALIFICATION_SOURCE_PATH" 2>/dev/null; then
+            echo 'PACKAGE_WORKFLOW_ALREADY_PRESENT_IN_PRODUCT_PARENT' >&2
+            exit 1
+          fi
+          config_blob="$(git rev-parse "$PRODUCT_PARENT_SHA:packaging/AccessibleChess.exe.config")"
+          test "$config_blob" = "$WINFORMS_ACCESSIBILITY_CONFIG_BLOB"
+          previous_blob="$(git rev-parse "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$previous_blob" = "$PREVIOUS_WORKFLOW_BLOB_SHA"
+          executor_template_blob="$(git rev-parse "$EXECUTOR_TEMPLATE_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$executor_template_blob" = "$EXECUTOR_TEMPLATE_WORKFLOW_BLOB_SHA"
+          authority_blob="$(git rev-parse "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH")"
+          test "$authority_blob" = "$PRIOR_WORKFLOW_BLOB_SHA"
+          p0g_probe_blob="$(git rev-parse "$P0G_QA_SHA:$P0G_PROBE_PATH")"
+          test "$p0g_probe_blob" = "$P0G_PROBE_BLOB_SHA"
+          document_probe_blob="$(git rev-parse "$P0_DOCUMENT_QA_SHA:$P0_DOCUMENT_PROBE_PATH")"
+          test "$document_probe_blob" = "$P0_DOCUMENT_PROBE_BLOB_SHA"
+          git show "$PREVIOUS_PACKAGE_SHA:$QUALIFICATION_SOURCE_PATH" > .previous-package-qualification.yml
+          git show "$EXECUTOR_TEMPLATE_SHA:$QUALIFICATION_SOURCE_PATH" > .executor-template-package.yml
+          git show "$QUALIFICATION_AUTHORITY_SHA:$QUALIFICATION_SOURCE_PATH" > .package-qualification-source.yml
+          git show "$P0G_QA_SHA:$P0G_PROBE_PATH" > .p0g-packaged-hotkey-result-probe.ps1
+          git show "$P0_DOCUMENT_QA_SHA:$P0_DOCUMENT_PROBE_PATH" > .p0-packaged-document-copy-probe.ps1
+          test -s .previous-package-qualification.yml
+          test -s .executor-template-package.yml
+          test -s .package-qualification-source.yml
+          test -s .p0g-packaged-hotkey-result-probe.ps1
+          test -s .p0-packaged-document-copy-probe.ps1
+          test "$(grep -Fc '      - name: Materialize exact inherited qualification executor' .executor-template-package.yml)" = '1'
+          grep -Fq "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'" .executor-template-package.yml
+          grep -Fq "connected provider roots from strict stage1_uia_topology_v5" .executor-template-package.yml
+          grep -Fq 'Prove fresh-extracted native MenuBar profile through process-scoped UIA' .package-qualification-source.yml
+          grep -Fq '$top.Count -ne 13' .package-qualification-source.yml
+          grep -Fq 'training_top_menu_expected=$false' .package-qualification-source.yml
+          grep -Fq 'function EnsureEngineEnabled($EngineToggle)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function FindVariationButton($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function SelectedVariation($Roots,[int]$Index)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'Could not establish opposite variation $opposite before Alt+$index' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'AccessibleChessP0GKeys]::Alt' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function AssertProductForeground($Process)' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'foreground_product_verified=$true' .p0g-packaged-hotkey-result-probe.ps1
+          grep -Fq 'function AssertProviderFocus' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function ActivateProduct($Shell,$Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function AssertProductForeground($Process,[string]$Phase)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'function AssertExactPackageBinding([string]$ProductRootPath,[string]$ExpectedSha,[string]$ExePath)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'AssertExactPackageBinding $root $ProductSha $exe' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'manifest_product_sha_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'executable_checksum_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "document_provider_cardinality='exactly one selectable Accessible Chess document containing one exact visible static UIA child target'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "static_document_range_source='TextPattern.RangeFromChild exact named visible static UIA child'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$navigationDocument.SetFocus()' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "AssertProviderFocus \$roots 'native document Ctrl+Home'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '[AccessibleChessCopyKeys]::Ctrl([byte]0x24)' .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$documents=$currentDocuments' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'P0_NATIVE_DOCUMENT_HOME_NAVIGATION=PASS' .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$probeRange=$candidatePattern.RangeFromChild($namedTargets[0])' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'native_copy_focus_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'foreground_product_verified=$true' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "AssertProviderFocus \$roots 'move input copy dispatch after Ctrl+A' 'move-input'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq '$selected=[string]$target.GetText(-1)' .p0-packaged-document-copy-probe.ps1
+          if grep -Fq '$selected=([string]$target.GetText(-1)).Trim()' .p0-packaged-document-copy-probe.ps1; then
+            echo 'STALE_TRIMMED_EXACT_RANGE_EXPECTATION_SURVIVED' >&2
+            exit 1
+          fi
+          grep -Fq 'if($last -ceq $Expected){return $last}' .p0-packaged-document-copy-probe.ps1
+          grep -Fq 'first_mismatch_index=$mismatch' .p0-packaged-document-copy-probe.ps1
+          grep -Fq "expected_code_units='\$expectedUnits'" .p0-packaged-document-copy-probe.ps1
+          grep -Fq "actual_code_units='\$actualUnits'" .p0-packaged-document-copy-probe.ps1
+          short="${PRODUCT_PARENT_SHA:0:7}"
+          echo "PRODUCT_PARENT=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$PRODUCT_PARENT_SHA" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-post-freeze-package-qualification.zip" >> "$GITHUB_ENV"
+          echo "CANDIDATE_PRODUCT_SHA=$PRODUCT_PARENT_SHA"
+          echo "PREVIOUS_PACKAGE_CANDIDATE_SHA=$PREVIOUS_PACKAGE_SHA"
+          echo "RECONVERGENCE_MERGE_SHA=$RECONVERGENCE_MERGE_SHA"
+          echo "PUBLICATION_PARENT_SHA=$PUBLICATION_PARENT_SHA"
+          echo "PREVIOUS_PACKAGE_WORKFLOW_BLOB=$previous_blob"
+          echo "EXECUTOR_TEMPLATE_SHA=$EXECUTOR_TEMPLATE_SHA"
+          echo "EXECUTOR_TEMPLATE_WORKFLOW_BLOB=$executor_template_blob"
+          echo "WINFORMS_ACCESSIBILITY_CONFIG_BLOB=$config_blob"
+          echo "P0G_QA_SHA=$P0G_QA_SHA"
+          echo "P0G_PROBE_BLOB=$p0g_probe_blob"
+          echo "P0_DOCUMENT_QA_SHA=$P0_DOCUMENT_QA_SHA"
+          echo "P0_DOCUMENT_PROBE_BLOB=$document_probe_blob"
+          echo 'CURRENT_PRODUCT_ANCESTRY=PASS'
+          echo 'RECONVERGENCE_MERGE_ANCESTRY=PASS'
+          echo 'PREVIOUS_W5_ANCESTRY=PASS'
+          echo 'PINNED_ENV_RESTORED=PASS'
+          echo 'WINFORMS_ACCESSIBILITY_CONFIG_LOCK=PASS'
+          echo 'P0G_PROBE_AUTHORITY_LOCK=PASS'
+          echo 'P0_DOCUMENT_PROBE_AUTHORITY_LOCK=PASS'
+          echo 'WORKFLOW_ONLY_DELTA=PASS'
+          echo 'PRODUCT_SOURCE_MUTATION=NONE'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Bind canonical WinForms config into inherited standalone build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.package-qualification-source.yml')
+          text = path.read_text(encoding='utf-8')
+          needle = "          Write-Host 'STANDALONE_BUILD=PASS'"
+          if text.count(needle) != 1:
+              raise SystemExit(f'Inherited standalone build marker drifted: count={text.count(needle)}')
+          lines = [
+              "          $config=(Resolve-Path 'packaging\\AccessibleChess.exe.config').Path",
+              "          $target=Join-Path $dist 'AccessibleChess.exe.config'",
+              "          Copy-Item -LiteralPath $config -Destination $target -Force",
+              "          if(-not (Test-Path -LiteralPath $target -PathType Leaf)){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_MISSING'}",
+              "          if((Get-Item -LiteralPath $target).Length -le 0){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_EMPTY'}",
+              "          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $config).Hash",
+              "          $targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash",
+              "          if($sourceHash -ne $targetHash){throw 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG_BYTE_MISMATCH'}",
+              "          Write-Host \"STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS sha256=$($targetHash.ToLowerInvariant())\"",
+          ]
+          replacement = '\n'.join(lines + [needle])
+          patched = text.replace(needle, replacement, 1)
+          path.write_text(patched, encoding='utf-8', newline='\n')
+          if 'STANDALONE_WINFORMS_ACCESSIBILITY_CONFIG=PASS' not in path.read_text(encoding='utf-8'):
+              raise SystemExit('Inherited standalone build app-config patch missing after write')
+          print('INHERITED_STANDALONE_APPCONFIG_BIND=PASS')
+          PY
+
+      - name: Extend inherited package proof with durable Book and Training restart state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.package-qualification-source.yml')
+          text = path.read_text(encoding='utf-8')
+
+          def once(needle: str, replacement: str, label: str) -> None:
+              global text
+              count = text.count(needle)
+              if count != 1:
+                  raise SystemExit(f'{label} drifted: count={count}')
+              text = text.replace(needle, replacement, 1)
+
+          helper_needle = """          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
+          helper_replacement = """          function CurrentBookBlock($report) {
+            $ids=@()
+            foreach($e in @(Rewalk $report)){
+              try {
+                $id=[string]$e.Current.AutomationId
+                if($id -match '^book-block-[0-9]+$'){$ids += $id}
+              } catch {}
+            }
+            $ids=@($ids | Sort-Object -Unique)
+            if($ids.Count -ne 1){throw "Expected one current Book block, found $($ids.Count): $($ids -join ',')"}
+            return [string]$ids[0]
+          }
+          function WaitBookBlock($report,[string]$differentFrom='',[string]$exactId='',[int]$timeoutMs=10000) {
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            $last=''
+            while($watch.ElapsedMilliseconds -lt $timeoutMs){
+              try {
+                $last=CurrentBookBlock $report
+                if($exactId){
+                  if($last -eq $exactId){return $last}
+                } elseif(-not $differentFrom -or $last -ne $differentFrom){
+                  return $last
+                }
+              } catch {$last=$_.Exception.Message}
+              Start-Sleep -Milliseconds 150
+            }
+            throw "Book block did not converge; differentFrom='$differentFrom' exactId='$exactId' last='$last'"
+          }
+          function SetControlValue($e,[string]$value,[string]$label) {
+            try {
+              $pattern=$e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+              if($null -eq $pattern -or [bool]$pattern.Current.IsReadOnly){throw 'writable ValuePattern unavailable'}
+              $pattern.SetValue($value)
+              if([string]$pattern.Current.Value -cne $value){throw 'ValuePattern readback mismatch'}
+            } catch {throw "$label value update failed: $($_.Exception.Message)"}
+          }
+          function ControlEnabled($e) {
+            if($null -eq $e){return $false}
+            try{return [bool]$e.Current.IsEnabled}catch{return $false}
+          }
+          function ActivateByNativeEnter($process,$target,[string]$label) {
+            if($null -eq $target){throw "$label target is missing"}
+            if(-not [bool]$target.Current.IsEnabled){throw "$label target is disabled"}
+            if(-not [bool]$target.Current.IsKeyboardFocusable){throw "$label target is not keyboard focusable"}
+            $ws=New-Object -ComObject WScript.Shell
+            if(-not $ws.AppActivate($process.Id)){throw "$label could not activate packaged AccessibleChess.exe"}
+            $target.SetFocus()
+            AssertSemanticFocus $target
+            [AccessibleChessPackageKeys]::Key([byte]0x0D)
+          }
+          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
+          once(helper_needle, helper_replacement, 'Book persistence helper insertion')
+
+          key_helper_needle = """            public static void Alt(byte vk) {
+              keybd_event(0x12, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+              keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }"""
+          key_helper_replacement = """            public static void Alt(byte vk) {
+              keybd_event(0x12, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+              keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }
+            public static void Key(byte vk) {
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }"""
+          once(key_helper_needle, key_helper_replacement, 'Native Enter key helper insertion')
+
+          training_helper_needle = """          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
+          training_helper_replacement = """          function TrainingCounters($report) {
+            $documents=@()
+            foreach($e in @(Rewalk $report)){
+              try {
+                if([string]$e.Current.ControlType.ProgrammaticName -eq 'ControlType.Document' -and [string]$e.Current.Name -eq 'Accessible Chess'){
+                  $documents += ,$e
+                }
+              } catch {}
+            }
+            if($documents.Count -lt 1){throw 'Accessible Chess document unavailable for Training counter proof'}
+            foreach($document in $documents){
+              try {
+                $pattern=$document.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+                if($null -eq $pattern){continue}
+                $text=[string]$pattern.DocumentRange.GetText(-1)
+                $attempt=[regex]::Match($text,'(?is)(?:Спроби|Attempts)\s*([0-9]+)')
+                $mistake=[regex]::Match($text,'(?is)(?:Помилки|Mistakes)\s*([0-9]+)')
+                if($attempt.Success -and $mistake.Success){
+                  return [pscustomobject]@{
+                    attempts=[int]$attempt.Groups[1].Value
+                    mistakes=[int]$mistake.Groups[1].Value
+                  }
+                }
+              } catch {}
+            }
+            throw 'Training attempts/mistakes were not exposed through the Accessible Chess TextPattern'
+          }
+          function WaitTrainingCounters($report,[int]$attempts,[int]$mistakes,[int]$timeoutMs=10000) {
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            $last=''
+            while($watch.ElapsedMilliseconds -lt $timeoutMs){
+              try {
+                $value=TrainingCounters $report
+                $last="attempts=$($value.attempts) mistakes=$($value.mistakes)"
+                if([int]$value.attempts -eq $attempts -and [int]$value.mistakes -eq $mistakes){return $value}
+              } catch {$last=$_.Exception.Message}
+              Start-Sleep -Milliseconds 150
+            }
+            throw "Training counters did not converge to attempts=$attempts mistakes=$mistakes; last=$last"
+          }
+          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
+          once(training_helper_needle, training_helper_replacement, 'Training persistence helper insertion')
+
+          pre_needle = """            $course=WaitControl $report '' '(?i)(стартовий офлайн-курс|starter offline course)' ''
+            if(-not (AccessibleText $course)){throw 'Packaged starter course heading is empty'}
+            Write-Host 'PACKAGED_W3_BOOKS_DISCOVER_OPEN_READ_OFFLINE=PASS'"""
+          pre_replacement = """            $course=WaitControl $report '' '(?i)(стартовий офлайн-курс|starter offline course)' ''
+            if(-not (AccessibleText $course)){throw 'Packaged starter course heading is empty'}
+
+            $initialBookBlock=CurrentBookBlock $report
+            $moveButton=FindControl (Rewalk $report) '' '^(Наступний блок|Next block)$' 'ControlType.Button'
+            $reverseRx='^(Попередній блок|Previous block)$'
+            if(-not (ControlEnabled $moveButton)){
+              $moveButton=FindControl (Rewalk $report) '' '^(Попередній блок|Previous block)$' 'ControlType.Button'
+              $reverseRx='^(Наступний блок|Next block)$'
+            }
+            if(-not (ControlEnabled $moveButton)){throw 'No enabled adjacent Book block exists for persistence proof'}
+            ActivateByNativeEnter $first $moveButton 'Book adjacent-block native Enter'
+            $savedBookBlock=WaitBookBlock $report $initialBookBlock ''
+            Write-Host "PACKAGED_BOOKS_NATIVE_KEYBOARD_ENTER=PASS from=$initialBookBlock to=$savedBookBlock"
+
+            $bookmarkToken='w5-restart-'+([string]$env:PRODUCT_PARENT).Substring(0,12)
+            $bookEdit=WaitControl $report 'book-bookmark-name' '' 'ControlType.Edit'
+            SetControlValue $bookEdit $bookmarkToken 'Book bookmark name'
+            $saveBookmark=WaitControl $report '' '^(Зберегти закладку|Save bookmark)$' 'ControlType.Button'
+            $beforeSave=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            InvokeControl $saveBookmark 'Save Book bookmark'
+            $saveText=WaitLiveChange $report $beforeSave
+            if($saveText -notmatch '(?i)(збереж|saved)'){throw "Book bookmark save confirmation missing: $saveText"}
+
+            $reverseButton=WaitControl $report '' $reverseRx 'ControlType.Button'
+            if(-not (ControlEnabled $reverseButton)){throw 'Reverse Book navigation is disabled after bookmark save'}
+            InvokeControl $reverseButton 'Move away from saved Book bookmark'
+            $awayBookBlock=WaitBookBlock $report $savedBookBlock ''
+            if($awayBookBlock -eq $savedBookBlock){throw 'Book cursor did not move away from saved bookmark'}
+            Write-Host "PACKAGED_BOOK_PROGRESS_PRE_RESTART_STATE=PASS saved=$savedBookBlock away=$awayBookBlock"
+            Write-Host 'PACKAGED_W3_BOOKS_DISCOVER_OPEN_READ_OFFLINE=PASS'"""
+          once(pre_needle, pre_replacement, 'Book pre-restart persistence insertion')
+
+          training_pre_needle = """            $hint=WaitControl $report '' '^(Підказка|Hint)$' 'ControlType.Button'
+            $beforeHint=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            InvokeControl $hint 'Training hint'
+            $hintText=WaitLiveChange $report $beforeHint
+            if(-not $hintText){throw 'Packaged Training hint did not expose accessible feedback'}
+            Write-Host 'PACKAGED_W3_TRAINING_ENTER_USE_OFFLINE=PASS'"""
+          training_pre_replacement = """            $hint=WaitControl $report '' '^(Підказка|Hint)$' 'ControlType.Button'
+            $beforeHint=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            InvokeControl $hint 'Training hint'
+            $hintText=WaitLiveChange $report $beforeHint
+            if(-not $hintText){throw 'Packaged Training hint did not expose accessible feedback'}
+
+            $beforeTrainingCounters=TrainingCounters $report
+            $answer=WaitControl $report 'training-answer' '' 'ControlType.Edit'
+            SetControlValue $answer 'zz' 'Training deliberately-wrong answer'
+            $submit=WaitControl $report '' '^(Перевірити хід|Check move)$' 'ControlType.Button'
+            if(-not (ControlEnabled $submit)){throw 'Training submit control is disabled before native Enter proof'}
+            $beforeSubmit=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
+            ActivateByNativeEnter $first $answer 'Training answer native Enter submit'
+            $submitText=WaitLiveChange $report $beforeSubmit
+            if(-not $submitText){throw 'Training wrong-answer submission did not expose accessible feedback'}
+            $expectedTrainingAttempts=[int]$beforeTrainingCounters.attempts+1
+            $expectedTrainingMistakes=[int]$beforeTrainingCounters.mistakes+1
+            $afterTrainingCounters=WaitTrainingCounters $report $expectedTrainingAttempts $expectedTrainingMistakes
+            Write-Host "PACKAGED_TRAINING_NATIVE_KEYBOARD_ENTER=PASS attempts=$expectedTrainingAttempts mistakes=$expectedTrainingMistakes"
+            Write-Host "PACKAGED_TRAINING_PROGRESS_PRE_RESTART_STATE=PASS attempts=$expectedTrainingAttempts mistakes=$expectedTrainingMistakes"
+            Write-Host 'PACKAGED_W3_TRAINING_ENTER_USE_OFFLINE=PASS'"""
+          once(training_pre_needle, training_pre_replacement, 'Training pre-restart persistence insertion')
+
+          restart_needle = """            $restartBooks=WaitControl $restartReport 'v2-nav-books' '^(Книги|Books)$' 'ControlType.Button'
+            InvokeControl $restartBooks 'Restart Books navigation'
+            $null=WaitControl $restartReport 'book-bookmark-name' '' 'ControlType.Edit'
+            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'"""
+          restart_replacement = """            $restartBooks=WaitControl $restartReport 'v2-nav-books' '^(Книги|Books)$' 'ControlType.Button'
+            InvokeControl $restartBooks 'Restart Books navigation'
+            $restartBookEdit=WaitControl $restartReport 'book-bookmark-name' '' 'ControlType.Edit'
+            $restartAwayBookBlock=WaitBookBlock $restartReport '' $awayBookBlock
+            if($restartAwayBookBlock -ne $awayBookBlock){throw "Book cursor restart mismatch: expected=$awayBookBlock actual=$restartAwayBookBlock"}
+            SetControlValue $restartBookEdit $bookmarkToken 'Restart Book bookmark name'
+            $restoreBookmark=WaitControl $restartReport '' '^(Відновити закладку|Restore bookmark)$' 'ControlType.Button'
+            $beforeRestore=AccessibleText (FindControl (Rewalk $restartReport) 'live' '' '')
+            InvokeControl $restoreBookmark 'Restore persisted Book bookmark'
+            $restoreText=WaitLiveChange $restartReport $beforeRestore
+            if($restoreText -notmatch '(?i)(віднов|restored)'){throw "Book bookmark restore confirmation missing: $restoreText"}
+            $restoredBookBlock=WaitBookBlock $restartReport '' $savedBookBlock
+            if($restoredBookBlock -ne $savedBookBlock){throw "Book bookmark restart restore mismatch: expected=$savedBookBlock actual=$restoredBookBlock"}
+            Write-Host "PACKAGED_BOOK_PROGRESS_RESTART_PERSISTENCE=PASS cursor=$restartAwayBookBlock restored=$restoredBookBlock"
+            $returnToTrainingOrigin=WaitControl $restartReport '' $reverseRx 'ControlType.Button'
+            if(-not (ControlEnabled $returnToTrainingOrigin)){throw 'Book navigation back to Training origin is disabled after bookmark restore'}
+            InvokeControl $returnToTrainingOrigin 'Return Book cursor to pre-restart Training origin'
+            $trainingOriginBookBlock=WaitBookBlock $restartReport '' $awayBookBlock
+            if($trainingOriginBookBlock -ne $awayBookBlock){throw "Book Training origin recovery mismatch: expected=$awayBookBlock actual=$trainingOriginBookBlock"}
+            Write-Host "PACKAGED_BOOK_TRAINING_ORIGIN_RECOVERED=PASS block=$trainingOriginBookBlock"
+            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'"""
+          once(restart_needle, restart_replacement, 'Book restart persistence insertion')
+
+          training_restart_needle = """            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'
+            InvokeControl $restartTraining 'Restart Training navigation'
+            $null=WaitControl $restartReport 'training-answer' '' 'ControlType.Edit'
+            Write-Host 'PACKAGED_RESTART_REOPEN_UIA_64_BOOKS_TRAINING=PASS'"""
+          training_restart_replacement = """            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'
+            InvokeControl $restartTraining 'Restart Training navigation'
+            $null=WaitControl $restartReport 'training-answer' '' 'ControlType.Edit'
+            $restartTrainingCounters=WaitTrainingCounters $restartReport $expectedTrainingAttempts $expectedTrainingMistakes
+            if([int]$restartTrainingCounters.attempts -ne $expectedTrainingAttempts -or [int]$restartTrainingCounters.mistakes -ne $expectedTrainingMistakes){
+              throw 'Training counters did not survive restart'
+            }
+            Write-Host "PACKAGED_TRAINING_PROGRESS_RESTART_PERSISTENCE=PASS attempts=$($restartTrainingCounters.attempts) mistakes=$($restartTrainingCounters.mistakes)"
+            Write-Host 'PACKAGED_RESTART_REOPEN_UIA_64_BOOKS_TRAINING=PASS'"""
+          once(training_restart_needle, training_restart_replacement, 'Training restart persistence insertion')
+
+          evidence_needle = """              books_discover_open_read_offline=$true
+              training_enter_use_offline=$true"""
+          evidence_replacement = """              books_discover_open_read_offline=$true
+              books_native_keyboard_enter=$true
+              book_progress_cursor_persisted_restart=$true
+              book_bookmark_restore_persisted_restart=$true
+              book_saved_block=$savedBookBlock
+              book_away_block=$awayBookBlock
+              book_restart_block_before_restore=$restartAwayBookBlock
+              book_restored_block=$restoredBookBlock
+              book_training_origin_after_restore=$trainingOriginBookBlock
+              training_native_keyboard_enter=$true
+              training_progress_persisted_restart=$true
+              training_attempts_after_wrong_submit=$expectedTrainingAttempts
+              training_mistakes_after_wrong_submit=$expectedTrainingMistakes
+              training_restart_attempts=$restartTrainingCounters.attempts
+              training_restart_mistakes=$restartTrainingCounters.mistakes
+              training_enter_use_offline=$true"""
+          once(evidence_needle, evidence_replacement, 'Book persistence evidence insertion')
+
+          source_test_needle = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy"""
+          source_test_replacement = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy tests.test_book_document_warning_accessibility tests.test_v2_book_epub_import tests.test_v2_book_html_import tests.test_v2_book_text_import tests.test_v2_book_game_content tests.test_v2_book_progress_store_production tests.test_w2_training_progress_crash_recovery tests.test_book_bidirectional_semantic_navigation tests.test_bookreader_snapshot_bounds tests.test_owner_oneclick_from_w4_workflow tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_portable_localappdata_persistence_binding tests.test_pgn_post_commit_presentation_recovery_current tests.test_stage1_unbound_shortcut_capture"""
+          once(source_test_needle, source_test_replacement, 'Current completion safety regression expansion')
+
+          source_gate_needle = """          if($LASTEXITCODE -ne 0){throw 'SOURCE_P0G_W3_REGRESSION_FAILURE'}"""
+          source_gate_replacement = """          if($LASTEXITCODE -ne 0){throw 'SOURCE_P0G_W3_REGRESSION_FAILURE'}
+          Write-Host 'SOURCE_CURRENT_COMPLETION_SAFETY_REGRESSIONS=PASS'"""
+          once(source_gate_needle, source_gate_replacement, 'Current completion safety PASS marker insertion')
+
+          required = (
+              'PACKAGED_BOOKS_NATIVE_KEYBOARD_ENTER=PASS',
+              'PACKAGED_BOOK_PROGRESS_PRE_RESTART_STATE=PASS',
+              'PACKAGED_BOOK_PROGRESS_RESTART_PERSISTENCE=PASS',
+              'PACKAGED_BOOK_TRAINING_ORIGIN_RECOVERED=PASS',
+              'book_progress_cursor_persisted_restart=$true',
+              'book_bookmark_restore_persisted_restart=$true',
+              'PACKAGED_TRAINING_NATIVE_KEYBOARD_ENTER=PASS',
+              'PACKAGED_TRAINING_PROGRESS_PRE_RESTART_STATE=PASS',
+              'PACKAGED_TRAINING_PROGRESS_RESTART_PERSISTENCE=PASS',
+              'training_progress_persisted_restart=$true',
+              'tests.test_book_document_warning_accessibility',
+              'tests.test_v2_book_epub_import',
+              'tests.test_v2_book_progress_store_production',
+              'tests.test_w2_training_progress_crash_recovery',
+              'tests.test_book_bidirectional_semantic_navigation',
+              'tests.test_owner_oneclick_from_w4_workflow',
+              'tests.test_portable_launcher_contract',
+              'tests.test_portable_launcher_window_readiness',
+              'tests.test_portable_localappdata_persistence_binding',
+              'tests.test_pgn_post_commit_presentation_recovery_current',
+              'tests.test_stage1_unbound_shortcut_capture',
+              'SOURCE_CURRENT_COMPLETION_SAFETY_REGRESSIONS=PASS',
+          )
+          for token in required:
+              if text.count(token) != 1:
+                  raise SystemExit(f'Book restart proof token invalid: {token!r} count={text.count(token)}')
+          path.write_text(text, encoding='utf-8', newline='\n')
+          print('INHERITED_PACKAGED_BOOK_TRAINING_RESTART_PERSISTENCE_PROOF=BOUND')
+          PY
+
+      - name: Execute pinned immutable qualification template with current probes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from pathlib import Path
+
+          source = Path('.executor-template-package.yml').read_text(encoding='utf-8')
+          wanted = 'Materialize exact inherited qualification executor'
+          lines = source.splitlines()
+          starts = [i for i, line in enumerate(lines) if line.startswith('      - name: ')]
+          starts.append(len(lines))
+          run = None
+          for pos in range(len(starts) - 1):
+              begin, end = starts[pos], starts[pos + 1]
+              block = lines[begin:end]
+              if block[0][len('      - name: '):] != wanted:
+                  continue
+              for index, line in enumerate(block[1:], start=1):
+                  if line == '        run: |':
+                      payload = []
+                      for raw in block[index + 1:]:
+                          if raw.startswith('          '):
+                              payload.append(raw[10:])
+                          elif raw == '':
+                              payload.append('')
+                          else:
+                              raise SystemExit(f'Unexpected inherited run-block indentation: {raw!r}')
+                      run = '\n'.join(payload) + '\n'
+                      break
+              break
+          if run is None:
+              raise SystemExit(f'Pinned executor template step not found: {wanted}')
+          required = (
+              "DOCUMENT_STEP = 'Prove packaged semantic document selection and native Ctrl+C'",
+              'connected provider roots from strict stage1_uia_topology_v5',
+              "if name == DOCUMENT_STEP: step['run'] = DOCUMENT_OVERRIDE",
+              "python .package-qualification-executor.py pre",
+          )
+          for token in required:
+              if token not in run:
+                  raise SystemExit(f'Pinned topology-aware executor template drifted: missing {token!r}')
+          start_token = 'DOCUMENT_OVERRIDE = r"""'
+          start = run.find(start_token)
+          if start < 0:
+              raise SystemExit('Pinned executor document override start marker missing')
+          end = run.find('\n"""', start + len(start_token))
+          if end < 0:
+              raise SystemExit('Pinned executor document override end marker missing')
+          end += len('\n"""')
+          replacement = '''DOCUMENT_OVERRIDE = r"""$ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath 'fresh-extraction\\AccessibleChess' -PathType Container)){throw 'Fresh extracted Product missing before hardened document-copy proof'}
+          if(-not (Test-Path -LiteralPath '.v2-uia-evidence\\stage1_uia_topology_v5.ps1' -PathType Leaf)){throw 'Strict retained UIA topology helper missing before hardened document-copy proof'}
+          if(-not (Test-Path -LiteralPath '.p0-packaged-document-copy-probe.ps1' -PathType Leaf)){throw 'Pinned hardened document-copy probe missing'}
+          & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .p0-packaged-document-copy-probe.ps1 -ProductRoot 'fresh-extraction\\AccessibleChess' -ProductSha $env:PRODUCT_PARENT -TopologyScript '.v2-uia-evidence\\stage1_uia_topology_v5.ps1' -OutputPath 'packaged-v2-document-copy-summary.json' -TimeoutSeconds 60
+          if($LASTEXITCODE -ne 0){throw "Hardened packaged document-copy probe failed exit=$LASTEXITCODE"}
+          if(-not (Test-Path -LiteralPath 'packaged-v2-document-copy-summary.json' -PathType Leaf)){throw 'Hardened packaged document-copy evidence missing'}
+          $summary=Get-Content -LiteralPath 'packaged-v2-document-copy-summary.json' -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Hardened document-copy summary Product SHA mismatch'}
+          if(-not [bool]$summary.static_document_outside_edit -or -not [bool]$summary.textpattern_selection_supported){throw 'Hardened document-copy semantic selection proof incomplete'}
+          if([string]$summary.document_provider_cardinality -ne 'exactly one selectable Accessible Chess document containing one exact visible static UIA child target'){throw 'Hardened document-copy provider cardinality proof incomplete'}
+          if([string]$summary.static_document_range_source -ne 'TextPattern.RangeFromChild exact named visible static UIA child'){throw 'Hardened document-copy static range source proof incomplete'}
+          $targetControlType=[string]$summary.static_document_target_control_type
+          if($targetControlType -ne 'ControlType.Header' -and $targetControlType -ne 'ControlType.Text'){throw 'Hardened document-copy static target control type proof incomplete'}
+          if(-not [string]$summary.static_document_target_phrase){throw 'Hardened document-copy exact target phrase missing'}
+          if([string]$summary.static_document_text -cne [string]$summary.static_document_target_phrase){throw 'Hardened document-copy exact target phrase/text mismatch'}
+          $targetPhrase=[string]$summary.static_document_target_phrase
+          if($targetPhrase.Contains("`r") -or $targetPhrase.Contains("`n")){throw 'Hardened document-copy target phrase is not single-line'}
+          if(-not [bool]$summary.ctrl_c_exact_clipboard -or -not [bool]$summary.native_copy_focus_verified -or -not [bool]$summary.foreground_product_verified){throw 'Hardened native Ctrl+C focus/foreground/copy proof incomplete'}
+          if(-not [bool]$summary.manifest_product_sha_verified -or -not [bool]$summary.executable_checksum_verified){throw 'Hardened document-copy package identity proof incomplete'}
+          if(-not [bool]$summary.move_input_native_ctrl_a_ctrl_c -or -not [bool]$summary.move_input_focus_verified){throw 'Hardened Move Input focus/copy proof incomplete'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine document-copy evidence must not claim physical NVDA acceptance'}
+          Write-Host 'PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS'
+          """'''
+          run = run[:start] + replacement + run[end:]
+          if 'if($last.Trim() -eq $expected.Trim())' in run:
+              raise SystemExit('Stale trimmed clipboard comparison survived document override replacement')
+          if run.count('PACKAGED_HARDENED_DOCUMENT_SELECTION_NATIVE_COPY=PASS') != 1:
+              raise SystemExit('Hardened document override replacement count mismatch')
+          Path('.pinned-materialize-and-pre.ps1').write_text(run, encoding='utf-8', newline='\n')
+          '@ | Set-Content -LiteralPath .extract-pinned-package-pre.py -Encoding utf8
+          python .extract-pinned-package-pre.py
+          if($LASTEXITCODE -ne 0){throw 'Pinned package executor extraction failed'}
+          & pwsh -NoLogo -NoProfile -File .pinned-materialize-and-pre.ps1
+          if($LASTEXITCODE -ne 0){throw 'Pinned topology-aware pre-artifact qualification failed'}
+
+      - name: Prove Book and Training persistence stays inside the portable package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=(Resolve-Path -LiteralPath 'fresh-extraction\AccessibleChess').Path
+          $manifestPath=Join-Path $root 'RELEASE_MANIFEST.json'
+          if(-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)){throw 'Portable release manifest missing before persistence-root proof'}
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if([string]$manifest.integration_sha -ne $env:PRODUCT_PARENT){throw 'Portable persistence manifest Product SHA mismatch'}
+          if([string]$manifest.package_local_appdata -ne 'data/AccessibleChess'){throw 'Portable manifest package-local appdata contract drifted'}
+          if([bool]$manifest.human_tested -or [bool]$manifest.nvda_verified){throw 'Portable manifest fabricated human/NVDA acceptance'}
+
+          $dataRoot=Join-Path $root 'data'
+          $appData=Join-Path $dataRoot 'AccessibleChess'
+          $book=Join-Path $appData 'book-progress.json'
+          $training=Join-Path $appData 'training-progress'
+          foreach($dir in @($dataRoot,$appData,$training)){
+            if(-not (Test-Path -LiteralPath $dir -PathType Container)){throw "Package-local persistence directory missing: $dir"}
+            if(((Get-Item -LiteralPath $dir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw "Package-local persistence directory is a reparse point: $dir"}
+          }
+          if(-not (Test-Path -LiteralPath $book -PathType Leaf)){throw 'Book progress did not land in package-local appdata'}
+          if((Get-Item -LiteralPath $book).Length -le 0){throw 'Package-local Book progress file is empty'}
+          if(((Get-Item -LiteralPath $book -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Package-local Book progress file is a reparse point'}
+
+          $trainingFiles=@(Get-ChildItem -LiteralPath $training -Filter '*.json' -File -Force)
+          if($trainingFiles.Count -lt 1){throw 'Training progress did not land in package-local appdata'}
+          $rootPrefix=$root.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
+          $appPrefix=$appData.TrimEnd([IO.Path]::DirectorySeparatorChar,[IO.Path]::AltDirectorySeparatorChar)+[IO.Path]::DirectorySeparatorChar
+          $bookResolved=(Resolve-Path -LiteralPath $book).Path
+          if(-not $bookResolved.StartsWith($appPrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Book progress escaped package-local appdata'}
+          $trainingEvidence=@()
+          foreach($file in $trainingFiles){
+            if($file.Length -le 0){throw "Package-local Training progress file is empty: $($file.FullName)"}
+            if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw "Package-local Training progress file is a reparse point: $($file.FullName)"}
+            $resolved=(Resolve-Path -LiteralPath $file.FullName).Path
+            if(-not $resolved.StartsWith($appPrefix,[StringComparison]::OrdinalIgnoreCase)){throw "Training progress escaped package-local appdata: $resolved"}
+            $trainingEvidence += [ordered]@{
+              path=[IO.Path]::GetRelativePath($root,$resolved).Replace('\','/')
+              sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $resolved).Hash.ToLowerInvariant()
+              bytes=[int64]$file.Length
+            }
+          }
+          $bookRelative=[IO.Path]::GetRelativePath($root,$bookResolved).Replace('\','/')
+          if($bookRelative -ne 'data/AccessibleChess/book-progress.json'){throw "Unexpected Book progress relative path: $bookRelative"}
+          foreach($item in $trainingEvidence){
+            if(-not ([string]$item.path).StartsWith('data/AccessibleChess/training-progress/',[StringComparison]::Ordinal)){throw "Unexpected Training progress relative path: $($item.path)"}
+          }
+
+          $launcherSource=Get-Content -LiteralPath 'packaging\portable_launcher.c' -Raw
+          if(-not $launcherSource.Contains('ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")')){throw 'Launcher package-local data root binding missing'}
+          if(-not $launcherSource.Contains('SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)')){throw 'Launcher LOCALAPPDATA child binding missing'}
+          $portableSource=Get-Content -LiteralPath 'acs\version2_portable_package.py' -Raw
+          if(-not $portableSource.Contains('"package_local_appdata": "data/AccessibleChess"')){throw 'Portable manifest source appdata binding missing'}
+          $releaseSource=Get-Content -LiteralPath 'acs\version2_release_app.py' -Raw
+          if(-not $releaseSource.Contains('progress_store=BookProgressStore(layout.root / "book-progress.json")')){throw 'Release Book progress root binding missing'}
+          $applicationSource=Get-Content -LiteralPath 'acs\version2_application.py' -Raw
+          if(-not $applicationSource.Contains('self.training_progress_root = progress_store.path.parent / "training-progress"')){throw 'Training progress owner binding missing'}
+
+          $summary=[ordered]@{
+            schema='accessible-chess-packaged-local-persistence-v1'
+            product_sha=$env:PRODUCT_PARENT
+            package_root=$root
+            manifest_package_local_appdata=[string]$manifest.package_local_appdata
+            launcher_localappdata_redirect_verified=$true
+            book_progress_package_local=$true
+            book_progress_path=$bookRelative
+            book_progress_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $bookResolved).Hash.ToLowerInvariant()
+            book_progress_bytes=[int64](Get-Item -LiteralPath $bookResolved).Length
+            training_progress_package_local=$true
+            training_progress_files=$trainingEvidence
+            package_data_reparse_free=$true
+            human_tested=$false
+            nvda_verified=$false
+          }
+          $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath 'packaged-local-persistence-summary.json' -Encoding utf8
+          if(-not (Test-Path -LiteralPath 'packaged-local-persistence-summary.json' -PathType Leaf)){throw 'Package-local persistence evidence was not written'}
+          Write-Host "PACKAGED_LOCAL_BOOK_TRAINING_PERSISTENCE=PASS book=$bookRelative training_files=$($trainingFiles.Count)"
+
+      - name: Prove packaged P0-G Alt+1 Alt+2 accessible results
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath 'fresh-extraction\AccessibleChess' -PathType Container)){throw 'Fresh extracted Product missing before P0-G proof'}
+          if(-not (Test-Path -LiteralPath '.v2-uia-evidence\stage1_uia_topology_v5.ps1' -PathType Leaf)){throw 'Strict retained UIA topology helper missing before P0-G proof'}
+          & pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .p0g-packaged-hotkey-result-probe.ps1 -ProductRoot 'fresh-extraction\AccessibleChess' -ProductSha $env:PRODUCT_PARENT -TopologyScript '.v2-uia-evidence\stage1_uia_topology_v5.ps1' -OutputPath 'packaged-p0g-hotkey-result-summary.json' -TimeoutSeconds 60
+          if($LASTEXITCODE -ne 0){throw "Packaged P0-G hotkey-result probe failed exit=$LASTEXITCODE"}
+          if(-not (Test-Path -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -PathType Leaf)){throw 'Packaged P0-G summary missing'}
+          $summary=Get-Content -LiteralPath 'packaged-p0g-hotkey-result-summary.json' -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Packaged P0-G summary Product SHA mismatch'}
+          if(-not [bool]$summary.native_keyboard_dispatch){throw 'Packaged P0-G did not prove native keyboard dispatch'}
+          if(-not [bool]$summary.foreground_product_verified){throw 'Packaged P0-G did not prove AccessibleChess.exe was the foreground native-key target'}
+          if(-not [string]$summary.alt_1_precondition_selected_state -or -not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed){throw 'Alt+1 causal selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if(-not [string]$summary.alt_2_precondition_selected_state -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Alt+2 causal selected-state ACTION_OCCURRED + ACCESSIBLE_RESULT_EXPOSED not proven'}
+          if([bool]$summary.board_application_entered){throw 'P0-G probe entered role=application unexpectedly'}
+          if([bool]$summary.raw_uci_or_debug_exposed){throw 'P0-G probe exposed raw engine/provider/debug text'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Machine P0-G evidence must not claim physical NVDA acceptance'}
+          Write-Host 'PACKAGED_P0G_CAUSAL_SELECTED_STATE_ACTION_OCCURRED_ACCESSIBLE_RESULT_EXPOSED=PASS'
+
+      - name: Stage package ZIP at artifact root for inherited readback contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path (Join-Path 'candidate-output' $env:CANDIDATE_FILE)).Path
+          $target=Join-Path $PWD $env:CANDIDATE_FILE
+          if(Test-Path -LiteralPath $target){Remove-Item -LiteralPath $target -Force}
+          Copy-Item -LiteralPath $source -Destination $target
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $targetHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash
+          if($sourceHash -ne $targetHash){throw 'STAGED_ARTIFACT_ROOT_ZIP_SHA256_MISMATCH'}
+          Write-Host "STAGED_ARTIFACT_ROOT_ZIP=PASS sha256=$($sourceHash.ToLowerInvariant())"
+
+      - name: Upload post-freeze Windows package qualification artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: |
+            Accessible-Chess-V2-*-post-freeze-package-qualification.zip
+            packaged-uia-strict-summary.json
+            packaged-v2-current-native-menu-summary.json
+            packaged-v2-document-copy-summary.json
+            packaged-p0g-hotkey-result-summary.json
+            packaged-final-acceptance-summary.json
+            packaged-local-persistence-summary.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Download uploaded package artifact for exact readback
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Accessible-Chess-V2-post-freeze-package-qualification
+          path: artifact-readback
+
+      - name: Verify packaged P0-G evidence survived artifact readback byte-for-byte
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path -LiteralPath 'packaged-p0g-hotkey-result-summary.json').Path
+          $readback=(Resolve-Path -LiteralPath 'artifact-readback\packaged-p0g-hotkey-result-summary.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Packaged P0-G evidence changed across upload/download readback'}
+          $summary=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
+          if([string]$summary.product_sha -ne $env:PRODUCT_PARENT){throw 'Readback P0-G evidence Product SHA mismatch'}
+          if(-not [bool]$summary.foreground_product_verified){throw 'Readback P0-G evidence did not preserve foreground Product proof'}
+          if(-not [string]$summary.alt_1_precondition_selected_state -or -not [bool]$summary.alt_1_action_occurred -or -not [string]$summary.alt_1_selected_state -or -not [bool]$summary.alt_1_accessible_result_exposed -or -not [string]$summary.alt_2_precondition_selected_state -or -not [bool]$summary.alt_2_action_occurred -or -not [string]$summary.alt_2_selected_state -or -not [bool]$summary.alt_2_accessible_result_exposed){throw 'Readback P0-G causal selected-state acceptance fields incomplete'}
+          if([bool]$summary.human_tested -or [bool]$summary.nvda_verified){throw 'Readback evidence fabricated human/NVDA acceptance'}
+          Write-Host "PACKAGED_P0G_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant())"
+
+      - name: Verify durable Book restart evidence survived artifact readback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path -LiteralPath 'packaged-final-acceptance-summary.json').Path
+          $readback=(Resolve-Path -LiteralPath 'artifact-readback\packaged-final-acceptance-summary.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Packaged final acceptance evidence changed across upload/download readback'}
+          $evidence=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
+          if([string]$evidence.product_sha -ne $env:PRODUCT_PARENT){throw 'Book restart evidence Product SHA mismatch'}
+          if(-not [bool]$evidence.books_native_keyboard_enter){throw 'Books native keyboard Enter activation was not proven'}
+          if(-not [bool]$evidence.book_progress_cursor_persisted_restart){throw 'Book cursor persistence across restart was not proven'}
+          if(-not [bool]$evidence.book_bookmark_restore_persisted_restart){throw 'Named Book bookmark persistence across restart was not proven'}
+          $saved=[string]$evidence.book_saved_block
+          $away=[string]$evidence.book_away_block
+          $restart=[string]$evidence.book_restart_block_before_restore
+          $restored=[string]$evidence.book_restored_block
+          if($saved -notmatch '^book-block-[0-9]+$' -or $away -notmatch '^book-block-[0-9]+$'){throw 'Book persistence evidence block identity is invalid'}
+          if($saved -eq $away){throw 'Book persistence evidence did not move away from the saved block'}
+          if($restart -ne $away){throw 'Book current cursor did not survive restart in readback evidence'}
+          if($restored -ne $saved){throw 'Named Book bookmark did not restore the exact saved block in readback evidence'}
+          $trainingOrigin=[string]$evidence.book_training_origin_after_restore
+          if($trainingOrigin -ne $away){throw 'Book cursor was not returned to the known Training origin after bookmark verification'}
+          if(-not [bool]$evidence.training_native_keyboard_enter){throw 'Training native keyboard Enter activation was not proven'}
+          if(-not [bool]$evidence.training_progress_persisted_restart){throw 'Training progress persistence across restart was not proven'}
+          $trainingAttempts=[int]$evidence.training_attempts_after_wrong_submit
+          $trainingMistakes=[int]$evidence.training_mistakes_after_wrong_submit
+          $restartAttempts=[int]$evidence.training_restart_attempts
+          $restartMistakes=[int]$evidence.training_restart_mistakes
+          if($trainingAttempts -lt 1 -or $trainingMistakes -lt 1){throw 'Training persistence evidence did not record a real wrong-answer mutation'}
+          if($restartAttempts -ne $trainingAttempts -or $restartMistakes -ne $trainingMistakes){throw 'Training attempts/mistakes did not survive artifact-bound restart evidence'}
+          if([bool]$evidence.human_tested -or [bool]$evidence.nvda_verified){throw 'Machine Book/Training persistence evidence must not claim physical NVDA acceptance'}
+          Write-Host "PACKAGED_BOOK_TRAINING_PROGRESS_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant()) saved=$saved away=$away training_attempts=$trainingAttempts training_mistakes=$trainingMistakes"
+
+      - name: Verify package-local persistence evidence survived artifact readback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path -LiteralPath 'packaged-local-persistence-summary.json').Path
+          $readback=(Resolve-Path -LiteralPath 'artifact-readback\packaged-local-persistence-summary.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Package-local persistence evidence changed across upload/download readback'}
+          $evidence=Get-Content -LiteralPath $readback -Raw | ConvertFrom-Json
+          if([string]$evidence.schema -ne 'accessible-chess-packaged-local-persistence-v1'){throw 'Package-local persistence evidence schema mismatch'}
+          if([string]$evidence.product_sha -ne $env:PRODUCT_PARENT){throw 'Package-local persistence evidence Product SHA mismatch'}
+          if([string]$evidence.manifest_package_local_appdata -ne 'data/AccessibleChess'){throw 'Package-local persistence manifest binding mismatch'}
+          if(-not [bool]$evidence.launcher_localappdata_redirect_verified){throw 'Launcher LOCALAPPDATA redirect proof missing from readback evidence'}
+          if(-not [bool]$evidence.book_progress_package_local){throw 'Book package-local persistence proof missing'}
+          if([string]$evidence.book_progress_path -ne 'data/AccessibleChess/book-progress.json'){throw 'Book package-local path mismatch'}
+          if([int64]$evidence.book_progress_bytes -le 0 -or [string]$evidence.book_progress_sha256 -notmatch '^[0-9a-f]{64}$'){throw 'Book package-local file identity is invalid'}
+          if(-not [bool]$evidence.training_progress_package_local){throw 'Training package-local persistence proof missing'}
+          $training=@($evidence.training_progress_files)
+          if($training.Count -lt 1){throw 'Training package-local persistence evidence contains no files'}
+          foreach($item in $training){
+            if(-not ([string]$item.path).StartsWith('data/AccessibleChess/training-progress/',[StringComparison]::Ordinal)){throw "Training package-local path escaped expected root: $($item.path)"}
+            if([int64]$item.bytes -le 0 -or [string]$item.sha256 -notmatch '^[0-9a-f]{64}$'){throw "Training package-local file identity is invalid: $($item.path)"}
+          }
+          if(-not [bool]$evidence.package_data_reparse_free){throw 'Package-local persistence reparse safety proof missing'}
+          if([bool]$evidence.human_tested -or [bool]$evidence.nvda_verified){throw 'Machine package-local persistence evidence fabricated human/NVDA acceptance'}
+          Write-Host "PACKAGED_LOCAL_PERSISTENCE_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant()) training_files=$($training.Count)"
+
+      - name: Execute inherited post-upload readback and final checkpoint
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath .package-qualification-executor.py -PathType Leaf)){throw 'Inherited qualification executor missing before post-readback'}
+          python .package-qualification-executor.py post
+          if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}
