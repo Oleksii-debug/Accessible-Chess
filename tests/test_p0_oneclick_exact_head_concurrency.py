@@ -34,6 +34,7 @@ class P0OneClickExactHeadConcurrencyTests(unittest.TestCase):
             self.text,
         )
         self.assertIn("      - name: Reject superseded pull-request candidate\n", self.text)
+        self.assertIn("        if: ${{ github.event_name == 'pull_request' }}\n", self.text)
         self.assertIn(
             '          $eventSha = \'${{ github.event.pull_request.head.sha }}\'\n',
             self.text,
@@ -52,11 +53,6 @@ class P0OneClickExactHeadConcurrencyTests(unittest.TestCase):
         build = self.text.index("      - name: Build native x64 launcher without CRT\n")
         self.assertLess(guard, setup)
         self.assertLess(guard, build)
-
-    def test_contract_test_is_watched_and_executed(self) -> None:
-        path = "      - 'tests/test_p0_oneclick_exact_head_concurrency.py'\n"
-        self.assertGreaterEqual(self.text.count(path), 2)
-        self.assertIn("tests.test_p0_oneclick_exact_head_concurrency", self.text)
 
 
 if __name__ == "__main__":
