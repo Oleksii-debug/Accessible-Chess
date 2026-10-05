@@ -36,7 +36,7 @@ from .book_library_import import (
     BookLibrarySourceReadError,
     open_book_library_source,
 )
-from .import_contract import SourceReadCancelledError
+from .import_contract import SourceFingerprint, SourceReadCancelledError
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from .pgn_save_snapshot import (
     PgnSaveCancelledError,
@@ -955,19 +955,31 @@ class Version2WindowsFileActionDelegate:
                 "pgn.save_as", "pgn_session_invalid", focus_target=previous_focus
             )
 
-        try:
-            view = current.view()
-            expected_revision = current.document_revision
-        except Exception:
-            return self._failed(
-                "pgn.save_as",
-                "pgn_save_as_failed",
-                focus_target=previous_focus,
-            )
-        game_count = view.game_count
         suggested = "game.pgn"
-        if view.source_path:
-            suggested = Path(view.source_path).name or suggested
+        if self._post_to_ui is None:
+            # Preserve the historical direct-embedding seam, including its
+            # presentation-derived game count and suggested source filename.
+            try:
+                view = current.view()
+                expected_revision = current.document_revision
+            except Exception:
+                return self._failed(
+                    "pgn.save_as",
+                    "pgn_save_as_failed",
+                    focus_target=previous_focus,
+                )
+            game_count = view.game_count
+            if view.source_path:
+                suggested = Path(view.source_path).name or suggested
+        else:
+            # Production Windows Save As must not materialize the complete PGN
+            # presentation before opening the native picker. The exact detached
+            # save snapshot is captured after the dialog returns; here we need
+            # only a passive source filename and the pre-dialog revision fence.
+            expected_revision = current.document_revision
+            source = current.source
+            if type(source) is SourceFingerprint and type(source.path) is str:
+                suggested = Path(source.path).name or suggested
         try:
             destination = self._dialogs.save_pgn_as(suggested)
         except Exception:
