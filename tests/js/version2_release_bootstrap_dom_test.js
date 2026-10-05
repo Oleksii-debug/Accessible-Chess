@@ -809,6 +809,43 @@ async function clickRoute(routeId) {
     "queued later native event batch was lost, reordered, or left waiting for another timer tick"
   );
 
+  const beforeRouteDrainBarrierCommits = shellPublicationCommits;
+  const routeBeforeDrainBarrier = currentRoute;
+  holdNextStage1Refresh = true;
+  eventQueue = [{ kind: "delegated", payload: { action_id: "edit.undo" } }];
+  intervalCallback();
+  await flush();
+  check(
+    typeof heldStage1RefreshResolve === "function",
+    "route publication race did not hold the in-flight Stage 1 repaint"
+  );
+  const sameRouteButton = documentRef.getElementById("v2-nav-" + routeBeforeDrainBarrier);
+  check(
+    sameRouteButton && typeof sameRouteButton.listeners.click === "function",
+    "current route button missing for event-drain publication barrier"
+  );
+  sameRouteButton.listeners.click({});
+  await flush();
+  await flush();
+  check(
+    shellPublicationCommits === beforeRouteDrainBarrierCommits,
+    "route publication crossed an unfinished native event repaint"
+  );
+  check(
+    pendingShellPublication === null,
+    "route publication reached the host before the native event repaint completed"
+  );
+  heldStage1RefreshResolve();
+  for (let index = 0; index < 10; index += 1) await flush();
+  check(
+    shellPublicationCommits === beforeRouteDrainBarrierCommits + 1,
+    "route publication did not resume exactly once after native event repaint"
+  );
+  check(
+    pendingShellPublication === null && currentRoute === routeBeforeDrainBarrier,
+    "serialized same-route publication did not settle cleanly after native event repaint"
+  );
+
   const beforeBarrierDrainCalls = drainCalls;
   holdNextStage1Refresh = true;
   eventQueue = [{ kind: "delegated", payload: { action_id: "edit.undo" } }];
