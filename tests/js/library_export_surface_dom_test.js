@@ -522,6 +522,91 @@ function snapshot(checked) {
   resolveKey(null);
   await new Promise((resolve) => setImmediate(resolve));
 
+  // Home/End are central remappable actions, not a second JS keymap. Prove
+  // semantic action dispatch, quiet local edges, and first/last game identity.
+  const homeEndRoot = new FakeElement("div");
+  const homeEndSnapshot = snapshot(false);
+  homeEndSnapshot.rows = [
+    Object.assign({}, homeEndSnapshot.rows[0], {
+      position: 1,
+      selected: true
+    }),
+    Object.assign({}, homeEndSnapshot.rows[0], {
+      game_id: 8,
+      dom_id: "library-game-fedcba9876543210abcd",
+      position: 2,
+      selected: false,
+      label: "Gamma — Delta",
+      export_selected: false,
+      export_dom_id: "library-game-fedcba9876543210abcd-export",
+      export_label: "Include in export: Gamma — Delta"
+    })
+  ];
+  homeEndSnapshot.selected_game_id = 7;
+  homeEndSnapshot.focus_target = "library-game-0123456789abcdefabcd";
+  homeEndSnapshot.summary = "2 games shown.";
+  const homeEndCalls = [];
+  const homeEndInvoke = (command, payload) => {
+    homeEndCalls.push([command, Object.assign({}, payload)]);
+    return Promise.resolve(null);
+  };
+  window.AccessibleChessLibrarySurface.render(
+    homeEndRoot,
+    homeEndSnapshot,
+    homeEndInvoke,
+    announce,
+    "library-game-0123456789abcdefabcd"
+  );
+  const homeEndOptions = homeEndRoot.querySelectorAll('[role="option"]');
+  let boundaryPrevented = false;
+  window.accessibleChessKeymapAction = (event, context) => {
+    if (context !== "library_results") return null;
+    if (event.key === "Home") return "library.first_result";
+    if (event.key === "End") return "library.last_result";
+    return "";
+  };
+  homeEndOptions[0].listeners.keydown({
+    key: "Home", altKey: false, ctrlKey: false, shiftKey: false, metaKey: false,
+    preventDefault() { boundaryPrevented = true; },
+    stopPropagation() {}
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  check(boundaryPrevented, "Home boundary did not suppress browser scrolling");
+  check(homeEndCalls.length === 0, "Home on first Library result reached backend");
+
+  homeEndOptions[0].listeners.keydown({
+    key: "End", altKey: false, ctrlKey: false, shiftKey: false, metaKey: false,
+    preventDefault() {},
+    stopPropagation() {}
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  check(homeEndCalls.length === 1, "End did not dispatch Library selection");
+  check(homeEndCalls[0][0] === "library.select" && homeEndCalls[0][1].game_id === 8,
+    "End did not target the last Library result");
+
+  homeEndOptions[1].listeners.keydown({
+    key: "Home", altKey: false, ctrlKey: false, shiftKey: false, metaKey: false,
+    preventDefault() {},
+    stopPropagation() {}
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  check(homeEndCalls.length === 2, "Home did not dispatch Library selection");
+  check(homeEndCalls[1][0] === "library.select" && homeEndCalls[1][1].game_id === 7,
+    "Home did not target the first Library result");
+
+  const callsBeforeEndBoundary = homeEndCalls.length;
+  let endBoundaryPrevented = false;
+  homeEndOptions[1].listeners.keydown({
+    key: "End", altKey: false, ctrlKey: false, shiftKey: false, metaKey: false,
+    preventDefault() { endBoundaryPrevented = true; },
+    stopPropagation() {}
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  check(endBoundaryPrevented, "End boundary did not suppress browser scrolling");
+  check(homeEndCalls.length === callsBeforeEndBoundary,
+    "End on last Library result reached backend");
+  delete window.accessibleChessKeymapAction;
+
   // Route departure invalidates both an in-flight response and commands queued
   // behind it. A late Library render must never reclaim the shared workspace.
   const staleRoot = new FakeElement("div");
