@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - '.github/workflows/current-product-accessibility-formats-convergence.yml'
+      - '.github/workflows/current-books-keymap-semantic-convergence.yml'
       - '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml'
+      - '.github/workflows/keybindings-current-apex-core.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
       - '.github/workflows/webview-keymap-authority.yml'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
@@ -23,9 +25,13 @@ on:
       - 'web/index.html'
       - 'web/full_product_classroom.js'
       - 'web/full_product_pgn.js'
+      - 'web/full_product_books_training.js'
       - 'tests/js/dynamic_keymap_help_test.js'
       - 'tests/js/classroom_surface_dom_test.js'
       - 'tests/js/pgn_remaining_keybindings_test.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
       - 'tests/test_keybindings.py'
       - 'tests/test_dynamic_keymap_help_contract.py'
       - 'tests/test_dev1_release_ui_regressions.py'
@@ -44,7 +50,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: current-product-accessibility-formats-${{ github.event.pull_request.number || github.ref }}
+  group: current-product-accessibility-formats-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -63,6 +69,20 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_EXACT_HEAD=PASS'
+
       - name: Prove serial source ancestry and exact scope
         shell: bash
         env:
@@ -76,9 +96,22 @@ jobs:
           PGN_MERGE: 8e7dcdbeac453c31eb05474e07bbeecdfa6d6ded
           FORMATS_SOURCE: 34348e9be9e2c6286e33474ddfaf2137112ee1a3
           FORMATS_MERGE: c17941f4f58a8fbd9d88e0ad558d95e00d2e0bf3
-          SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb
-          CURRENT_PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
-          CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          CURRENT_PRODUCT: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          KEYMAP_SOURCE: fc4c6c85dbdf4e5d7c3798a6171a696b27f0472b
+          BOOKS_SOURCE: 9b9f923639b27d4f4d674ff3e086298f1acb8491
+          MERGED_BOOKS_RUNTIME_BLOB: a269a5771c87bb39837b0d78247fbe938da794c9
+          SEMANTIC_BOOKS_DOM_BLOB: a1ce64e2ded06518f0e0c9f5e623bf78a8de1855
+          TOOLBAR_CONVERGENCE_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
+          LEGACY_SHIPPING_BASE: integration/current-product-main-candidate-20261004-c2mbezb
+          ACTIVE_SHIPPING_BRANCH: integrate/current-product-to-shipping-20261005-sol56f8k2
+          LEGACY_PRODUCT_BRANCH: converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2
+          LEGACY_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          EXPANDED_PRODUCT_BRANCH: converge/current-product-books-formats-20261005-c2mbezb
+          EXPANDED_MARKER: 211d985c3f0c780516d76ff13e650b521183e2f7
+          EXPANDED_BOOK_BLOB: 9bc1594f1f5141dfa843f54755e670f392ba926d
+          EXPANDED_MANIFEST_BLOB: 7a91103062b76b541d370ec3a3247974d5cd0b80
+          EXPANDED_PROFILE_BLOB: 96d9b523a93a18eb4cc473ef0c87abee49d84512
+          EXPANDED_WEB_BLOB: 04be6318d22acc83520dad17ecba53bac0c6029e
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
@@ -108,6 +141,7 @@ jobs:
             '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml' \
             '.github/workflows/d01-pgn-workspace-webview.yml' \
             '.github/workflows/d01-teacher-classroom-webview.yml' \
+            '.github/workflows/keybindings-current-apex-core.yml' \
             '.github/workflows/keybindings-current-apex-dom-native.yml' \
             '.github/workflows/webview-keymap-authority.yml' \
             'acs/book_html_import.py' \
@@ -136,10 +170,28 @@ jobs:
             'web/full_product_pgn.js' \
             'web/index.html' | sort)"
 
-          if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then
-            git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"
-            live_current_product="$(git rev-parse "refs/remotes/origin/$CURRENT_PRODUCT_BRANCH")"
-            test "$live_current_product" = "$CURRENT_PRODUCT_SHA"
+          if git cat-file -e "$EXPANDED_MARKER^{commit}" 2>/dev/null && git merge-base --is-ancestor "$EXPANDED_MARKER" HEAD; then
+            git merge-base --is-ancestor "$KEYMAP_SOURCE" HEAD
+            git merge-base --is-ancestor "$BOOKS_SOURCE" HEAD
+            test "$(git rev-parse HEAD:acs/book_game_content.py)" = "$EXPANDED_BOOK_BLOB"
+            test "$(git rev-parse HEAD:acs/chessbase_manifest.py)" = "$EXPANDED_MANIFEST_BLOB"
+            test "$(git rev-parse HEAD:acs/local_profile.py)" = "$EXPANDED_PROFILE_BLOB"
+            test "$(git rev-parse HEAD:web/index.html)" = "$EXPANDED_WEB_BLOB"
+
+            if [ "${EVENT_BASE_REF:-}" = "$ACTIVE_SHIPPING_BRANCH" ]; then
+              git fetch --no-tags origin "+refs/heads/$EXPANDED_PRODUCT_BRANCH:refs/remotes/origin/$EXPANDED_PRODUCT_BRANCH"
+              live_expanded="$(git rev-parse "refs/remotes/origin/$EXPANDED_PRODUCT_BRANCH")"
+              test "$live_expanded" = "$(git rev-parse HEAD)" || {
+                printf 'Expanded Product PR head is stale: live=%s head=%s\n' "$live_expanded" "$(git rev-parse HEAD)" >&2
+                exit 1
+              }
+            fi
+
+            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=EXPANDED_PRODUCT'
+          elif [ "${EVENT_BASE_REF:-}" = "$LEGACY_SHIPPING_BASE" ]; then
+            git fetch --no-tags origin "+refs/heads/$LEGACY_PRODUCT_BRANCH:refs/remotes/origin/$LEGACY_PRODUCT_BRANCH"
+            live_current_product="$(git rev-parse "refs/remotes/origin/$LEGACY_PRODUCT_BRANCH")"
+            test "$live_current_product" = "$LEGACY_PRODUCT_SHA"
             git merge-base --is-ancestor "$live_current_product" HEAD
 
             product_scope="$(git diff --name-only "$PRODUCT_BASE"..."$live_current_product" | sort)"
@@ -159,14 +211,39 @@ jobs:
               printf 'Unexpected shipping qualification delta in accessibility/formats gate.\n%s\n' "$extra" >&2
               exit 1
             }
-            echo 'ACCESSIBILITY_FORMATS_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION'
+            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=LEGACY_SHIPPING'
           else
             changed="$(git diff --name-only "$PRODUCT_BASE"...HEAD | sort)"
-            test "$changed" = "$expected_paths" || {
-              printf 'Unexpected current Product convergence scope.\nExpected:\n%s\nActual:\n%s\n' "$expected_paths" "$changed" >&2
-              exit 1
-            }
-            echo 'ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_PRODUCT'
+            if [ "$changed" = "$expected_paths" ]; then
+              echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_SCOPE'
+            else
+              for commit in "$CURRENT_PRODUCT" "$KEYMAP_SOURCE" "$BOOKS_SOURCE"; do
+                git cat-file -e "$commit^{commit}"
+                git merge-base --is-ancestor "$commit" HEAD
+              done
+              test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
+
+              successor_changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
+              successor_expected="$(
+                {
+                  git diff --name-only "$CURRENT_PRODUCT"..."$KEYMAP_SOURCE"
+                  git diff --name-only "$CURRENT_PRODUCT"..."$BOOKS_SOURCE"
+                  printf '%s\n' \
+                    '.github/workflows/current-books-keymap-semantic-convergence.yml' \
+                    'tests/js/books_training_toolbar_keymap_convergence_test.js' \
+                    'tests/test_current_books_keymap_semantic_convergence_workflow.py'
+                } | sort -u
+              )"
+              test "$successor_changed" = "$successor_expected" || {
+                printf 'Unexpected combined Product successor scope.\nExpected:\n%s\nActual:\n%s\n' "$successor_expected" "$successor_changed" >&2
+                exit 1
+              }
+
+              test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "$MERGED_BOOKS_RUNTIME_BLOB"
+              test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "$SEMANTIC_BOOKS_DOM_BLOB"
+              test "$(git rev-parse HEAD:tests/js/books_training_toolbar_keymap_convergence_test.js)" = "$TOOLBAR_CONVERGENCE_DOM_BLOB"
+              echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=BOOKS_KEYMAP_SUCCESSOR'
+            fi
           fi
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -186,6 +263,7 @@ jobs:
           acs/gametree_legality.py
           acs/import_contract.py
           acs/version2_windows_file_workflows.py
+          tests/test_current_books_keymap_semantic_convergence_workflow.py
           tests/test_dynamic_keymap_help_contract.py
           tests/test_pgn_tree_remaining_keybindings.py
           tests/test_book_html_pgn_loss_accounting.py
@@ -202,6 +280,7 @@ jobs:
       - name: Run focused Python convergence regressions
         run: >-
           python -m unittest -v
+          tests.test_current_books_keymap_semantic_convergence_workflow
           tests.test_keybindings
           tests.test_dynamic_keymap_help_contract
           tests.test_dev1_release_ui_regressions
