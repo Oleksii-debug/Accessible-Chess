@@ -1491,38 +1491,50 @@ class Version2Application:
             "library.previous_page",
         }:
             # Native/global Library actions can originate on another route.
-            # Modal ownership is checked before touching presenter state. The
-            # requested projection must then prove one terminal typed render
-            # before keyboard/NVDA route ownership is committed to Library.
+            # Treat the presenter/query/export-selection mutation and shell route
+            # acquisition as one presentation transaction. A failed render or
+            # route publication must leave the exact prior route and Library
+            # presentation authoritative.
             if self.shell.active_dialog_id is not None:
                 raise ValueError("close the active dialog before changing Library state")
-            if action == "library.search":
-                result = self.library.projection.search(self.library.projection.query)
-            elif action == "library.reset_filters":
-                result = self.library.projection.reset_filters()
-            elif action == "library.next_page":
-                result = self.library.projection.next_page()
-            else:
-                result = self.library.projection.previous_page()
-            if getattr(result, "kind", None) != "render":
-                raise ValueError("invalid Library projection result")
-            result_payload = getattr(result, "payload", None)
-            if type(result_payload) is not dict:
-                raise ValueError("invalid Library projection result")
-            snapshot = result_payload.get("snapshot")
-            if type(snapshot) is not dict:
-                raise ValueError("invalid Library projection result")
-            status = snapshot.get("status")
-            if status == "error":
-                message = snapshot.get("message")
-                raise RuntimeError(
-                    message
-                    if isinstance(message, str) and message.strip()
-                    else "Library action failed"
-                )
-            if status not in {"ready", "empty"}:
-                raise ValueError("invalid Library projection status")
-            self._focus = self.shell.open_route("library")
+            projection = self.library.projection
+            projection_state = projection._capture_native_navigation_state()
+            shell_state = self.shell._capture_presentation_state()
+            prior_focus = self._focus
+            try:
+                if action == "library.search":
+                    result = projection.search(projection.query)
+                elif action == "library.reset_filters":
+                    result = projection.reset_filters()
+                elif action == "library.next_page":
+                    result = projection.next_page()
+                else:
+                    result = projection.previous_page()
+                if getattr(result, "kind", None) != "render":
+                    raise ValueError("invalid Library projection result")
+                result_payload = getattr(result, "payload", None)
+                if type(result_payload) is not dict:
+                    raise ValueError("invalid Library projection result")
+                snapshot = result_payload.get("snapshot")
+                if type(snapshot) is not dict:
+                    raise ValueError("invalid Library projection result")
+                status = snapshot.get("status")
+                if status == "error":
+                    message = snapshot.get("message")
+                    raise RuntimeError(
+                        message
+                        if isinstance(message, str) and message.strip()
+                        else "Library action failed"
+                    )
+                if status not in {"ready", "empty"}:
+                    raise ValueError("invalid Library projection status")
+                route_focus = self.shell.open_route("library")
+            except BaseException:
+                projection._restore_native_navigation_state(projection_state)
+                self.shell._restore_presentation_state(shell_state)
+                self._focus = prior_focus
+                raise
+            self._focus = route_focus
             return result
         if (
             action in {"library.import", "library.export"}
