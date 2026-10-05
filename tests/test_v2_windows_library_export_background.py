@@ -155,6 +155,55 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
         )
         return delegate, dialogs
 
+    def test_reentrant_shutdown_during_started_event_never_starts_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "must-not-start-after-shutdown.pgn"
+            events: list[LibraryExportHostEvent] = []
+            shutdown_results: list[bool] = []
+            delegate_box: dict[str, Version2WindowsLibraryExportDelegate] = {}
+
+            def event_sink(event: LibraryExportHostEvent) -> None:
+                events.append(event)
+                if event.kind is LibraryExportHostEventKind.STARTED:
+                    shutdown_results.append(delegate_box["delegate"].shutdown(timeout=0.1))
+
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(destination),
+                worker_services_factory=self._worker_factory(database_path),
+                post_to_ui=lambda callback: None,
+                event_sink=event_sink,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-results",
+            )
+            delegate_box["delegate"] = delegate
+            starts: list[str] = []
+
+            with patch(
+                "acs.version2_windows_library_export.threading.Thread.start",
+                autospec=True,
+                side_effect=lambda thread: starts.append(thread.name),
+            ):
+                result = delegate(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+
+            self.assertEqual(shutdown_results, [True])
+            self.assertEqual(starts, [])
+            self.assertFalse(delegate.export_running)
+            self.assertFalse(destination.exists())
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    LibraryExportHostEventKind.STARTED,
+                    LibraryExportHostEventKind.FAILED,
+                ],
+            )
+            self.assertIs(result, events[-1])
+            self.assertEqual(result.error_code, "library_export_unavailable")
+            self.assertEqual(result.focus_target, "library-results")
+
     def test_destination_hashing_is_cooperatively_cancellable_between_chunks(self) -> None:
         database = AcsDatabase()
         try:
