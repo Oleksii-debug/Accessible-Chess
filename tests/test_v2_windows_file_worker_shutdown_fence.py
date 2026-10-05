@@ -140,6 +140,95 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertFalse(delegate.pgn_save_running)
 
+    def test_native_file_dialog_base_exceptions_are_sanitized(self) -> None:
+        class DialogAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "dialog-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+
+            class AbortDialogs(_Dialogs):
+                def open_pgn(self):
+                    raise DialogAbort("open dialog aborted")
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    raise DialogAbort("save dialog aborted")
+
+                def select_library_import(self):
+                    raise DialogAbort("import dialog aborted")
+
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=AbortDialogs(source),
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            opened = delegate("pgn.open", {})
+            saved_as = delegate("pgn.save_as", {})
+            imported = delegate("library.import", {})
+
+            for event, action in (
+                (opened, "pgn.open"),
+                (saved_as, "pgn.save_as"),
+                (imported, "library.import"),
+            ):
+                self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(event.action_id, action)
+                self.assertEqual(event.error_code, "file_dialog_failed")
+                self.assertEqual(event.focus_target, "pgn-tree")
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertFalse(delegate.pgn_save_running)
+            self.assertFalse(delegate.import_running)
+
+    def test_unsaved_confirmation_base_exception_is_sanitized(self) -> None:
+        class ConfirmationAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "confirmation-abort.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Dirty before confirmation")
+
+            class AbortConfirmationDialogs(_Dialogs):
+                def confirm_discard_unsaved_pgn(self):
+                    raise ConfirmationAbort("confirmation aborted")
+
+                def open_pgn(self):
+                    self.fail_if_called = True
+                    raise AssertionError("open dialog must not run after failed confirmation")
+
+            dialogs = AbortConfirmationDialogs(source)
+            events = []
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=dialogs,
+                get_pgn_session=lambda: session,
+                set_pgn_session=lambda value: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            result = delegate("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.action_id, "pgn.open")
+            self.assertEqual(result.error_code, "unsaved_confirmation_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertFalse(delegate.pgn_open_running)
+
     def test_file_workflow_event_rejects_derived_root_before_field_hooks(self) -> None:
         touched = []
 
