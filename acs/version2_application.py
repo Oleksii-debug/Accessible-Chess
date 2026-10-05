@@ -1610,9 +1610,29 @@ class Version2Application:
                 raise ValueError(message) from None
             return result
         if self._files is not None and action in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.cancel_save", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
+            ui = self.library.projection.import_projection
+            if (
+                action == "library.import"
+                and ui.phase
+                in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}
+            ):
+                # The canonical worker may already have committed and exited
+                # while its terminal batch is still leased/pending for native
+                # presentation. Starting a second attempt here could overwrite
+                # the one-slot D07 observer state before that first terminal is
+                # projected. Presentation ownership therefore remains exclusive
+                # until the prior terminal has been delivered successfully.
+                result = FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "library.import",
+                    focus_target="library-import-file",
+                    error_code="import_already_running",
+                )
+                self._file_event(result)
+                return result
+
             result = self._files(action, payload)
             if isinstance(result, FileWorkflowEvent):
-                ui = self.library.projection.import_projection
                 if result.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     self._events.append(asdict(ui.prepare()))
                 elif result.kind is FileWorkflowEventKind.IMPORT_CANCELLING:
