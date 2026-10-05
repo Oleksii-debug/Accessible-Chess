@@ -21,7 +21,7 @@ from typing import Mapping
 
 from .chesscore import Board
 from .gametree import PgnGame, RESULTS, VariationLine
-from .gametree_navigation import GameTreeCursor
+from .gametree_navigation import GameTreeCursor, MAX_VARIATION_DEPTH, VariationStep
 from .import_contract import SourceFingerprint, fingerprint
 from .position_editor import PositionState
 from .pgn_service import (
@@ -91,6 +91,58 @@ _POSITION_TAGS = frozenset(("SetUp", "FEN"))
 
 def _error(message: str, code: PgnDocumentErrorCode) -> PgnDocumentError:
     return PgnDocumentError(message, code=code)
+
+
+def _passive_context_cursor(cursor: object) -> GameTreeCursor:
+    """Detach one saved cursor without executing caller-controlled nested hooks."""
+
+    if type(cursor) is not GameTreeCursor:
+        raise _error(
+            "saved PGN context cursor is not canonical",
+            PgnDocumentErrorCode.CONTEXT_STALE,
+        )
+    line_path = cursor.line_path
+    next_move_index = cursor.next_move_index
+    if (
+        type(line_path) is not tuple
+        or len(line_path) > MAX_VARIATION_DEPTH
+        or type(next_move_index) is not int
+        or next_move_index < 0
+    ):
+        raise _error(
+            "saved PGN context cursor is not canonical",
+            PgnDocumentErrorCode.CONTEXT_STALE,
+        )
+
+    detached_steps: list[VariationStep] = []
+    for step in line_path:
+        if type(step) is not VariationStep:
+            raise _error(
+                "saved PGN context cursor is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        parent_move_index = step.parent_move_index
+        variation_index = step.variation_index
+        if (
+            type(parent_move_index) is not int
+            or parent_move_index < 0
+            or type(variation_index) is not int
+            or variation_index < 0
+        ):
+            raise _error(
+                "saved PGN context cursor is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        detached_steps.append(
+            VariationStep(
+                parent_move_index=parent_move_index,
+                variation_index=variation_index,
+            )
+        )
+    return GameTreeCursor(
+        line_path=tuple(detached_steps),
+        next_move_index=next_move_index,
+    )
 
 
 def _passive_new_game_tags(tags: Mapping[str, str] | None) -> dict[str, str]:
@@ -372,12 +424,13 @@ class PgnDocumentSession:
         if (
             type(context.content_digest) is not str
             or type(context.selected_game_index) is not int
-            or type(context.cursor) is not GameTreeCursor
+            or context.selected_game_index < 0
         ):
             raise _error(
                 "saved PGN context is not canonical",
                 PgnDocumentErrorCode.CONTEXT_STALE,
             )
+        cursor = _passive_context_cursor(context.cursor)
         if self._workspace.content_digest != context.content_digest:
             raise _error(
                 "PGN content changed; exact saved context is stale",
@@ -385,13 +438,15 @@ class PgnDocumentSession:
             )
 
         # Validate the complete return point against a detached canonical
-        # workspace before mutating the live session.  Calling select_game()
+        # workspace before mutating the live session. Calling select_game()
         # first would otherwise switch games/reset the cursor even when the
         # subsequent cursor validation rejects a forged or damaged context.
+        # Use the passively detached cursor so nested subclasses/tampering never
+        # cross into canonical GameTree navigation.
         probe = PgnWorkspace(self._workspace.games())
         try:
             probe.select_game(context.selected_game_index)
-            probe.set_cursor(context.cursor)
+            probe.set_cursor(cursor)
         except (TypeError, ValueError) as exc:
             raise _error(
                 "saved PGN context is not valid for the current document",
@@ -399,7 +454,7 @@ class PgnDocumentSession:
             ) from exc
 
         self._workspace.select_game(context.selected_game_index)
-        return self._workspace.set_cursor(context.cursor)
+        return self._workspace.set_cursor(cursor)
 
     def copy_pgn(self) -> str:
         return self._workspace.to_text()
