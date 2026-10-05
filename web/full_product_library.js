@@ -600,6 +600,9 @@
       ? snapshot.transport_error_message
       : "";
     const queuedEpoch = librarySurfaceEpochs.get(root);
+    const queuedImportToken = importTokens.get(root);
+    const importRegionCommand =
+      command === "library.import" || command === "library.cancel_import";
     const priorTail = commandTails.get(root);
     const gate = priorTail && typeof priorTail.then === "function"
       ? priorTail
@@ -608,10 +611,12 @@
     const current = gate.then(function () {
       // Serialize canonical Library mutations. A second key/search/export/import
       // command must not enter the host until the prior command and its returned
-      // presentation have settled. Route deactivation changes the epoch so
-      // commands queued by a detached Library DOM are discarded before invoke.
+      // presentation have settled. Route/full-render replacement changes the
+      // epoch; partial Import/Cancel replacement changes its own token. Intent
+      // queued by either detached presentation is discarded before invoke.
       if (activeLibrarySurfaces.get(root) !== true ||
-          librarySurfaceEpochs.get(root) !== queuedEpoch) {
+          librarySurfaceEpochs.get(root) !== queuedEpoch ||
+          (importRegionCommand && importTokens.get(root) !== queuedImportToken)) {
         return null;
       }
 
