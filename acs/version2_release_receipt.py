@@ -2,38 +2,66 @@ from __future__ import annotations
 
 """Fail-closed release receipt for an already-qualified Version 2 package.
 
-This module does not build, mutate, sign, publish, or promote a package.  It
+This module does not build, mutate, sign, publish, or promote a package. It
 reuses the canonical Version 2 ZIP preflight and records the identity of the
-accepted bytes together with attributable GitHub Actions evidence.
+accepted bytes together with attributable GitHub Actions evidence. Receipts can
+be read back and verified against the package without trusting their JSON.
 """
 
 from dataclasses import asdict, dataclass
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat
+from typing import Any
 
 from .version2_package_preflight import validate_version2_package_zip
 
 
 RELEASE_RECEIPT_SCHEMA_VERSION = 1
+REPOSITORY_FULL_NAME = "Oleksii-debug/Accessible-Chess"
 CANONICAL_W5_WORKFLOW = ".github/workflows/post-freeze-v2-windows-package-qualification.yml"
+_MAX_RECEIPT_BYTES = 16 * 1024
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,255}$")
 _MAX_ID = (1 << 63) - 1
+_RECEIPT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "product",
+        "repository",
+        "workflow_path",
+        "workflow_run_id",
+        "workflow_run_attempt",
+        "qualification_head_sha",
+        "artifact_id",
+        "artifact_name",
+        "integration_sha",
+        "package_sha256",
+        "inventory_sha256",
+        "inventory_files",
+        "total_bytes",
+        "checksums_verified",
+    }
+)
 
 
 class Version2ReleaseReceiptError(ValueError):
-    """Raised when qualification metadata cannot be represented safely."""
+    """Raised when qualification evidence cannot be represented safely."""
 
 
 @dataclass(frozen=True)
 class Version2ReleaseReceipt:
     schema_version: int
     product: str
+    repository: str
     workflow_path: str
     workflow_run_id: int
+    workflow_run_attempt: int
     qualification_head_sha: str
     artifact_id: int
     artifact_name: str
@@ -69,6 +97,14 @@ def _sha40(value: str, *, label: str) -> str:
     return value
 
 
+def _sha256(value: str, *, label: str) -> str:
+    if type(value) is not str or _SHA256_RE.fullmatch(value) is None:
+        raise Version2ReleaseReceiptError(
+            f"{label} must be an exact lowercase SHA-256 digest"
+        )
+    return value
+
+
 def _artifact_name(value: str) -> str:
     if type(value) is not str or _SAFE_NAME_RE.fullmatch(value) is None:
         raise Version2ReleaseReceiptError(
@@ -84,11 +120,106 @@ def _inventory_digest(inventory: tuple[str, ...]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise Version2ReleaseReceiptError(
+                f"release receipt contains duplicate JSON key {key!r}"
+            )
+        result[key] = value
+    return result
+
+
+def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
+    if not isinstance(payload, dict):
+        raise Version2ReleaseReceiptError("release receipt must be a JSON object")
+    keys = frozenset(payload)
+    if keys != _RECEIPT_FIELDS:
+        missing = sorted(_RECEIPT_FIELDS - keys)
+        extra = sorted(keys - _RECEIPT_FIELDS)
+        raise Version2ReleaseReceiptError(
+            f"release receipt schema mismatch; missing={missing!r} extra={extra!r}"
+        )
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != RELEASE_RECEIPT_SCHEMA_VERSION:
+        raise Version2ReleaseReceiptError("unsupported release receipt schema_version")
+    if payload["product"] != "Accessible Chess":
+        raise Version2ReleaseReceiptError("release receipt product identity mismatch")
+    if payload["repository"] != REPOSITORY_FULL_NAME:
+        raise Version2ReleaseReceiptError("release receipt repository identity mismatch")
+    if payload["workflow_path"] != CANONICAL_W5_WORKFLOW:
+        raise Version2ReleaseReceiptError("release receipt workflow identity mismatch")
+
+    return Version2ReleaseReceipt(
+        schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+        product="Accessible Chess",
+        repository=REPOSITORY_FULL_NAME,
+        workflow_path=CANONICAL_W5_WORKFLOW,
+        workflow_run_id=_positive_id(payload["workflow_run_id"], label="workflow_run_id"),
+        workflow_run_attempt=_positive_id(
+            payload["workflow_run_attempt"], label="workflow_run_attempt"
+        ),
+        qualification_head_sha=_sha40(
+            payload["qualification_head_sha"], label="qualification_head_sha"
+        ),
+        artifact_id=_positive_id(payload["artifact_id"], label="artifact_id"),
+        artifact_name=_artifact_name(payload["artifact_name"]),
+        integration_sha=_sha40(payload["integration_sha"], label="integration_sha"),
+        package_sha256=_sha256(payload["package_sha256"], label="package_sha256"),
+        inventory_sha256=_sha256(payload["inventory_sha256"], label="inventory_sha256"),
+        inventory_files=_positive_id(payload["inventory_files"], label="inventory_files"),
+        total_bytes=_positive_id(payload["total_bytes"], label="total_bytes"),
+        checksums_verified=_positive_id(
+            payload["checksums_verified"], label="checksums_verified"
+        ),
+    )
+
+
+def read_version2_release_receipt(
+    receipt_path: str | Path,
+) -> Version2ReleaseReceipt:
+    """Read one bounded strict receipt without accepting duplicate/extra keys."""
+
+    path = Path(receipt_path)
+    try:
+        with path.open("rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise Version2ReleaseReceiptError(
+                    "release receipt must be a regular file"
+                )
+            if info.st_size > _MAX_RECEIPT_BYTES:
+                raise Version2ReleaseReceiptError(
+                    "release receipt exceeds size limit"
+                )
+            raw = handle.read(_MAX_RECEIPT_BYTES + 1)
+    except Version2ReleaseReceiptError:
+        raise
+    except OSError as exc:
+        raise Version2ReleaseReceiptError(
+            f"release receipt is unreadable: {type(exc).__name__}"
+        ) from exc
+    if len(raw) > _MAX_RECEIPT_BYTES:
+        raise Version2ReleaseReceiptError("release receipt exceeds size limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise Version2ReleaseReceiptError("release receipt is not UTF-8") from exc
+    try:
+        payload = json.loads(text, object_pairs_hook=_json_object_without_duplicates)
+    except Version2ReleaseReceiptError:
+        raise
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise Version2ReleaseReceiptError("release receipt is not valid JSON") from exc
+    return _receipt_from_mapping(payload)
+
+
 def build_version2_release_receipt(
     package_zip: str | Path,
     *,
     expected_integration_sha: str,
     workflow_run_id: int,
+    workflow_run_attempt: int,
     qualification_head_sha: str,
     artifact_id: int,
     artifact_name: str,
@@ -100,6 +231,7 @@ def build_version2_release_receipt(
     )
     head_sha = _sha40(qualification_head_sha, label="qualification_head_sha")
     run_id = _positive_id(workflow_run_id, label="workflow_run_id")
+    run_attempt = _positive_id(workflow_run_attempt, label="workflow_run_attempt")
     action_artifact_id = _positive_id(artifact_id, label="artifact_id")
     safe_artifact_name = _artifact_name(artifact_name)
 
@@ -119,8 +251,10 @@ def build_version2_release_receipt(
     return Version2ReleaseReceipt(
         schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
         product="Accessible Chess",
+        repository=REPOSITORY_FULL_NAME,
         workflow_path=CANONICAL_W5_WORKFLOW,
         workflow_run_id=run_id,
+        workflow_run_attempt=run_attempt,
         qualification_head_sha=head_sha,
         artifact_id=action_artifact_id,
         artifact_name=safe_artifact_name,
@@ -131,6 +265,29 @@ def build_version2_release_receipt(
         total_bytes=report.total_bytes,
         checksums_verified=report.checksums_verified,
     )
+
+
+def verify_version2_release_receipt(
+    receipt_path: str | Path,
+    package_zip: str | Path,
+) -> Version2ReleaseReceipt:
+    """Revalidate package bytes and require exact equality with stored evidence."""
+
+    receipt = read_version2_release_receipt(receipt_path)
+    rebuilt = build_version2_release_receipt(
+        package_zip,
+        expected_integration_sha=receipt.integration_sha,
+        workflow_run_id=receipt.workflow_run_id,
+        workflow_run_attempt=receipt.workflow_run_attempt,
+        qualification_head_sha=receipt.qualification_head_sha,
+        artifact_id=receipt.artifact_id,
+        artifact_name=receipt.artifact_name,
+    )
+    if rebuilt != receipt:
+        raise Version2ReleaseReceiptError(
+            "release receipt does not match the revalidated package bytes"
+        )
+    return receipt
 
 
 def write_version2_release_receipt(
@@ -151,6 +308,10 @@ def write_version2_release_receipt(
         raise Version2ReleaseReceiptError(
             "release receipt already exists; overwrite is forbidden"
         ) from exc
+    except OSError as exc:
+        raise Version2ReleaseReceiptError(
+            f"release receipt could not be written: {type(exc).__name__}"
+        ) from exc
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -160,6 +321,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--package", required=True)
     parser.add_argument("--expected-integration-sha", required=True)
     parser.add_argument("--workflow-run-id", required=True, type=int)
+    parser.add_argument("--workflow-run-attempt", required=True, type=int)
     parser.add_argument("--qualification-head-sha", required=True)
     parser.add_argument("--artifact-id", required=True, type=int)
     parser.add_argument("--artifact-name", required=True)
@@ -173,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         args.package,
         expected_integration_sha=args.expected_integration_sha,
         workflow_run_id=args.workflow_run_id,
+        workflow_run_attempt=args.workflow_run_attempt,
         qualification_head_sha=args.qualification_head_sha,
         artifact_id=args.artifact_id,
         artifact_name=args.artifact_name,
