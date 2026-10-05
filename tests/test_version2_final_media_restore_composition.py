@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from acs import version2_final_release as release
+from acs import version2_release_ui
 from acs.media_application import MediaApplicationService
 from acs.media_core import (
     MediaChessLink,
@@ -117,6 +118,22 @@ class Version2FinalMediaRestoreCompositionTests(unittest.TestCase):
         self.assertLess(renderer, product)
         self.assertLess(product, media)
         self.assertLess(media, p0)
+
+    def test_media_api_class_bindings_are_bounded_to_final_product_lifetime(self) -> None:
+        api_type = version2_release_ui.Version2ReleaseAccessibleChessAPI
+        before_snapshot = api_type.__dict__.get("media_restore_snapshot")
+        before_restore = api_type.__dict__.get("media_restore_position")
+        before_has_snapshot = "media_restore_snapshot" in api_type.__dict__
+        before_has_restore = "media_restore_position" in api_type.__dict__
+
+        with release._final_product_bindings():
+            self.assertIs(api_type.__dict__["media_restore_snapshot"], release._media_restore_snapshot_api)
+            self.assertIs(api_type.__dict__["media_restore_position"], release._media_restore_position_api)
+
+        self.assertEqual("media_restore_snapshot" in api_type.__dict__, before_has_snapshot)
+        self.assertEqual("media_restore_position" in api_type.__dict__, before_has_restore)
+        self.assertIs(api_type.__dict__.get("media_restore_snapshot"), before_snapshot)
+        self.assertIs(api_type.__dict__.get("media_restore_position"), before_restore)
 
     def test_media_service_composition_rejects_parallel_or_duck_typed_authority(self) -> None:
         api = _Api()
