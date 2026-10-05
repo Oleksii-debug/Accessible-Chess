@@ -76,8 +76,16 @@ jobs:
 
           mapfile -t paths < <(git diff --name-only "$EXPECTED_PHYSICAL_EVIDENCE_BASE"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
-          test "${#paths[@]}" -eq 1
-          test "${paths[0]}" = ".github/workflows/w5-portable-package-contract.yml"
+          expected=(
+            ".github/workflows/w5-portable-package-contract.yml"
+            ".github/workflows/w5-release-receipt-contract.yml"
+            "acs/version2_release_receipt.py"
+            "tests/test_version2_release_receipt.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${paths[$index]}" = "${expected[$index]}"
+          done
 
           test "$(git rev-parse refs/remotes/origin/w5-source:.github/workflows/w5-portable-package-contract.yml)" = "$EXPECTED_W5_SOURCE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
