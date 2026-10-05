@@ -52,7 +52,7 @@ jobs:
         run: python -m pip install -q pytest==8.4.2
 
       - name: Prove current-parent ancestry and narrow scope
-        if: github.head_ref == 'integrate/w5-pgn-integrity-20260911-n9p3' || github.ref_name == 'integrate/w5-pgn-integrity-20260911-n9p3'
+        if: github.head_ref != 'work/windows-pgn-save-bg-20261005-k7m4q2' && github.ref_name != 'work/windows-pgn-save-bg-20261005-k7m4q2'
         shell: bash
         run: |
           set -euo pipefail
