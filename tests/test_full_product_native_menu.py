@@ -301,7 +301,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
 
-    def test_native_sink_failure_restores_unpublished_route_and_focus(self) -> None:
+    def test_native_sink_failure_restores_route_but_preserves_observed_focus(self) -> None:
         controller, _calls, commands, _exits = make_controller()
         shell = controller._adapter.shell
         library = next(
@@ -320,7 +320,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
             controller.activate(library)
 
         self.assertEqual("board", shell.current_route.route_id)
-        self.assertEqual("move-input", shell.restore_focus_target())
+        self.assertEqual("board-square-e4", shell.restore_focus_target())
         self.assertEqual([], commands)
 
         controller._command_sink = commands.append
@@ -328,6 +328,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("route", committed.kind)
         self.assertEqual("library", shell.current_route.route_id)
         self.assertEqual([committed], commands)
+        shell.open_route("board")
+        self.assertEqual("board-square-e4", shell.restore_focus_target())
 
     def test_active_native_focus_subclass_is_rejected_before_adapter_dispatch(self) -> None:
         controller, calls, commands, _exits = make_controller()
@@ -385,6 +387,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
             controller.activate(library)
 
         self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", shell.restore_focus_target())
         self.assertEqual("board-launcher", host_focus["value"])
 
     def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
