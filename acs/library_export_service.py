@@ -28,7 +28,12 @@ from .import_contract import (
 )
 from .pgn_roundtrip import parse_pgn_text
 from .pgn_service import SourceFingerprint, save_pgn_atomic
-from .search_service import GameSearchQuery, GameSearchService
+from .search_service import (
+    GameSearchItem,
+    GameSearchPage,
+    GameSearchQuery,
+    GameSearchService,
+)
 
 
 _MAX_SELECTED_GAMES: Final = 5000
@@ -282,14 +287,46 @@ class LibraryExportService:
                 limit=_EXPORT_PAGE_SIZE,
             )
             page = self._search.search(page_query)
+            if (
+                type(page) is not GameSearchPage
+                or type(page.items) is not tuple
+                or type(page.has_more) is not bool
+            ):
+                raise LibraryExportError("Library export search page is invalid")
+
+            previous_id = 0 if cursor is None else cursor
             for item in page.items:
+                if type(item) is not GameSearchItem:
+                    raise LibraryExportError("Library export search item is invalid")
+                game_id = item.game_id
+                if (
+                    type(game_id) is not int
+                    or game_id <= previous_id
+                    or game_id > _SQLITE_INTEGER_MAX
+                ):
+                    raise LibraryExportError(
+                        "Library export search ids are not strictly increasing"
+                    )
+                previous_id = game_id
                 found = True
-                yield item.game_id
+                yield game_id
+
+            next_cursor = page.next_after_game_id
             if not page.has_more:
+                if next_cursor is not None:
+                    raise LibraryExportError(
+                        "Library export terminal search page has a cursor"
+                    )
                 break
-            if page.next_after_game_id is None or page.next_after_game_id == cursor:
+            if (
+                not page.items
+                or type(next_cursor) is not int
+                or next_cursor <= (0 if cursor is None else cursor)
+                or next_cursor != previous_id
+                or next_cursor > _SQLITE_INTEGER_MAX
+            ):
                 raise LibraryExportError("Library export paging did not advance")
-            cursor = page.next_after_game_id
+            cursor = next_cursor
         if not found:
             raise LibraryExportError("Library export contains no games")
 
