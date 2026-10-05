@@ -147,7 +147,7 @@ def parse_local_profile_bytes(data: bytes) -> LocalProfile:
         payload = json.loads(text, object_pairs_hook=_reject_duplicate_object_pairs)
     except LocalProfileError:
         raise
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
         raise LocalProfileError("profile payload is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise LocalProfileError("profile payload root must be an object")
