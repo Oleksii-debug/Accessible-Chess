@@ -339,6 +339,17 @@ class ChildCoachingTemplateStore:
                         temporary = None
                         raise
 
+                    # Recheck after temp fsync before constructing/publishing a
+                    # backup. The OS lock coordinates canonical writers, but a
+                    # non-cooperating process can still change the target while
+                    # our private temp is being prepared.
+                    current = self._read_bounded(self.path)
+                    current_revision = None if current is None else _revision(current)
+                    if current_revision != expected:
+                        raise ChildCoachingStoreConflictError(
+                            "lesson templates changed since the caller last observed them"
+                        )
+
                     # Never replace a good backup with corrupt primary bytes.
                     if current is not None:
                         try:
@@ -365,6 +376,17 @@ class ChildCoachingTemplateStore:
                             os.replace(backup_temporary, self._backup_path)
                             backup_temporary = None
                             _sync_directory(self.path.parent)
+
+                    # Backup preparation/publication can itself take time. Bind
+                    # the primary replace to the same exact target generation
+                    # one last time so an external writer cannot be silently
+                    # clobbered in that second window.
+                    latest = self._read_bounded(self.path)
+                    latest_revision = None if latest is None else _revision(latest)
+                    if latest_revision != expected:
+                        raise ChildCoachingStoreConflictError(
+                            "lesson templates changed since the caller last observed them"
+                        )
 
                     os.replace(temporary, self.path)
                     temporary = None

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.child_coaching import (
     AgeBand,
@@ -291,6 +293,110 @@ class ChildCoachingStoreTests(unittest.TestCase):
             self.assertNotEqual(new_revision, revision)
             with self.assertRaises(ChildCoachingStoreConflictError):
                 store.save(loaded.templates, expected_revision=revision)
+
+    def test_save_rechecks_existing_target_after_temp_fsync_before_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            store = ChildCoachingTemplateStore(path)
+            templates = preset_templates()
+            revision = store.save(templates, expected_revision=None)
+            foreign = b'{"external":"newer-template-state"}'
+            real_read = store._read_bounded
+            reads = 0
+
+            def read_with_external_change(target: Path):
+                nonlocal reads
+                if target == path:
+                    reads += 1
+                    if reads == 2:
+                        path.write_bytes(foreign)
+                return real_read(target)
+
+            with mock.patch.object(
+                store, "_read_bounded", side_effect=read_with_external_change
+            ):
+                with self.assertRaisesRegex(
+                    ChildCoachingStoreConflictError,
+                    "changed since the caller last observed",
+                ):
+                    store.save(templates, expected_revision=revision)
+
+            self.assertGreaterEqual(reads, 2)
+            self.assertEqual(path.read_bytes(), foreign)
+            self.assertFalse(path.with_name(f"{path.name}.bak").exists())
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+
+    def test_save_rechecks_absent_target_after_temp_fsync(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            store = ChildCoachingTemplateStore(path)
+            templates = preset_templates()
+            foreign = b'{"external":"created-template-state"}'
+            real_read = store._read_bounded
+            reads = 0
+
+            def read_with_external_create(target: Path):
+                nonlocal reads
+                if target == path:
+                    reads += 1
+                    if reads == 2:
+                        path.write_bytes(foreign)
+                return real_read(target)
+
+            with mock.patch.object(
+                store, "_read_bounded", side_effect=read_with_external_create
+            ):
+                with self.assertRaisesRegex(
+                    ChildCoachingStoreConflictError,
+                    "changed since the caller last observed",
+                ):
+                    store.save(templates, expected_revision=None)
+
+            self.assertGreaterEqual(reads, 2)
+            self.assertEqual(path.read_bytes(), foreign)
+            self.assertFalse(path.with_name(f"{path.name}.bak").exists())
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
+
+    def test_save_rechecks_target_again_after_backup_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "child-coaching.json"
+            store = ChildCoachingTemplateStore(path)
+            initial = (preset_templates()[0],)
+            revision = store.save(initial, expected_revision=None)
+            initial_bytes = path.read_bytes()
+            edited = initial + (
+                copy_as_custom(initial[0], template_id="external-race-candidate"),
+            )
+            foreign = b'{"external":"changed-during-backup"}'
+            real_read = store._read_bounded
+            reads = 0
+
+            def read_with_external_change_after_backup(target: Path):
+                nonlocal reads
+                if target == path:
+                    reads += 1
+                    if reads == 3:
+                        path.write_bytes(foreign)
+                return real_read(target)
+
+            with mock.patch.object(
+                store,
+                "_read_bounded",
+                side_effect=read_with_external_change_after_backup,
+            ):
+                with self.assertRaisesRegex(
+                    ChildCoachingStoreConflictError,
+                    "changed since the caller last observed",
+                ):
+                    store.save(edited, expected_revision=revision)
+
+            self.assertGreaterEqual(reads, 3)
+            self.assertEqual(path.read_bytes(), foreign)
+            self.assertEqual(
+                path.with_name(f"{path.name}.bak").read_bytes(),
+                initial_bytes,
+            )
+            self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
 
     def test_publication_lock_is_busy_while_owned_and_released_after_crash(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
