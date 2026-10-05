@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -570,6 +572,37 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         self.assertEqual(game.tags["Result"], "1-0")
         self.assertEqual(game.line.result, "1-0")
         self.assertEqual(restored.cursor, bookmark.cursor)
+
+    def test_save_checkpoint_base_exception_preserves_durable_truth(self) -> None:
+        class CheckpointAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "checkpoint-abort.pgn"
+            path.write_text(PGN, encoding="utf-8", newline="\n")
+            session = PgnDocumentSession.open(path)
+            source_before = session.source
+            session.edit_tag("Event", "Durably Written")
+            revision_after_edit = session.document_revision
+            published_text = session.copy_pgn()
+
+            with patch.object(
+                PgnWorkspace,
+                "mark_saved",
+                autospec=True,
+                side_effect=CheckpointAbort("workspace checkpoint aborted"),
+            ):
+                with self.assertRaises(PgnDocumentError) as caught:
+                    session.save()
+
+            self.assertEqual(
+                caught.exception.code,
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+            self.assertEqual(path.read_text(encoding="utf-8"), published_text)
+            self.assertEqual(session.source, source_before)
+            self.assertEqual(session.document_revision, revision_after_edit)
+            self.assertTrue(session.dirty)
 
 
 if __name__ == "__main__":
