@@ -168,6 +168,13 @@ _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES = frozenset(
         "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll",
     }
 )
+_REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES = frozenset(
+    {
+        "AccessibleChess/pythonnet/runtime/Python.Runtime.dll",
+        "AccessibleChess/webview/lib/Microsoft.Web.WebView2.Core.dll",
+        "AccessibleChess/webview/lib/Microsoft.Web.WebView2.WinForms.dll",
+    }
+)
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/stage1_release_bootstrap.js",
@@ -607,13 +614,66 @@ def _has_windows_pe_structure(path: Path) -> bool:
         return optional_magic in {b"\x0b\x01", b"\x0b\x02"}
 
 
+def _has_windows_clr_descriptor(path: Path) -> bool:
+    """Require a PE optional-header COM descriptor for managed desktop assemblies."""
+    with path.open("rb") as handle:
+        dos_header = handle.read(64)
+        if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+            return False
+        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+        handle.seek(0, os.SEEK_END)
+        file_size = handle.tell()
+        if pe_offset < 0x40 or pe_offset > file_size - 24:
+            return False
+        handle.seek(pe_offset)
+        pe_header = handle.read(24)
+        if len(pe_header) != 24 or pe_header[:4] != b"PE\x00\x00":
+            return False
+        optional_header_size = int.from_bytes(pe_header[20:22], "little")
+        if pe_offset + 24 + optional_header_size > file_size:
+            return False
+        optional_header = handle.read(optional_header_size)
+        if len(optional_header) != optional_header_size or len(optional_header) < 2:
+            return False
+
+        magic = optional_header[:2]
+        if magic == b"\x0b\x01":
+            directory_count_offset = 92
+            directory_table_offset = 96
+        elif magic == b"\x0b\x02":
+            directory_count_offset = 108
+            directory_table_offset = 112
+        else:
+            return False
+
+        if len(optional_header) < directory_count_offset + 4:
+            return False
+        directory_count = int.from_bytes(
+            optional_header[directory_count_offset:directory_count_offset + 4],
+            "little",
+        )
+        clr_directory_offset = directory_table_offset + (14 * 8)
+        if directory_count <= 14 or len(optional_header) < clr_directory_offset + 8:
+            return False
+        clr_rva = int.from_bytes(
+            optional_header[clr_directory_offset:clr_directory_offset + 4],
+            "little",
+        )
+        clr_size = int.from_bytes(
+            optional_header[clr_directory_offset + 4:clr_directory_offset + 8],
+            "little",
+        )
+        return clr_rva != 0 and clr_size >= 0x48
+
+
 def _validate_windows_pe_executable(
     path: Path,
     *,
     label: str,
     expected_machine: int | None = None,
+    require_clr: bool = False,
 ) -> None:
-    """Require a bounded PE image and, when requested, one exact CPU machine."""
+    """Require a bounded PE image plus requested CPU/managed-runtime identity."""
     try:
         if not _has_windows_pe_structure(path):
             _fail(f"{label} is not a valid Windows PE executable")
@@ -633,6 +693,10 @@ def _validate_windows_pe_executable(
                     f"{label} has unexpected Windows PE machine "
                     f"0x{actual_machine:04x}; expected 0x{expected_machine:04x}"
                 )
+        if type(require_clr) is not bool:
+            raise TypeError("require_clr must be bool")
+        if require_clr and not _has_windows_clr_descriptor(path):
+            _fail(f"{label} is not a managed CLR assembly")
     except Version2PackagePreflightError:
         raise
     except OSError as exc:
@@ -1249,6 +1313,7 @@ def _validate_required_runtime_resources(
                 if relative in _REQUIRED_AMD64_DESKTOP_RUNTIME_FILES
                 else None
             ),
+            require_clr=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
         )
 
     for relative in _REQUIRED_WEB_FILES:
