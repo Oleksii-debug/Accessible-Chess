@@ -561,11 +561,7 @@ class Version2WindowsFileActionDelegate:
                     "pgn.open", "file_workflow_closed", focus_target=previous_focus
                 )
             if self._worker is not None:
-                focus_target = (
-                    "library-import-cancel"
-                    if self._worker_kind == "import"
-                    else "pgn-open-cancel"
-                )
+                focus_target = self._worker_focus_target(self._worker_kind)
                 return self._failed(
                     "pgn.open", "file_worker_busy", focus_target=focus_target
                 )
