@@ -39,23 +39,9 @@ FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS = frozenset(
         "classes.assignment_open",
     }
 )
-FINAL_PRODUCT_SAFE_CLASSROOM_KEYBOARD_ACTION_IDS = frozenset(
-    {
-        "classroom.previous_item",
-        "classroom.next_item",
-        "classroom.first_item",
-        "classroom.last_item",
-        "classroom.open_selected",
-    }
-)
-FINAL_PRODUCT_SAFE_TOOLBAR_KEYBOARD_ACTION_IDS = frozenset(
-    {
-        "toolbar.previous_control",
-        "toolbar.next_control",
-        "toolbar.first_control",
-        "toolbar.last_control",
-    }
-)
+# The shipped Classes route uses EducationSurface/education_list. The separate
+# ClassroomSurface/management.* preview is not composed by this release root;
+# do not expose its keyboard-only actions as working production settings.
 FINAL_PRODUCT_SAFE_PROFILE_KEYBOARD_ACTION_IDS = frozenset(
     {"profile.save_name"}
 )
@@ -72,8 +58,6 @@ FINAL_PRODUCT_COMPOSED_COACHING_KEYBOARD_ACTION_IDS = frozenset(
 FINAL_PRODUCT_EXTRA_ACTION_IDS = (
     FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS
     | FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS
-    | FINAL_PRODUCT_SAFE_CLASSROOM_KEYBOARD_ACTION_IDS
-    | FINAL_PRODUCT_SAFE_TOOLBAR_KEYBOARD_ACTION_IDS
     | FINAL_PRODUCT_SAFE_PROFILE_KEYBOARD_ACTION_IDS
     | FINAL_PRODUCT_COMPOSED_COACHING_KEYBOARD_ACTION_IDS
 )
@@ -126,6 +110,7 @@ def validate_final_product_action_registry(registry: ActionRegistry) -> None:
         "classes.new",
     }
     leaked = ids.intersection(forbidden)
+    leaked |= {action_id for action_id in ids if action_id.startswith("classroom.")}
     if leaked:
         raise ValueError("uncomposed Teacher/Classroom mutation actions are exposed")
 

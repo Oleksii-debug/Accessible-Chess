@@ -103,7 +103,7 @@ function chordFor(event) {
         indexFunction('normalizeChord'),
         indexFunction('actionByChord'),
         indexFunction('keymapActionForEvent'),
-    ].join('\\n'), resolverContext, {filename: 'index-keymap-resolver.js'});
+    ].join('\n'), resolverContext, {filename: 'index-keymap-resolver.js'});
     assert.strictEqual(
         resolverContext.keymapActionForEvent(eventFor('F2', null), 'move_entry'),
         'move.submit'
@@ -186,8 +186,17 @@ function chordFor(event) {
             defaultAlias: null,
         }],
         populateContextFilter() {},
-        keymapContextLabel() { return this.document.documentElement.lang === 'en' ? 'Board' : 'Дошка'; },
-        el(id) { return settingsElements.get(id) || null; },
+        el(id) {
+            function find(node) {
+                if (node.id === id) return node;
+                for (const child of node.children) {
+                    const match = find(child);
+                    if (match) return match;
+                }
+                return null;
+            }
+            return settingsElements.get(id) || find(settingsList);
+        },
         setText(id, text) { const node = settingsElements.get(id); if (node) node.textContent = String(text || ''); },
         document: {
             documentElement: {lang: 'en'},
@@ -199,15 +208,16 @@ function chordFor(event) {
         centralKeymap: false,
         capture: null,
         captureStops: 0,
-        stopCapture() { this.captureStops += 1; this.capture = null; },
+        stopCapture() { settingsSearchContext.captureStops += 1; settingsSearchContext.capture = null; },
         announce() {},
     };
     settingsSearchContext.window = settingsSearchContext;
     vm.createContext(settingsSearchContext);
     vm.runInContext([
+        indexFunction('keymapContextLabel'),
         indexFunction('renderKeymap'),
         indexFunction('applyKeymapLanguage'),
-    ].join('\\n'), settingsSearchContext, {
+    ].join('\n'), settingsSearchContext, {
         filename: 'index-keymap-settings-search.js',
     });
 
@@ -319,7 +329,7 @@ function chordFor(event) {
         indexFunction('stopCapture'),
         indexFunction('beginCapture'),
         indexLineContaining("document.addEventListener('keydown',async e=>{if(!capture)return;"),
-    ].join('\\n'), captureContext, {filename: 'index-keymap-capture-transaction.js'});
+    ].join('\n'), captureContext, {filename: 'index-keymap-capture-transaction.js'});
     assert.ok(captureKeydown, 'shortcut capture keydown handler installed');
 
     captureContext.beginCapture({id: 'board.material'}, captureInput, captureStatus, captureButton);
@@ -371,6 +381,7 @@ function chordFor(event) {
         keymapReady: true,
         centralKeymap: true,
         document: {documentElement: {lang: 'en'}},
+        el: () => null,
         populateContextFilter() {},
         renderKeymap() {},
         renderHelp() {},
@@ -389,10 +400,12 @@ function chordFor(event) {
     keymapRecoveryContext.window = keymapRecoveryContext;
     vm.createContext(keymapRecoveryContext);
     vm.runInContext([
+        indexFunction('keymapRecoveryText'),
+        indexFunction('renderKeymapRecovery'),
         indexFunction('installKeymapSnapshot'),
         indexFunction('loadKeymap'),
         indexFunction('applyKeymapMutation'),
-    ].join('\\n'), keymapRecoveryContext, {filename: 'index-keymap-refresh-recovery.js'});
+    ].join('\n'), keymapRecoveryContext, {filename: 'index-keymap-refresh-recovery.js'});
 
     recoveryAnnouncements.length = 0;
     recoveryMode = 'fail';

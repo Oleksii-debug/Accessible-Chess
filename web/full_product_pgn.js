@@ -669,6 +669,12 @@
       button.disabled = !action.enabled;
       button.tabIndex = -1;
       button.dataset.action = action.action;
+      button.addEventListener("focus", function () {
+        if (button.disabled) return;
+        buttons.forEach(function (candidate) {
+          candidate.tabIndex = candidate === button ? 0 : -1;
+        });
+      });
       button.addEventListener("click", function () {
         if (button.disabled) return;
         if (action.action === "pgn.comment_edit") {
@@ -678,15 +684,7 @@
         invokeCommand(root, invoke, announce, action.action, {});
       });
       button.addEventListener("keydown", function (event) {
-        if (
-          button.disabled ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.metaKey
-        ) {
-          return;
-        }
+        if (button.disabled) return;
         const enabled = buttons.filter(function (candidate) {
           return !candidate.disabled;
         });

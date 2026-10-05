@@ -86,6 +86,7 @@ global.window = {};
 
 const source = fs.readFileSync("web/full_product_books_training.js", "utf8");
 vm.runInThisContext(source, { filename: "full_product_books_training.js" });
+const { toolbarResolver, exerciseToolbarRemaps } = require("./toolbar_keymap_test_support");
 
 const toolbarBindings = {
   ArrowLeft: "toolbar.previous_control",
@@ -93,10 +94,7 @@ const toolbarBindings = {
   Home: "toolbar.first_control",
   End: "toolbar.last_control"
 };
-window.accessibleChessKeymapAction = function (event, context) {
-  if (context !== "toolbar") return "";
-  return toolbarBindings[event.key] || "";
-};
+window.accessibleChessKeymapAction = toolbarResolver(toolbarBindings);
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -616,6 +614,10 @@ async function run() {
   );
   toolbarBindings.ArrowRight = "toolbar.next_control";
   delete toolbarBindings.j;
+  exerciseToolbarRemaps(
+    trainingToolbarButtons, (_button, event) => trainingToolbar.listeners.keydown(event),
+    window, toolbarBindings, document, "Training toolbar"
+  );
   firstAnswer.value = "d4";
   const firstForm = find(trainingRoot, "FORM");
   firstForm.listeners.submit({ preventDefault: () => {} });
@@ -861,6 +863,10 @@ async function run() {
   check(
     document.activeElement === bookToolbarButtons[1],
     "book toolbar Home did not return to first enabled action"
+  );
+  exerciseToolbarRemaps(
+    bookToolbarButtons, (_button, event) => bookToolbar.listeners.keydown(event),
+    window, toolbarBindings, document, "Book toolbar"
   );
   find(bookRoot, "BUTTON", "Next").listeners.click();
   await flushPromises();

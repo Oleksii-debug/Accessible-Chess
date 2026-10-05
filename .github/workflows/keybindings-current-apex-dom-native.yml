@@ -5,6 +5,8 @@ on:
     paths:
       - 'acs/full_product_native_menu.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_profile.py'
+      - 'acs/version2_final_product_profile.py'
       - 'acs/full_product_actions.py'
       - 'acs/keybindings.py'
       - 'acs/ui_keymap_adapter.py'
@@ -17,6 +19,14 @@ on:
       - 'web/full_product_pgn.js'
       - 'web/full_product_library.js'
       - 'web/full_product_education.js'
+      - 'web/full_product_books_training.js'
+      - 'web/version2_local_profile.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/version2_local_profile_dom_test.js'
+      - 'tests/js/toolbar_keymap_test_support.js'
+      - 'tests/test_keymap_profile_ingress_current.py'
+      - 'tests/test_version2_windows_composition_profile.py'
+      - 'tests/test_current_remappable_surfaces_qualification.py'
       - 'tests/js/stage1_terminal_keymap_dom_test.js'
       - 'tests/js/stage1_board_rerender_keymap_integration_test.js'
       - 'tests/js/v2_remapped_keyboard_native_editing_test.js'
@@ -75,6 +85,7 @@ jobs:
           PLUS_MINUS_SERVICE_TEST_BLOB: fe69226d35901b67a6fcbdf96e3c03534b3bb7d4
           PLUS_MINUS_DOM_TEST_BLOB: 7838bc5eabcf3c77d153a7b39628039f0bbbe253
           PLUS_MINUS_WEB_INDEX_BLOB: a148d4414c378c3952ff273071e4ebfb0648721a
+          KEYMAP_CONTEXT_WEB_INDEX_BLOB: 0b7cbf84cfe7b038084d2de9014594d6a45da548
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -95,8 +106,14 @@ jobs:
           git diff --check "$live_base"...HEAD
           test "$(git hash-object acs/ui_keymap_service.py)" = "$PLUS_MINUS_SERVICE_BLOB"
           test "$(git hash-object tests/test_ui_keymap_service.py)" = "$PLUS_MINUS_SERVICE_TEST_BLOB"
-          test "$(git hash-object tests/js/stage1_terminal_keymap_dom_test.js)" = "$PLUS_MINUS_DOM_TEST_BLOB"
-          test "$(git hash-object web/index.html)" = "$PLUS_MINUS_WEB_INDEX_BLOB"
+          case "$(git rev-parse HEAD:tests/js/stage1_terminal_keymap_dom_test.js)" in
+            "$PLUS_MINUS_DOM_TEST_BLOB"|969215f9b2d0877929e9963ccf18ec52741af1f8) ;;
+            *) echo 'Unqualified terminal keymap test identity' >&2; exit 1 ;;
+          esac
+          case "$(git rev-parse HEAD:web/index.html)" in
+            "$PLUS_MINUS_WEB_INDEX_BLOB"|"$KEYMAP_CONTEXT_WEB_INDEX_BLOB") ;;
+            *) echo 'Unqualified shared keymap document identity' >&2; exit 1 ;;
+          esac
 
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           focused_expected="$(printf '%s\n' \
@@ -182,6 +199,9 @@ jobs:
           node --check web/full_product_pgn.js
           node --check web/full_product_library.js
           node --check web/full_product_education.js
+          node --check web/full_product_books_training.js
+          node --check web/version2_local_profile.js
+          node --check tests/js/toolbar_keymap_test_support.js
           node --check tests/js/stage1_terminal_keymap_dom_test.js
           node --check tests/js/stage1_board_rerender_keymap_integration_test.js
           node --check tests/js/v2_remapped_keyboard_native_editing_test.js
@@ -200,6 +220,8 @@ jobs:
           node tests/js/pgn_remaining_keybindings_test.js
           node tests/js/library_surface_dom_test.js
           node tests/js/education_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/version2_local_profile_dom_test.js
 
       - name: Execute remappable domain and native menu regressions
         run: >-
@@ -217,6 +239,9 @@ jobs:
           tests.test_ui_keymap_service
           tests.test_ui_keymap_editor
           tests.test_webview_keymap_bridge_contract
+          tests.test_keymap_profile_ingress_current
+          tests.test_version2_windows_composition_profile
+          tests.test_current_remappable_surfaces_qualification
 
       - name: Execute adjacent keyboard and accessibility regressions
         run: >-
