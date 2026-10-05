@@ -2119,6 +2119,10 @@ class Version2Application:
                 "Інша файлова операція ще виконується. Завершіть або скасуйте її та повторіть дію.",
                 "Another file operation is still running. Finish or cancel it, then retry.",
             ),
+            "ui_event_queue_overflow": (
+                "Черга повідомлень файлової операції переповнилася. Остаточний результат міг бути виконаний, але не відображений. Не повторюйте дію навмання: оновіть відповідний екран і перевірте документ або бібліотеку.",
+                "The file-operation message queue overflowed. The final result may have completed without being shown. Do not retry blindly: refresh the relevant screen and verify the document or Library.",
+            ),
             "file_dialog_failed": (
                 "Не вдалося відкрити системне вікно вибору файла. Файлова операція не розпочалася. Повторіть дію.",
                 "The system file picker could not be opened. The file operation was not started. Retry the action.",
