@@ -12,6 +12,7 @@ on:
       - acs/version2_release_app.py
       - tests/test_version2_group_rotation_binding.py
       - tests/test_child_coaching_final_product_binding.py
+      - tests/test_child_coaching_rotation_completed_recovery.py
       - .github/workflows/group-rotation-current-apex.yml
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - acs/version2_release_app.py
       - tests/test_version2_group_rotation_binding.py
       - tests/test_child_coaching_final_product_binding.py
+      - tests/test_child_coaching_rotation_completed_recovery.py
       - .github/workflows/group-rotation-current-apex.yml
   workflow_dispatch:
 
@@ -43,7 +45,8 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       ROTATION_BLOB: 7fe9da7f1d687f4976c3b4a50652c4c4fa830633
-      ROTATION_STORE_BLOB: ed37f58f74bab1c990990b65ce2443268c576262
+      ROTATION_STORE_BLOB: e88d9eed3700695139ef1a1aa4d2837784e60350
+      ROTATION_RECOVERY_TEST_BLOB: 41495e176fa2de5e1fd9662967ea1d80ddf75b18
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
     steps:
       - name: Checkout exact candidate head
@@ -59,6 +62,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
           test "$(git hash-object acs/child_coaching_rotation_store.py)" = "$ROTATION_STORE_BLOB"
+          test "$(git hash-object tests/test_child_coaching_rotation_completed_recovery.py)" = "$ROTATION_RECOVERY_TEST_BLOB"
           test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
           git diff --check
 
@@ -76,12 +80,14 @@ jobs:
           acs/version2_release_app.py
           tests/test_version2_group_rotation_binding.py
           tests/test_child_coaching_final_product_binding.py
+          tests/test_child_coaching_rotation_completed_recovery.py
 
       - name: Run rotation, pairing and adjacent contracts
         run: >-
           python -m unittest -v
           tests.test_version2_group_rotation_binding
           tests.test_child_coaching_rotation
+          tests.test_child_coaching_rotation_completed_recovery
           tests.test_classroom_pairing
           tests.test_version2_classroom_orchestration_binding
           tests.test_child_coaching_final_product_binding
