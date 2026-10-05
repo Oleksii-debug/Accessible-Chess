@@ -769,7 +769,7 @@ class Version2WindowsFileActionDelegate:
                 previous_focus,
                 cancel_event,
                 expected_session,
-                expected_revision,
+                expected_generation,
             )
 
         try:
