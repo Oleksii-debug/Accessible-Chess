@@ -6,6 +6,7 @@ import unittest
 
 from acs.agent_model_contracts import (
     ModelErrorCode,
+    ModelFailureEffect,
     ModelGatewayError,
     ModelMessage,
     ModelRequest,
@@ -36,6 +37,13 @@ class _HostileUsage(ModelUsage):
         raise AssertionError("hostile usage attributes must not be probed")
 
 
+class _HostileGatewayError(ModelGatewayError):
+    def __getattribute__(self, name: str) -> object:
+        if name in {"code", "provider_id", "retryable", "failure_effect"}:
+            raise AssertionError("provider error subclass hooks must not be probed")
+        return super().__getattribute__(name)
+
+
 class _Provider:
     def __init__(
         self,
@@ -44,13 +52,16 @@ class _Provider:
         provider_id: str = "provider-a",
         kind: ProviderKind = ProviderKind.LOCAL,
         supports_private_data: bool = True,
+        supports_hard_cancellation: bool = False,
     ) -> None:
         self.response = response
         self.capability_reads = 0
+        self.complete_calls = 0
         self._capabilities = ProviderCapabilities(
             provider_id=provider_id,
             kind=kind,
             supports_private_data=supports_private_data,
+            supports_hard_cancellation=supports_hard_cancellation,
         )
 
     @property
@@ -61,6 +72,7 @@ class _Provider:
         return self._capabilities
 
     async def complete(self, _request: ModelRequest) -> object:
+        self.complete_calls += 1
         return self.response
 
 
@@ -69,6 +81,7 @@ class _RequestEchoProvider(_Provider):
         super().__init__(None)
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
+        self.complete_calls += 1
         return ModelResponse(
             request_id=request.request_id,
             text="ok",
@@ -78,6 +91,32 @@ class _RequestEchoProvider(_Provider):
             usage=ModelUsage(input_tokens=1, output_tokens=2, total_tokens=3),
             latency_ms=1.5,
         )
+
+
+class _RaisingProvider(_Provider):
+    def __init__(
+        self,
+        error: BaseException,
+        *,
+        provider_id: str = "provider-a",
+        supports_hard_cancellation: bool = False,
+    ) -> None:
+        super().__init__(
+            None,
+            provider_id=provider_id,
+            supports_hard_cancellation=supports_hard_cancellation,
+        )
+        self.error = error
+
+    async def complete(self, _request: ModelRequest) -> object:
+        self.complete_calls += 1
+        raise self.error
+
+
+class _SelfCancellingProvider(_Provider):
+    async def complete(self, _request: ModelRequest) -> object:
+        self.complete_calls += 1
+        raise asyncio.CancelledError()
 
 
 def _request(*, model: str | None = "model-a") -> ModelRequest:
@@ -127,6 +166,14 @@ class ModelProviderResponseAuthorityTests(unittest.TestCase):
         self.assertEqual(response.model, "model-a")
         self.assertEqual(response.usage.total_tokens, 3)
         self.assertEqual(provider.capability_reads, 1)
+        self.assertEqual(provider.complete_calls, 1)
+
+    def test_arbitrary_request_object_is_rejected_without_attribute_probes(self) -> None:
+        gateway = ModelGateway()
+        gateway.register(_RequestEchoProvider())
+
+        with self.assertRaisesRegex(TypeError, "request must be ModelRequest"):
+            asyncio.run(gateway.complete(_HostileResponse()))  # type: ignore[arg-type]
 
     def test_arbitrary_response_object_is_rejected_without_attribute_probes(self) -> None:
         error = self._complete_error(_HostileResponse())
@@ -191,7 +238,7 @@ class ModelProviderResponseAuthorityTests(unittest.TestCase):
                     supports_private_data=True,
                 )
 
-        with self.assertRaises(ValueError, msg="provider_id must be canonical text"):
+        with self.assertRaises(ValueError):
             ModelGateway().register(BadCapabilitiesProvider())
 
     def test_capability_flags_require_exact_booleans(self) -> None:
@@ -206,6 +253,125 @@ class ModelProviderResponseAuthorityTests(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             ModelGateway().register(BadCapabilitiesProvider())
+
+    def test_register_default_flag_requires_exact_boolean(self) -> None:
+        provider = _RequestEchoProvider()
+        with self.assertRaisesRegex(TypeError, "default must be boolean"):
+            ModelGateway().register(provider, default=1)  # type: ignore[arg-type]
+        self.assertEqual(provider.capability_reads, 0)
+
+    def test_provider_error_subclass_is_rejected_before_attribute_hooks(self) -> None:
+        raw = _HostileGatewayError(
+            ModelErrorCode.UNAVAILABLE,
+            "secret provider detail",
+            provider_id="provider-a",
+            retryable=True,
+            failure_effect=ModelFailureEffect.NO_EFFECT,
+        )
+        gateway = ModelGateway()
+        gateway.register(_RaisingProvider(raw))
+
+        with self.assertRaises(ModelGatewayError) as caught:
+            asyncio.run(gateway.complete(_request()))
+
+        self.assertEqual(caught.exception.code, ModelErrorCode.PROVIDER_ERROR)
+        self.assertEqual(
+            str(caught.exception),
+            "model provider returned an invalid error contract",
+        )
+        self.assertEqual(caught.exception.failure_effect, ModelFailureEffect.UNKNOWN)
+
+    def test_provider_self_cancellation_is_not_reported_as_caller_cancellation(self) -> None:
+        gateway = ModelGateway()
+        gateway.register(_SelfCancellingProvider(None))
+
+        with self.assertRaises(ModelGatewayError) as caught:
+            asyncio.run(gateway.complete(_request()))
+
+        self.assertEqual(caught.exception.code, ModelErrorCode.CANCELLED)
+        self.assertEqual(caught.exception.failure_effect, ModelFailureEffect.UNKNOWN)
+        self.assertFalse(caught.exception.retryable)
+
+    def test_typed_timeout_can_fallback_only_with_pinned_hard_cancellation(self) -> None:
+        primary = _RaisingProvider(
+            ModelGatewayError(
+                ModelErrorCode.TIMEOUT,
+                "private provider timeout detail",
+                provider_id="provider-a",
+                retryable=True,
+                failure_effect=ModelFailureEffect.NO_EFFECT,
+            ),
+            supports_hard_cancellation=True,
+        )
+        fallback = _Provider(
+            ModelResponse(
+                request_id="request-a",
+                text="fallback-ok",
+                provider_id="provider-b",
+                provider_kind=ProviderKind.LOCAL,
+                model="model-a",
+                usage=ModelUsage(total_tokens=1),
+            ),
+            provider_id="provider-b",
+        )
+        gateway = ModelGateway()
+        gateway.register(primary)
+        gateway.register(fallback)
+        request = ModelRequest(
+            request_id="request-a",
+            messages=(ModelMessage(role="user", content="fixture"),),
+            model="model-a",
+            provider_id="provider-a",
+            fallback_provider_ids=("provider-b",),
+            privacy=PrivacyClass.PRIVATE,
+        )
+
+        response = asyncio.run(gateway.complete(request))
+
+        self.assertEqual(response.provider_id, "provider-b")
+        self.assertEqual(primary.complete_calls, 1)
+        self.assertEqual(fallback.complete_calls, 1)
+
+    def test_typed_timeout_does_not_fallback_without_hard_cancellation(self) -> None:
+        primary = _RaisingProvider(
+            ModelGatewayError(
+                ModelErrorCode.TIMEOUT,
+                "private provider timeout detail",
+                provider_id="provider-a",
+                retryable=True,
+                failure_effect=ModelFailureEffect.NO_EFFECT,
+            ),
+            supports_hard_cancellation=False,
+        )
+        fallback = _Provider(
+            ModelResponse(
+                request_id="request-a",
+                text="must-not-run",
+                provider_id="provider-b",
+                provider_kind=ProviderKind.LOCAL,
+                model="model-a",
+                usage=ModelUsage(total_tokens=1),
+            ),
+            provider_id="provider-b",
+        )
+        gateway = ModelGateway()
+        gateway.register(primary)
+        gateway.register(fallback)
+        request = ModelRequest(
+            request_id="request-a",
+            messages=(ModelMessage(role="user", content="fixture"),),
+            model="model-a",
+            provider_id="provider-a",
+            fallback_provider_ids=("provider-b",),
+            privacy=PrivacyClass.PRIVATE,
+        )
+
+        with self.assertRaises(ModelGatewayError) as caught:
+            asyncio.run(gateway.complete(request))
+
+        self.assertEqual(caught.exception.code, ModelErrorCode.TIMEOUT)
+        self.assertEqual(caught.exception.failure_effect, ModelFailureEffect.NO_EFFECT)
+        self.assertEqual(fallback.complete_calls, 0)
 
 
 if __name__ == "__main__":
