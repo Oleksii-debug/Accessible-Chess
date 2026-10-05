@@ -96,6 +96,10 @@ def _make_tree(root: Path) -> None:
     (product / "AccessibleChess.exe.config").write_text(
         _VALID_WINFORMS_CONFIG, encoding="utf-8"
     )
+    for relative in preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
+        runtime = root.joinpath(*relative.split("/"))
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_bytes(_minimal_windows_pe())
 
     web = product / "web"
     web.mkdir()
