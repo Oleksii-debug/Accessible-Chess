@@ -6,6 +6,7 @@ on:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_portable_launcher_core_guard.py'
+      - 'tests/test_portable_launch_report_reparse_concurrency.py'
       - '.github/workflows/portable-launch-report-reparse-safety.yml'
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_portable_launcher_core_guard.py'
+      - 'tests/test_portable_launch_report_reparse_concurrency.py'
       - '.github/workflows/portable-launch-report-reparse-safety.yml'
   workflow_dispatch:
 
@@ -24,13 +26,13 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE: f726f9a82073f10e47dc095a2a10c974be0c1873
+  PRODUCT_BASE: 59486e2c9eff903e416d59a0e7c349c22ee2111d
   LAUNCHER_BLOB: 6f0ec228a8ae1ef1f4a831f45f3d89eff3713f0f
   CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 concurrency:
-  group: portable-launch-report-reparse-${{ github.ref }}
+  group: portable-launch-report-reparse-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -47,6 +49,19 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'PORTABLE_LAUNCH_REPORT_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'PORTABLE_LAUNCH_REPORT_EXACT_HEAD=PASS'
       - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
@@ -62,9 +77,7 @@ jobs:
           actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
-            'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
       - name: Setup exact Python
@@ -76,6 +89,7 @@ jobs:
           python -m unittest
           tests.test_portable_launcher_contract
           tests.test_portable_launcher_core_guard
+          tests.test_portable_launch_report_reparse_concurrency
           -v
 
   windows-native-build:
@@ -87,6 +101,19 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'PORTABLE_LAUNCH_REPORT_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'PORTABLE_LAUNCH_REPORT_EXACT_HEAD=PASS'
       - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
@@ -102,9 +129,7 @@ jobs:
           actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
-            'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+            'tests/test_portable_launch_report_reparse_concurrency.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
       - name: Build native x64 launcher with warnings as errors
