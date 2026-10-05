@@ -134,7 +134,7 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
                 self.assertNotIn("source_id", rendered)
                 self.assertNotIn("attempt_id", rendered)
 
-    def test_chessbase_port_observes_same_result_object_without_redecoding(self) -> None:
+    def test_chessbase_port_observes_detached_result_without_redecoding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "database.cbh"
             source.write_bytes(b"host-port-fixture")
@@ -175,7 +175,8 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
 
             self.assertEqual([value.attempt_id for value in progress_values], [17, 17])
             self.assertEqual(len(results), 1)
-            self.assertIs(results[0], canonical_result)
+            self.assertIsNot(results[0], canonical_result)
+            self.assertEqual(results[0], canonical_result)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertEqual(events[-1].game_count, 2)
             self.assertNotIn("attempt_id", repr(events[-1]))
@@ -236,6 +237,222 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             self.assertEqual(tuple(attempt), ("full", 2))
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
             self.assertNotEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+
+    def test_observer_mutation_cannot_change_worker_progress_or_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "observer-mutation.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+            canonical_progress = LibraryImportProgress(41, 2, 2)
+            canonical_result = LibraryImportResult(41, 7, 2, 0, 101, 102)
+            observed_progress = []
+            observed_results = []
+
+            class SnapshotLibrary:
+                def import_games(self, *_args, **kwargs):
+                    callback = kwargs["progress_callback"]
+                    callback(canonical_progress)
+                    self_progress_after_callback = (
+                        canonical_progress.attempt_id,
+                        canonical_progress.processed_games,
+                        canonical_progress.total_games,
+                    )
+                    self.assertEqual(self_progress_after_callback, (41, 2, 2))
+                    return canonical_result
+
+            # Bind the test case explicitly so the synthetic service can assert
+            # that observer mutation never reaches the canonical DTO.
+            test_case = self
+
+            class SnapshotLibrary:
+                def import_games(self, *_args, **kwargs):
+                    callback = kwargs["progress_callback"]
+                    callback(canonical_progress)
+                    test_case.assertEqual(
+                        (
+                            canonical_progress.attempt_id,
+                            canonical_progress.processed_games,
+                            canonical_progress.total_games,
+                        ),
+                        (41, 2, 2),
+                    )
+                    return canonical_result
+
+            def mutate_progress(value):
+                observed_progress.append(value)
+                object.__setattr__(value, "processed_games", 0)
+                object.__setattr__(value, "total_games", 999)
+
+            def mutate_result(value):
+                observed_results.append(value)
+                object.__setattr__(value, "game_count", 999)
+                object.__setattr__(value, "warning_count", 999)
+
+            bundle = Version2ImportWorkerServices(
+                SnapshotLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=mutate_progress,
+                result_sink=mutate_result,
+            )
+            controller = self._controller(source, factory, events)
+
+            controller("library.import", {})
+            self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(len(observed_progress), 1)
+            self.assertEqual(len(observed_results), 1)
+            self.assertIsNot(observed_progress[0], canonical_progress)
+            self.assertIsNot(observed_results[0], canonical_result)
+            self.assertEqual(
+                (
+                    canonical_progress.attempt_id,
+                    canonical_progress.processed_games,
+                    canonical_progress.total_games,
+                ),
+                (41, 2, 2),
+            )
+            self.assertEqual(
+                (
+                    canonical_result.game_count,
+                    canonical_result.warning_count,
+                ),
+                (2, 0),
+            )
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+            self.assertEqual(events[-1].game_count, 2)
+            self.assertEqual(events[-1].warning_count, 0)
+
+    def test_observer_exception_string_hook_is_never_executed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "observer-error-string.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+            touched = []
+
+            class ActiveObserverError(BaseException):
+                def __str__(self):
+                    touched.append("str")
+                    raise AssertionError("observer exception string hook executed")
+
+            class SnapshotLibrary:
+                def import_games(self, *_args, **kwargs):
+                    kwargs["progress_callback"](LibraryImportProgress(51, 2, 2))
+                    return LibraryImportResult(51, 8, 2, 0, 201, 202)
+
+            def abort_observer(_value):
+                raise ActiveObserverError()
+
+            bundle = Version2ImportWorkerServices(
+                SnapshotLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=abort_observer,
+                result_sink=abort_observer,
+            )
+            controller = self._controller(source, factory, events)
+
+            controller("library.import", {})
+            self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+            self.assertEqual(events[-1].game_count, 2)
+
+    def test_exact_progress_with_active_scalar_is_rejected_before_observer(self) -> None:
+        touched = []
+        observed = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active integer ordering hook executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active integer ordering hook executed")
+
+        hostile = LibraryImportProgress(61, 0, 2)
+        object.__setattr__(hostile, "processed_games", ActiveInt(0))
+
+        class ActiveScalarLibrary:
+            def import_games(self, *_args, **kwargs):
+                kwargs["progress_callback"](hostile)
+                return LibraryImportResult(61, 9, 2, 0, 301, 302)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-progress-scalar.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+            bundle = Version2ImportWorkerServices(
+                ActiveScalarLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=observed.append,
+                result_sink=observed.append,
+            )
+            controller = self._controller(source, factory, events)
+
+            controller("library.import", {})
+            self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertEqual(observed, [])
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
+
+    def test_exact_result_with_active_scalar_is_rejected_before_observer(self) -> None:
+        touched = []
+        observed = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active integer ordering hook executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active integer ordering hook executed")
+
+        hostile = LibraryImportResult(71, 10, 2, 0, 401, 402)
+        object.__setattr__(hostile, "game_count", ActiveInt(2))
+
+        class ActiveScalarLibrary:
+            def import_games(self, *_args, **_kwargs):
+                return hostile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "active-result-scalar.pgn"
+            source.write_text(PGN_TWO, encoding="utf-8")
+            events = []
+            bundle = Version2ImportWorkerServices(
+                ActiveScalarLibrary(),
+                None,
+                lambda: None,
+            )
+            factory = Version2ObservedImportServicesFactory(
+                lambda: bundle,
+                progress_sink=observed.append,
+                result_sink=observed.append,
+            )
+            controller = self._controller(source, factory, events)
+
+            controller("library.import", {})
+            self.assertTrue(controller.wait_for_import(5.0))
+
+            self.assertEqual(touched, [])
+            self.assertEqual(observed, [])
+            self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_import_failed")
 
     def test_derived_progress_is_rejected_before_observer_field_hooks(self) -> None:
         touched: list[str] = []
