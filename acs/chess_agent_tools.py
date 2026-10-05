@@ -13,8 +13,10 @@ from typing import Protocol
 
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
-from .chesscore import Board, parse_sq
+from .board_service import BoardCommandService
+from .chesscore import Board
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
+from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
 
 
@@ -131,6 +133,7 @@ class ChessAgentToolRegistry:
         *,
         executor: ToolExecutor,
         board_provider: Callable[[], Board],
+        board_commands_provider: Callable[[], BoardCommandService],
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
@@ -139,8 +142,11 @@ class ChessAgentToolRegistry:
             raise TypeError("executor must be ToolExecutor")
         if not callable(board_provider):
             raise TypeError("board_provider must be callable")
+        if not callable(board_commands_provider):
+            raise TypeError("board_commands_provider must be callable")
         self.executor = executor
         self.board_provider = board_provider
+        self.board_commands_provider = board_commands_provider
         self.analysis_service = analysis_service
         self.search_service = search_service
         self.media = media
@@ -163,23 +169,32 @@ class ChessAgentToolRegistry:
             )
         return board
 
+    def _board_commands(self) -> BoardCommandService:
+        service = self.board_commands_provider()
+        if type(service) is not BoardCommandService:
+            raise TypeError(
+                "board_commands_provider must return BoardCommandService"
+            )
+        return service
+
     def _register_board(self) -> None:
         async def current(_arguments: Mapping[str, object]) -> object:
             board = self._board()
+            service = self._board_commands()
+            last_move = service.last_move()
             return {
                 "fen": board.fen(),
-                "turn": board.turn,
+                "turn": service.board.turn,
                 "inCheck": board.in_check(),
-                "legalMoveCount": len(board.legal_moves()),
+                "legalMoveCount": len(service.board.legal_moves),
                 "lastMove": (
                     None
-                    if board.last_move is None
+                    if last_move is None
                     else {
-                        "from": board.last_move.frm,
-                        "to": board.last_move.to,
-                        "promotion": board.last_move.promotion,
-                        "enPassant": board.last_move.en_passant,
-                        "castle": board.last_move.castle,
+                        "from": last_move.frm,
+                        "to": last_move.to,
+                        "san": last_move.san,
+                        "capture": last_move.is_capture,
                     }
                 ),
             }
@@ -191,31 +206,45 @@ class ChessAgentToolRegistry:
                     "square must be algebraic text"
                 )
             name = raw.strip().lower()
-            index = parse_sq(name)
-            board = self._board()
+            service = self._board_commands()
+            view = service.current(name)
             return {
-                "square": name,
-                "description": board.square_description(index),
-                "piece": board.board[index],
+                "square": view.square,
+                "piece": view.piece,
                 "attackers": [
-                    board.square_description(item)
-                    for item in board.attackers_of(index)
+                    {"square": item.square, "piece": item.piece}
+                    for item in service.attackers(name)
                 ],
-                "attacks": [
-                    board.square_description(item)
-                    for item in board.attacks_from(index)
+                "defenders": [
+                    {"square": item.square, "piece": item.piece}
+                    for item in service.defenders(name)
                 ],
             }
 
         async def legal_moves(
             _arguments: Mapping[str, object],
         ) -> object:
-            board = self._board()
-            moves = board.legal_moves()
+            service = self._board_commands()
+            moves = service.board.legal_moves
+            labels = [
+                move.san or f"{square_name(move.frm)}-{square_name(move.to)}"
+                for move in moves
+            ]
             return {
-                "fen": board.fen(),
-                "moves": [board.san(move) for move in moves],
+                "moves": labels,
                 "count": len(moves),
+            }
+
+        async def material(
+            _arguments: Mapping[str, object],
+        ) -> object:
+            view = self._board_commands().material()
+            return {
+                "white": dict(view.white),
+                "black": dict(view.black),
+                "whitePoints": view.white_points,
+                "blackPoints": view.black_points,
+                "balance": view.balance,
             }
 
         self.executor.register(
@@ -228,7 +257,7 @@ class ChessAgentToolRegistry:
         self.executor.register(
             ToolSpec(
                 "board.square",
-                "Describe one square, its piece, attacks and attackers.",
+                "Describe one square using canonical board-command data.",
                 input_schema={"square": "a1-h8"},
             ),
             square,
@@ -236,9 +265,16 @@ class ChessAgentToolRegistry:
         self.executor.register(
             ToolSpec(
                 "board.legal_moves",
-                "List legal SAN moves from the current position.",
+                "List canonical legal SAN moves from the current position.",
             ),
             legal_moves,
+        )
+        self.executor.register(
+            ToolSpec(
+                "board.material",
+                "Read the canonical material summary.",
+            ),
+            material,
         )
 
     def _register_engine(self) -> None:
