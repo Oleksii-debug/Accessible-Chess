@@ -366,8 +366,12 @@ const windowObject = {
       libraryInvoke = invoke;
       const input = new FakeElement("input");
       input.id = "library-search-player";
+      const exportFiltered = new FakeElement("button");
+      exportFiltered.id = "library-export-filtered";
       root.replaceChildren(input);
+      root.appendChild(exportFiltered);
       if (requestedFocus === input.id) input.focus();
+      else if (requestedFocus === exportFiltered.id) exportFiltered.focus();
     },
     apply: (_root, event) => {
       if (!event || event.kind !== "render-import") throw new Error("unexpected Library event");
@@ -764,6 +768,28 @@ async function clickRoute(routeId) {
   check(
     documentRef.activeElement === libraryInput,
     "Library export terminal event did not restore the pre-dialog Library focus"
+  );
+
+  const libraryExportFiltered = documentRef.getElementById("library-export-filtered");
+  check(libraryExportFiltered !== null, "Library filtered-export focus target missing");
+  live.focus();
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Filtered export completed.",
+      focus_target: "library-export-filtered"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === libraryExportFiltered,
+    "Library export terminal event did not restore stable toolbar focus"
+  );
+  check(
+    live.textContent === "Filtered export completed.",
+    "Library toolbar terminal announcement was lost"
   );
 
   const beforeExportOperationApplyCalls = libraryApplyCalls;
