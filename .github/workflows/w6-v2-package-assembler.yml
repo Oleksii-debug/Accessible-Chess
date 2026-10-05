@@ -27,6 +27,8 @@ env:
   CURRENT_ASSEMBLER_TEST_BLOB: 8b7703128af25397d6c992c01e0910eb29f0766a
   RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
   RESOURCE_ASSEMBLER_TEST_BLOB: 80dcfb53f59e3ba01aff2b1bb13a21afe609378c
+  RUNTIME_PREFLIGHT_BLOB: dd5fdf3774ad89edadb5aaa6d3e88ec354d82d21
+  RUNTIME_ASSEMBLER_TEST_BLOB: 80d857ae16f97d42010668c002089ef41cd2a66c
 
 jobs:
   focused:
@@ -68,7 +70,7 @@ jobs:
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
             resource_pair="$(git rev-parse HEAD:acs/version2_package_preflight.py):$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
             case "$resource_pair" in
-              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB") ;;
               *) echo 'Unqualified preflight/assembler-test pair' >&2; exit 1 ;;
             esac
             echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
