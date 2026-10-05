@@ -51,6 +51,8 @@ jobs:
       ROTATION_TEST_BLOB: 814c391014db668160d6432a8a8384becca4676f
       ROTATION_RECOVERY_TEST_BLOB: ced919531502afd7d59fe95b567190e0f857df26
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
+      FINAL_PRODUCT_APP_BLOB: 0e78b5dfcd97a3b898c142bd2c75d0244f5db0a0
+      GROUP_ROTATION_BINDING_TEST_BLOB: 84b4aacfed8f7f446c87e014a7fb0a7e003d72f0
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -68,6 +70,8 @@ jobs:
           test "$(git hash-object tests/test_child_coaching_rotation.py)" = "$ROTATION_TEST_BLOB"
           test "$(git hash-object tests/test_child_coaching_rotation_completed_recovery.py)" = "$ROTATION_RECOVERY_TEST_BLOB"
           test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
+          test "$(git hash-object acs/version2_final_product_application.py)" = "$FINAL_PRODUCT_APP_BLOB"
+          test "$(git hash-object tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
           git diff --check
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
