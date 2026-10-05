@@ -95,6 +95,51 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
             acceptance_module._publish_exclusive(output, payload)
             self.assertEqual(output.read_bytes(), payload)
 
+    def test_post_link_durability_failure_cleans_owned_output_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            payload = b'{"accepted":true}\n'
+
+            with mock.patch.object(
+                acceptance_module,
+                "_sync_published_zip_namespace",
+                side_effect=acceptance_module.Version2PortablePackageError(
+                    "simulated durability failure"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "durability could not be confirmed",
+                ):
+                    acceptance_module._publish_exclusive(output, payload)
+
+            self.assertFalse(output.exists())
+
+            acceptance_module._publish_exclusive(output, payload)
+            self.assertEqual(output.read_bytes(), payload)
+
+    def test_successful_publication_crosses_namespace_durability_barrier(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            payload = b'{"accepted":true}\n'
+
+            original = acceptance_module._sync_published_zip_namespace
+            with mock.patch.object(
+                acceptance_module,
+                "_sync_published_zip_namespace",
+                wraps=original,
+            ) as durability:
+                acceptance_module._publish_exclusive(output, payload)
+
+            self.assertEqual(durability.call_count, 1)
+            _args, kwargs = durability.call_args
+            self.assertEqual(Path(_args[0]), output)
+            self.assertIn("expected", kwargs)
+            self.assertTrue(output.is_file())
+            self.assertEqual(output.read_bytes(), payload)
+
     def test_post_link_cleanup_preserves_replaced_canonical_path(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
