@@ -7,7 +7,9 @@ implements Library storage, or owns chess state.  Native Windows dialogs choose
 filesystem paths on the trusted host.  PGN operations delegate to
 ``PgnDocumentSession``; PGN Library import delegates to ``open_pgn`` plus the
 canonical ``LibraryImportService``; CBH/CBV delegates to
-``ChessBaseLibraryImportService``.
+``ChessBaseLibraryImportService``. EPUB/HTML book game collections delegate to
+the existing Book import/resolution path and that same LibraryImportService;
+narrative and diagrams remain in the original book with an explicit report.
 
 Long imports run on a dedicated worker so the Windows UI remains operable and a
 Cancel command can be delivered.  The worker-service factory is deliberately
@@ -29,6 +31,8 @@ from .library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
 )
+from .book_library_import import BOOK_LIBRARY_SUFFIXES, open_book_library_source
+from .import_contract import SourceReadCancelledError
 from .pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from .pgn_service import PgnFileError, open_pgn
 from .report_paths import report_safe_name
@@ -171,10 +175,11 @@ class Version2WindowsFileDialogs:
         DialogResult, OpenFileDialog, _ = self._load_forms()
         dialog = OpenFileDialog()
         try:
-            dialog.Title = "Import into Library"
+            dialog.Title = "Import games into Library (book text remains in its source file)"
             dialog.Filter = (
-                "Supported chess sources (*.pgn;*.cbh;*.cbv)|*.pgn;*.cbh;*.cbv|"
-                "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv"
+                "Supported chess sources and book games|*.pgn;*.cbh;*.cbv;*.epub;*.html;*.htm;*.xhtml|"
+                "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv|"
+                "Book game collections (*.epub;*.html;*.htm;*.xhtml)|*.epub;*.html;*.htm;*.xhtml"
             )
             dialog.CheckFileExists = True
             dialog.CheckPathExists = True
@@ -196,7 +201,7 @@ class Version2WindowsFileActionDelegate:
             "library.cancel_import",
         }
     )
-    _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"})
+    _IMPORT_SUFFIXES = frozenset({".pgn", ".cbh", ".cbv"}) | BOOK_LIBRARY_SUFFIXES
     _IMPORT_TERMINAL_KINDS = frozenset(
         {
             FileWorkflowEventKind.IMPORT_COMPLETED,
@@ -611,8 +616,11 @@ class Version2WindowsFileActionDelegate:
             if cancelled():
                 raise LibraryImportCancelledError("Library import cancelled")
 
-            if suffix == ".pgn":
-                opened = open_pgn(source_path)
+            if suffix == ".pgn" or suffix in BOOK_LIBRARY_SUFFIXES:
+                opened = (
+                    open_pgn(source_path) if suffix == ".pgn"
+                    else open_book_library_source(source_path, cancel_check=cancelled)
+                )
                 if cancelled():
                     raise LibraryImportCancelledError("Library import cancelled")
                 if not opened.games:
@@ -622,15 +630,16 @@ class Version2WindowsFileActionDelegate:
                             FileWorkflowEventKind.IMPORT_EMPTY,
                             "library.import",
                             focus_target="library-import-file",
+                            warning_count=(0 if suffix == ".pgn" else len(opened.warnings)),
                         ),
                     )
                     return
                 imported = services.library.import_games(
                     opened.games,
                     source_name=report_safe_name(opened.source.path),
-                    source_format="pgn",
+                    source_format="pgn" if suffix == ".pgn" else suffix.lstrip("."),
                     source_sha256=opened.source.sha256,
-                    source_warning_count=len(opened.global_warnings),
+                    source_warning_count=len(opened.global_warnings) if suffix == ".pgn" else len(opened.warnings),
                     cancel_check=cancelled,
                     progress_callback=progress,
                 )
@@ -680,7 +689,7 @@ class Version2WindowsFileActionDelegate:
                     warning_count=warning_count,
                 ),
             )
-        except LibraryImportCancelledError:
+        except (LibraryImportCancelledError, SourceReadCancelledError):
             self._emit_if_current(
                 generation,
                 FileWorkflowEvent(

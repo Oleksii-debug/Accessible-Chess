@@ -5,8 +5,8 @@ from __future__ import annotations
 This adapter owns source decoding and structure projection only.  It does not
 implement chess rules or a PGN parser: explicit positions are validated by the
 canonical :class:`acs.chesscore.Board`, and embedded PGN candidates are considered
-only after an exact standalone ``{PGN N}`` source marker, then accepted only when
-the existing bounded D06 ingress can represent exactly one game.
+only after an exact standalone ``{PGN N}`` source marker. The existing bounded
+D06 ingress owns parsing; each resulting Game block holds exactly one game.
 
 Image-only diagrams remain image notes unless the source carries an explicit
 ``data-acs-fen`` marker.  The importer never guesses a chess position or game from
@@ -33,6 +33,7 @@ from .bookdocument import (
 )
 from .chesscore import Board
 from .legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
+from .gametree import GameTreeSerializationError, serialize_game
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -85,6 +86,7 @@ class _InlineSemanticEvent:
 class _PgnCandidate:
     text: str
     marker_offset: int
+    source_anchor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1115,8 +1117,8 @@ class _SemanticHtmlParser(HTMLParser):
         elif capture.kind == "pre" and _explicit_pgn_pre(raw):
             # Keep a bounded placeholder at the exact semantic source location.
             # Canonical PGN validation still happens only after parsing through
-            # the existing D06 round-trip authority; invalid candidates remove
-            # their placeholder rather than publishing guessed chess content.
+            # the existing D06 round-trip authority; rejected candidates remain
+            # readable prose at this location, never guessed chess content.
             for candidate in _pgn_candidates(raw):
                 self._append_block(
                     _PgnSlot(
@@ -1125,6 +1127,7 @@ class _SemanticHtmlParser(HTMLParser):
                             marker_offset=(
                                 capture.visible_start_offset + candidate.marker_offset
                             ),
+                            source_anchor=source_anchor,
                         )
                     )
                 )
@@ -1276,33 +1279,56 @@ def _canonical_pgn_games(
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be represented canonically and was ignored")
             continue
-        if len(parsed) != 1:
+        if not parsed:
             if len(warnings) < MAX_HTML_WARNINGS:
-                warnings.append(f"PGN candidate {candidate_index} did not resolve to exactly one canonical game and was ignored")
+                warnings.append(f"PGN candidate {candidate_index} contains no canonical game and was ignored")
             continue
-        if len(games) >= MAX_HTML_PGN_GAMES:
+        if len(games) + len(parsed) > MAX_HTML_PGN_GAMES:
             raise BookHtmlImportError(
                 "HTML book contains too many embedded PGN games",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        game = parsed[0]
-        title = " — ".join(
-            part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?"
-        ) or game.tags.get("Event") or f"Embedded game {candidate_index}"
-        digest = sha256(candidate.encode("utf-8")).hexdigest()[:20]
-        occurrence = identities.get(digest, 0) + 1
-        identities[digest] = occurrence
-        games.append(
-            (
-                candidate_record,
-                Game(
-                    pgn=candidate,
-                    title=title,
-                    block_id=f"html-pgn-{digest}-{occurrence}",
-                    source_anchor=f"pgn:{candidate_index}",
-                ),
+        # A marked region can be a PGN collection. Split it only through the
+        # canonical serializer, so Book Game still means exactly one game and
+        # every branch/comment/tag remains attached to its owning game. Prepare
+        # the entire region before publication; never publish a partial split.
+        try:
+            sources = [candidate] if len(parsed) == 1 else [serialize_game(game) for game in parsed]
+        except (GameTreeSerializationError, RecursionError, ValueError):
+            if len(warnings) < MAX_HTML_WARNINGS:
+                warnings.append(f"PGN candidate {candidate_index} could not be split canonically and was ignored")
+            continue
+        if len(parsed) > 1 and len(warnings) < MAX_HTML_WARNINGS:
+            warnings.append(
+                f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized"
             )
-        )
+        for game_index, (game, game_source) in enumerate(zip(parsed, sources), start=1):
+            # Recovery is useful for reading damaged historical sources, but it
+            # is not lossless conversion. Preserve canonical diagnostics.
+            for warning in game.warnings:
+                if len(warnings) >= MAX_HTML_WARNINGS:
+                    break
+                prefix = f"PGN candidate {candidate_index}"
+                if len(parsed) > 1:
+                    prefix += f", game {game_index}"
+                warnings.append(f"{prefix}: {warning}")
+            title = " — ".join(
+                part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?"
+            ) or game.tags.get("Event") or f"Embedded game {candidate_index}.{game_index}"
+            digest = sha256(game_source.encode("utf-8")).hexdigest()[:20]
+            occurrence = identities.get(digest, 0) + 1
+            identities[digest] = occurrence
+            games.append(
+                (
+                    candidate_record,
+                    Game(
+                        pgn=game_source,
+                        title=title,
+                        block_id=f"html-pgn-{digest}-{occurrence}",
+                        source_anchor=candidate_record.source_anchor or f"pgn:{candidate_index}",
+                    ),
+                )
+            )
     return games
 
 def _asset_set(available_assets: object) -> frozenset[str] | None:
@@ -1393,22 +1419,45 @@ def import_html_book(
         sorted(candidates_by_marker.values(), key=lambda item: item.marker_offset),
         warnings,
     )
-    games_by_marker = {
-        candidate.marker_offset: game
-        for candidate, game in canonical_games
-    }
+    games_by_marker: dict[int, list[Game]] = {}
+    for candidate, game in canonical_games:
+        games_by_marker.setdefault(candidate.marker_offset, []).append(game)
     consumed_markers: set[int] = set()
     ordered_blocks = []
     for block in parser.blocks:
         if isinstance(block, _PgnSlot):
             marker_offset = block.candidate.marker_offset
-            game = games_by_marker.get(marker_offset)
-            if game is not None:
-                ordered_blocks.append(game)
+            region_games = games_by_marker.get(marker_offset)
+            if region_games is not None:
+                ordered_blocks.extend(region_games)
                 consumed_markers.add(marker_offset)
+            else:
+                # The source is still valuable reading/evidence. Its failed
+                # chess interpretation must not erase the text or its place
+                # between surrounding paragraphs. Preserve it without a Game
+                # role or a Board action, under the existing prose limits.
+                candidate = block.candidate
+                digest = sha256(candidate.text.encode("utf-8")).hexdigest()[:20]
+                ordered_blocks.append(
+                    Paragraph(
+                        text=candidate.text,
+                        block_id=f"html-pgn-text-{digest}-{marker_offset}",
+                        source_anchor=candidate.source_anchor,
+                    )
+                )
             continue
         ordered_blocks.append(block)
+        if len(ordered_blocks) > MAX_HTML_BLOCKS:
+            raise BookHtmlImportError(
+                "HTML book contains too many semantic blocks",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
     parser.blocks = ordered_blocks
+    if len(parser.blocks) > MAX_HTML_BLOCKS:
+        raise BookHtmlImportError(
+            "HTML book contains too many semantic blocks",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
     for candidate, game in canonical_games:
         if candidate.marker_offset not in consumed_markers:
             parser._append_block(game)

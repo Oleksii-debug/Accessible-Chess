@@ -1,0 +1,66 @@
+name: Books HTML EPUB PGN collections
+on:
+  pull_request:
+    paths:
+      - 'acs/book_html_import.py'
+      - 'acs/book_epub_import.py'
+      - 'acs/book_game_content.py'
+      - 'acs/book_board_workflow.py'
+      - 'acs/gametree*.py'
+      - 'acs/pgn_roundtrip.py'
+      - 'acs/bookdocument.py'
+      - 'acs/bookreader.py'
+      - 'acs/book_library_import.py'
+      - 'acs/book_training.py'
+      - 'acs/import_contract.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/chesscore.py'
+      - 'tests/test_book_html_pgn_loss_accounting.py'
+      - 'tests/test_pgn_board_start_authority.py'
+      - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_book_training_variant_authority.py'
+      - 'tests/test_book_html_inline_image_order.py'
+      - '.github/workflows/book-html-epub-pgn-collections.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  semantic-journey:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: HTML and EPUB collections, source preservation and exact Board return
+        run: python -m unittest discover -s tests -p test_book_html_pgn_loss_accounting.py -v
+      - name: Retained canonical Book Board workflow
+        run: python -m unittest discover -s tests -p test_v2_book_board_workflow.py -v
+      - name: Retained canonical PGN roundtrip
+        run: python -m unittest discover -s tests -p test_d06_pgn_roundtrip.py -v
+      - name: Canonical start position and Standard-only projection
+        run: python -m unittest discover -s tests -p test_pgn_board_start_authority.py -v
+      - name: Retained PGN semantic fidelity
+        run: python -m unittest discover -s tests -p test_v2_pgn_semantic_fidelity.py -v
+      - name: Book Library search export and native import journey
+        run: python -m unittest discover -s tests -p test_book_library_import_journey.py -v
+      - name: Book Training Standard variant authority
+        run: python -m unittest discover -s tests -p test_book_training_variant_authority.py -v
+      - name: Retained Book Training contract
+        run: python -m unittest discover -s tests -p test_d08_book_training_contract.py -v
+      - name: Retained Book Training canonical PGN ingress
+        run: python -m unittest discover -s tests -p test_w2_book_training_canonical_ingress.py -v
+      - name: Retained atomic Library import
+        run: python -m unittest discover -s tests -p test_d07_library_import_service.py -v
+      - name: Retained Library export
+        run: python -m unittest discover -s tests -p test_d07_library_export_service.py -v
+      - name: Retained source identity contract
+        run: python -m unittest discover -s tests -p test_import_contract.py -v
+      - name: Retained Windows file workflow contracts
+        run: python -m unittest discover -s tests -p test_v2_windows_nvda_file_workflows.py -v

@@ -508,7 +508,7 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertTrue(games[1].block_id.endswith("-2"))
 
 
-    def test_invalid_explicit_pgn_drops_internal_slot_and_preserves_following_readable_text(self) -> None:
+    def test_invalid_explicit_pgn_preserves_source_and_following_readable_text(self) -> None:
         source = """<html><body><pre>{PGN 1}
 [Event "Broken"]
 [White "White"]
@@ -522,7 +522,8 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertFalse(any(isinstance(block, Game) for block in result.document.blocks))
         self.assertEqual(
             [block.text for block in result.document.blocks if isinstance(block, Paragraph)],
-            ["Readable after broken game."],
+            ['[Event "Broken"]\n[White "White"]\n[Black "Black"]\n[Result "*"]\n\n1. e4 e5 2. ThisIsNotAMove *',
+             "Readable after broken game."],
         )
         self.assertTrue(
             any(
@@ -685,10 +686,10 @@ class BookHtmlInlineImageOrderTests(unittest.TestCase):
         self.assertEqual(games[0].source_anchor, "pgn:2")
         self.assertEqual(
             [block.kind for block in result.document.blocks],
-            ["Game", "Paragraph"],
+            ["Paragraph", "Game", "Paragraph"],
         )
         self.assertEqual(
-            next(block.text for block in result.document.blocks if isinstance(block, Paragraph)),
+            result.document.blocks[-1].text,
             "After.",
         )
 
