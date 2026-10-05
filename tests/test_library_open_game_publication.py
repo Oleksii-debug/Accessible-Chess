@@ -256,6 +256,22 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, "pgn")
         self.assertIsNone(self.app._pending_shell_publication)
 
+    def test_library_browser_commands_fail_closed_while_modal_owns_focus(self) -> None:
+        _prior_session, _prior_pgn, prior_focus = self._prior_library_state()
+        before = self.app.library.projection.snapshot()
+        self.app.shell.open_dialog(
+            "library-test-dialog",
+            opener_focus_id=prior_focus,
+            initial_focus_id="library-dialog-confirm",
+        )
+
+        rejected = self.app.browser_command("library", "library.search", {})
+
+        self.assertEqual(rejected["kind"], "error")
+        self.assertEqual(self.app.library.projection.snapshot(), before)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        self.assertEqual(self.app.shell.active_dialog_id, "library-test-dialog")
+
     def test_committed_library_open_rejects_stale_library_surface_commands(self) -> None:
         _prior_session, _prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("route-fence.pgn", "Replacement")
