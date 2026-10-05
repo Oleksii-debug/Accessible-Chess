@@ -269,11 +269,14 @@ class Version2Application:
             raise ValueError("stale shell publication acknowledgement")
         if pending[0] != token:
             raise ValueError("stale shell publication acknowledgement")
-        self._pending_shell_publication = None
         publication_restore = self._pending_shell_publication_restore
-        self._pending_shell_publication_restore = None
         if commit:
+            # Do not forget the exact pending transaction until the shell has
+            # actually released its publication hold. A transient owner/host
+            # failure must remain retryable with the same acknowledgement token.
             self.shell._end_publication_hold()
+            self._pending_shell_publication = None
+            self._pending_shell_publication_restore = None
             self._last_shell_publication_resolution = (token, True)
             return {
                 "kind": "presentation-commit",
@@ -290,6 +293,10 @@ class Version2Application:
             prior_training_workspace,
             prior_training,
         ) = pending
+        # Keep pending + domain restore authority live until every rollback
+        # operation succeeds. If an internal restoration seam fails, the browser
+        # can replay the same token instead of being stranded with a lost
+        # transaction and an active publication hold.
         self.shell._restore_presentation_state(shell_state)
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
@@ -306,6 +313,8 @@ class Version2Application:
             self.pgn_board_active = prior_pgn_board_active
             self._pgn_browser_lease_required = prior_pgn_browser_lease_required
         self.shell._end_publication_hold()
+        self._pending_shell_publication = None
+        self._pending_shell_publication_restore = None
         self._last_shell_publication_resolution = (token, False)
         return {
             "kind": "presentation-rollback",
