@@ -7,6 +7,7 @@ on:
       - '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml'
       - '.github/workflows/keybindings-current-apex-dom-native.yml'
       - '.github/workflows/webview-keymap-authority.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - '.github/workflows/d01-teacher-classroom-webview.yml'
       - '.github/workflows/book-html-epub-pgn-collections.yml'
       - 'acs/keybindings.py'
@@ -98,6 +99,7 @@ jobs:
             '.github/workflows/book-html-epub-pgn-collections.yml' \
             '.github/workflows/current-product-accessibility-formats-convergence.yml' \
             '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
             '.github/workflows/d01-teacher-classroom-webview.yml' \
             '.github/workflows/keybindings-current-apex-dom-native.yml' \
             '.github/workflows/webview-keymap-authority.yml' \
