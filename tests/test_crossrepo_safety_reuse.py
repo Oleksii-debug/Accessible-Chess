@@ -136,5 +136,85 @@ class CrossRepoSafetyReuseTests(unittest.TestCase):
         self.assertTrue(asyncio.run(scenario()))
 
 
+from acs.agent_resource_budget import (
+    AgentResourceBudget,
+    AgentResourceUsage,
+    evaluate_agent_resource_admission,
+    narrow_agent_budget,
+)
+from acs.agent_verification import (
+    AgentArtifactRef,
+    AgentObservation,
+    AgentObservationStatus,
+    AgentVerification,
+    AgentVerificationStatus,
+)
+
+
+class AutopilotContractReuseTests(unittest.TestCase):
+    def test_child_budget_can_only_narrow_owner_authority(self):
+        owner = AgentResourceBudget(
+            max_model_calls=100,
+            max_runtime_seconds=3600,
+            max_cost_usd_micros=5_000_000,
+        )
+        plan = AgentResourceBudget(
+            max_model_calls=10,
+            max_runtime_seconds=7200,
+            max_cost_usd_micros=2_000_000,
+        )
+        effective = narrow_agent_budget(owner, plan)
+        self.assertEqual(effective.max_model_calls, 10)
+        self.assertEqual(effective.max_runtime_seconds, 3600)
+        self.assertEqual(effective.max_cost_usd_micros, 2_000_000)
+
+    def test_resource_admission_fails_closed_at_effective_ceiling(self):
+        decision = evaluate_agent_resource_admission(
+            owner_budget=AgentResourceBudget(100, 1000, 1_000_000),
+            plan_budget=AgentResourceBudget(10, 500, 500_000),
+            current_usage=AgentResourceUsage(9, 100, 100_000),
+            requested=AgentResourceUsage(2, 1, 1),
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "model_call_budget_exceeded")
+
+    def test_observation_is_not_verification(self):
+        observation = AgentObservation(
+            observation_id="obs-1",
+            invocation_id="inv-1",
+            status=AgentObservationStatus.OK,
+            summary="Vision candidate found",
+            data={"position_id": "candidate-p1"},
+        )
+        self.assertEqual(observation.status, AgentObservationStatus.OK)
+        verification = AgentVerification(
+            verification_id="ver-1",
+            invocation_id="inv-1",
+            observation_id="obs-1",
+            status=AgentVerificationStatus.AMBIGUOUS,
+            reason_code="canonical_disagreement",
+        )
+        self.assertEqual(verification.status, AgentVerificationStatus.AMBIGUOUS)
+
+    def test_artifact_requires_real_lowercase_sha256(self):
+        with self.assertRaises(ValueError):
+            AgentArtifactRef(
+                artifact_id="artifact-1",
+                kind="media-frame",
+                uri="file:///frame.png",
+                sha256="A" * 64,
+            )
+
+    def test_verified_result_requires_observation_identity(self):
+        with self.assertRaises(ValueError):
+            AgentVerification(
+                verification_id="ver-1",
+                invocation_id="inv-1",
+                observation_id=None,
+                status=AgentVerificationStatus.VERIFIED,
+                reason_code="verified",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
