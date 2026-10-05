@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.pgn_document import PgnDocumentError, PgnDocumentErrorCode, PgnDocumentSession
 from acs.pgn_save_snapshot import (
@@ -12,6 +13,7 @@ from acs.pgn_save_snapshot import (
     expected_pgn_destination_sha256,
     publish_pgn_save_snapshot,
 )
+from acs.pgn_service import save_pgn_atomic as canonical_save_pgn_atomic
 
 
 DOCUMENT = '''[Event "Snapshot Base"]
@@ -120,6 +122,31 @@ class PgnSaveSnapshotTests(unittest.TestCase):
             publish_pgn_save_snapshot(snapshot, path=target)
         self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
         self.assertFalse(target.exists())
+
+    def test_worker_writer_receives_private_copy_not_public_snapshot_graph(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "private-copy.pgn"
+
+        def writer(path, games, *, overwrite=False, expected_sha256=None):
+            self.assertIsNot(games, snapshot.games)
+            # Mutating the caller-retained public snapshot after the validation
+            # point must not affect the graph being consumed by the writer.
+            snapshot.games[0].tags["Event"] = "Late Caller Mutation"
+            return canonical_save_pgn_atomic(
+                path,
+                games,
+                overwrite=overwrite,
+                expected_sha256=expected_sha256,
+            )
+
+        with patch("acs.pgn_save_snapshot.save_pgn_atomic", side_effect=writer):
+            publication = publish_pgn_save_snapshot(snapshot, path=target)
+        commit_pgn_save_publication(session, publication)
+
+        text = target.read_text(encoding="utf-8")
+        self.assertIn("Snapshot Base", text)
+        self.assertNotIn("Late Caller Mutation", text)
 
     def test_existing_save_as_target_requires_worker_computed_generation(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
