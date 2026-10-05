@@ -72,7 +72,7 @@ def _write_checksums(root: Path) -> None:
     (root / CHECKSUMS_NAME).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def _minimal_windows_pe(*, machine: int = 0x8664) -> bytes:
+def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> bytes:
     """Return a structurally valid minimal PE32+ image for package fixtures."""
     data = bytearray(512)
     data[0:2] = b"MZ"
@@ -86,6 +86,11 @@ def _minimal_windows_pe(*, machine: int = 0x8664) -> bytes:
     data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
     optional = coff + 20
     data[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    if managed:
+        data[optional + 108:optional + 112] = (16).to_bytes(4, "little")
+        clr_directory = optional + 112 + (14 * 8)
+        data[clr_directory:clr_directory + 4] = (0x2000).to_bytes(4, "little")
+        data[clr_directory + 4:clr_directory + 8] = (0x48).to_bytes(4, "little")
     return bytes(data)
 
 
@@ -99,7 +104,11 @@ def _make_tree(root: Path) -> None:
     for relative in preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
         runtime = root.joinpath(*relative.split("/"))
         runtime.parent.mkdir(parents=True, exist_ok=True)
-        runtime.write_bytes(_minimal_windows_pe())
+        runtime.write_bytes(
+            _minimal_windows_pe(
+                managed=relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
+            )
+        )
 
     web = product / "web"
     web.mkdir()
