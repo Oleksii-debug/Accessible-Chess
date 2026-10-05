@@ -13,7 +13,9 @@ from tests.test_version2_package_preflight import (
     _make_tree,
     _minimal_windows_pe,
     _validate_tree,
+    _validate_zip,
     _write_checksums,
+    _zip_tree,
 )
 
 
@@ -104,6 +106,21 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
                     "desktop runtime",
                 ):
                     _validate_tree(root)
+
+    def test_zip_readback_rejects_missing_desktop_startup_runtime(self):
+        relative = "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = self._package(td)
+            root.joinpath(*relative.split("/")).unlink()
+            _write_checksums(root)
+            archive = base / "missing-webview2-runtime.zip"
+            _zip_tree(root, archive)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "desktop runtime",
+            ):
+                _validate_zip(archive)
 
     def test_preflight_rejects_non_windows_product_executable(self):
         with tempfile.TemporaryDirectory() as td:
