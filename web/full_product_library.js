@@ -136,7 +136,9 @@
     ["result", "select"],
     ["source_id", "number"],
     ["source_name", "text"],
-    ["limit", "select"]
+    ["limit", "select"],
+    ["date_from", "text"],
+    ["date_to", "text"]
   ];
   const LIBRARY_ACTIONS = [
     "library.previous_page",
@@ -269,6 +271,9 @@
     }
     if (!target && allowEmpty) return target;
     const allowed = new Set(["library-search-player", "library-import-file", "library-import-cancel"]);
+    snapshot.filters.forEach(function (filter) {
+      allowed.add("library-search-" + filter.id);
+    });
     snapshot.rows.forEach(function (row) {
       allowed.add(row.dom_id);
       if (row.export_dom_id) allowed.add(row.export_dom_id);
@@ -327,7 +332,10 @@
     });
     requireImportSnapshot(snapshot.import);
 
-    if (!Array.isArray(snapshot.filters) || snapshot.filters.length !== LIBRARY_FILTERS.length) {
+    // Accept the established eight-field snapshot as well as its date-filter
+    // successor; both retain exact ordered field validation.
+    if (!Array.isArray(snapshot.filters) ||
+        (snapshot.filters.length !== 8 && snapshot.filters.length !== LIBRARY_FILTERS.length)) {
       throw new TypeError("Library filters are invalid");
     }
     snapshot.filters.forEach(requireLibraryFilter);
@@ -441,7 +449,7 @@
 
   function focusRequestedOption(root, focusTarget) {
     if (!focusTarget) return;
-    if (focusTarget === "library-search-player" ||
+    if (LIBRARY_FILTERS.some(function (filter) { return focusTarget === "library-search-" + filter[0]; }) ||
         focusTarget === "library-import-file" ||
         focusTarget === "library-import-cancel" ||
         (focusTarget.indexOf("library-game-") === 0 && focusTarget.endsWith("-export"))) {

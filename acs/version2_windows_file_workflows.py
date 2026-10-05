@@ -67,6 +67,9 @@ class FileWorkflowEvent:
     game_count: int = 0
     warning_count: int = 0
     error_code: str = ""
+    source_bytes_read: int = 0
+    source_total_bytes: int = 0
+    source_parsing: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, FileWorkflowEventKind):
@@ -76,7 +79,9 @@ class FileWorkflowEvent:
                 raise TypeError(f"{name} must be text")
         if not self.action_id:
             raise ValueError("file workflow action id must not be empty")
-        for name in ("processed_games", "total_games", "game_count", "warning_count"):
+        if type(self.source_parsing) is not bool:
+            raise TypeError("source_parsing must be a boolean")
+        for name in ("processed_games", "total_games", "game_count", "warning_count", "source_bytes_read", "source_total_bytes"):
             value = getattr(self, name)
             if type(value) is not int:
                 raise TypeError(f"{name} must be an integer")
@@ -84,6 +89,8 @@ class FileWorkflowEvent:
                 raise ValueError(f"{name} must be non-negative")
         if self.total_games and self.processed_games > self.total_games:
             raise ValueError("processed_games must not exceed total_games")
+        if self.source_bytes_read > self.source_total_bytes:
+            raise ValueError("source_bytes_read must not exceed source_total_bytes")
 
 
 @dataclass(frozen=True, slots=True)

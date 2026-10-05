@@ -27,6 +27,8 @@ _LABELS = {
         "filters": "Фільтри пошуку",
         "results": "Результати пошуку",
         "player": "Гравець",
+        "date_from": "Дата від (РРРР.ММ.ДД)",
+        "date_to": "Дата до (РРРР.ММ.ДД)",
         "event": "Турнір або подія",
         "eco": "ECO",
         "opening": "Дебют",
@@ -53,6 +55,8 @@ _LABELS = {
         "filters": "Search filters",
         "results": "Search results",
         "player": "Player",
+        "date_from": "Date from (YYYY.MM.DD)",
+        "date_to": "Date to (YYYY.MM.DD)",
         "event": "Event",
         "eco": "ECO",
         "opening": "Opening",
@@ -84,6 +88,7 @@ _IMPORT_LABELS = {
         "cancel": "Скасувати імпорт",
         "idle": "Імпорт не виконується.",
         "started": "Імпорт розпочато.",
+        "reading": "Читання PGN: {read} з {total} байтів. Перевірено партій: {games}. Запис до бібліотеки ще не розпочато.",
         "running": "Оброблено партій: {processed} з {total}.",
         "cancelling": "Скасування імпорту…",
         "completed": "Імпортовано партій: {count}. Попереджень: {warnings}.",
@@ -98,6 +103,7 @@ _IMPORT_LABELS = {
         "cancel": "Cancel import",
         "idle": "No import is running.",
         "started": "Import started.",
+        "reading": "Reading PGN: {read} of {total} bytes. Validated games: {games}. Library publication has not started.",
         "running": "Processed {processed} of {total} games.",
         "cancelling": "Cancelling import…",
         "completed": "Imported {count} games. Warnings: {warnings}.",
@@ -167,6 +173,7 @@ class LibraryImportWebViewProjection:
         self._warning_count = 0
         self._attempt_id: int | None = None
         self._message = ""
+        self._source_reading: tuple[int, int, int] | None = None
 
     @property
     def phase(self) -> LibraryImportPhase:
@@ -181,6 +188,9 @@ class LibraryImportWebViewProjection:
             return labels["idle"]
         if self._phase is LibraryImportPhase.RUNNING:
             if self._total_games == 0:
+                if self._source_reading is not None:
+                    read, total, games = self._source_reading
+                    return labels["reading"].format(read=read, total=total, games=games)
                 return labels["started"]
             return labels["running"].format(
                 processed=self._processed_games,
@@ -287,7 +297,26 @@ class LibraryImportWebViewProjection:
         self._processed_games = self._total_games = self._warning_count = 0
         self._attempt_id = None
         self._message = ""
+        self._source_reading = None
         return self._render(announce=True, focus_target="library-import-cancel")
+
+    def source_reading(self, bytes_read: int, total_bytes: int, accepted_games: int) -> LibraryWebViewEvent:
+        """Show bounded D06 parsing counts without inventing a D07 attempt/result."""
+        if self._phase is not LibraryImportPhase.RUNNING or self._total_games:
+            raise RuntimeError("source parsing is not active")
+        for value in (bytes_read, total_bytes, accepted_games):
+            if type(value) is not int or not 0 <= value <= _JS_MAX_SAFE_INTEGER:
+                raise ValueError("source progress must use browser-safe non-negative integers")
+        if bytes_read > total_bytes:
+            raise ValueError("source bytes exceed total")
+        if self._source_reading is not None:
+            # Canonical encoding fallback can restart the same source scan.
+            # Display its current pass rather than inventing monotonic counts.
+            if total_bytes != self._source_reading[1]:
+                raise ValueError("source total changed")
+        first = self._source_reading is None
+        self._source_reading = (bytes_read, total_bytes, accepted_games)
+        return self._render(announce=first)
 
     def host_cancelling(self) -> LibraryWebViewEvent:
         """Observe a native host cancel without issuing another cancel command."""
@@ -453,6 +482,8 @@ class LibraryWebViewProjection:
                     for value in (25, 50, 100, 200)
                 ),
             },
+            {"id": "date_from", "kind": "text", "label": labels["date_from"], "value": q.date_from or ""},
+            {"id": "date_to", "kind": "text", "label": labels["date_to"], "value": q.date_to or ""},
         )
 
     def _row(self, row: object, *, position: int) -> dict[str, object]:

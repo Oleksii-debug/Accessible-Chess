@@ -1710,6 +1710,9 @@ class Version2Application:
                 if event.total_games and ui.snapshot()["total_games"] == 0: ui.begin(event.total_games)
             elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING and ui.phase in active:
                 rendered = ui.host_cancelling()
+            elif (event.kind is FileWorkflowEventKind.IMPORT_PROGRESS and event.source_parsing
+                  and ui.phase is LibraryImportPhase.RUNNING and ui.snapshot()["total_games"] == 0):
+                rendered = ui.source_reading(event.source_bytes_read, event.source_total_bytes, event.processed_games)
             elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
                 rendered = ui.empty()
             elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLED and ui.phase in active:

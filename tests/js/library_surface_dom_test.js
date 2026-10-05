@@ -521,7 +521,29 @@ check(
   "malformed Library filter partially replaced the surface"
 );
 
-runNavigationContract().then(function () {
+const dateCalls = [];
+const dateRoot = new FakeElement("div");
+const datedSnapshot = {
+  ...snapshot,
+  filters: libraryFilters().concat([
+    { id: "date_from", kind: "text", label: "Date from (YYYY.MM.DD)", value: "2026.01.01" },
+    { id: "date_to", kind: "text", label: "Date to (YYYY.MM.DD)", value: "2026.12.31" }
+  ])
+};
+window.AccessibleChessLibrarySurface.render(dateRoot, datedSnapshot,
+  (command, payload) => { dateCalls.push([command, payload]); return null; }, announce,
+  "library-search-date_from");
+const fromDate = dateRoot.querySelector("#library-search-date_from");
+const toDate = dateRoot.querySelector("#library-search-date_to");
+check(fromDate && toDate, "date filters did not render");
+check(document.activeElement === fromDate, "date filter focus was not restored");
+check(fromDate.value === "2026.01.01" && toDate.value === "2026.12.31", "date filter values changed");
+fromDate.parentNode.parentNode.listeners.submit({ preventDefault() {} });
+Promise.resolve().then(function () {
+  check(dateCalls.length === 1 && dateCalls[0][0] === "library.search", "date search did not dispatch");
+  check(dateCalls[0][1].date_from === "2026.01.01" && dateCalls[0][1].date_to === "2026.12.31", "date bounds lost on submit");
+  return runNavigationContract();
+}).then(function () {
   console.log("Library partial/full snapshot and remappable result navigation DOM contract PASS");
 }).catch(function (error) {
   console.error(error);
