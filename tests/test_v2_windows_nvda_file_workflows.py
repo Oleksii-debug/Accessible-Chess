@@ -382,6 +382,32 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             reopened = PgnDocumentSession.open(destination)
             self.assertEqual(reopened.workspace.current_game().tags["Event"], "Saved As")
 
+    def test_save_on_recovered_legacy_document_routes_to_save_as_and_preserves_original(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "legacy-source.pgn"
+            destination = Path(tmp) / "recovered-utf8.pgn"
+            original = (
+                '[Event "Русская шахматная книга"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 *\n'
+            ).encode("cp1251")
+            source.write_bytes(original)
+            dialogs = _Dialogs()
+            dialogs.save_path = destination
+            controller, _, session_box, _ = self._controller(dialogs)
+            session_box["value"] = PgnDocumentSession.open(source)
+            self.assertFalse(session_box["value"].view().source_overwrite_safe)
+
+            result = controller("pgn.save", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVED_AS)
+            self.assertEqual(dialogs.save_calls, 1)
+            self.assertEqual(dialogs.suggested, source.name)
+            self.assertEqual(source.read_bytes(), original)
+            reopened = PgnDocumentSession.open(destination)
+            self.assertTrue(reopened.view().source_overwrite_safe)
+            self.assertFalse(reopened.view().global_warnings)
+
     def test_save_on_new_document_routes_to_native_save_as(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "new-game.pgn"
