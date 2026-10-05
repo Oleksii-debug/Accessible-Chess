@@ -111,6 +111,42 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
         )
         return controller, dialogs, poster, events, session_box, publication_threads
 
+    def test_unsaved_confirmation_contains_lookup_abort(self) -> None:
+        class DialogLookupAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-confirmation-lookup.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous = PgnDocumentSession.from_text(PGN_TEXT)
+            previous.edit_tag("Event", "Dirty previous")
+            controller, dialogs, poster, events, session_box, publications = self._controller(
+                source,
+                previous=previous,
+            )
+            original_getattribute = _Dialogs.__getattribute__
+
+            def abort_confirmation_lookup(instance, name):
+                if name == "confirm_discard_unsaved_pgn":
+                    raise DialogLookupAbort("dialog provider aborted attribute lookup")
+                return original_getattribute(instance, name)
+
+            with mock.patch.object(
+                _Dialogs,
+                "__getattribute__",
+                new=abort_confirmation_lookup,
+            ):
+                result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "unsaved_confirmation_failed")
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(dialogs.open_calls, 0)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
     def test_unsaved_confirmation_rejects_active_truthiness(self) -> None:
         class ActiveDecision:
             def __bool__(self):

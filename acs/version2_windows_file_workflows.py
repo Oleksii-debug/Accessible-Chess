@@ -457,7 +457,18 @@ class Version2WindowsFileActionDelegate:
             ), previous_focus, None, None
         if current is not None:
             if current_dirty:
-                confirmation = getattr(self._dialogs, "confirm_discard_unsaved_pgn", None)
+                try:
+                    confirmation = getattr(
+                        self._dialogs,
+                        "confirm_discard_unsaved_pgn",
+                        None,
+                    )
+                except BaseException:
+                    return None, self._failed(
+                        "pgn.open",
+                        "unsaved_confirmation_failed",
+                        focus_target=previous_focus,
+                    ), previous_focus, current, current_revision
                 if not callable(confirmation):
                     return None, self._failed(
                         "pgn.open",
