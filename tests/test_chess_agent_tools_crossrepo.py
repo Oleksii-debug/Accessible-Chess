@@ -6,6 +6,7 @@ import unittest
 from acs.acsdb import AcsDatabase
 from acs.agent_tools import ToolCall, ToolExecutor
 from acs.analysis_service import AnalysisService
+from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry, MediaAgentBridge
 from acs.chesscore import Board
 from acs.media_foundation import (
@@ -55,6 +56,38 @@ class FakePlayback:
 
 
 class ChessAgentToolsCrossRepoTests(unittest.TestCase):
+    def board_commands(self):
+        board = self.board
+        legal = tuple(
+            MoveView(
+                move.frm,
+                move.to,
+                board.san(move),
+                bool(board.board[move.to]) or move.en_passant,
+            )
+            for move in board.legal_moves()
+        )
+        attacks = {}
+        for target in range(64):
+            origins = tuple(board.attackers_of(target))
+            if origins:
+                attacks[target] = origins
+        last = board.last_move
+        last_view = (
+            None
+            if last is None
+            else MoveView(last.frm, last.to)
+        )
+        return BoardCommandService(
+            BoardSnapshot(
+                tuple(board.board),
+                board.turn,
+                legal,
+                attacks,
+                last_view,
+            )
+        )
+
     def setUp(self):
         self.board = Board()
         self.database = AcsDatabase()
@@ -87,6 +120,7 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
         ChessAgentToolRegistry(
             executor=self.executor,
             board_provider=lambda: self.board,
+            board_commands_provider=self.board_commands,
             analysis_service=self.analysis,
             search_service=self.search,
             media=self.media,
@@ -120,6 +154,41 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
         legal = self.execute("board.legal_moves")
         self.assertTrue(legal.ok)
         self.assertIn("e4", legal.output["moves"])
+
+        material = self.execute("board.material")
+        self.assertTrue(material.ok)
+        self.assertEqual(material.output["whitePoints"], 39)
+        self.assertEqual(material.output["blackPoints"], 39)
+        self.assertEqual(material.output["balance"], 0)
+
+    def test_board_semantics_do_not_fall_back_to_raw_board_provider(self):
+        executor = ToolExecutor()
+
+        def forbidden_board():
+            raise AssertionError("raw Board provider must not service board semantic tools")
+
+        ChessAgentToolRegistry(
+            executor=executor,
+            board_provider=forbidden_board,
+            board_commands_provider=self.board_commands,
+        ).register_all()
+
+        for tool_id, arguments in (
+            ("board.square", {"square": "e2"}),
+            ("board.legal_moves", {}),
+            ("board.material", {}),
+        ):
+            with self.subTest(tool_id=tool_id):
+                result = asyncio.run(
+                    executor.execute(
+                        ToolCall(
+                            call_id=f"authority-{tool_id}",
+                            tool_id=tool_id,
+                            arguments=arguments,
+                        )
+                    )
+                )
+                self.assertTrue(result.ok, result.error)
 
     def test_engine_tool_uses_existing_analysis_service(self):
         result = self.execute("engine.analyze", {"multipv": 1, "depth": 12})
@@ -161,6 +230,7 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
                 "board.current",
                 "board.square",
                 "board.legal_moves",
+                "board.material",
                 "engine.analyze",
                 "library.search",
                 "media.status",
