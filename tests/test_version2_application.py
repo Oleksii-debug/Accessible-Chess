@@ -247,15 +247,19 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(events[-1]["kind"], "error")
         message = events[-1]["payload"]["message"]
         self.assertIn("Файл уже записано", message)
-        self.assertIn("Перевідкрийте PGN", message)
-        self.assertIn("перед наступним збереженням", message)
+        self.assertIn("Не повторюйте збереження навмання", message)
+        self.assertIn("не закривайте і не перевідкривайте документ", message)
+        self.assertIn("копіюванням або експортом вибраного PGN", message)
+        self.assertIn("перевірте його перед наступним збереженням", message)
         self.assertNotIn(str(self.root), message)
 
         self.app.shell.set_language(UILanguage.EN)
         english = self.app._native_file_error_message(event)
         self.assertIn("file was written", english)
-        self.assertIn("Reopen the PGN", english)
-        self.assertIn("before saving again", english)
+        self.assertIn("Do not retry saving blindly", english)
+        self.assertIn("do not close or reopen the document", english)
+        self.assertIn("copying or exporting the selected PGN", english)
+        self.assertIn("verify it before saving again", english)
         self.assertNotIn(str(self.root), english)
 
     def test_unverified_pgn_publication_error_warns_against_blind_retry(self):
