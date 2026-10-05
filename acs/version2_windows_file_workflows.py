@@ -257,6 +257,7 @@ class Version2WindowsFileActionDelegate:
         next_delegate: Callable[[str, Mapping[str, object]], Any],
         current_focus_provider: Callable[[], str] | None = None,
         post_to_ui: Callable[[Callable[[], None]], Any] | None = None,
+        owner_async_event_sink: Callable[[FileWorkflowEvent], Any] | None = None,
     ) -> None:
         for method in ("open_pgn", "save_pgn_as", "select_library_import"):
             if not callable(getattr(dialogs, method, None)):
@@ -274,6 +275,8 @@ class Version2WindowsFileActionDelegate:
             raise TypeError("current_focus_provider must be callable")
         if post_to_ui is not None and not callable(post_to_ui):
             raise TypeError("post_to_ui must be callable")
+        if owner_async_event_sink is not None and not callable(owner_async_event_sink):
+            raise TypeError("owner_async_event_sink must be callable")
         self._dialogs = dialogs
         self._get_pgn_session = get_pgn_session
         self._set_pgn_session = set_pgn_session
@@ -282,6 +285,7 @@ class Version2WindowsFileActionDelegate:
         self._next_delegate = next_delegate
         self._focus_provider = current_focus_provider or (lambda: "")
         self._post_to_ui = post_to_ui
+        self._owner_async_event_sink = owner_async_event_sink or event_sink
         self._lock = threading.RLock()
         self._worker: threading.Thread | None = None
         self._worker_started = False
@@ -313,6 +317,18 @@ class Version2WindowsFileActionDelegate:
             self._event_sink(event)
         except Exception:
             _LOG.warning("Version 2 file workflow event sink failed", exc_info=True)
+        return event
+
+    def _emit_owner_async(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        """Publish one async terminal already executing on the owner UI thread."""
+
+        try:
+            self._owner_async_event_sink(event)
+        except Exception:
+            _LOG.warning(
+                "Version 2 owner asynchronous file event sink failed",
+                exc_info=True,
+            )
         return event
 
     @staticmethod
@@ -610,7 +626,7 @@ class Version2WindowsFileActionDelegate:
             ):
                 return
             self._clear_worker_locked()
-        self._emit(terminal)
+        self._emit_owner_async(terminal)
 
     def _cancel_pgn_open(self) -> FileWorkflowEvent:
         with self._lock:
