@@ -637,12 +637,13 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
         target = self.root / "active-live-warning.pgn"
         publication = publish_pgn_save_snapshot(snapshot, path=target)
-        session._global_warnings = (ActiveText("newer warning"),)
+        active_warning = ActiveText("newer warning")
+        session._global_warnings = (active_warning,)
 
         with self.assertRaises(TypeError):
             commit_pgn_save_publication(session, publication)
 
-        self.assertEqual(session._global_warnings, (ActiveText("newer warning"),))
+        self.assertIs(session._global_warnings[0], active_warning)
         self.assertIsNone(session.source)
         self.assertTrue(session.dirty)
         self.assertTrue(target.exists())
