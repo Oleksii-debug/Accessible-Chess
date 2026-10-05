@@ -294,7 +294,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         routed = self.app.browser_command(
             "shell",
             "screen.training",
-            {"publication_protocol": "ack-v1"},
+            {"publication_protocol": "ack-v1", "request_id": 101},
         )
 
         self.assertEqual("route", routed["kind"])
@@ -347,7 +347,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         routed = self.app.browser_command(
             "shell",
             "screen.library",
-            {"publication_protocol": "ack-v1"},
+            {"publication_protocol": "ack-v1", "request_id": 102},
         )
         self.assertEqual("route", routed["kind"])
         token = routed["payload"]["publication_token"]
@@ -356,7 +356,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         blocked = self.app.browser_command(
             "shell",
             "screen.settings",
-            {"publication_protocol": "ack-v1"},
+            {"publication_protocol": "ack-v1", "request_id": 103},
         )
         self.assertEqual("error", blocked["kind"])
         self.assertEqual("library", self.app.shell.current_route.route_id)
@@ -430,7 +430,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         routed = self.app.browser_command(
             "shell",
             "screen.training",
-            {"publication_protocol": "ack-v1"},
+            {"publication_protocol": "ack-v1", "request_id": 203},
         )
         self.assertEqual("route", routed["kind"])
         self.assertIsNotNone(self.app._pending_shell_publication)
@@ -452,6 +452,38 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         self.assertIsNone(self.app.training_workspace)
         self.assertIsNone(self.app.training)
 
+    def test_acknowledged_route_start_replays_exact_request_without_second_transition(self):
+        self._open_exercise_book()
+        request = {"publication_protocol": "ack-v1", "request_id": 290}
+
+        routed = self.app.browser_command("shell", "screen.library", request)
+        self.assertEqual("route", routed["kind"])
+        token = routed["payload"]["publication_token"]
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+        replayed = self.app.browser_command("shell", "screen.library", request)
+        self.assertEqual(routed, replayed)
+        self.assertEqual(token, replayed["payload"]["publication_token"])
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        conflicting = self.app.browser_command(
+            "shell",
+            "screen.settings",
+            {"publication_protocol": "ack-v1", "request_id": 291},
+        )
+        self.assertEqual("error", conflicting["kind"])
+        self.assertEqual("library", self.app.shell.current_route.route_id)
+
+        committed = self.app.browser_command(
+            "shell",
+            "shell.presentation_commit",
+            {"token": token},
+        )
+        self.assertEqual("presentation-commit", committed["kind"])
+        self.assertFalse(self.app.shell._publication_hold_active)
+
+
     def test_invalid_publication_protocol_fails_before_route_or_training_staging(self):
         self._open_exercise_book()
         prior_route = self.app.shell.current_route.route_id
@@ -462,7 +494,7 @@ class Version2BookTrainingRouteRollbackTests(unittest.TestCase):
         rejected = self.app.browser_command(
             "shell",
             "screen.training",
-            {"publication_protocol": "future-v2"},
+            {"publication_protocol": "future-v2", "request_id": 301},
         )
 
         self.assertEqual("error", rejected["kind"])
