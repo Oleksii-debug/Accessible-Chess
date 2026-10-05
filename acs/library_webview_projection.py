@@ -12,7 +12,7 @@ from enum import Enum
 from hashlib import sha256
 from typing import Any
 
-from .full_product_presenters import LibraryPresenter, LibraryView, SurfaceStatus
+from .full_product_presenters import LibraryPresenter, LibraryRowView, LibraryView, SurfaceStatus
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .library_import_service import LibraryImportProgress, LibraryImportResult
 from .presentation_privacy import redact_local_paths
@@ -123,7 +123,7 @@ _JS_MAX_SAFE_INTEGER = (1 << 53) - 1
 def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError("library presentation text must be text")
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["local_path"])
@@ -516,24 +516,26 @@ class LibraryWebViewProjection:
         )
 
     def _row(self, row: object, *, position: int) -> dict[str, object]:
-        game_id = getattr(row, "game_id", None)
+        if type(row) is not LibraryRowView:
+            raise TypeError("library presenter row is invalid")
+        game_id = row.game_id
         if (
             type(game_id) is not int
             or game_id <= 0
             or game_id > _JS_MAX_SAFE_INTEGER
         ):
             raise ValueError("library row has invalid browser-safe game identity")
-        selected = getattr(row, "selected", None)
+        selected = row.selected
         if type(selected) is not bool:
             raise ValueError("library row has invalid selection state")
         label = _scrub_visible_text(
-            getattr(row, "label", ""), language=self._language, limit=520
+            row.label, language=self._language, limit=520
         )
         source = _scrub_visible_text(
-            getattr(row, "source_label", ""), language=self._language, limit=160
+            row.source_label, language=self._language, limit=160
         )
         result = _scrub_visible_text(
-            getattr(row, "result", ""), language=self._language, limit=32
+            row.result, language=self._language, limit=32
         )
         return {
             "dom_id": _dom_token(game_id),
@@ -556,8 +558,14 @@ class LibraryWebViewProjection:
         return labels["shown_many"].format(count=len(view.rows))
 
     def _snapshot_from_view(self, view: LibraryView) -> dict[str, object]:
-        if not isinstance(view, LibraryView):
+        if type(view) is not LibraryView:
             raise TypeError("library presenter returned invalid view")
+        if type(view.rows) is not tuple:
+            raise TypeError("library presenter rows must be a canonical tuple")
+        if type(view.status) is not SurfaceStatus:
+            raise TypeError("library presenter status is invalid")
+        if type(view.has_previous_page) is not bool or type(view.has_next_page) is not bool:
+            raise TypeError("library presenter page availability is invalid")
         labels = _LABELS[self._language]
         rows = tuple(self._row(row, position=index + 1) for index, row in enumerate(view.rows))
         selected = tuple(row for row in rows if row["selected"])
@@ -646,12 +654,12 @@ class LibraryWebViewProjection:
         previous = self._presenter._capture_presentation_state()
         try:
             return self._render_event(operation(), announce=announce)
-        except Exception:
+        except BaseException:
             self._presenter._restore_presentation_state(previous)
             raise
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
-        if not isinstance(query, GameSearchQuery):
+        if type(query) is not GameSearchQuery:
             raise TypeError("query must be GameSearchQuery")
         normalized = query.normalized()
         if normalized.after_game_id is not None:
@@ -663,7 +671,7 @@ class LibraryWebViewProjection:
                 lambda: self._presenter.search(normalized),
                 announce=True,
             )
-        except Exception:
+        except BaseException:
             self._query = previous_query
             raise
 
@@ -720,12 +728,14 @@ class LibraryWebViewProjection:
         return LibraryWebViewEvent("delegated", {"action": "library.open_game"})
 
     def set_language(self, language: UILanguage | str) -> LibraryWebViewEvent:
-        if isinstance(language, str):
+        if type(language) is str:
+            if len(language) > 16 or "\x00" in language:
+                raise ValueError("unsupported UI language")
             try:
                 language = UILanguage(language.strip().lower())
             except ValueError:
                 raise ValueError("unsupported UI language") from None
-        if not isinstance(language, UILanguage):
+        elif type(language) is not UILanguage:
             raise TypeError("language must be UILanguage")
 
         # A locale transition spans three cooperating presentation objects.
@@ -736,14 +746,15 @@ class LibraryWebViewProjection:
         # types are sealed at ingress, so restoring through their canonical
         # setters is a bounded local rollback rather than provider dispatch.
         previous_language = self._language
+        previous_presenter = self._presenter._capture_presentation_state()
         try:
             self._presenter.set_language(language)
             self._import.set_language(language)
             self._language = language
             view = self._presenter.view()
             return self._render_event(view, announce=False)
-        except Exception:
-            self._presenter.set_language(previous_language)
+        except BaseException:
+            self._presenter._restore_presentation_state(previous_presenter)
             self._import.set_language(previous_language)
             self._language = previous_language
             raise
@@ -751,12 +762,15 @@ class LibraryWebViewProjection:
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:
         try:
             return method()
-        except Exception as exc:
+        except BaseException as exc:
+            # Abort-class values are private control flow. Do not stringify them
+            # while producing the browser/NVDA terminal.
+            source: object = exc if isinstance(exc, Exception) else ""
             return LibraryWebViewEvent(
                 "error",
                 {
                     "message": _scrub_visible_text(
-                        concise_user_error(exc, language=self._language),
+                        concise_user_error(source, language=self._language),
                         language=self._language,
                         limit=500,
                     )
