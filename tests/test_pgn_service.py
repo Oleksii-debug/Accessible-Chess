@@ -243,6 +243,40 @@ class PgnFileServiceTests(unittest.TestCase):
                 save_pgn_atomic(path, games, pre_publish_check=object())
             self.assertFalse(parent.exists())
 
+    def test_publication_cas_workflow_qualifies_exact_absorbed_product_successor(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "pgn-conversion-prepublish-cancel.yml"
+        ).read_text(encoding="utf-8")
+        required = (
+            "PINNED_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
+            "PREDECESSOR_PGN_HEAD: ab2cb5b9e9872a5c53598cf82c9699fe02155f16",
+            'test "$live_product" = "$PINNED_PRODUCT_SHA"',
+            'git merge-base --is-ancestor "$PREDECESSOR_PGN_HEAD" "$live_product"',
+            'git merge-base --is-ancestor "$live_product" HEAD',
+            'test "$(git merge-base "$live_product" HEAD)" = "$live_product"',
+            "PGN_PUBLICATION_CAS_SUPERSEDED",
+            "PGN_PUBLICATION_CAS_PRODUCT_MOVED",
+            "'.github/workflows/pgn-conversion-prepublish-cancel.yml'",
+            "'acs/pgn_service.py'",
+            "'tests/test_pgn_service.py'",
+            "PGN_PUBLICATION_CAS_SCOPE=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, workflow)
+        self.assertNotIn("SOURCE_BASE_SHA:", workflow)
+        self.assertIn(
+            'test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion.py")"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion_windows.py")"',
+            workflow,
+        )
+
     def test_importer_reports_warning_and_blank_damage(self):
         with tempfile.TemporaryDirectory() as tmp:
             warning = Path(tmp) / "warning.pgn"
