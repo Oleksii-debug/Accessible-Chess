@@ -695,10 +695,26 @@ class LibraryWebViewProjection:
                 raise ValueError("unsupported UI language") from None
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
-        self._language = language
-        self._presenter.set_language(language)
-        self._import.set_language(language)
-        return self._render_event(self._presenter.view(), announce=False)
+
+        # A locale transition spans three cooperating presentation objects.
+        # Do not leave the browser, Library presenter, and import-status
+        # projection on different languages when the candidate view cannot be
+        # rendered (for example, because a stale/malformed row fails the
+        # browser-safe identity boundary).  The concrete presenter/projection
+        # types are sealed at ingress, so restoring through their canonical
+        # setters is a bounded local rollback rather than provider dispatch.
+        previous_language = self._language
+        try:
+            self._presenter.set_language(language)
+            self._import.set_language(language)
+            self._language = language
+            view = self._presenter.view()
+            return self._render_event(view, announce=False)
+        except Exception:
+            self._presenter.set_language(previous_language)
+            self._import.set_language(previous_language)
+            self._language = previous_language
+            raise
 
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:
         try:
