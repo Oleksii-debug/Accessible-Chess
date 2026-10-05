@@ -93,16 +93,42 @@ def _error(message: str, code: PgnDocumentErrorCode) -> PgnDocumentError:
     return PgnDocumentError(message, code=code)
 
 
-def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
-    values = dict(_STANDARD_TAGS)
-    if tags is not None:
-        supplied_tags = dict(tags)
-        if _POSITION_TAGS.intersection(supplied_tags):
+def _passive_new_game_tags(tags: Mapping[str, str] | None) -> dict[str, str]:
+    """Detach plain metadata without executing caller-defined mapping/text hooks."""
+
+    if tags is None:
+        return {}
+    if type(tags) is not dict:
+        raise _error(
+            "PGN new-game tags must be a built-in dictionary of text",
+            PgnDocumentErrorCode.INVALID_TAG,
+        )
+
+    supplied: dict[str, str] = {}
+    for name, value in tags.items():
+        if type(name) is not str or not name:
             raise _error(
-                "PGN start position must be created through the position workflow",
+                "PGN tag name must be non-empty text",
                 PgnDocumentErrorCode.INVALID_TAG,
             )
-        values.update(supplied_tags)
+        if type(value) is not str:
+            raise _error(
+                "PGN tag value must be text",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
+        supplied[name] = value
+    return supplied
+
+
+def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
+    values = dict(_STANDARD_TAGS)
+    supplied_tags = _passive_new_game_tags(tags)
+    if _POSITION_TAGS.intersection(supplied_tags):
+        raise _error(
+            "PGN start position must be created through the position workflow",
+            PgnDocumentErrorCode.INVALID_TAG,
+        )
+    values.update(supplied_tags)
     result = values.get("Result", "*")
     if result not in RESULTS:
         raise _error("game result is not a valid PGN result", PgnDocumentErrorCode.INVALID_RESULT)
@@ -190,18 +216,30 @@ class PgnDocumentSession:
         source_overwrite_safe: bool = True,
         saved_digest: str | None = None,
     ) -> None:
-        if not isinstance(workspace, PgnWorkspace):
-            raise TypeError("workspace must be PgnWorkspace")
-        if source is not None and not isinstance(source, SourceFingerprint):
-            raise TypeError("source must be SourceFingerprint or None")
-        if not isinstance(global_warnings, tuple) or any(
-            not isinstance(item, str) for item in global_warnings
+        if type(workspace) is not PgnWorkspace:
+            raise TypeError("workspace must be the canonical PgnWorkspace")
+        if source is not None:
+            if type(source) is not SourceFingerprint:
+                raise TypeError("source must be SourceFingerprint or None")
+            if (
+                type(source.path) is not str
+                or type(source.size) is not int
+                or type(source.sha256) is not str
+                or type(source.suffix) is not str
+            ):
+                raise TypeError("source fingerprint fields must be passive built-in scalars")
+        if type(global_warnings) is not tuple or any(
+            type(item) is not str for item in global_warnings
         ):
-            raise TypeError("global_warnings must be a tuple of text")
+            raise TypeError("global_warnings must be a built-in tuple of plain text")
+        if type(source_overwrite_safe) is not bool:
+            raise TypeError("source_overwrite_safe must be a boolean")
+        if saved_digest is not None and type(saved_digest) is not str:
+            raise TypeError("saved_digest must be plain text or None")
         self._workspace = workspace
         self._source = source
         self._global_warnings = global_warnings
-        self._source_overwrite_safe = bool(source_overwrite_safe)
+        self._source_overwrite_safe = source_overwrite_safe
         self._saved_digest = saved_digest
         self._document_revision = 0
 
@@ -329,8 +367,17 @@ class PgnDocumentSession:
         )
 
     def restore_context(self, context: PgnDocumentContext) -> PgnWorkspaceView:
-        if not isinstance(context, PgnDocumentContext):
-            raise TypeError("context must be PgnDocumentContext")
+        if type(context) is not PgnDocumentContext:
+            raise TypeError("context must be the canonical PgnDocumentContext")
+        if (
+            type(context.content_digest) is not str
+            or type(context.selected_game_index) is not int
+            or type(context.cursor) is not GameTreeCursor
+        ):
+            raise _error(
+                "saved PGN context is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
         if self._workspace.content_digest != context.content_digest:
             raise _error(
                 "PGN content changed; exact saved context is stale",
@@ -395,9 +442,9 @@ class PgnDocumentSession:
         return len(incoming)
 
     def edit_tag(self, name: object, value: object) -> PgnWorkspaceView:
-        if not isinstance(name, str) or not name:
+        if type(name) is not str or not name:
             raise _error("PGN tag name must be non-empty text", PgnDocumentErrorCode.INVALID_TAG)
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise _error("PGN tag value must be text", PgnDocumentErrorCode.INVALID_TAG)
         if name in _POSITION_TAGS:
             raise _error(
@@ -420,7 +467,7 @@ class PgnDocumentSession:
             raise _error("PGN tag is not representable", PgnDocumentErrorCode.INVALID_TAG) from exc
 
     def delete_tag(self, name: object) -> PgnWorkspaceView:
-        if not isinstance(name, str) or not name or name == "Result":
+        if type(name) is not str or not name or name == "Result":
             raise _error("PGN tag cannot be removed", PgnDocumentErrorCode.INVALID_TAG)
         if name in _POSITION_TAGS:
             raise _error(
@@ -437,7 +484,7 @@ class PgnDocumentSession:
         )
 
     def set_result(self, result: object) -> PgnWorkspaceView:
-        if not isinstance(result, str) or result not in RESULTS:
+        if type(result) is not str or result not in RESULTS:
             raise _error("game result is not a valid PGN result", PgnDocumentErrorCode.INVALID_RESULT)
         old = self._workspace.view()
         games = list(self._workspace.games())
