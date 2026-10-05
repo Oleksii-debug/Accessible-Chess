@@ -50,6 +50,7 @@ jobs:
           git cat-file -e "$BASE_SHA^{commit}"
           merge_base="$(git merge-base "$BASE_SHA" HEAD)"
           test "$merge_base" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
 
           mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
