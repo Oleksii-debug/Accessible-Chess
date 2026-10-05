@@ -51,8 +51,8 @@ _PGN_SAVE_ACTION_IDS = frozenset({"pgn.save", "pgn.save_as"})
 
 
 def _validate_async_file_event(event: FileWorkflowEvent) -> None:
-    if not isinstance(event, FileWorkflowEvent):
-        raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
+    if type(event) is not FileWorkflowEvent:
+        raise TypeError("UI event mailbox accepts exact FileWorkflowEvent only")
 
     # A terminal event is part of the accessibility truth boundary, not merely
     # a transport envelope.  Keep error semantics internally consistent before
