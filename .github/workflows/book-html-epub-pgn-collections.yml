@@ -10,8 +10,13 @@ on:
       - 'acs/pgn_roundtrip.py'
       - 'acs/bookdocument.py'
       - 'acs/bookreader.py'
+      - 'acs/book_library_import.py'
+      - 'acs/import_contract.py'
+      - 'acs/version2_windows_file_workflows.py'
       - 'acs/chesscore.py'
       - 'tests/test_book_html_pgn_loss_accounting.py'
+      - 'tests/test_pgn_board_start_authority.py'
+      - 'tests/test_book_library_import_journey.py'
       - 'tests/test_book_html_inline_image_order.py'
       - '.github/workflows/book-html-epub-pgn-collections.yml'
   workflow_dispatch:
@@ -37,3 +42,17 @@ jobs:
         run: python -m unittest discover -s tests -p test_v2_book_board_workflow.py -v
       - name: Retained canonical PGN roundtrip
         run: python -m unittest discover -s tests -p test_d06_pgn_roundtrip.py -v
+      - name: Canonical start position and Standard-only projection
+        run: python -m unittest discover -s tests -p test_pgn_board_start_authority.py -v
+      - name: Retained PGN semantic fidelity
+        run: python -m unittest discover -s tests -p test_v2_pgn_semantic_fidelity.py -v
+      - name: Book Library search export and native import journey
+        run: python -m unittest discover -s tests -p test_book_library_import_journey.py -v
+      - name: Retained atomic Library import
+        run: python -m unittest discover -s tests -p test_d07_library_import_service.py -v
+      - name: Retained Library export
+        run: python -m unittest discover -s tests -p test_d07_library_export_service.py -v
+      - name: Retained source identity contract
+        run: python -m unittest discover -s tests -p test_import_contract.py -v
+      - name: Retained Windows file workflow contracts
+        run: python -m unittest discover -s tests -p test_v2_windows_nvda_file_workflows.py -v

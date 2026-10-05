@@ -13,7 +13,7 @@ when those optional backends are not configured.
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, Protocol
+from typing import Callable, Iterable, Protocol
 import hashlib
 import os
 import stat
@@ -336,6 +336,83 @@ def fingerprint(path: str | Path, chunk_size: int = 1024 * 1024) -> SourceFinger
 def verify_source_unchanged(before: SourceFingerprint, path: str | Path) -> bool:
     after = fingerprint(path)
     return before.size == after.size and before.sha256 == after.sha256
+
+
+class SourceReadCancelledError(RuntimeError):
+    """Cooperative cancellation of a bounded read-only source snapshot."""
+
+
+def read_source_snapshot(
+    path: str | Path,
+    *,
+    max_bytes: int,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[SourceFingerprint, bytes]:
+    """Read bounded bytes with provenance from one stable, no-follow handle.
+
+    Book/container adapters need bytes rather than the PGN text transport. Reuse
+    the canonical source/path authority instead of reading an unrelated path
+    after computing its fingerprint. Two bounded passes over the held object
+    detect same-size in-place races as well as path replacement. Neither pass
+    writes the source. Cancellation is polled between finite read chunks.
+    """
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 64 * 1024 * 1024:
+        raise ValueError("source byte limit must be between 1 byte and 64 MiB")
+    if cancel_check is not None and not callable(cancel_check):
+        raise TypeError("cancel_check must be callable")
+
+    def poll() -> None:
+        if cancel_check is not None:
+            cancelled = cancel_check()
+            if type(cancelled) is not bool:
+                raise TypeError("cancel_check must return a boolean")
+            if cancelled:
+                raise SourceReadCancelledError("source read cancelled")
+
+    poll()
+    submitted = Path(path)
+    absolute, path_before = _validate_source_path(submitted)
+    if path_before.st_size > max_bytes:
+        raise ValueError("source exceeds the supported byte limit")
+    descriptor = _open_readonly_no_reparse(absolute)
+    try:
+        fd_before = os.fstat(descriptor)
+        if (not stat.S_ISREG(fd_before.st_mode)
+                or (fd_before.st_dev, fd_before.st_ino) != (path_before.st_dev, path_before.st_ino)):
+            raise ValueError("source changed before it could be opened safely")
+        if fd_before.st_size > max_bytes:
+            raise ValueError("source exceeds the supported byte limit")
+        chunks: list[bytes] = []
+        digests: list[str] = []
+        sizes: list[int] = []
+        for pass_index in range(2):
+            if pass_index:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                poll()
+                chunk = os.read(descriptor, min(1024 * 1024, max_bytes + 1 - total))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError("source exceeds the supported byte limit")
+                digest.update(chunk)
+                if not pass_index:
+                    chunks.append(chunk)
+            digests.append(digest.hexdigest())
+            sizes.append(total)
+        fd_after = os.fstat(descriptor)
+        if digests[0] != digests[1] or sizes[0] != sizes[1] or sizes[1] != fd_after.st_size:
+            raise ValueError("source changed while reading")
+        poll()
+        source = _publish_opened_fingerprint(
+            submitted, absolute, path_before, fd_before, fd_after, digests[1],
+        )
+        return source, b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 class UnsupportedChessBaseImporter:

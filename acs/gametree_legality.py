@@ -20,6 +20,7 @@ from .gametree_navigation import MoveAddress, ROOT_PATH, VariationPath, Variatio
 
 class GameTreeLegalityCode(str, Enum):
     INVALID_GAME = "invalid_game"
+    UNSUPPORTED_VARIANT = "unsupported_variant"
     INVALID_START_POSITION = "invalid_start_position"
     FEN_WITHOUT_SETUP = "fen_without_setup"
     MOVE_NUMBER_MISMATCH = "move_number_mismatch"
@@ -69,8 +70,31 @@ def _start_board(game: PgnGame) -> tuple[Board | None, list[LegalityIssue]]:
             )
         ]
 
+    # The structural GameTree may preserve arbitrary source metadata, but the
+    # canonical Board currently implements Standard chess only. A variant tag
+    # must not disappear at the projection boundary, even when its moves/FEN
+    # happen to look legal under Standard rules.
+    variant = game.tags.get("Variant")
+    if variant is not None and (
+        type(variant) is not str
+        or variant.strip().casefold() not in {"standard", "chess"}
+    ):
+        return None, [
+            LegalityIssue(
+                GameTreeLegalityCode.UNSUPPORTED_VARIANT,
+                "game variant is not supported by the canonical Standard board",
+            )
+        ]
+
     setup = game.tags.get("SetUp")
     fen = game.tags.get("FEN")
+    if setup is not None and (type(setup) is not str or setup not in {"0", "1"}):
+        return None, [
+            LegalityIssue(
+                GameTreeLegalityCode.INVALID_START_POSITION,
+                "SetUp must be 0 or 1",
+            )
+        ]
     if setup == "1":
         if not isinstance(fen, str) or not fen.strip():
             return None, [
@@ -90,12 +114,12 @@ def _start_board(game: PgnGame) -> tuple[Board | None, list[LegalityIssue]]:
             ]
 
     if fen is not None:
-        issues.append(
+        return None, [
             LegalityIssue(
                 GameTreeLegalityCode.FEN_WITHOUT_SETUP,
-                "FEN tag is preserved but not applied because SetUp is not 1",
+                "FEN tag requires SetUp=1; no alternate start position was substituted",
             )
-        )
+        ]
     try:
         return Board(Board.START), issues
     except Exception as exc:  # defensive: canonical START must always be valid
