@@ -689,7 +689,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     def mutate_during_material_build(document, target):
                         candidate = build_book_training_material(document, target)
                         if not drift:
-                            block = document.blocks[target]
+                            block = app.reader.document.blocks[target]
                             self.assertIsInstance(block, Exercise)
                             drift["index"] = target
                             drift["prompt"] = block.prompt

@@ -48,7 +48,7 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         ctrl_c_index = handler.index(ctrl_c_guard)
         selection_index = handler.index(selection_guard)
         binding_index = handler.index(binding_resolution)
-        prevent_default_index = handler.index("e.preventDefault();", binding_index)
+        prevent_default_index = handler.index("claimOwnedKey(e)", binding_index)
         execute_index = handler.index("executeAction(a.actionId)", prevent_default_index)
 
         self.assertNotIn("preventDefault", handler[:ctrl_c_index])

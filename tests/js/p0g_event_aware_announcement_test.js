@@ -61,8 +61,9 @@ assert(
   'direct board.current user feedback must carry a fresh event identity'
 );
 assert(
-  onBoardKey.includes('analysisViewingTemporaryPosition') &&
-    onBoardKey.includes('announceUserAction('),
+  executeAction.includes('analysisViewingTemporaryPosition') &&
+    executeAction.includes('announceUserAction(') &&
+    onBoardKey.includes('executeAction(a.actionId)'),
   'temporary-variation board action warning must carry a fresh event identity'
 );
 
