@@ -188,7 +188,7 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 ):
                     read_version2_release_receipt(output)
 
-    def test_receipt_write_fsyncs_and_rechecks_path_identity(self):
+    def test_receipt_write_fsyncs_and_rechecks_staging_identity(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
             receipt = _build(archive)
@@ -201,15 +201,19 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
 
             swapped = Path(td) / "swapped.json"
             with patch(
-                "acs.version2_release_receipt._same_file_snapshot",
+                "acs.version2_release_receipt._same_file_identity",
                 return_value=False,
             ):
                 with self.assertRaisesRegex(
                     Version2ReleaseReceiptError,
-                    "changed while being written",
+                    "staging file changed while being written",
                 ):
                     write_version2_release_receipt(swapped, receipt)
             self.assertFalse(swapped.exists())
+            self.assertEqual(
+                list(Path(td).glob(".swapped.json.receipt-*.tmp")),
+                [],
+            )
 
     def test_failed_receipt_write_discards_own_partial_file_and_retry_succeeds(self):
         with tempfile.TemporaryDirectory() as td:
@@ -231,7 +235,7 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             write_version2_release_receipt(output, receipt)
             self.assertEqual(read_version2_release_receipt(output), receipt)
 
-    def test_failed_receipt_cleanup_never_unlinks_unproven_identity(self):
+    def test_fsync_failure_never_creates_canonical_path_even_when_identity_is_unavailable(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
             receipt = _build(archive)
@@ -246,13 +250,17 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2ReleaseReceiptError,
-                    "cleanup could not be proven safe",
+                    "could not be written: OSError",
                 ):
                     write_version2_release_receipt(output, receipt)
 
-            self.assertTrue(output.exists())
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
 
-    def test_failed_receipt_create_without_identity_is_reported_and_not_unlinked(self):
+    def test_failed_staging_identity_read_never_creates_canonical_path(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
             receipt = _build(archive)
@@ -264,12 +272,69 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2ReleaseReceiptError,
-                    "cleanup could not be proven safe",
+                    "could not be written: OSError",
                 ):
                     write_version2_release_receipt(output, receipt)
 
-            self.assertTrue(output.exists())
-            self.assertEqual(output.stat().st_size, 0)
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+    def test_publication_identity_failure_never_unlinks_replacement_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_link = __import__("os").link
+
+            def link_then_replace(source, destination, **kwargs):
+                real_link(source, destination, **kwargs)
+                target = Path(destination)
+                target.unlink()
+                target.write_bytes(b"replacement-owned-by-another-writer")
+
+            with patch(
+                "acs.version2_release_receipt.os.link",
+                side_effect=link_then_replace,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed during atomic publication",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(
+                output.read_bytes(),
+                b"replacement-owned-by-another-writer",
+            )
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+    def test_hardlink_publication_failure_leaves_no_canonical_or_staging_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            with patch(
+                "acs.version2_release_receipt.os.link",
+                side_effect=OSError("hardlink unavailable"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "does not support safe atomic no-replace publication",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
 
     def test_readback_rejects_duplicate_unknown_wrong_authority_and_reformatting(self):
         with tempfile.TemporaryDirectory() as td:
