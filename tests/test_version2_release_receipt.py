@@ -281,6 +281,34 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             self.assertEqual(len(leftovers), 1)
             self.assertEqual(leftovers[0].read_bytes(), b"")
 
+    def test_rejected_own_canonical_link_is_removed_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            # The hard link is already created when the last publication
+            # snapshot comparison rejects the candidate.  That failed call must
+            # remove only its own canonical link so an exact retry is possible.
+            with patch(
+                "acs.version2_release_receipt._same_file_snapshot",
+                side_effect=(True, True, True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed during atomic publication",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
     def test_publication_identity_failure_never_unlinks_replacement_path(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
