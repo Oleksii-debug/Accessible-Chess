@@ -1,0 +1,101 @@
+name: PGN Save Commit Generation
+
+on:
+  push:
+    branches:
+      - fix/pgn-save-commit-generation-20261006-ooxple7
+  pull_request:
+    branches:
+      - work/windows-pgn-save-bg-20261005-k7m4q2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-save-commit-generation-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  exact-save-commit-generation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      BASE_BRANCH: work/windows-pgn-save-bg-20261005-k7m4q2
+      BASE_SHA: a4e07a95360958fee7c292df3e4bc6213314e5dc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+          git fetch --no-tags origin "$BASE_BRANCH"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test "$live_base" = "$BASE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          printf '%s\n' "${paths[@]}"
+          expected=(
+            ".github/workflows/pgn-save-commit-generation.yml"
+            "acs/pgn_save_snapshot.py"
+            "tests/test_pgn_save_snapshot.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+
+      - name: Compile transaction and regressions
+        run: >-
+          python -m py_compile
+          acs/pgn_save_snapshot.py
+          tests/test_pgn_save_snapshot.py
+          tests/test_v2_windows_pgn_save_worker.py
+
+      - name: Execute save transaction and Windows host regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_document
+          tests.test_pgn_workspace
+          tests.test_v2_windows_pgn_save_worker
+
+      - name: Pytest focused transaction and host
+        run: >-
+          pytest -q
+          tests/test_pgn_save_snapshot.py
+          tests/test_v2_windows_pgn_save_worker.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
