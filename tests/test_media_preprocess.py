@@ -6,8 +6,9 @@ import unittest
 import acs.media_preprocess as module
 from acs.media_preprocess import (
     AdaptiveSamplingPolicy, BoardFrameEvidence, BoardOrientation, BoardVisionPort,
-    FrameDisposition, MAX_SAMPLES, PreprocessContractError, PreprocessErrorCode,
-    PreprocessStatus, RecordedMediaPreprocessPlan, RecordedMediaPreprocessRun,
+    FrameDisposition, MAX_SAMPLES, PreprocessCacheKey, PreprocessCheckpoint,
+    PreprocessContractError, PreprocessErrorCode, PreprocessStatus,
+    FrameSampleRequest, RecordedMediaPreprocessPlan, RecordedMediaPreprocessRun,
     RecordedMediaSourceRevision, SpeechContextPort, SpeechEvidence,
     deserialize_checkpoint, serialize_checkpoint,
 )
@@ -43,6 +44,22 @@ class RecordedMediaPreprocessTests(unittest.TestCase):
         self.assertEqual(c.exception.code, PreprocessErrorCode.LIMIT)
         with self.assertRaises(PreprocessContractError) as c: AdaptiveSamplingPolicy(1, 1, 0, max_samples=100).requests(500)
         self.assertEqual(c.exception.code, PreprocessErrorCode.LIMIT)
+
+    def test_sampling_exact_limit_accepts_actual_baseline_count(self):
+        requests = AdaptiveSamplingPolicy(1000, 200, 0, max_samples=2).requests(1000)
+        self.assertEqual([r.timestamp_ms for r in requests], [0, 1000])
+
+    def test_manual_plan_rejects_cache_mismatch_and_invalid_request_order(self):
+        source = self.source(duration=1000)
+        bad_key = PreprocessCacheKey("other", "source-v1", "vision-v1", None, "policy-v1")
+        with self.assertRaises(PreprocessContractError) as c:
+            RecordedMediaPreprocessPlan(source, bad_key, (FrameSampleRequest(0),))
+        self.assertEqual(c.exception.code, PreprocessErrorCode.SOURCE_MISMATCH)
+        good_key = PreprocessCacheKey("video-1", "source-v1", "vision-v1", None, "policy-v1")
+        for requests in ((), (FrameSampleRequest(1000), FrameSampleRequest(0)), (FrameSampleRequest(1001),)):
+            with self.subTest(requests=requests):
+                with self.assertRaises(PreprocessContractError):
+                    RecordedMediaPreprocessPlan(source, good_key, requests)
 
     def test_cache_identity_invalidates_on_source_or_recognizer_revision(self):
         a = self.plan().cache_key.fingerprint(); b = self.plan(revision="source-v2").cache_key.fingerprint()
@@ -113,6 +130,19 @@ class RecordedMediaPreprocessTests(unittest.TestCase):
             with self.subTest(changed=changed.digest()):
                 with self.assertRaises(PreprocessContractError) as c: RecordedMediaPreprocessRun(changed, checkpoint)
                 self.assertEqual(c.exception.code, PreprocessErrorCode.CHECKPOINT_MISMATCH)
+
+    def test_checkpoint_rejects_skipped_board_progress_finished_running_and_wrong_type(self):
+        plan = self.plan(duration=1000)
+        base = RecordedMediaPreprocessRun(plan).checkpoint()
+        with self.assertRaises(PreprocessContractError):
+            PreprocessCheckpoint(base.source_id, base.source_revision, base.cache_fingerprint, base.plan_digest,
+                                 1, base.total, 0, 0, PreprocessStatus.RUNNING)
+        with self.assertRaises(PreprocessContractError):
+            PreprocessCheckpoint(base.source_id, base.source_revision, base.cache_fingerprint, base.plan_digest,
+                                 base.total, base.total, base.total, 0, PreprocessStatus.RUNNING)
+        with self.assertRaises(PreprocessContractError) as c:
+            RecordedMediaPreprocessRun(plan, object())
+        self.assertEqual(c.exception.code, PreprocessErrorCode.INVALID)
 
     def test_checkpoint_roundtrip_unicode_and_reject_duplicate_unknown_fields(self):
         plan = RecordedMediaPreprocessPlan.build(RecordedMediaSourceRevision("урок-1", "версія-1", "opaque", 1000),
