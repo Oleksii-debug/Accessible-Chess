@@ -675,7 +675,7 @@ def _publish_expected_hash(
         # digest too. Restore those newer bytes before reporting the conflict.
         try:
             snapshot_sha256 = _current_sha256(snapshot)
-        except (OSError, ValueError, PgnFileError) as exc:
+        except BaseException as exc:
             preserve_snapshot = True
             raise PgnPublicationUnverifiedError(
                 "PGN publication crossed the commit boundary but recovery verification failed"
@@ -684,7 +684,7 @@ def _publish_expected_hash(
         if snapshot_sha256 != expected_sha256:
             try:
                 _replace_published_path(snapshot, destination)
-            except OSError as exc:
+            except BaseException as exc:
                 preserve_snapshot = True
                 raise PgnPublicationUnverifiedError(
                     "PGN publication crossed the commit boundary and rollback could not be verified"
@@ -692,7 +692,7 @@ def _publish_expected_hash(
             snapshot = None
             try:
                 _sync_published_namespace(destination)
-            except OSError as exc:
+            except BaseException as exc:
                 raise PgnPublicationUnverifiedError(
                     "PGN concurrent-write rollback completed but durability could not be confirmed"
                 ) from exc
@@ -828,7 +828,7 @@ def save_pgn_atomic(
     # retry against stale in-memory provenance.
     try:
         _sync_published_namespace(destination)
-    except Exception as exc:
+    except BaseException as exc:
         raise PgnPublicationUnverifiedError(
             "PGN publication completed but namespace durability could not be confirmed"
         ) from exc
@@ -843,7 +843,7 @@ def save_pgn_atomic(
         raise PgnPublishedPathChangedError(
             "PGN publication completed but the selected pathname changed before confirmation"
         ) from exc
-    except Exception as exc:
+    except BaseException as exc:
         raise PgnPublicationUnverifiedError(
             "PGN publication completed but final destination provenance could not be verified"
         ) from exc
