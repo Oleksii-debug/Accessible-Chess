@@ -355,14 +355,14 @@ def publish_pgn_save_snapshot(
     _raise_if_cancelled(check)
     publication_games, _digest = _canonical_detached_games(
         metadata.games,
-        expected_digest=binding.content_digest,
+        expected_digest=metadata.content_digest,
     )
     _raise_if_cancelled(check)
 
     writer_games = _cancellable_games(publication_games, check)
     pre_publish_check = None if check is None else lambda: _raise_if_cancelled(check)
 
-    if binding.mode is PgnSaveMode.SAVE:
+    if metadata.mode is PgnSaveMode.SAVE:
         if path is not None or overwrite or expected_sha256 is not None:
             raise ValueError("Save snapshot destination is bound to its source")
         source = _detached_source_fingerprint(
@@ -383,7 +383,7 @@ def publish_pgn_save_snapshot(
             expected_sha256=source.sha256,
             pre_publish_check=pre_publish_check,
         )
-    elif binding.mode is PgnSaveMode.SAVE_AS:
+    elif metadata.mode is PgnSaveMode.SAVE_AS:
         if path is None:
             raise TypeError("Save As snapshot requires a destination path")
         destination = Path(path)
@@ -406,15 +406,15 @@ def publish_pgn_save_snapshot(
     assert bound_saved is not None
     binding = _PgnSavePublicationBinding(
         snapshot=snapshot,
-        mode=binding.mode,
+        mode=metadata.mode,
         document_revision=metadata.document_revision,
-        content_digest=binding.content_digest,
+        content_digest=metadata.content_digest,
         source_before=_detached_source_fingerprint(
             metadata.source_before,
             allow_none=True,
         ),
         source_overwrite_safe_before=metadata.source_overwrite_safe_before,
-        saved_digest_before=binding.saved_digest_before,
+        saved_digest_before=metadata.saved_digest_before,
         session_ref=metadata.session_ref,
         saved=bound_saved,
     )
