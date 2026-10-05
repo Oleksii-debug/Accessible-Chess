@@ -226,6 +226,7 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
     if len(game.tags) > MAX_PGN_TAGS_PER_GAME:
         raise ValueError("canonical provider game contains too many tag pairs")
     claim_lexical_items(len(game.tags), field="game tags")
+    has_result_tag = False
     for key, value in game.tags.items():
         # D06 counts one complete tag-pair as one lexical unit and bounds the
         # full decoded source plus tag value, but it does not impose the movetext
@@ -236,6 +237,13 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
             field="game tag value",
             limit=MAX_PGN_TAG_VALUE_CHARS,
         )
+        if key == "Result":
+            has_result_tag = True
+    if not has_result_tag:
+        # serialize_game() always materializes an effective Result header. Count
+        # that synthesized header as the same one lexical unit that D06 ingress
+        # will see if the detached game is later round-tripped.
+        claim_lexical_items(1, field="synthesized Result tag")
     if type(game.source_index) is not int or game.source_index < 0:
         raise TypeError("game source_index must be a non-negative exact integer")
     if type(game.warnings) is not list:
@@ -321,6 +329,7 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
                     field="canonical variation result",
                     limit=MAX_PGN_TOKEN_CHARS,
                 )
+                claim_lexical_items(1, field="canonical variation result")
 
             for move in line.moves:
                 if type(move) is not MoveNode:
@@ -331,12 +340,14 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
                     field="canonical SAN",
                     limit=MAX_PGN_TOKEN_CHARS,
                 )
+                claim_lexical_items(1, field="canonical SAN")
                 if move.move_number is not None:
                     charge_text(
                         move.move_number,
                         field="canonical move number",
                         limit=MAX_PGN_TOKEN_CHARS,
                     )
+                    claim_lexical_items(1, field="canonical move number")
                 if type(move.nags) is not list:
                     raise TypeError(
                         "canonical NAGs must be a built-in list of exact text"
@@ -358,12 +369,19 @@ def _assert_passive_provider_graph(game: PgnGame) -> None:
                     raise ValueError(
                         "canonical variation container exceeds the node safety limit"
                     )
+                # Each serialized variation contributes one opening and one
+                # closing parenthesis, and D06 counts both as lexical tokens.
+                claim_lexical_items(
+                    len(move.variations) * 2,
+                    field="canonical variation delimiters",
+                )
                 for variation in move.variations:
                     check_line(variation, depth=depth + 1)
         finally:
             active_lines.remove(line_id)
 
     check_line(game.line, depth=0)
+
 
 def _detached_comment(comment: Comment) -> Comment:
     return Comment(text=comment.text, style=comment.style)
