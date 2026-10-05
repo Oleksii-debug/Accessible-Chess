@@ -20,6 +20,27 @@ from tests.test_owner_physical_acceptance import (
 
 
 class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
+    def test_scenario_validation_rejects_active_mapping_before_hooks(self):
+        touched = []
+
+        class ActiveScenarios(dict):
+            def __iter__(self):
+                touched.append("iter")
+                raise AssertionError("active scenario iteration executed")
+
+            def get(self, key, default=None):
+                touched.append("get")
+                raise AssertionError("active scenario lookup executed")
+
+        active = ActiveScenarios(_scenarios())
+        with self.assertRaisesRegex(
+            OwnerPhysicalAcceptanceError,
+            "scenario_results must contain",
+        ):
+            acceptance_module._validate_scenarios(active)
+
+        self.assertEqual(touched, [])
+
     def test_record_rejects_publication_not_bound_to_fsynced_staging_bytes(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
