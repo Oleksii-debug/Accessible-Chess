@@ -727,6 +727,42 @@ async function clickRoute(routeId) {
     "Library export terminal event did not restore the pre-dialog Library focus"
   );
 
+  const beforeExportOperationApplyCalls = libraryApplyCalls;
+  const beforeExportOperationSnapshots = snapshotCalls;
+  live.focus();
+  eventQueue = [
+    {
+      kind: "render-import",
+      payload: { import: {}, focus_target: "", announcement: "" }
+    },
+    {
+      kind: "status",
+      payload: {
+        announcement: "Export state and terminal focus committed.",
+        focus_target: "library-search-player"
+      }
+    }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    libraryApplyCalls === beforeExportOperationApplyCalls + 1,
+    "Library export operation-state event did not apply incrementally"
+  );
+  check(
+    snapshotCalls === beforeExportOperationSnapshots,
+    "Library export operation-state plus terminal event forced a whole-product snapshot"
+  );
+  check(
+    documentRef.activeElement === libraryInput,
+    "Library export operation-state event prevented terminal focus restoration"
+  );
+  check(
+    live.textContent === "Export state and terminal focus committed.",
+    "Library export operation-state batch lost its terminal announcement"
+  );
+
   const newerLibraryFocus = new FakeElement("button");
   newerLibraryFocus.id = "library-newer-user-focus";
   workspace.appendChild(newerLibraryFocus);
