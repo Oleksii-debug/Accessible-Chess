@@ -59,7 +59,7 @@ jobs:
           PORTABLE_BRANCH: fix/current-portable-manifest-json-prehash-20261004-3pg7jcgq
           PRODUCT_BRANCH: converge/current-settings-bookreader-resource-20261004-ooxple7-g11
           CURRENT_PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          CURRENT_PRODUCT_SHA: 9edc0ab3ad0df9a927792dff2ab0838f614029d4
+          CURRENT_PRODUCT_SHA: fd9fe18ba9b5c7adc0fd5c9fec5bf0db712eff73
           MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml
           ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml
           SHIPPING_GATE: .github/workflows/current-product-shipping-integration-20261005.yml
