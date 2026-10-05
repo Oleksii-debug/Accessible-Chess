@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from math import isfinite
 from typing import Mapping
 
 from .agent_budget import ModelCostBudget
@@ -52,10 +53,14 @@ class AgentRunPolicy:
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
-        if isinstance(self.model_timeout_seconds, bool) or not isinstance(
-            self.model_timeout_seconds, (int, float)
-        ) or self.model_timeout_seconds <= 0:
-            raise ValueError("model_timeout_seconds must be positive")
+        if type(self.model_timeout_seconds) not in (int, float):
+            raise ValueError("model_timeout_seconds must be finite and positive")
+        try:
+            finite_timeout = isfinite(float(self.model_timeout_seconds))
+        except OverflowError:
+            finite_timeout = False
+        if not finite_timeout or self.model_timeout_seconds <= 0:
+            raise ValueError("model_timeout_seconds must be finite and positive")
         if not isinstance(self.privacy, PrivacyClass):
             raise TypeError("privacy must be PrivacyClass")
         cost = (
@@ -91,6 +96,8 @@ def _tool_catalog(executor: ToolExecutor) -> str:
 
 
 def _system_prompt(executor: ToolExecutor, product_instruction: str) -> str:
+    if type(product_instruction) is not str:
+        raise TypeError("product_instruction must be text")
     base = product_instruction.strip()
     if not base:
         raise ValueError("product_instruction must not be empty")
@@ -109,15 +116,62 @@ def _system_prompt(executor: ToolExecutor, product_instruction: str) -> str:
     )
 
 
+def _strict_json_object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise AgentProtocolError("model response contains duplicate JSON object keys")
+        value[key] = item
+    return value
+
+
+def _reject_json_constant(_value: str) -> object:
+    raise AgentProtocolError("model response contains a non-finite JSON number")
+
+
+_MAX_AGENT_JSON_DEPTH = 64
+_MAX_AGENT_JSON_ITEMS = 4096
+
+
+def _validate_json_structure(value: object) -> None:
+    stack: list[tuple[object, int]] = [(value, 0)]
+    remaining_items = _MAX_AGENT_JSON_ITEMS
+    while stack:
+        current, depth = stack.pop()
+        if depth > _MAX_AGENT_JSON_DEPTH:
+            raise AgentProtocolError("model response JSON nesting is too deep")
+        if type(current) is dict:
+            remaining_items -= len(current)
+            if remaining_items < 0:
+                raise AgentProtocolError("model response JSON has too many items")
+            stack.extend((item, depth + 1) for item in current.values())
+        elif type(current) is list:
+            remaining_items -= len(current)
+            if remaining_items < 0:
+                raise AgentProtocolError("model response JSON has too many items")
+            stack.extend((item, depth + 1) for item in current)
+        elif current is None or type(current) in (bool, int, float, str):
+            continue
+        else:  # pragma: no cover - stdlib JSON cannot produce other values
+            raise AgentProtocolError("model response JSON contains unsupported data")
+
+
 def _strict_step(raw: str, *, max_chars: int) -> tuple[AgentStepKind, str, Mapping[str, object] | None]:
     if type(raw) is not str:
         raise AgentProtocolError("model response must be text")
     if len(raw) > max_chars:
         raise AgentProtocolError("model response exceeded the bounded protocol size")
     try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
+        value = json.loads(
+            raw,
+            object_pairs_hook=_strict_json_object_pairs,
+            parse_constant=_reject_json_constant,
+        )
+    except AgentProtocolError:
+        raise
+    except (json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise AgentProtocolError("model response is not valid agent JSON") from exc
+    _validate_json_structure(value)
     if type(value) is not dict:
         raise AgentProtocolError("agent response must be a JSON object")
     kind = value.get("type")
