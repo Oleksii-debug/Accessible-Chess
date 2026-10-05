@@ -25,6 +25,7 @@ from .book_webview_projection import (
 )
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
+from .full_product_actions import ActionDispatchResult
 from .full_product_presenters import (
     BookReaderPresenter,
     PgnGameView,
@@ -759,14 +760,14 @@ class Version2BookWebViewProjection(BookWebViewProjection):
 
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
         result = self._dispatch(action, {})
-        # A canonical router returns ActionDispatchResult; a composed callback
-        # may already unwrap it. A transition is successful only when the event
-        # belongs to the action we dispatched and the canonical workflow reached
-        # the corresponding state. This prevents stale/misrouted success DTOs
-        # from producing false NVDA success announcements.
-        result = getattr(result, "value", result)
+        # A canonical router returns exact ActionDispatchResult while a composed
+        # callback may already return the exact UI event. Keep this boundary
+        # passive: never probe arbitrary wrappers for a value attribute, and
+        # never read fields from provider-defined BookBoardUiEvent subclasses.
+        if type(result) is ActionDispatchResult:
+            result = result.value
         if (
-            not isinstance(result, BookBoardUiEvent)
+            type(result) is not BookBoardUiEvent
             or result.kind is not expected
             or result.action_id != action
             or result.revision != self._workflow.revision
