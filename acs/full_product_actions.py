@@ -254,7 +254,7 @@ class FullProductActionRouter:
                 focus_target=focus_target,
             )
         if current_focus_id:
-            self._shell.record_focus(current_focus_id)
+            self._shell.record_observed_focus(current_focus_id)
         value = self._delegate(action_id, dict(payload or {}))
         return ActionDispatchResult(
             action_id=action_id,
