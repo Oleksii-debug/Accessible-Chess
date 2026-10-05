@@ -9,6 +9,7 @@ from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.engine_ports import EngineContractError, EngineContractErrorCode
+from acs.version2_book_workspace import Version2BookWebViewProjection
 
 
 class _IdleEngine:
@@ -51,6 +52,30 @@ class BookEngineAuthorityPassiveIngressTests(unittest.TestCase):
             "^engine_assistance must be EngineAssistedWorkflowService$",
         ):
             BookBoardWorkflow(self._reader(), hostile)
+
+    def test_book_workspace_rejects_workflow_subclass_before_authority_hooks(self) -> None:
+        class HostileBookBoardWorkflow(BookBoardWorkflow):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"active", "revision", "semantic_game_snapshot"}:
+                    type(self).touched = True
+                    raise AssertionError("BookBoardWorkflow subclass hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostileBookBoardWorkflow.__new__(HostileBookBoardWorkflow)
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^V2 Books requires the canonical reader and workflow$",
+        ):
+            Version2BookWebViewProjection(
+                self._reader(),
+                hostile,
+                lambda *_args: None,
+            )
+
+        self.assertFalse(HostileBookBoardWorkflow.touched)
 
     def test_book_block_analysis_rejects_semantic_subclass_before_attribute_hooks(self) -> None:
         analysis = AnalysisService(lambda: _IdleEngine())
