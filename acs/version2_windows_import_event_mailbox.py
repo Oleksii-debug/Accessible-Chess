@@ -39,6 +39,15 @@ _ASYNC_PGN_OPEN_KINDS = frozenset(
         FileWorkflowEventKind.FAILED,
     }
 )
+_ASYNC_PGN_SAVE_KINDS = frozenset(
+    {
+        FileWorkflowEventKind.PGN_SAVED,
+        FileWorkflowEventKind.PGN_SAVED_AS,
+        FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+        FileWorkflowEventKind.FAILED,
+    }
+)
+_PGN_SAVE_ACTION_IDS = frozenset({"pgn.save", "pgn.save_as"})
 
 
 def _validate_async_file_event(event: FileWorkflowEvent) -> None:
@@ -51,6 +60,10 @@ def _validate_async_file_event(event: FileWorkflowEvent) -> None:
     if event.action_id == "pgn.open":
         if event.kind not in _ASYNC_PGN_OPEN_KINDS:
             raise ValueError("worker UI mailbox received an invalid PGN Open event")
+        return
+    if event.action_id in _PGN_SAVE_ACTION_IDS:
+        if event.kind not in _ASYNC_PGN_SAVE_KINDS:
+            raise ValueError("worker UI mailbox received an invalid PGN Save event")
         return
     raise ValueError("worker UI mailbox received an invalid file action")
 
@@ -136,14 +149,15 @@ class Version2ImportUiEventMailbox:
 
             if len(self._events) >= self._max_events:
                 self._events.clear()
-                overflow_action = (
-                    "pgn.open" if event.action_id == "pgn.open" else "library.import"
-                )
-                overflow_focus = (
-                    event.focus_target
-                    if overflow_action == "pgn.open" and event.focus_target
-                    else "library-import-file"
-                )
+                if event.action_id == "pgn.open":
+                    overflow_action = "pgn.open"
+                    overflow_focus = event.focus_target or "pgn-game-list"
+                elif event.action_id in _PGN_SAVE_ACTION_IDS:
+                    overflow_action = event.action_id
+                    overflow_focus = event.focus_target or "pgn-game-list"
+                else:
+                    overflow_action = "library.import"
+                    overflow_focus = "library-import-file"
                 self._events.append(
                     FileWorkflowEvent(
                         FileWorkflowEventKind.FAILED,
