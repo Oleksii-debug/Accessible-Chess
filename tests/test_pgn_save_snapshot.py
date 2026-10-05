@@ -584,6 +584,103 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(session.document_revision, revision_before)
         self.assertTrue(session.dirty)
 
+    def test_commit_rejects_malformed_cursor_before_checkpoint_mutation(self) -> None:
+        source = self.write_document("malformed-cursor-after-publication.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Durable malformed cursor generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+        baseline_before = session.workspace._baseline_digest
+        dirty_before = session.workspace.dirty
+        publication = publish_pgn_save_snapshot(snapshot)
+
+        self.assertIn(
+            "Durable malformed cursor generation",
+            source.read_text(encoding="utf-8"),
+        )
+        session.workspace._cursor = object()  # type: ignore[assignment]
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertEqual(session.workspace._baseline_digest, baseline_before)
+        self.assertEqual(session.workspace.dirty, dirty_before)
+
+    def test_commit_rejects_malformed_live_warnings_before_checkpoint_mutation(self) -> None:
+        source = self.write_document("malformed-warnings-after-publication.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Durable malformed warnings generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+        baseline_before = session.workspace._baseline_digest
+        dirty_before = session.workspace.dirty
+        publication = publish_pgn_save_snapshot(snapshot)
+
+        self.assertIn(
+            "Durable malformed warnings generation",
+            source.read_text(encoding="utf-8"),
+        )
+        session._global_warnings = ("valid warning", object())  # type: ignore[assignment]
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertEqual(session.workspace._baseline_digest, baseline_before)
+        self.assertEqual(session.workspace.dirty, dirty_before)
+
+    def test_commit_does_not_rebuild_view_after_provenance_mutation(self) -> None:
+        source = self.write_document("no-post-mutation-view.pgn")
+        session = PgnDocumentSession.open(source)
+        source_before = session.source
+        session.edit_tag("Event", "Prepared final view")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        publication = publish_pgn_save_snapshot(snapshot)
+        real_view = PgnDocumentSession.view
+        observed_sources = []
+
+        def guarded_view(bound_session):
+            observed_sources.append(bound_session.source)
+            if bound_session.source != source_before:
+                raise AssertionError(
+                    "document presentation rebuilt after provenance mutation"
+                )
+            return real_view(bound_session)
+
+        with patch.object(
+            PgnDocumentSession,
+            "view",
+            autospec=True,
+            side_effect=guarded_view,
+        ):
+            committed = commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(len(observed_sources), 1)
+        self.assertNotEqual(session.source, source_before)
+        self.assertFalse(session.dirty)
+        self.assertFalse(committed.dirty)
+        self.assertEqual(committed.document_revision, session.document_revision)
+        self.assertEqual(committed.source_path, session.source.path)
+        self.assertEqual(committed.source_sha256, session.source.sha256)
+        self.assertEqual(committed, session.view())
+
     def test_commit_rejects_active_live_document_revision_before_increment(self) -> None:
         source = self.write_document("active-live-revision.pgn")
         session = PgnDocumentSession.open(source)
