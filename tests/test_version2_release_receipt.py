@@ -13,6 +13,7 @@ from acs.version2_release_receipt import (
     CANONICAL_W5_WORKFLOW,
     RELEASE_RECEIPT_SCHEMA_VERSION,
     REPOSITORY_FULL_NAME,
+    Version2ReleaseReceipt,
     Version2ReleaseReceiptError,
     build_version2_release_receipt,
     main,
@@ -158,6 +159,82 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             ):
                 write_version2_release_receipt(output, receipt)
             self.assertEqual(output.read_text(encoding="utf-8"), raw)
+
+    def test_write_revalidates_manual_receipt_before_no_replace_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            malformed = Version2ReleaseReceipt(
+                **{
+                    **receipt.__dict__,
+                    "repository": "somewhere/else",
+                }
+            )
+            output = Path(td) / "receipt.json"
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "repository identity mismatch",
+            ):
+                write_version2_release_receipt(output, malformed)
+
+            self.assertFalse(output.exists())
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
+    def test_write_rejects_active_mutated_scalar_without_comparison_or_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            touched: list[str] = []
+
+            class ActiveRepository(str):
+                def __eq__(self, other):
+                    touched.append("eq")
+                    raise AssertionError("active receipt scalar comparison executed")
+
+                def __ne__(self, other):
+                    touched.append("ne")
+                    raise AssertionError("active receipt scalar comparison executed")
+
+            object.__setattr__(
+                receipt,
+                "repository",
+                ActiveRepository(REPOSITORY_FULL_NAME),
+            )
+            output = Path(td) / "receipt.json"
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "repository identity mismatch",
+            ):
+                write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(touched, [])
+            self.assertFalse(output.exists())
+
+    def test_write_rejects_derived_receipt_before_serialization(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            touched: list[str] = []
+
+            class DerivedReceipt(Version2ReleaseReceipt):
+                def to_json(self):
+                    touched.append("to_json")
+                    raise AssertionError("derived receipt serialization executed")
+
+            derived = DerivedReceipt(**receipt.__dict__)
+            output = Path(td) / "receipt.json"
+
+            with self.assertRaisesRegex(
+                TypeError,
+                "exact Version2ReleaseReceipt",
+            ):
+                write_version2_release_receipt(output, derived)
+
+            self.assertEqual(touched, [])
+            self.assertFalse(output.exists())
 
     def test_receipt_readback_rejects_symlink_and_path_identity_change(self):
         with tempfile.TemporaryDirectory() as td:
