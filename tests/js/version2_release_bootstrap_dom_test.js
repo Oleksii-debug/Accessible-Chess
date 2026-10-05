@@ -120,6 +120,8 @@ let lastShellPublicationResolution = null;
 let nextShellPublicationToken = 1;
 let shellPublicationCommits = 0;
 let shellPublicationRollbacks = 0;
+let shellRouteEffects = 0;
+let dropRouteResponsesAfterEffect = 0;
 let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
 let failPublicationTransportBeforeEffect = 0;
@@ -167,6 +169,8 @@ function snapshot(route) {
     current: routeId === route
   }));
   return {
+    shell_publication_token:
+      pendingShellPublication === null ? 0 : pendingShellPublication.token,
     document: { lang: "en", title: headings[route] },
     navigation,
     screen: { route_id: route, heading: headings[route], focus_target: focus },
@@ -260,20 +264,42 @@ const windowObject = {
           });
         }
 
-        const keys = Object.keys(payload);
-        if (keys.length !== 1 || keys[0] !== "publication_protocol" ||
+        const keys = Object.keys(payload).sort();
+        if (keys.length !== 2 || keys[0] !== "publication_protocol" ||
+            keys[1] !== "request_id" ||
             payload.publication_protocol !== "ack-v1" ||
-            String(command).indexOf("screen.") !== 0 ||
-            pendingShellPublication !== null) {
+            !Number.isSafeInteger(payload.request_id) || payload.request_id <= 0 ||
+            String(command).indexOf("screen.") !== 0) {
           return Promise.reject(new Error("unexpected browser route command"));
+        }
+        if (pendingShellPublication !== null) {
+          if (pendingShellPublication.requestId !== payload.request_id ||
+              pendingShellPublication.command !== String(command)) {
+            return Promise.reject(new Error("publication already pending"));
+          }
+          if (dropRouteResponsesAfterEffect > 0) {
+            dropRouteResponsesAfterEffect -= 1;
+            return Promise.reject(new Error("simulated lost route response"));
+          }
+          return Promise.resolve({
+            kind: "route",
+            payload: { publication_token: pendingShellPublication.token }
+          });
         }
         const token = nextShellPublicationToken++;
         const previousRoute = currentRoute;
         currentRoute = String(command).replace(/^screen\./, "");
+        shellRouteEffects += 1;
         pendingShellPublication = {
           token: token,
-          previousRoute: previousRoute
+          previousRoute: previousRoute,
+          requestId: payload.request_id,
+          command: String(command)
         };
+        if (dropRouteResponsesAfterEffect > 0) {
+          dropRouteResponsesAfterEffect -= 1;
+          return Promise.reject(new Error("simulated lost route response"));
+        }
         return Promise.resolve({
           kind: "route",
           payload: { publication_token: token }
@@ -363,10 +389,27 @@ async function clickRoute(routeId) {
 }
 
 (async () => {
+  // Simulate a WebView process reload after Python accepted Teacher but before
+  // the browser received its route-start response. The new JS instance knows
+  // neither request_id nor token; snapshot recovery must roll the candidate
+  // back before publishing the initial surface.
+  currentRoute = "teacher";
+  pendingShellPublication = {
+    token: 777,
+    previousRoute: "board",
+    requestId: 777,
+    command: "screen.teacher"
+  };
+
   const source = fs.readFileSync("web/version2_release_bootstrap.js", "utf8");
   vm.runInThisContext(source, { filename: "version2_release_bootstrap.js" });
-  await flush();
-  await flush();
+  for (let index = 0; index < 8; index += 1) await flush();
+
+  check(currentRoute === "board", "bootstrap did not roll back orphaned Teacher publication");
+  check(pendingShellPublication === null, "bootstrap left orphaned host publication pending");
+  check(shellPublicationRollbacks === 1, "bootstrap did not perform exactly one orphan rollback");
+  shellPublicationRollbacks = 0;
+  lastShellPublicationResolution = null;
 
   const workspace = documentRef.getElementById("v2-workspace");
   check(workspace !== null, "V2 workspace missing");
@@ -457,9 +500,15 @@ async function clickRoute(routeId) {
   check(shellPublicationCommits === 1, "malformed Training render incorrectly committed the route");
   check(pendingShellPublication === null, "malformed Training render left a pending publication");
 
+  const routeEffectsBeforeLostResponse = shellRouteEffects;
+  dropRouteResponsesAfterEffect = 1;
   dropNextCommitResponseAfterEffect = true;
   await clickRoute("board");
-  check(currentRoute === "board", "lost commit response changed the committed Board route");
+  check(currentRoute === "board", "lost route/commit response changed the committed Board route");
+  check(
+    shellRouteEffects === routeEffectsBeforeLostResponse + 1,
+    "route-start response replay executed the Board transition more than once"
+  );
   check(shellPublicationCommits === 2, "commit response retry duplicated or lost the Board commit");
   check(pendingShellPublication === null, "lost commit response left a pending route");
 
@@ -494,6 +543,58 @@ async function clickRoute(routeId) {
     "deferred native event batch was not drained exactly once after publication recovery"
   );
   check(eventQueue.length === 0, "deferred native event batch remained queued after recovery");
+
+  const routeEffectsBeforeUnknownToken = shellRouteEffects;
+  const drainCallsBeforeUnknownToken = drainCalls;
+  dropRouteResponsesAfterEffect = 2;
+  await clickRoute("teacher");
+  check(
+    currentRoute === "teacher",
+    "double route-response loss did not leave the one candidate Teacher route"
+  );
+  check(
+    pendingShellPublication !== null,
+    "double route-response loss forgot the host-side pending route"
+  );
+  check(
+    shellRouteEffects === routeEffectsBeforeUnknownToken + 1,
+    "double route-response loss executed the Teacher transition more than once"
+  );
+  check(shellPublicationCommits === 3, "unknown-token route loss incorrectly committed Teacher");
+  check(shellPublicationRollbacks === 3, "unknown-token route loss incorrectly rolled Teacher back");
+
+  eventQueue = [{
+    kind: "status",
+    payload: { announcement: "Deferred across unknown-token publication." }
+  }];
+  intervalCallback();
+  await flush();
+  check(
+    drainCalls === drainCallsBeforeUnknownToken,
+    "unknown-token publication allowed a new native event drain to start"
+  );
+  check(
+    eventQueue.length === 1,
+    "unknown-token publication consumed a native event before route recovery"
+  );
+
+  await clickRoute("board");
+  check(currentRoute === "board", "next route did not recover unknown-token publication first");
+  check(pendingShellPublication === null, "unknown-token recovery left host publication pending");
+  check(shellPublicationRollbacks === 4, "unknown-token recovery did not roll Teacher back once");
+  check(shellPublicationCommits === 4, "unknown-token recovery did not commit Board once");
+  check(
+    shellRouteEffects === routeEffectsBeforeUnknownToken + 2,
+    "unknown-token recovery reran the stale Teacher transition"
+  );
+  check(
+    live.textContent === "Deferred across unknown-token publication.",
+    "deferred native event was not published after canonical route recovery"
+  );
+  check(
+    drainCalls === drainCallsBeforeUnknownToken + 1,
+    "deferred unknown-token event batch was not drained exactly once after recovery"
+  );
 
   booksAvailable = false;
   trainingAvailable = false;
@@ -698,6 +799,43 @@ async function clickRoute(routeId) {
   check(
     live.textContent === "Second serialized event.",
     "queued later native event batch was lost, reordered, or left waiting for another timer tick"
+  );
+
+  const beforeRouteDrainBarrierCommits = shellPublicationCommits;
+  const routeBeforeDrainBarrier = currentRoute;
+  holdNextStage1Refresh = true;
+  eventQueue = [{ kind: "delegated", payload: { action_id: "edit.undo" } }];
+  intervalCallback();
+  await flush();
+  check(
+    typeof heldStage1RefreshResolve === "function",
+    "route publication race did not hold the in-flight Stage 1 repaint"
+  );
+  const sameRouteButton = documentRef.getElementById("v2-nav-" + routeBeforeDrainBarrier);
+  check(
+    sameRouteButton && typeof sameRouteButton.listeners.click === "function",
+    "current route button missing for event-drain publication barrier"
+  );
+  sameRouteButton.listeners.click({});
+  await flush();
+  await flush();
+  check(
+    shellPublicationCommits === beforeRouteDrainBarrierCommits,
+    "route publication crossed an unfinished native event repaint"
+  );
+  check(
+    pendingShellPublication === null,
+    "route publication reached the host before the native event repaint completed"
+  );
+  heldStage1RefreshResolve();
+  for (let index = 0; index < 10; index += 1) await flush();
+  check(
+    shellPublicationCommits === beforeRouteDrainBarrierCommits + 1,
+    "route publication did not resume exactly once after native event repaint"
+  );
+  check(
+    pendingShellPublication === null && currentRoute === routeBeforeDrainBarrier,
+    "serialized same-route publication did not settle cleanly after native event repaint"
   );
 
   const beforeBarrierDrainCalls = drainCalls;
