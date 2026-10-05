@@ -2379,7 +2379,7 @@ class Version2Application:
             self.library.projection.search(self.library.projection.query)
 
     def _native_file_error_message(self, event):
-        if not isinstance(event, (FileWorkflowEvent, LibraryExportHostEvent)):
+        if type(event) not in (FileWorkflowEvent, LibraryExportHostEvent):
             return concise_user_error("", language=self.shell.language)
         language = (
             self.library.projection.language
