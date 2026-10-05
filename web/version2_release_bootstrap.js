@@ -11,6 +11,9 @@
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
   let pendingShellPublicationToken = 0;
+  let shellPublicationRequestSequence = 0;
+  let pendingShellPublicationRequestId = 0;
+  let pendingShellPublicationActionId = "";
   let eventDrainInFlight = false;
   let eventDrainPending = false;
   let deferredNativeEventBatch = null;
@@ -229,6 +232,36 @@
     return Number.isSafeInteger(token) && token > 0 ? token : 0;
   }
 
+  function nextShellPublicationRequestId() {
+    if (shellPublicationRequestSequence >= Number.MAX_SAFE_INTEGER - 1) return 0;
+    shellPublicationRequestSequence += 1;
+    return shellPublicationRequestSequence;
+  }
+
+  function clearPendingShellPublicationStart(requestId) {
+    if (pendingShellPublicationRequestId !== requestId) return;
+    pendingShellPublicationRequestId = 0;
+    pendingShellPublicationActionId = "";
+  }
+
+  function startShellPublication(bridge, actionId, requestId) {
+    function attempt() {
+      return bridge.v2_browser_command(
+        "shell",
+        actionId,
+        { publication_protocol: "ack-v1", request_id: requestId }
+      ).then(function (result) {
+        if (plainObject(result) && result.kind === "error") return result;
+        if (!shellPublicationToken(result)) {
+          throw new TypeError("invalid shell publication start");
+        }
+        return result;
+      });
+    }
+
+    return attempt().catch(function () { return attempt(); });
+  }
+
   function finishShellPublication(bridge, command, token) {
     const expectedKind =
       command === "shell.presentation_commit"
@@ -363,12 +396,21 @@
         );
 
         function requestRoute() {
-          return bridge.v2_browser_command(
-            "shell",
+          const requestId = nextShellPublicationRequestId();
+          if (!requestId) {
+            announce(failedMessage);
+            return Promise.resolve(false);
+          }
+          pendingShellPublicationRequestId = requestId;
+          pendingShellPublicationActionId = actionId;
+
+          return startShellPublication(
+            bridge,
             actionId,
-            { publication_protocol: "ack-v1" }
+            requestId
           ).then(function (result) {
             if (result && result.kind === "error") {
+              clearPendingShellPublicationStart(requestId);
               if (result.payload) announce(result.payload.message || "");
               return false;
             }
@@ -377,6 +419,7 @@
               announce(failedMessage);
               return false;
             }
+            clearPendingShellPublicationStart(requestId);
             pendingShellPublicationToken = token;
 
             return refresh(true).then(function () {
@@ -399,6 +442,37 @@
           });
         }
 
+        function recoverPendingStart() {
+          const requestId = pendingShellPublicationRequestId;
+          const pendingActionId = pendingShellPublicationActionId;
+          if (!requestId || !pendingActionId) return Promise.resolve(true);
+          return startShellPublication(
+            bridge,
+            pendingActionId,
+            requestId
+          ).then(function (result) {
+            if (result && result.kind === "error") {
+              clearPendingShellPublicationStart(requestId);
+              return true;
+            }
+            const token = shellPublicationToken(result);
+            if (!token) return false;
+            clearPendingShellPublicationStart(requestId);
+            pendingShellPublicationToken = token;
+            return recoverShellPublication(bridge, token, failedMessage);
+          }, function () {
+            announce(failedMessage);
+            return false;
+          });
+        }
+
+        function continueAfterKnownPublication() {
+          return recoverPendingStart().then(function (recovered) {
+            if (recovered) return requestRoute();
+            return false;
+          });
+        }
+
         if (pendingShellPublicationToken) {
           const previousToken = pendingShellPublicationToken;
           recoverShellPublication(
@@ -406,12 +480,12 @@
             previousToken,
             failedMessage
           ).then(function (recovered) {
-            if (recovered) return requestRoute();
+            if (recovered) return continueAfterKnownPublication();
             return false;
           });
           return;
         }
-        requestRoute();
+        continueAfterKnownPublication();
       });
       row.appendChild(button);
       fragment.appendChild(row);
