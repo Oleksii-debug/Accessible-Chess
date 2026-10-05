@@ -187,7 +187,7 @@ class BookOpenPreparationTests(unittest.TestCase):
                 )
                 worker = Version2BookOpenWorker(
                     prepare=app.prepare_book_open,
-                    commit=app.commit_prepared_book_open,
+                    commit=app.commit_background_prepared_book_open,
                     post_to_ui=callbacks.append,
                     event_sink=app._book_open_event,
                 )
@@ -242,7 +242,7 @@ class BookOpenPreparationTests(unittest.TestCase):
 
                 worker = Version2BookOpenWorker(
                     prepare=slow_prepare,
-                    commit=app.commit_prepared_book_open,
+                    commit=app.commit_background_prepared_book_open,
                     post_to_ui=callbacks.append,
                     event_sink=app._book_open_event,
                 )
