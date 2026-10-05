@@ -182,6 +182,54 @@ class PgnSaveSnapshotTests(unittest.TestCase):
                 self.assertTrue(session.dirty)
                 self.assertTrue(target.exists())
 
+    def test_valid_shape_publication_provenance_tamper_fails_before_session_rebind(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "valid-shape-tamper.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        object.__setattr__(publication.saved, "sha256", "e" * 64)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
+
+    def test_publication_snapshot_swap_cannot_commit_a_different_generation(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        older = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "snapshot-swap.pgn"
+        publication = publish_pgn_save_snapshot(older, path=target)
+        session.edit_tag("Event", "Newer In Memory")
+        newer = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        object.__setattr__(publication, "snapshot", newer)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertIn("Snapshot Base", target.read_text(encoding="utf-8"))
+        self.assertIn("Newer In Memory", session.copy_pgn())
+
+    def test_snapshot_metadata_tamper_after_publication_cannot_change_commit_baseline(self) -> None:
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "snapshot-metadata-tamper.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        object.__setattr__(snapshot, "content_digest", "0" * 64)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.CONTEXT_STALE)
+        self.assertIsNone(session.source)
+        self.assertTrue(session.dirty)
+        self.assertTrue(target.exists())
+
     def test_noncanonical_snapshot_source_provenance_fails_before_save_io(self) -> None:
         source = self.write_document("source-provenance.pgn")
         session = PgnDocumentSession.open(source)
