@@ -197,6 +197,48 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
             lambda: session.edit_tag("Event", value),
         )
 
+    def test_edit_rejects_active_revision_before_document_replacement(self) -> None:
+        class ActiveInt(int):
+            def __add__(self, other):
+                raise AssertionError("active document revision arithmetic executed")
+
+            def __lt__(self, other):
+                raise AssertionError("active document revision ordering executed")
+
+        session = self.session()
+        workspace_before = session.workspace
+        text_before = session.copy_pgn()
+        session._document_revision = ActiveInt(0)
+
+        with self.assertRaises(TypeError):
+            session.edit_tag("Event", "Must not commit")
+
+        self.assertIs(session.workspace, workspace_before)
+        self.assertEqual(session.copy_pgn(), text_before)
+
+    def test_edit_projection_abort_cannot_publish_replacement_workspace(self) -> None:
+        class ProjectionAbort(BaseException):
+            pass
+
+        session = self.session()
+        workspace_before = session.workspace
+        text_before = session.copy_pgn()
+        revision_before = session.document_revision
+        real_view = PgnWorkspace.view
+
+        def guarded_view(workspace):
+            if workspace is workspace_before:
+                return real_view(workspace)
+            raise ProjectionAbort("candidate workspace projection aborted")
+
+        with patch.object(PgnWorkspace, "view", autospec=True, side_effect=guarded_view):
+            with self.assertRaises(ProjectionAbort):
+                session.edit_tag("Event", "Must not commit")
+
+        self.assertIs(session.workspace, workspace_before)
+        self.assertEqual(session.copy_pgn(), text_before)
+        self.assertEqual(session.document_revision, revision_before)
+
     def test_delete_tag_rejects_active_name_before_comparison(self) -> None:
         session = self.session()
         name = GuardedText("Annotator")
