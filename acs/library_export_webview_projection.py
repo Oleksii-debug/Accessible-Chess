@@ -146,7 +146,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         self._export_cancelling = True
         try:
             self._dispatch("library.cancel_import", {})
-        except Exception:
+        except BaseException:
             self._export_cancelling = False
             raise
         return self._operation_event(
@@ -242,7 +242,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             payload["announcement"] = announcement
             payload["focus_target"] = self._export_focus_target(event, game_id)
             return LibraryWebViewEvent(event.kind, payload)
-        except Exception:
+        except BaseException:
             self._export_game_ids = previous
             raise
 
@@ -254,7 +254,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
             payload = dict(event.payload)
             payload["announcement"] = _EXPORT_LABELS[self.language]["cleared"]
             return LibraryWebViewEvent(event.kind, payload)
-        except Exception:
+        except BaseException:
             self._export_game_ids = previous
             raise
 
@@ -265,7 +265,7 @@ class LibraryExportWebViewProjection(LibraryWebViewProjection):
         self._export_game_ids.clear()
         try:
             return super().search(query)
-        except Exception:
+        except BaseException:
             self._export_game_ids = previous
             raise
 
