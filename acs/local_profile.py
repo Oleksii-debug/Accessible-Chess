@@ -503,10 +503,12 @@ class LocalProfileStore:
                     raise LocalProfileError(
                         "local profile canonical storage changed after publication"
                     )
-            except Exception as exc:
+            except Exception:
+                # The stable public error must not retain raw filesystem paths or
+                # platform diagnostics through exception chaining.
                 raise LocalProfileDurabilityUnknownError(
                     "local profile was published but durable canonical storage could not be confirmed"
-                ) from exc
+                ) from None
         except LocalProfileDurabilityUnknownError:
             raise
         except OSError:
