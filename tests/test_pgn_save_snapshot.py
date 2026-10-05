@@ -368,6 +368,37 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertTrue(target.exists())
         self.assertEqual(Path(session.source.path), source)
 
+    def test_commit_rejects_active_live_workspace_digest_before_rebind(self) -> None:
+        source = self.write_document("active-live-workspace-digest.pgn")
+        session = PgnDocumentSession.open(source)
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
+        target = self.root / "active-live-workspace-digest-destination.pgn"
+        publication = publish_pgn_save_snapshot(snapshot, path=target)
+        workspace = session.workspace
+        original_source = session.source
+        original_saved_digest = session._saved_digest
+        touched: list[str] = []
+
+        class ActiveText(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active workspace digest equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active workspace digest inequality executed")
+
+        workspace._content_digest = ActiveText(workspace.content_digest)
+
+        with self.assertRaises(TypeError):
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual([], touched)
+        self.assertTrue(target.exists())
+        self.assertIs(session.source, original_source)
+        self.assertEqual(session._saved_digest, original_saved_digest)
+        self.assertEqual(Path(session.source.path), source)
+
     def test_committed_publication_does_not_alias_worker_fingerprint(self) -> None:
         session = PgnDocumentSession.from_text(DOCUMENT)
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
