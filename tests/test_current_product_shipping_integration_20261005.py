@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "current-product-shipping-integration-20261005.yml"
+MANIFEST_GATE = ROOT / ".github" / "workflows" / "current-portable-manifest-json-prehash-bounds.yml"
 PORTABLE_GATE = ROOT / ".github" / "workflows" / "current-product-portable-integration-convergence.yml"
 ACCESSIBILITY_GATE = ROOT / ".github" / "workflows" / "current-product-accessibility-formats-convergence.yml"
 
@@ -14,6 +15,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.manifest_text = MANIFEST_GATE.read_text(encoding="utf-8")
         cls.portable_text = PORTABLE_GATE.read_text(encoding="utf-8")
         cls.accessibility_text = ACCESSIBILITY_GATE.read_text(encoding="utf-8")
 
@@ -57,24 +59,41 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
-    def test_only_four_qualification_files_may_differ_from_product(self) -> None:
+    def test_only_five_qualification_files_may_differ_from_product(self) -> None:
         required = (
+            "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             "ACCESSIBILITY_GATE: .github/workflows/current-product-accessibility-formats-convergence.yml",
             "PORTABLE_GATE: .github/workflows/current-product-portable-integration-convergence.yml",
             "INTEGRATION_WORKFLOW: .github/workflows/current-product-shipping-integration-20261005.yml",
             "INTEGRATION_TEST: tests/test_current_product_shipping_integration_20261005.py",
             'extra_paths="$(git diff --name-only "$live_product"...HEAD | sort)"',
             'test "$extra_paths" = "$expected_extra"',
-            "QUALIFICATION_DELTA_PATHS=4",
+            "QUALIFICATION_DELTA_PATHS=5",
             'test "$candidate_paths" = "$expected_candidate"',
         )
         for fragment in required:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.text)
 
+    def test_manifest_source_gate_retains_two_legacy_modes_and_exact_shipping_mode(self) -> None:
+        required = (
+            "CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d",
+            "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=FOCUSED_SOURCE",
+            "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=LEGACY_INTEGRATION",
+            "PACKAGE_MANIFEST_SOURCE_TOPOLOGY=CURRENT_SHIPPING_INTEGRATION",
+            'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
+            'test "$product_count" -eq 64',
+            'test "$extra" = "$expected_extra"',
+            'test "$candidate_count" -eq 66',
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, self.manifest_text)
+
     def test_inherited_package_gate_retains_legacy_mode_and_exact_shipping_mode(self) -> None:
         required = (
             "CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d",
+            "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if git merge-base --is-ancestor "$CURRENT_PRODUCT_SHA" HEAD; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
             'test "$product_count" -eq 64',
@@ -91,6 +110,7 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
         required = (
             "SHIPPING_BRANCH: integration/current-product-main-candidate-20261004-c2mbezb",
             "CURRENT_PRODUCT_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d",
+            "MANIFEST_SOURCE_GATE: .github/workflows/current-portable-manifest-json-prehash-bounds.yml",
             'if [ "${EVENT_BASE_REF:-}" = "$SHIPPING_BRANCH" ]; then',
             'test "$live_current_product" = "$CURRENT_PRODUCT_SHA"',
             'test "$product_scope" = "$expected_paths"',
@@ -102,8 +122,8 @@ class CurrentProductShippingIntegration20261005Tests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, self.accessibility_text)
 
-    def test_gate_runs_on_both_release_relevant_operating_systems(self) -> None:
-        for text in (self.text, self.portable_text, self.accessibility_text):
+    def test_all_shipping_qualification_gates_run_on_both_operating_systems(self) -> None:
+        for text in (self.text, self.manifest_text, self.portable_text, self.accessibility_text):
             self.assertIn("os: [ubuntu-22.04, windows-2025]", text)
             self.assertIn("fail-fast: false", text)
             self.assertNotIn("continue-on-error:", text)
