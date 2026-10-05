@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from acs.child_coaching import compile_lesson_session, preset_templates
+from acs.child_coaching_rotation import (
+    RotationActivity,
+    RotationPhase,
+    RotationRound,
+    RotationState,
+    advance_rotation,
+    build_rotation_plan,
+    start_rotation,
+)
+from acs.child_coaching_rotation_store import (
+    ChildCoachingRotationStore,
+    ChildCoachingRotationStoreError,
+)
+from acs.teaching_session import PositionSourceKind, TeachingPositionSource
+
+
+class CompletedRotationRecoveryTests(unittest.TestCase):
+    def _plan(self):
+        lesson = compile_lesson_session(
+            preset_templates()[1],
+            session_id="completed-recovery-session",
+            lesson_id="completed-recovery-lesson",
+            source=TeachingPositionSource(PositionSourceKind.START),
+            student_ids=("student-1", "student-2"),
+            require_no_notation=True,
+        )
+        return build_rotation_plan(
+            lesson,
+            rotation_id="completed-recovery-rotation",
+            rounds=(
+                RotationRound(
+                    "opening",
+                    RotationActivity.DEMONSTRATION,
+                    "Opening demonstration",
+                    5,
+                ),
+                RotationRound(
+                    "review",
+                    RotationActivity.REVIEW,
+                    "Review",
+                    5,
+                ),
+            ),
+        )
+
+    def _impossible_completed_state(self, plan):
+        return RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+            phase=RotationPhase.COMPLETED,
+            round_index=0,
+            revision=1,
+        )
+
+    def test_save_rejects_completed_state_before_final_round(self) -> None:
+        plan = self._plan()
+        impossible = self._impossible_completed_state(plan)
+        with tempfile.TemporaryDirectory() as temp:
+            store = ChildCoachingRotationStore(Path(temp) / "rotation.json")
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "completed rotation must reference the final plan round",
+            ):
+                store.save(plan, impossible, expected_revision=None)
+
+    def test_load_rejects_digest_valid_completed_state_before_final_round(self) -> None:
+        plan = self._plan()
+        impossible = self._impossible_completed_state(plan)
+        payload = {
+            "schema_version": 1,
+            "plan": plan.to_record(),
+            "state": impossible.to_record(),
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            path.write_text(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+            store = ChildCoachingRotationStore(path)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "completed rotation must reference the final plan round",
+            ):
+                store.load()
+
+    def test_real_completed_final_round_still_round_trips(self) -> None:
+        plan = self._plan()
+        state = start_rotation(plan)
+        state = advance_rotation(plan, state, expected_revision=state.revision)
+        state = advance_rotation(plan, state, expected_revision=state.revision)
+        self.assertEqual(state.phase, RotationPhase.COMPLETED)
+        self.assertEqual(state.round_index, len(plan.rounds) - 1)
+
+        with tempfile.TemporaryDirectory() as temp:
+            store = ChildCoachingRotationStore(Path(temp) / "rotation.json")
+            revision = store.save(plan, state, expected_revision=None)
+            loaded = store.load()
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.plan, plan)
+            self.assertEqual(loaded.state, state)
+            self.assertEqual(loaded.revision, revision)
+
+
+if __name__ == "__main__":
+    unittest.main()
