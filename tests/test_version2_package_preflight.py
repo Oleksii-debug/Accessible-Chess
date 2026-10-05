@@ -72,7 +72,7 @@ def _write_checksums(root: Path) -> None:
     (root / CHECKSUMS_NAME).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def _minimal_windows_pe() -> bytes:
+def _minimal_windows_pe(*, machine: int = 0x8664) -> bytes:
     """Return a structurally valid minimal PE32+ image for package fixtures."""
     data = bytearray(512)
     data[0:2] = b"MZ"
@@ -80,7 +80,7 @@ def _minimal_windows_pe() -> bytes:
     data[0x3C:0x40] = pe_offset.to_bytes(4, "little")
     data[pe_offset:pe_offset + 4] = b"PE\x00\x00"
     coff = pe_offset + 4
-    data[coff:coff + 2] = (0x8664).to_bytes(2, "little")
+    data[coff:coff + 2] = machine.to_bytes(2, "little")
     data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
     data[coff + 16:coff + 18] = (0xF0).to_bytes(2, "little")
     data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
