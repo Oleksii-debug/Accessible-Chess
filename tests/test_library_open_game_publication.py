@@ -124,6 +124,16 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
                     "Не вдалося виконати дію.",
                     app._native_file_error_message(event),
                 )
+                app._file_event(event)
+                self.assertEqual(
+                    [
+                        {
+                            "kind": "error",
+                            "payload": {"message": "Не вдалося виконати дію."},
+                        }
+                    ],
+                    app.drain_events(),
+                )
             finally:
                 analysis.close()
                 database.close()
