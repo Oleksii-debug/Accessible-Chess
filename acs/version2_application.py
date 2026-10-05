@@ -1472,6 +1472,8 @@ class Version2Application:
         if action == "pgn.export_selection" and not payload and self.pgn is not None:
             return self.pgn.dispatch(action)
         if action == "library.open_game":
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before opening a Library game")
             if not payload: return self.library.projection.open_selected()
             if set(payload) != {"game_id", "source_id", "source_index"}: raise ValueError("invalid Library game request")
             row = self.database.get_game(payload["game_id"])
@@ -1482,11 +1484,51 @@ class Version2Application:
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
-        if action in {"library.search", "library.reset_filters"}:
+        if action in {
+            "library.search",
+            "library.reset_filters",
+            "library.next_page",
+            "library.previous_page",
+        }:
+            # Native/global Library actions can originate on another route.
+            # Modal ownership is checked before touching presenter state. The
+            # requested projection must then prove one terminal typed render
+            # before keyboard/NVDA route ownership is committed to Library.
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before changing Library state")
+            if action == "library.search":
+                result = self.library.projection.search(self.library.projection.query)
+            elif action == "library.reset_filters":
+                result = self.library.projection.reset_filters()
+            elif action == "library.next_page":
+                result = self.library.projection.next_page()
+            else:
+                result = self.library.projection.previous_page()
+            if getattr(result, "kind", None) != "render":
+                raise ValueError("invalid Library projection result")
+            result_payload = getattr(result, "payload", None)
+            if type(result_payload) is not dict:
+                raise ValueError("invalid Library projection result")
+            snapshot = result_payload.get("snapshot")
+            if type(snapshot) is not dict:
+                raise ValueError("invalid Library projection result")
+            status = snapshot.get("status")
+            if status == "error":
+                message = snapshot.get("message")
+                raise RuntimeError(
+                    message
+                    if isinstance(message, str) and message.strip()
+                    else "Library action failed"
+                )
+            if status not in {"ready", "empty"}:
+                raise ValueError("invalid Library projection status")
             self._focus = self.shell.open_route("library")
-            return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
-        if action == "library.next_page": return self.library.projection.next_page()
-        if action == "library.previous_page": return self.library.projection.previous_page()
+            return result
+        if (
+            action in {"library.import", "library.export"}
+            and self.shell.active_dialog_id is not None
+        ):
+            raise ValueError("close the active dialog before opening a Library file workflow")
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.cancel_open":
