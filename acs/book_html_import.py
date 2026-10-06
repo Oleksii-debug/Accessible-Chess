@@ -163,7 +163,7 @@ _CSS_IMPORTANT_RE = re.compile(r"[ \t\r\n\f]*![ \t\r\n\f]*important[ \t\r\n\f]*$
 _CSS_DISPLAY_SINGLE_VALUES = frozenset(
     {
         "none", "contents", "block", "inline", "run-in", "flow", "flow-root",
-        "table", "flex", "grid", "ruby", "list-item", "inline-block",
+        "table", "flex", "grid", "ruby", "math", "list-item", "inline-block",
         "inline-table", "inline-flex", "inline-grid", "table-row-group",
         "table-header-group", "table-footer-group", "table-row", "table-cell",
         "table-column-group", "table-column", "table-caption", "ruby-base",
@@ -172,7 +172,9 @@ _CSS_DISPLAY_SINGLE_VALUES = frozenset(
     }
 )
 _CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
-_CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby"})
+# CSS Display Level 4 permits math as the inside alternative paired with an
+# outside display keyword (for example, "block math").
+_CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby", "math"})
 
 
 def _deterministic_display_value(value: str) -> str | None:
