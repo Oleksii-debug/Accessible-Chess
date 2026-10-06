@@ -102,6 +102,13 @@ jobs:
             exit 1
           }
 
+          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = "ef33a8530e43ae78f6a56a6ecf5ba5f5ae9f4b4f"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "64ff565255cacca0df2dd4eaab17b3326e4af47a"
+          test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "c232ea738cdf39ff1273d7b819acfc0ddd02bc0b"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "3b61778122cb97a6f0cca8febbb3ccc801c0275b"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "7fd5a97c9781734399f8cecc604c2a6f2540c3fc"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "fd3ceb1185bf07f996427f0967feedc599eec120"
+
           echo "LIBRARY_OPEN_PUBLICATION_SHIPPING=$live_shipping"
           echo "LIBRARY_OPEN_PUBLICATION_SCOPE=PASS"
 
