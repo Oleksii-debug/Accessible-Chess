@@ -146,7 +146,13 @@ class MediaClock:
                 "playback_rate must be a finite positive number",
                 code=MediaErrorCode.INVALID_PLAYBACK_RATE,
             )
-        rate = float(value)
+        try:
+            rate = float(value)
+        except (OverflowError, ValueError) as exc:
+            raise MediaContractError(
+                "playback_rate must be a finite positive number",
+                code=MediaErrorCode.INVALID_PLAYBACK_RATE,
+            ) from exc
         if not math.isfinite(rate) or rate <= 0.0:
             raise MediaContractError(
                 "playback_rate must be a finite positive number",
