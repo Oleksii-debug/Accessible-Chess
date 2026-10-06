@@ -1214,13 +1214,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 "Check side, level, and time control.",
             )
 
-        self._reset_engine_game_state()
         reset = super().new_game()
         if not reset.get("ok"):
             return self._concise_error(
                 "Не вдалося підготувати стандартну позицію для гри.",
                 "The standard position could not be prepared for play.",
             )
+        # The existing engine-game lifecycle remains authoritative until the
+        # standard board/history root has actually published.  Only then may a
+        # replacement game discard the prior session state.
+        self._reset_engine_game_state()
         session = EngineGameSessionCoordinator(
             self._engine_play_service,
             fen_provider=self.board.fen,
