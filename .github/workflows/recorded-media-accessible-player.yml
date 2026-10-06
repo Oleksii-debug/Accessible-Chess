@@ -1,0 +1,81 @@
+name: Recorded Media Accessible Player
+
+on:
+  push:
+    branches:
+      - feat/recorded-media-accessible-player-20261006-sol56
+    paths:
+      - acs/recorded_media_accessibility.py
+      - web/recorded_media_accessible_player.js
+      - tests/test_recorded_media_accessibility.py
+      - tests/js/recorded_media_accessible_player_dom_test.js
+      - .github/workflows/recorded-media-accessible-player.yml
+  pull_request:
+    paths:
+      - acs/recorded_media_accessibility.py
+      - web/recorded_media_accessible_player.js
+      - tests/test_recorded_media_accessibility.py
+      - tests/js/recorded_media_accessible_player_dom_test.js
+      - .github/workflows/recorded-media-accessible-player.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recorded-media-accessible-player-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact recorded-media parent and bounded scope
+        shell: bash
+        env:
+          EXPECTED_PARENT: 1ef7ce3e8b4a021d83be90316496f5e0c4d72c3c
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git merge-base --is-ancestor "$EXPECTED_PARENT" HEAD
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/recorded-media-accessible-player.yml' \
+            'acs/recorded_media_accessibility.py' \
+            'tests/js/recorded_media_accessible_player_dom_test.js' \
+            'tests/test_recorded_media_accessibility.py' \
+            'web/recorded_media_accessible_player.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'RECORDED_MEDIA_ACCESSIBLE_PLAYER_SCOPE_DRIFT\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile Python presentation boundary
+        run: |
+          python -m py_compile acs/recorded_media_accessibility.py
+          python -m py_compile tests/test_recorded_media_accessibility.py
+
+      - name: Run recorded-media accessibility regressions
+        run: python -m unittest -v tests.test_recorded_media_accessibility
+
+      - name: Run browser keyboard and screen-reader DOM contract
+        run: node tests/js/recorded_media_accessible_player_dom_test.js
