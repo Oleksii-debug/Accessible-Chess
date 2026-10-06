@@ -768,6 +768,8 @@ class BookHtmlImportTests(unittest.TestCase):
                 "flex",
                 "grid",
                 "math",
+                "grid-lanes",
+                "inline-grid-lanes",
                 "inline-block",
                 "block flow-root",
                 "inline flex",
