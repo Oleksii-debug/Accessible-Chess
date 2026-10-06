@@ -265,7 +265,7 @@ jobs:
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
-          tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
+          tests/test_dev1_pgn_workspace_webview_adapter.py=08a21803696495d12c53bcfaaff294b1b31b8077
           LOCKS
 
           # Browser-contract hardening is an intentional successor of the
@@ -273,7 +273,7 @@ jobs:
           # reviewed successor identities; every third identity remains fail-closed.
           adapter_actual="$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)"
           case "$adapter_actual" in
-            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|d35e68c56f0ed38842e9f4c6d50ba75ec055998f|ba3879d033a2b2a297b4d37318341e6a76150d03)
+            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|d35e68c56f0ed38842e9f4c6d50ba75ec055998f|ba3879d033a2b2a297b4d37318341e6a76150d03|2819643bfaeb4e14dbb50b14defce3f48e25df17)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_workspace_webview_adapter.py actual=%s\n' "$adapter_actual" >&2
@@ -283,7 +283,7 @@ jobs:
 
           bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
           case "$bridge_actual" in
-            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|597c46effb1da535d1c61aeb88f1a03465b762c1)
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|597c46effb1da535d1c61aeb88f1a03465b762c1|15a83d8bf171f8ad914c434c61442040ed734547)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
@@ -293,7 +293,7 @@ jobs:
 
           projection_test_actual="$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)"
           case "$projection_test_actual" in
-            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e|98a567716c2764c0b077e55101cad4111cd1e16a)
+            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e|98a567716c2764c0b077e55101cad4111cd1e16a|5703b31a7a24f0b3fed605c373e787ad7413bd33)
               ;;
             *)
               printf 'Feature blob mismatch: tests/test_dev1_pgn_webview_projection.py actual=%s\n' "$projection_test_actual" >&2
@@ -316,7 +316,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|2d92a32c40ad0c532725105e443288bb646a819b|0af49d422c4995c166c49d85569c156a93d08106)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|2d92a32c40ad0c532725105e443288bb646a819b|0af49d422c4995c166c49d85569c156a93d08106|8562ba21156466a915d1e72ca89e0029cd04fe44)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
