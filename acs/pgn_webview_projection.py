@@ -723,26 +723,26 @@ class PgnWebViewProjection:
         return PgnWebViewEvent("delegated", {"action": action_id})
 
     def append_moves(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
             raise ValueError("PGN continuation text is invalid")
         return self._dispatch("pgn.append_moves", {"text": text})
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+        if type(name) is not str or not name or _utf16_units(name) > 80 or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
-        if type(value) is not str or len(value) > 360 or "\x00" in value:
+        if type(value) is not str or _utf16_units(value) > 360 or "\x00" in value:
             raise ValueError("PGN tag value is invalid")
         self._dispatch("pgn.tag_edit", {"name": name, "value": value})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+        if type(name) is not str or not name or _utf16_units(name) > 80 or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
         self._dispatch("pgn.tag_delete", {"name": name})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
 
     def search(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 4096 or "\x00" in text:
             raise ValueError("PGN search text is invalid")
         # Search is document-scoped, not move-scoped. A lawful PGN can have
         # tags/result but no moves, so search must work from the canonical root
@@ -790,12 +790,12 @@ class PgnWebViewProjection:
         return self._dispatch_selected("pgn.comment_delete", extra=extra)
 
     def edit_nags(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or len(text) > 512 or "\x00" in text:
+        if type(text) is not str or _utf16_units(text) > 512 or "\x00" in text:
             raise ValueError("PGN NAG text is invalid")
         return self._dispatch_selected("pgn.nag_edit", extra={"text": text})
 
     def add_variation(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
             raise ValueError("PGN variation text is invalid")
         return self._dispatch_selected("pgn.variation_add", extra={"text": text})
 
