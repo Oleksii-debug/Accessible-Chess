@@ -420,6 +420,7 @@ class MediaCoreContractTests(unittest.TestCase):
         with self.assertRaises(MediaContractError) as caught:
             MediaClock(state=ReprBomb())
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+        self.assertNotIn("ReprBomb", str(caught.exception))
 
         with self.assertRaises(MediaContractError) as caught:
             MediaSource(
