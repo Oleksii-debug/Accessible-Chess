@@ -65,13 +65,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF"
-            product_base="$EVENT_BASE_SHA"
-          else
-            git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
-            product_base="$(git rev-parse FETCH_HEAD)"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
           fi
+          product_base="$live_product_base"
           test -n "$product_base"
           git merge-base --is-ancestor "$product_base" HEAD
           test "$(git merge-base "$product_base" HEAD)" = "$product_base"
@@ -126,13 +129,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF"
-            product_base="$EVENT_BASE_SHA"
-          else
-            git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
-            product_base="$(git rev-parse FETCH_HEAD)"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
           fi
+          product_base="$live_product_base"
           test -n "$product_base"
           git merge-base --is-ancestor "$product_base" HEAD
           test "$(git merge-base "$product_base" HEAD)" = "$product_base"
