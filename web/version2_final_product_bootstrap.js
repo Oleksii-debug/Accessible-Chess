@@ -1112,6 +1112,27 @@
   let deferredNativeEventBatch = null;
   let eventDrainIdleWaiters = [];
 
+  function validNativeEventForBatch(event) {
+    if (!plainObject(event) || !NATIVE_EVENT_KINDS.has(event.kind)) return false;
+    if (!plainObject(event.payload)) return false;
+    if (event.kind === "route" && !validRouteId(event.payload.route_id)) return false;
+    if (event.kind === "delegated" && !validActionId(event.payload.action_id)) return false;
+    return true;
+  }
+
+  function validNativeEventBatch(events) {
+    if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) {
+      return false;
+    }
+    // Validate the complete bounded batch before the first live-region, focus,
+    // Library surface or repaint side effect. A malformed later event must not
+    // leave earlier events from the same native transaction partially visible.
+    for (let index = 0; index < events.length; index += 1) {
+      if (!validNativeEventForBatch(events[index])) return false;
+    }
+    return true;
+  }
+
   function waitForEventDrainIdle() {
     if (!eventDrainInFlight) return Promise.resolve();
     return new Promise(function (resolve) {
@@ -1172,7 +1193,7 @@
       return;
     }
     Promise.resolve(drained).then(function (events) {
-      if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
+      if (!validNativeEventBatch(events)) return;
       if (browserOwnsPendingShellPublication()) {
         // A route-start response may be lost after Python acquired its hold but
         // before this browser learned the token. Treat the retained request_id
