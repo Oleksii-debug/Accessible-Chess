@@ -1,0 +1,67 @@
+name: Current CBZ 2CBZ Evidence
+
+on:
+  pull_request:
+    branches:
+      - work/v2-2cbh-cbone-topology-20260828
+    paths:
+      - acs/chessbase_adapter.py
+      - tests/test_chessbase_adapter.py
+      - tests/test_v2_cbz_2cbz_evidence.py
+      - .github/workflows/v2-cbz-2cbz-evidence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_BASE: ${{ github.event.pull_request.base.sha || 'b03bf1d67a787f2c330a0b84fe4dff76cc32a280' }}
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  ADAPTER_BLOB: 0b2eee817f28af6ac26903ba16a34845c1ec7b93
+  ADAPTER_TEST_BLOB: 73660003bd17935e724c3cbbc2b2aed8c67c97bb
+  EVIDENCE_TEST_BLOB: 494294ba6a8bbcb749205f55b972d65457896cf8
+
+jobs:
+  encrypted-archive-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact-head scope and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
+          git diff --check "$EXPECTED_BASE" HEAD
+          actual="$(git diff --name-only "$EXPECTED_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-cbz-2cbz-evidence.yml' \
+            'acs/chessbase_adapter.py' \
+            'tests/test_chessbase_adapter.py' \
+            'tests/test_v2_cbz_2cbz_evidence.py' | sort)"
+          test "$actual" = "$expected"
+          test "$(git hash-object acs/chessbase_adapter.py)" = "$ADAPTER_BLOB"
+          test "$(git hash-object tests/test_chessbase_adapter.py)" = "$ADAPTER_TEST_BLOB"
+          test "$(git hash-object tests/test_v2_cbz_2cbz_evidence.py)" = "$EVIDENCE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/cbv_extractor.py)" = "$(git rev-parse "$EXPECTED_BASE":acs/cbv_extractor.py)"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$(git rev-parse "$EXPECTED_BASE":acs/version2_windows_file_workflows.py)"
+          python -m compileall -q acs tests
+      - name: Fail-closed encrypted archive regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_cbz_2cbz_evidence
+          tests.test_cbv_extractor
+          tests.test_v2_windows_library_import_observer
