@@ -212,6 +212,8 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
             lambda: self.projection.search("😀" * 2049),
             lambda: self.projection.append_moves("😀" * 4097),
             lambda: self.projection.edit_tag("Event", "😀" * 181),
+            lambda: self.projection.search("\ud800"),
+            lambda: self.projection.append_moves("e4 {\udfff}"),
         ):
             with self.subTest(operation=operation):
                 with self.assertRaises(ValueError):
