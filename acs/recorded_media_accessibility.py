@@ -10,7 +10,6 @@ their execution.
 """
 
 from dataclasses import dataclass
-import math
 from .media_preprocess import PreprocessCheckpoint, PreprocessStatus
 from .recorded_media_sync import (
     AccessibleRecordedSyncEvent,
@@ -413,6 +412,15 @@ class RecordedMediaAccessibilityBridge:
                     "invalid recorded playback resolution"
                 )
             safe_sync = _validate_sync_snapshot(sync_snapshot)
+            if playback is not None:
+                playback_position = _nonnegative_int(
+                    playback.session.media_cursor.position_ms,
+                    "recorded playback position",
+                )
+                if position is None or playback_position != position:
+                    raise RecordedMediaAccessibilityError(
+                        "recorded playback position disagrees with the current media clock"
+                    )
             if playback is not None and safe_sync is not None:
                 if playback.session.media_cursor.source_id != safe_sync.source.source_id:
                     raise RecordedMediaAccessibilityError(
