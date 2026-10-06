@@ -1329,6 +1329,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(reopened.error_code, "no_pgn_document")
             self.assertTrue(delegate.shutdown())
+
     def test_refused_close_reopens_draining_cancelled_import_without_freeing_busy_slot(self) -> None:
         class BlockingLibrary:
             def __init__(self) -> None:
