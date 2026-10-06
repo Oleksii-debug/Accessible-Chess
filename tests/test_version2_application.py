@@ -121,6 +121,19 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual([], calls)
         self.assertEqual([], self.copied)
 
+    def test_read_and_copy_fen_reject_hidden_board_before_readback(self):
+        calls = []
+        self.app._board_dispatch = lambda *_args: calls.append(True)
+        self.app.shell.open_route("library")
+
+        for action in ("position.read_fen", "position.copy_fen"):
+            with self.subTest(action=action):
+                with self.assertRaisesRegex(ValueError, "visible Board"):
+                    self.app._delegate(action, {})
+
+        self.assertEqual([], calls)
+        self.assertEqual([], self.copied)
+
     def test_copy_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
         fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
         calls = []
