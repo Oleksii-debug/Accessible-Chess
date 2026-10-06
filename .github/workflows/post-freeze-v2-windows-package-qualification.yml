@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           expected="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$expected"
+          echo "QUALIFICATION_HEAD_SHA=$expected" >> "$GITHUB_ENV"
 
       - name: Bind exact current Product and preserved W5 lineage
         shell: bash
@@ -722,6 +723,7 @@ jobs:
           Write-Host "STAGED_ARTIFACT_ROOT_ZIP=PASS sha256=$($sourceHash.ToLowerInvariant())"
 
       - name: Upload post-freeze Windows package qualification artifact
+        id: package_artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Accessible-Chess-V2-post-freeze-package-qualification
@@ -829,3 +831,60 @@ jobs:
           if(-not (Test-Path -LiteralPath .package-qualification-executor.py -PathType Leaf)){throw 'Inherited qualification executor missing before post-readback'}
           python .package-qualification-executor.py post
           if($LASTEXITCODE -ne 0){throw 'Inherited post-artifact qualification failed'}
+
+      - name: Create and verify canonical release receipt
+        shell: pwsh
+        env:
+          PACKAGE_ARTIFACT_ID: ${{ steps.package_artifact.outputs.artifact-id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not $env:PACKAGE_ARTIFACT_ID -or $env:PACKAGE_ARTIFACT_ID -notmatch '^[0-9]+$'){throw 'Package artifact ID is unavailable for release receipt'}
+          if(-not $env:QUALIFICATION_HEAD_SHA -or $env:QUALIFICATION_HEAD_SHA -notmatch '^[0-9a-f]{40}$'){throw 'Qualification head SHA is unavailable for release receipt'}
+          if([string]$env:QUALIFICATION_HEAD_SHA -ne [string](git rev-parse HEAD)){throw 'Release receipt qualification head does not match checkout'}
+          $package=(Resolve-Path -LiteralPath (Join-Path 'artifact-readback' $env:CANDIDATE_FILE)).Path
+          $receipt=Join-Path $PWD 'Accessible-Chess-V2-release-receipt.json'
+          if(Test-Path -LiteralPath $receipt){Remove-Item -LiteralPath $receipt -Force}
+          python -m acs.version2_release_receipt create --package $package --expected-integration-sha $env:PRODUCT_PARENT --workflow-run-id $env:GITHUB_RUN_ID --workflow-run-attempt $env:GITHUB_RUN_ATTEMPT --qualification-head-sha $env:QUALIFICATION_HEAD_SHA --artifact-id $env:PACKAGE_ARTIFACT_ID --artifact-name 'Accessible-Chess-V2-post-freeze-package-qualification' --output $receipt
+          if($LASTEXITCODE -ne 0){throw 'Canonical release receipt creation failed'}
+          python -m acs.version2_release_receipt verify --package $package --receipt $receipt
+          if($LASTEXITCODE -ne 0){throw 'Canonical release receipt verification failed'}
+          $payload=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if([string]$payload.repository -ne 'Oleksii-debug/Accessible-Chess'){throw 'Release receipt repository identity mismatch'}
+          if([string]$payload.integration_sha -ne $env:PRODUCT_PARENT){throw 'Release receipt integration SHA mismatch'}
+          if([string]$payload.qualification_head_sha -ne $env:QUALIFICATION_HEAD_SHA){throw 'Release receipt qualification head mismatch'}
+          if([int64]$payload.workflow_run_id -ne [int64]$env:GITHUB_RUN_ID){throw 'Release receipt workflow run ID mismatch'}
+          if([int64]$payload.workflow_run_attempt -ne [int64]$env:GITHUB_RUN_ATTEMPT){throw 'Release receipt workflow run attempt mismatch'}
+          if([int64]$payload.artifact_id -ne [int64]$env:PACKAGE_ARTIFACT_ID){throw 'Release receipt artifact ID mismatch'}
+          if([string]$payload.artifact_name -ne 'Accessible-Chess-V2-post-freeze-package-qualification'){throw 'Release receipt artifact name mismatch'}
+          Write-Host "CANONICAL_RELEASE_RECEIPT=PASS package_artifact_id=$env:PACKAGE_ARTIFACT_ID"
+
+      - name: Upload canonical release receipt artifact
+        id: receipt_artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-release-receipt
+          path: Accessible-Chess-V2-release-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Download canonical release receipt artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Accessible-Chess-V2-release-receipt
+          path: receipt-readback
+
+      - name: Verify release receipt artifact readback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $package=(Resolve-Path -LiteralPath (Join-Path 'artifact-readback' $env:CANDIDATE_FILE)).Path
+          $source=(Resolve-Path -LiteralPath 'Accessible-Chess-V2-release-receipt.json').Path
+          $readback=(Resolve-Path -LiteralPath 'receipt-readback\Accessible-Chess-V2-release-receipt.json').Path
+          $sourceHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+          $readbackHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $readback).Hash
+          if($sourceHash -ne $readbackHash){throw 'Release receipt changed across artifact upload/download'}
+          python -m acs.version2_release_receipt verify --package $package --receipt $readback
+          if($LASTEXITCODE -ne 0){throw 'Readback release receipt verification failed'}
+          Write-Host "CANONICAL_RELEASE_RECEIPT_ARTIFACT_READBACK=PASS sha256=$($sourceHash.ToLowerInvariant())"
+
