@@ -229,6 +229,13 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertIn("el('position-piece-apply').click()", html)
         self.assertIn("el('position-metadata-apply').click()", html)
 
+    def test_board_render_restores_keyboard_focus_after_api_state_updates(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("restoreBoardFocus=grid.contains(document.activeElement)", html)
+        self.assertIn("if(restoreBoardFocus){const next=grid.querySelectorAll('[role=gridcell]')[boardIndex];if(next)next.focus()}", html)
+
     def test_accessible_html_exposes_all_position_editor_controls(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"
