@@ -6,10 +6,12 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .gametree import Comment, PgnGame, serialize_game
+from .gametree import Comment, PgnGame, VariationLine, serialize_game
 from .gametree_annotations import LineAnnotationPatch, LineAnnotationTarget, MoveAnnotationPatch, MoveAnnotationTarget
 from .gametree_editing import VariationEditTarget
+from .gametree_insertion import variation_insert_target
 from .gametree_legality import validate_game_legality
+from .pgn_roundtrip import parse_pgn_text
 from .gametree_navigation import GameTreeCursor, MoveAddress, VariationStep, resolve_line, validate_cursor
 from .pgn_document import PgnDocumentSession
 from .pgn_service import export_game_atomic
@@ -163,6 +165,43 @@ class Version2PgnCommands:
         workspace = self._session().workspace
         return self._selection_game(request, workspace)
 
+    @staticmethod
+    def _selected_move_origin_fen(workspace, cursor: GameTreeCursor) -> str:
+        if cursor.next_move_index <= 0:
+            raise ValueError("select a PGN move first")
+        report = validate_game_legality(workspace.current_game())
+        address = MoveAddress(cursor.line_path, cursor.next_move_index - 1)
+        move = next((item for item in report.moves if item.address == address), None)
+        if move is None:
+            raise ValueError("selected PGN move has no canonical position")
+        return move.fen_before
+
+    @staticmethod
+    def _variation_from_text(text: str, *, origin_fen: str) -> VariationLine:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("invalid PGN variation text")
+        fields = origin_fen.split()
+        if len(fields) != 6 or fields[1] not in {"w", "b"}:
+            raise ValueError("variation origin is not canonical FEN")
+        try:
+            fullmove = int(fields[5])
+        except ValueError as exc:
+            raise ValueError("variation origin has invalid move counter") from exc
+        prefix = f"{fullmove}." if fields[1] == "w" else f"{fullmove}..."
+        synthetic = (
+            f'[SetUp "1"]\n[FEN "{origin_fen}"]\n[Result "*"]\n\n'
+            f"{prefix} {text.strip()} *"
+        )
+        games = parse_pgn_text(synthetic, strict=True)
+        if len(games) != 1 or not games[0].line.moves:
+            raise ValueError("variation text contains no canonical moves")
+        report = validate_game_legality(games[0])
+        if not report.complete or report.issues:
+            raise ValueError("variation contains an illegal or unsupported move")
+        line = games[0].line
+        line.result = None
+        return line
+
     def current_fen(self) -> str:
         workspace = self._session().workspace
         cursor = workspace.cursor
@@ -203,7 +242,8 @@ class Version2PgnCommands:
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
-        if action_id == "pgn.comment_edit": allowed.add("text")
+        if action_id in {"pgn.comment_edit", "pgn.nag_edit", "pgn.variation_add"}:
+            allowed.add("text")
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             allowed.update({"parent_path", "parent_move_index", "variation_index"})
         payload_fields = set(payload)
@@ -233,6 +273,31 @@ class Version2PgnCommands:
                 MoveAnnotationTarget(cursor.line_path, request.move_index, request.expected_record_digest),
                 MoveAnnotationPatch(comments_before=(), comments_after=comments),
             )
+        if action_id == "pgn.nag_edit":
+            if request.move_index is None:
+                raise ValueError("NAG editing requires a selected move")
+            text = payload.get("text", "")
+            if type(text) is not str or len(text) > 512 or "\x00" in text:
+                raise ValueError("invalid PGN NAG text")
+            tokens = tuple(token for token in text.split() if token)
+            if len(tokens) > 64:
+                raise ValueError("too many PGN NAG annotations")
+            return workspace.edit_move_annotations(
+                MoveAnnotationTarget(cursor.line_path, request.move_index, request.expected_record_digest),
+                MoveAnnotationPatch(nags=tokens),
+            )
+        if action_id == "pgn.variation_add":
+            if request.move_index is None:
+                raise ValueError("variation creation requires a selected move")
+            text = payload.get("text", "")
+            origin_fen = self._selected_move_origin_fen(workspace, cursor)
+            variation = self._variation_from_text(text, origin_fen=origin_fen)
+            target = variation_insert_target(
+                workspace.current_game(),
+                cursor.line_path,
+                request.move_index,
+            )
+            return workspace.add_variation(target, variation)
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             parent = tuple(VariationStep(*step) for step in payload["parent_path"])
             target = VariationEditTarget(parent, payload["parent_move_index"], payload["variation_index"], request.expected_record_digest)
