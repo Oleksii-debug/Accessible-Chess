@@ -2081,6 +2081,19 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
                 source.close()
 
 
+_PLATFORM_PATH_TYPE = type(Path("."))
+
+
+def _passive_path(value: str | Path, *, label: str) -> Path:
+    """Normalize only passive public path controls before release work."""
+
+    if type(value) is _PLATFORM_PATH_TYPE:
+        return value
+    if type(value) is str:
+        return Path(value)
+    raise TypeError(f"{label} must be exact str or platform Path")
+
+
 def _normalize_expected_integration_sha(value: str) -> str:
     # This is a direct API control, not parsed package data. Reject derived
     # strings before invoking casefold() so active subclasses cannot execute
@@ -2102,7 +2115,7 @@ def validate_version2_package_tree(
     if type(limits) is not PackageLimits:
         raise TypeError("limits must be exact PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
-    root = Path(root)
+    root = _passive_path(root, label="package root")
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
     _validate_required_runtime_resources(root, inventory, limits)
@@ -2201,7 +2214,7 @@ def validate_version2_package_zip(
     if type(limits) is not PackageLimits:
         raise TypeError("limits must be exact PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
-    path = Path(zip_path)
+    path = _passive_path(zip_path, label="Version 2 ZIP")
     snapshot, archive_sha = _snapshot_regular_file(
         path,
         label="Version 2 ZIP",
