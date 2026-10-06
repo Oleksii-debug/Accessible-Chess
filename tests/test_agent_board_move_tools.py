@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from queue import Queue
 from threading import Event, Thread, get_ident
+import tempfile
 import unittest
 
 from acs.agent_execution_host import AgentOwnerThreadCall
@@ -10,6 +12,7 @@ from acs.agent_tools import ToolCall, ToolExecutor, ToolRisk
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
+from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
 
 
 class OwnerHarness:
@@ -250,6 +253,42 @@ class AgentBoardMoveToolTests(unittest.TestCase):
         expected = Board()
         expected.push_text("d4")
         self.assertEqual(board.fen(), expected.fen())
+
+
+    def test_real_stage1_release_make_move_is_a_compatible_analysis_port(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            api = Stage1ReleaseAccessibleChessAPI(
+                keymap_path=Path(temp) / "keymap.json"
+            )
+            executor = ToolExecutor()
+            ChessAgentToolRegistry(
+                executor=executor,
+                board_provider=lambda: api.board,
+                board_commands_provider=lambda: self.commands_for(api.board),
+                board_move=api.make_move,
+            ).register_all()
+
+            before = api.board.fen()
+            illegal = self.execute(
+                executor,
+                "board.play_move",
+                {"move": "e9"},
+            )
+            self.assertFalse(illegal.ok)
+            self.assertEqual(illegal.error, "tool failed")
+            self.assertEqual(api.board.fen(), before)
+            self.assertEqual(len(api.sans), 0)
+
+            played = self.execute(
+                executor,
+                "board.play_move",
+                {"move": "e4"},
+            )
+            self.assertTrue(played.ok, played.error)
+            self.assertEqual(played.output["san"], "e4")
+            self.assertEqual(played.output["fen"], api.board.fen())
+            self.assertEqual(api.sans, ["e4"])
+            self.assertEqual(len(api.board.undo_stack), 1)
 
     def test_owner_thread_boundary_covers_preview_and_mutation(self) -> None:
         owner = OwnerHarness()

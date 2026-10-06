@@ -67,10 +67,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'a9b4696d675a4e468e170626a2837ee50961e2dd'
-          test "$(git rev-parse HEAD:tests/test_agent_board_move_tools.py)" = 'c97f41b333adcef4d5316a6059444aa1b79e716f'
+          test "$(git rev-parse HEAD:tests/test_agent_board_move_tools.py)" = '37237e7c4f782423d0266547ee5caf20a68af543'
           test "$(git rev-parse HEAD:acs/chesscore.py)" = 'eb9229b5ee107afe06cdf8a916f466e1474dddd4'
           test "$(git rev-parse HEAD:acs/board_service.py)" = '5058733f0efe74bd42831b98c8f9cba83278d0cf'
           test "$(git rev-parse HEAD:acs/agent_execution_host.py)" = 'fe0ee060a9de7a45a192e185a50c95628d8b007b'
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = '23e5bcdde11acdb963515bea4bc4a93473dbbd05'
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = 'cb89d8d2d204545096568134637b39c888cf17b8'
           test "$(git rev-parse HEAD:tests/test_chess_agent_tools_crossrepo.py)" = '0ab21c0b8529e8ece4b722392a2f907a65672763'
 
       - name: Set up Python
@@ -88,6 +90,8 @@ jobs:
           acs/chesscore.py
           acs/board_service.py
           acs/agent_execution_host.py
+          acs/stage1_release_ui.py
+          acs/stage1_release_ui_core.py
           tests/test_agent_board_move_tools.py
 
       - name: Run focused canonical board-move contract
