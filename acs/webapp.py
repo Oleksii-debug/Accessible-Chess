@@ -206,6 +206,35 @@ class AccessibleChessAPI:
                 i += 1
         return "\n".join(out)
 
+    def _history_items(self) -> list[dict[str, Any]]:
+        """Project the immutable live line as a selectable review move list.
+
+        Arrow-key browsing belongs to presentation; each item carries only the
+        canonical ply target that go_to_move already validates before review
+        publication. Review selection never mutates the live Board.
+        """
+        try:
+            lineage = self._live_line_nodes()
+        except Exception:
+            return []
+        current_node = self.review_history.cursor_node_id
+        items: list[dict[str, Any]] = []
+        for ply, (san, side) in enumerate(
+            zip(self.sans, self.move_sides, strict=True),
+            start=1,
+        ):
+            move_number = (ply + 1) // 2
+            prefix = f"{move_number}." if side == "w" else f"{move_number}..."
+            items.append(
+                {
+                    "ply": ply,
+                    "label": f"{prefix} {format_accessible_compact_san(san, self.lang)}",
+                    "selected": ply < len(lineage) and lineage[ply] == current_node,
+                    "live": ply < len(lineage) and lineage[ply] == self.live_history_node,
+                }
+            )
+        return items
+
     def _game_status(self, board: Board | None = None) -> str:
         b = board or self._display_board()
         turn_text = self._t("white_turn") if b.turn == "w" else self._t("black_turn")
@@ -485,6 +514,7 @@ class AccessibleChessAPI:
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
             "positionComplete": self._position_playable(display_board),
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
+            "historyItems": self._history_items(),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
 
