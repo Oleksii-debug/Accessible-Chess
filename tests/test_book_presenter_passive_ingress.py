@@ -65,6 +65,69 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
 
         self.assertFalse(HostilePresenter.touched)
 
+    def test_exact_reader_instance_method_shadows_cannot_replace_presenter_authority(self) -> None:
+        reader = self._reader()
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("instance-level BookReader hook must not execute")
+
+        reader.document_warning_count = hostile  # type: ignore[method-assign]
+        reader.document_warnings_snapshot = hostile  # type: ignore[method-assign]
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+
+        reader.location = hostile  # type: ignore[method-assign]
+        reader.block_snapshot = hostile  # type: ignore[method-assign]
+        reader.navigation_availability = hostile  # type: ignore[method-assign]
+
+        view = BookReaderPresenter.current(presenter)
+        navigation = BookReaderPresenter.navigation_availability(presenter)
+
+        self.assertEqual(view.kind, "Paragraph")
+        self.assertEqual(view.text, "Readable paragraph")
+        self.assertIs(navigation["previous"], False)
+        self.assertIs(navigation["next"], False)
+        self.assertEqual(touched, [])
+
+    def test_exact_presenter_instance_method_shadows_cannot_replace_webview_authority(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                "Passive projection",
+                blocks=[
+                    Paragraph(text="First", block_id="p1"),
+                    Paragraph(text="Second", block_id="p2"),
+                ],
+            )
+        )
+        presenter = BookReaderPresenter(reader, language=UILanguage.EN)
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("instance-level BookReaderPresenter hook must not execute")
+
+        presenter.set_language = hostile  # type: ignore[method-assign]
+        presenter.current = hostile  # type: ignore[method-assign]
+        presenter.navigation_availability = hostile  # type: ignore[method-assign]
+        presenter.next_block = hostile  # type: ignore[method-assign]
+        presenter.bookmark = hostile  # type: ignore[method-assign]
+
+        projection = BookWebViewProjection(
+            presenter,
+            lambda command, payload: None,
+            language=UILanguage.EN,
+        )
+        initial = projection.snapshot()
+        moved = projection.next()
+        saved = projection.save_bookmark("after-next")
+
+        self.assertEqual(initial["block"]["text"], "First")
+        self.assertEqual(moved.payload["snapshot"]["block"]["text"], "Second")
+        self.assertEqual(saved.payload["snapshot"]["block"]["text"], "Second")
+        self.assertEqual(projection.bookmark_name, "after-next")
+        self.assertEqual(touched, [])
+
     def test_exact_reader_presenter_projection_chain_still_renders(self) -> None:
         presenter = BookReaderPresenter(
             self._reader(),
