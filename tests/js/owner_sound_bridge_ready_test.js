@@ -38,6 +38,19 @@ vm.runInContext(source.slice(source.indexOf('async function markReady()'),source
   assert.equal(controls.get('sound-volume').value,'80');
   for(const [id,control] of controls) assert(!control.disabled,id+' stayed disabled');
   assert.equal(context.document.body.dataset.stage1AppReady,'true');
+
+  const feedback = controls.get('move-error-announcements');
+  feedback.checked = true;
+  bridge.get_move_feedback_settings = async()=>({ok:false,enabled:true});
+  await context.loadMoveFeedbackSettings();
+  assert.equal(feedback.checked,false,'non-authoritative feedback read must clear stale enabled state');
+  assert.equal(feedback.disabled,true,'non-authoritative feedback read must remain disabled');
+  feedback.checked = true;
+  bridge.get_move_feedback_settings = async()=>{throw new Error('private feedback read failure');};
+  await context.loadMoveFeedbackSettings();
+  assert.equal(feedback.checked,false,'failed feedback reload must clear stale enabled state');
+  assert.equal(feedback.disabled,true,'failed feedback reload must remain disabled');
+
   failSoundRead = true;
   const failedReload = context.loadSoundState();
   assert.equal(
