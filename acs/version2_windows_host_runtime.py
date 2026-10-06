@@ -264,6 +264,10 @@ class Version2WindowsFileWorkflowRuntime:
 
         with self._lock:
             self._closed = False
+
+        # Only the fully reopened runtime may present a terminal retained in the
+        # bounded mailbox across refused FormClosing.
+        self._pump.request_pending_wakeup()
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
