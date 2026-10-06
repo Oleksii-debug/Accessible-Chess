@@ -48,6 +48,7 @@ class AgentFinalProductReachabilityTests(unittest.TestCase):
         registry = build_final_product_action_registry()
         spec = build_final_product_menu_spec(registry, language=UILanguage.UA)
         menu = next(item for item in spec if item.menu_id == "agent")
+        self.assertEqual(menu.label, "П&омічник")
         action_ids = tuple(
             item.action_id
             for item in menu.items
