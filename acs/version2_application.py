@@ -2059,6 +2059,12 @@ class Version2Application:
 
     def drain_events(self):
         self._assert_thread()
+        # Book Open completion posting can fail transiently after background
+        # preparation finishes. Recover its retained terminal only here, on the
+        # canonical owner/UI thread, so NVDA/browser state cannot remain stuck at
+        # STARTED and no worker thread ever calls presentation code directly.
+        if self._book_open_worker is not None:
+            self._book_open_worker.flush_pending_terminal()
         if self._pending_shell_publication is not None:
             # The browser is rendering a candidate route. Preserve every prior
             # native/domain presentation event in order until that route is
