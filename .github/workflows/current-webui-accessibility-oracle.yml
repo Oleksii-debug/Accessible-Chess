@@ -66,7 +66,11 @@ jobs:
               '.github/workflows/current-webui-accessibility-oracle.yml' \
               'tests/test_accessible_webui.py' | sort)"
             ui_transaction_paths="$(printf '%s\n' \
+              '.github/workflows/current-product-accessibility-formats-convergence.yml' \
               '.github/workflows/current-webui-accessibility-oracle.yml' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
+              'tests/js/keymap_recovery_accessibility_test.js' \
               'tests/js/owner_gameplay_keyboard_test.js' \
               'tests/test_accessible_webui.py' \
               'web/index.html' | sort)"
