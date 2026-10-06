@@ -1,29 +1,30 @@
-name: Current Shipping PGN Open Terminal Truth
+name: Current Shipping PGN Save Terminal Truth
 
 on:
   push:
     branches:
-      - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
+      - fix/current-shipping-pgn-save-terminal-truth-20261006-hy6ez0h
   pull_request:
     branches:
-      - converge/current-shipping-pgn-cancel-successor-20261006-ooxple7
+      - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: current-shipping-pgn-open-terminal-truth-${{ github.head_ref || github.ref_name }}
+  group: current-shipping-pgn-save-terminal-truth-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
-  SHIPPING_PARENT_BRANCH: converge/current-shipping-pgn-cancel-successor-20261006-ooxple7
-  SHIPPING_PARENT_SHA: aedb6813c15d4ef94410a736c173c4e28dda19d5
+  SHIPPING_PARENT_BRANCH: converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
+  SHIPPING_PARENT_SHA: eace8b671934c1acf6e12a4a59a95bc6274a8f1d
   RUNTIME_FIX_BRANCH: fix/current-runtime-pgn-open-terminal-truth-20261006-c2mbezb
   RUNTIME_FIX_SHA: a7a30a63bed70ae5c5d3a7298c0dd14755897f78
   SOURCE_BLOB: e1a56840490acccedc6d59d1d5e1d9d378e02528
   OPEN_TEST_BLOB: ff53746aea9054823b9a8cbf9619cbc8848d246f
-  SAVE_TEST_BLOB: a9fb0eb40d8b48b75a900318db72ad62bb825b3e
+  PARENT_SAVE_TEST_BLOB: a9fb0eb40d8b48b75a900318db72ad62bb825b3e
+  SAVE_TEST_BLOB: 458b093db5f87b072b0e816c6d8309228fd5cf43
 
 jobs:
   shipping-terminal-truth:
@@ -52,7 +53,7 @@ jobs:
         with:
           python-version: "3.12.10"
 
-      - name: Prove exact shipping parent and runtime overlay
+      - name: Prove exact shipping apex and late-save terminal correction
         shell: bash
         run: |
           set -euo pipefail
@@ -72,8 +73,7 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$SHIPPING_PARENT_SHA"...HEAD | sort)
           expected=(
             ".github/workflows/current-shipping-pgn-open-terminal-truth.yml"
-            "acs/version2_windows_file_workflows.py"
-            "tests/test_v2_windows_pgn_open_worker.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
@@ -83,6 +83,9 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SAVE_TEST_BLOB"
+          test "$(git rev-parse refs/remotes/origin/shipping-parent:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
+          test "$(git rev-parse refs/remotes/origin/shipping-parent:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
+          test "$(git rev-parse refs/remotes/origin/shipping-parent:tests/test_v2_windows_pgn_save_worker.py)" = "$PARENT_SAVE_TEST_BLOB"
           test "$(git rev-parse refs/remotes/origin/runtime-fix:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
           test "$(git rev-parse refs/remotes/origin/runtime-fix:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
 
