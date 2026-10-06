@@ -2082,7 +2082,10 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
 
 
 def _normalize_expected_integration_sha(value: str) -> str:
-    if not isinstance(value, str) or not _SHA40_RE.fullmatch(value.casefold()):
+    # This is a direct API control, not parsed package data. Reject derived
+    # strings before invoking casefold() so active subclasses cannot execute
+    # caller code inside the release-preflight boundary.
+    if type(value) is not str or not _SHA40_RE.fullmatch(value.casefold()):
         _fail("expected integration authority must be a 40-hex commit")
     return value.casefold()
 
@@ -2093,8 +2096,11 @@ def validate_version2_package_tree(
     expected_integration_sha: str,
     limits: PackageLimits = PackageLimits(),
 ) -> Version2PackagePreflightReport:
-    if not isinstance(limits, PackageLimits):
-        raise TypeError("limits must be PackageLimits")
+    # PackageLimits is executable caller policy. A derived instance can
+    # override attribute access despite the frozen dataclass base; fail before
+    # any inventory/archive/filesystem work can consume those hooks.
+    if type(limits) is not PackageLimits:
+        raise TypeError("limits must be exact PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
     root = Path(root)
     inventory, total = _inventory(root, limits)
@@ -2189,8 +2195,11 @@ def validate_version2_package_zip(
     expected_integration_sha: str,
     limits: PackageLimits = PackageLimits(),
 ) -> Version2PackagePreflightReport:
-    if not isinstance(limits, PackageLimits):
-        raise TypeError("limits must be PackageLimits")
+    # PackageLimits is executable caller policy. A derived instance can
+    # override attribute access despite the frozen dataclass base; fail before
+    # any inventory/archive/filesystem work can consume those hooks.
+    if type(limits) is not PackageLimits:
+        raise TypeError("limits must be exact PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
     path = Path(zip_path)
     snapshot, archive_sha = _snapshot_regular_file(
