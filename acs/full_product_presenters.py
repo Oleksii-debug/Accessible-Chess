@@ -792,8 +792,9 @@ class BookReaderPresenter:
             raise TypeError("book presenter reader must be BookReader")
         self._reader = reader
         self._language = language
-        self._document_warning_count = reader.document_warning_count()
-        warnings = reader.document_warnings_snapshot(
+        self._document_warning_count = BookReader.document_warning_count(reader)
+        warnings = BookReader.document_warnings_snapshot(
+            reader,
             limit=self._MAX_DOCUMENT_WARNING_ITEMS,
         )
         if type(warnings) is not tuple or any(type(item) is not str for item in warnings):
@@ -813,7 +814,7 @@ class BookReaderPresenter:
 
     def restore_cursor(self, index: int) -> None:
         """Restore a presentation transaction through BookReader's canonical API."""
-        self._reader.go_to(index)
+        BookReader.go_to(self._reader, index)
 
     def _document_warning_summary(self) -> str:
         if not self._document_warnings:
@@ -853,7 +854,7 @@ class BookReaderPresenter:
         return summary
 
     def _block_view(self, location: ReadingLocation) -> BookBlockView:
-        block = self._reader.block_snapshot(location.index)
+        block = BookReader.block_snapshot(self._reader, location.index)
         role = "group"
         title = ""
         text = ""
@@ -908,7 +909,7 @@ class BookReaderPresenter:
             role = "note"
             title = _localized(self._language, "Примітка", "Note")
             text = block.text
-        document_warning = self._document_warning_summary()
+        document_warning = BookReaderPresenter._document_warning_summary(self)
         if document_warning:
             warning = f"{warning} {document_warning}".strip()
         return BookBlockView(
@@ -928,46 +929,52 @@ class BookReaderPresenter:
         )
 
     def current(self) -> BookBlockView:
-        return self._block_view(self._reader.location())
+        return BookReaderPresenter._block_view(self, BookReader.location(self._reader))
 
     def next_block(self) -> BookBlockView:
-        return self._block_view(self._reader.next_block())
+        return BookReaderPresenter._block_view(self, BookReader.next_block(self._reader))
 
     def previous_block(self) -> BookBlockView:
-        return self._block_view(self._reader.previous_block())
+        return BookReaderPresenter._block_view(self, BookReader.previous_block(self._reader))
 
     def next_heading(self) -> BookBlockView:
-        return self._block_view(self._reader.next_heading())
+        return BookReaderPresenter._block_view(self, BookReader.next_heading(self._reader))
 
     def previous_heading(self) -> BookBlockView:
-        return self._block_view(self._reader.previous_heading())
+        return BookReaderPresenter._block_view(self, BookReader.previous_heading(self._reader))
 
     def next_position(self) -> BookBlockView:
-        return self._block_view(self._reader.next_position())
+        return BookReaderPresenter._block_view(self, BookReader.next_position(self._reader))
 
     def previous_position(self) -> BookBlockView:
-        return self._block_view(self._reader.previous_position())
+        return BookReaderPresenter._block_view(self, BookReader.previous_position(self._reader))
 
     def next_game(self) -> BookBlockView:
-        return self._block_view(self._reader.next_game())
+        return BookReaderPresenter._block_view(self, BookReader.next_game(self._reader))
 
     def previous_game(self) -> BookBlockView:
-        return self._block_view(self._reader.previous_game())
+        return BookReaderPresenter._block_view(self, BookReader.previous_game(self._reader))
 
     def navigation_availability(self) -> dict[str, bool]:
-        return self._reader.navigation_availability()
+        return BookReader.navigation_availability(self._reader)
 
     def bookmark(self, name: str = "default") -> BookBlockView:
-        return self._block_view(self._reader.save_return_point(name))
+        return BookReaderPresenter._block_view(
+            self,
+            BookReader.save_return_point(self._reader, name),
+        )
 
     def restore_bookmark(self, name: str = "default") -> BookBlockView:
-        return self._block_view(self._reader.restore_return_point(name))
+        return BookReaderPresenter._block_view(
+            self,
+            BookReader.restore_return_point(self._reader, name),
+        )
 
     def open_current_position(self, dispatch: CommandDispatch) -> Any:
-        current = self.current()
+        current = BookReaderPresenter.current(self)
         if current.position_fen is None:
             raise LookupError("Current book block has no board position")
-        with self._reader.provisional_return_point(self._BOARD_RETURN_POINT):
+        with BookReader.provisional_return_point(self._reader, self._BOARD_RETURN_POINT):
             return dispatch(
                 "book.open_position",
                 {
@@ -977,14 +984,14 @@ class BookReaderPresenter:
             )
 
     def open_current_game(self, dispatch: CommandDispatch) -> Any:
-        current = self.current()
+        current = BookReaderPresenter.current(self)
         if current.kind != "Game":
             raise LookupError("Current book block is not a game")
-        with self._reader.provisional_return_point(self._BOARD_RETURN_POINT):
+        with BookReader.provisional_return_point(self._reader, self._BOARD_RETURN_POINT):
             return dispatch("book.open_game", {})
 
     def return_from_board(self) -> BookBlockView:
-        return self.restore_bookmark(self._BOARD_RETURN_POINT)
+        return BookReaderPresenter.restore_bookmark(self, self._BOARD_RETURN_POINT)
 
 
 @dataclass(frozen=True, slots=True)
