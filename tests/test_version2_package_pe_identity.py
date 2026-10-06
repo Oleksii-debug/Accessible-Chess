@@ -257,6 +257,62 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
                     expected_optional_magic=0x020B,
                 )
 
+    def test_native_pe_rejects_raw_section_inside_headers(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "runtime.dll"
+            payload = bytearray(_minimal_windows_pe(machine=0x8664))
+            pe_offset = int.from_bytes(payload[0x3C:0x40], "little")
+            coff = pe_offset + 4
+            optional_size = int.from_bytes(
+                payload[coff + 16:coff + 18],
+                "little",
+            )
+            section = coff + 20 + optional_size
+            payload[section + 20:section + 24] = section.to_bytes(4, "little")
+            target.write_bytes(payload)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "not a valid Windows PE executable",
+            ):
+                preflight._validate_windows_pe_executable(
+                    target,
+                    label="test runtime",
+                    expected_machine=0x8664,
+                    expected_optional_magic=0x020B,
+                )
+
+    def test_native_pe_rejects_overlapping_raw_sections(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "runtime.dll"
+            payload = bytearray(_minimal_windows_pe(machine=0x8664))
+            pe_offset = int.from_bytes(payload[0x3C:0x40], "little")
+            coff = pe_offset + 4
+            payload[coff + 2:coff + 4] = (2).to_bytes(2, "little")
+            optional_size = int.from_bytes(
+                payload[coff + 16:coff + 18],
+                "little",
+            )
+            first = coff + 20 + optional_size
+            second = first + 40
+            payload[second:second + 8] = b".data\x00\x00\x00"
+            payload[second + 8:second + 12] = (0x100).to_bytes(4, "little")
+            payload[second + 12:second + 16] = (0x3000).to_bytes(4, "little")
+            payload[second + 16:second + 20] = (0x100).to_bytes(4, "little")
+            payload[second + 20:second + 24] = (0x300).to_bytes(4, "little")
+            target.write_bytes(payload)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "not a valid Windows PE executable",
+            ):
+                preflight._validate_windows_pe_executable(
+                    target,
+                    label="test runtime",
+                    expected_machine=0x8664,
+                    expected_optional_magic=0x020B,
+                )
+
     def test_native_pe_validation_reads_machine_and_magic_from_one_open_handle(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "runtime.dll"

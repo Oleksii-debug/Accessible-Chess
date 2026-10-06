@@ -409,6 +409,27 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 label="package path",
             )
 
+    def test_relative_token_bounds_total_depth_and_utf16_length(self):
+        too_deep = "/".join(["a"] * (preflight._MAX_PACKAGE_PATH_COMPONENTS + 1))
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "path-depth limit",
+        ):
+            preflight._relative_token(too_deep, label="package path")
+
+        astral_component = "\U0001f642" * 126
+        utf16_long = "/".join([astral_component] * 130)
+        self.assertLess(len(utf16_long), preflight._MAX_PACKAGE_PATH_UTF16_UNITS)
+        self.assertGreater(
+            len(utf16_long.encode("utf-16-le")) // 2,
+            preflight._MAX_PACKAGE_PATH_UTF16_UNITS,
+        )
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "path-length limit",
+        ):
+            preflight._relative_token(utf16_long, label="package path")
+
     def test_relative_token_rejects_malformed_win32_unicode(self):
         with self.assertRaisesRegex(
             Version2PackagePreflightError,
@@ -577,6 +598,105 @@ class Version2PackagePreflightTests(unittest.TestCase):
 
             report = _validate_tree(root)
             self.assertEqual(report.integration_sha, _SHA)
+
+    def test_package_preflight_rejects_truncated_semantic_sound_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sound_root = root / "AccessibleChess" / "assets" / "sounds"
+            manifest = json.loads(
+                (sound_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            event = SoundEvent.LOW_TIME
+            file_name = manifest["files"][event.value]
+            sound_path = sound_root / file_name
+            payload = sound_path.read_bytes()
+            self.assertGreater(len(payload), 46)
+            sound_path.write_bytes(payload[:-2])
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][event.value]["sha256"] = _sha256(sound_path)
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                r"packaged sound asset is truncated: low_time",
+            ):
+                _validate_tree(root)
+
+    def test_package_preflight_bounds_declared_sound_frames_before_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sound_root = root / "AccessibleChess" / "assets" / "sounds"
+            manifest = json.loads(
+                (sound_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            event = SoundEvent.LOW_TIME
+            sound_path = sound_root / manifest["files"][event.value]
+
+            # A tiny RIFF/WAVE can claim a multi-gigabyte data chunk.  The
+            # standard wave reader then exposes a huge frame count despite the
+            # physically tiny stable snapshot.  Reject before readframes().
+            malicious = (
+                b"RIFF"
+                + (0x7FFFFFF8).to_bytes(4, "little")
+                + b"WAVE"
+                + b"fmt "
+                + (16).to_bytes(4, "little")
+                + (1).to_bytes(2, "little")
+                + (1).to_bytes(2, "little")
+                + (8000).to_bytes(4, "little")
+                + (16000).to_bytes(4, "little")
+                + (2).to_bytes(2, "little")
+                + (16).to_bytes(2, "little")
+                + b"data"
+                + (0x7FFFFFF0).to_bytes(4, "little")
+                + b"\x00\x00"
+            )
+            sound_path.write_bytes(malicious)
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][event.value]["sha256"] = _sha256(sound_path)
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            real_readframes = wave.Wave_read.readframes
+            requested_frames: list[int] = []
+
+            def bounded_readframes(reader, frame_count):
+                requested_frames.append(frame_count)
+                if frame_count > len(malicious):
+                    raise AssertionError("preflight issued an unbounded PCM read")
+                return real_readframes(reader, frame_count)
+
+            with patch.object(
+                wave.Wave_read,
+                "readframes",
+                autospec=True,
+                side_effect=bounded_readframes,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    r"packaged sound asset is truncated: low_time",
+                ):
+                    _validate_tree(root)
+
+            self.assertTrue(requested_frames)
+            self.assertLessEqual(max(requested_frames), len(malicious))
 
     def test_sound_manifest_allows_provenance_verified_semantic_alias(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1152,6 +1272,31 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_terminal_revalidation_rejects_new_unchecksummed_file_after_hygiene(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            injected = root / "AccessibleChess" / "web" / "post-validation.txt"
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_add_file(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                injected.write_text("not represented by checksum authority\n", encoding="utf-8")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_add_file,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package inventory changed during validation",
+                ):
+                    _validate_tree(root)
+
+            self.assertTrue(injected.exists())
+
     def test_terminal_revalidation_rejects_checksum_authority_mutation(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
@@ -1382,6 +1527,67 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_tree_rejects_empty_directory_amplification_before_hashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            amplification = root / "AccessibleChess" / "amplification"
+            for index in range(250):
+                (amplification / f"empty-{index:03d}").mkdir(parents=True)
+
+            with (
+                patch.object(
+                    preflight,
+                    "_sha256",
+                    side_effect=AssertionError("hashing must not start"),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "entry-count limit",
+                ),
+            ):
+                _validate_tree(
+                    root,
+                    limits=PackageLimits(
+                        max_files=100,
+                        max_bytes=8 * 1024 * 1024 * 1024,
+                        max_archive_bytes=4 * 1024 * 1024 * 1024,
+                        max_member_bytes=2 * 1024 * 1024 * 1024,
+                        max_compression_ratio=200,
+                        max_text_scan_bytes=2 * 1024 * 1024,
+                    ),
+                )
+
+    def test_tree_rejects_member_over_per_file_limit_before_hashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with (
+                patch.object(
+                    preflight,
+                    "_sha256",
+                    side_effect=AssertionError("hashing must not start"),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "per-file byte limit",
+                ),
+            ):
+                _validate_tree(
+                    root,
+                    limits=PackageLimits(
+                        max_files=50_000,
+                        max_bytes=8 * 1024 * 1024 * 1024,
+                        max_archive_bytes=4 * 1024 * 1024 * 1024,
+                        max_member_bytes=8,
+                        max_compression_ratio=200,
+                        max_text_scan_bytes=2 * 1024 * 1024,
+                    ),
+                )
+
     def test_tree_bounds_fail_before_trusting_checksums(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
@@ -1476,6 +1682,25 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         max_text_scan_bytes=100,
                     ),
                 )
+
+    def test_zip_rejects_excessive_path_depth_before_readback(self):
+        deep = "AccessibleChess/" + "/".join(
+            ["a"] * preflight._MAX_PACKAGE_PATH_COMPONENTS
+        ) + "/payload.txt"
+        with tempfile.TemporaryDirectory() as td:
+            archive_path = Path(td) / "deep.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(deep, b"hostile")
+
+            with patch(
+                "acs.version2_package_preflight.tempfile.TemporaryDirectory",
+                side_effect=AssertionError("ZIP readback must not start"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "path-depth limit",
+                ):
+                    _validate_zip(archive_path)
 
     def test_zip_rejects_overlong_win32_component_before_readback(self):
         overlong = "\U0001f642" * 126 + "a.txt"

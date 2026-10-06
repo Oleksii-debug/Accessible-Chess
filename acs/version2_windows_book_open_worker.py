@@ -66,6 +66,7 @@ class Version2BookOpenWorker:
         self._closed = False
         self._focus_target = ""
         self._pending_outcome_kind: str | None = None
+        self._commit_active = False
         self._recovery_focus: str | None = None
         self._recovery_terminal_kind: BookOpenWorkerEventKind | None = None
         # Terminal delivery is an owner-observer transaction. Keep a distinct
@@ -73,6 +74,10 @@ class Version2BookOpenWorker:
         # same retained terminal or start a new generation before that terminal
         # is accepted and retired.
         self._terminal_delivery_active = False
+        # CANCELLING is a synchronous accessibility observer. Fence its
+        # delivery so observer re-entry cannot recursively call cancel() and
+        # emit an unbounded duplicate CANCELLING sequence.
+        self._cancelling_delivery_active = False
 
     def _assert_ui_thread(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -246,11 +251,29 @@ class Version2BookOpenWorker:
 
     def cancel(self, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
+        announce_cancelling = False
         with self._lock:
-            if self._closed or self._cancel is None:
+            if self._closed or self._cancel is None or self._commit_active:
                 return False
+            already_cancelled = self._cancel.is_set()
             self._cancel.set()
-        self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
+            if not already_cancelled and not self._cancelling_delivery_active:
+                self._cancelling_delivery_active = True
+                announce_cancelling = True
+        if announce_cancelling:
+            try:
+                self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
+            except BaseException:
+                # Cancellation is the authoritative control decision; CANCELLING
+                # is only an intermediate accessibility observer. Never let a
+                # broken observer undo or escape the already-recorded cancel
+                # request. The exact CANCELLED/FAILED terminal remains
+                # responsible for returning the owner/NVDA surface to a stable
+                # state.
+                pass
+            finally:
+                with self._lock:
+                    self._cancelling_delivery_active = False
         return True
 
     def _run(
@@ -350,12 +373,33 @@ class Version2BookOpenWorker:
         if cancel.is_set() or kind == "cancelled":
             terminal = BookOpenWorkerEventKind.CANCELLED
         elif kind == "prepared":
-            try:
-                self._commit(value)
-            except BaseException:
-                terminal = BookOpenWorkerEventKind.FAILED
-            else:
-                terminal = BookOpenWorkerEventKind.COMPLETED
+            # Cross one serialized publication boundary on the owner thread.
+            # Once commit starts, Cancel must no longer announce CANCELLING and
+            # a re-entrant FormClosing attempt must be refused until commit
+            # resolves. Otherwise the visible Book could commit after shutdown
+            # already fenced its generation, or produce CANCELLING -> COMPLETED.
+            with self._lock:
+                if (
+                    generation != self._generation
+                    or self._closed
+                    or self._cancel is not cancel
+                    or cancel.is_set()
+                ):
+                    terminal = BookOpenWorkerEventKind.CANCELLED
+                    may_commit = False
+                else:
+                    self._commit_active = True
+                    may_commit = True
+            if may_commit:
+                try:
+                    self._commit(value)
+                except BaseException:
+                    terminal = BookOpenWorkerEventKind.FAILED
+                else:
+                    terminal = BookOpenWorkerEventKind.COMPLETED
+                finally:
+                    with self._lock:
+                        self._commit_active = False
         else:
             terminal = BookOpenWorkerEventKind.FAILED
 
@@ -415,6 +459,12 @@ class Version2BookOpenWorker:
         ):
             raise ValueError("Book Open shutdown timeout must be non-negative or None")
         with self._lock:
+            if self._commit_active:
+                # Owner publication has crossed the cancellation boundary and
+                # is executing on this same UI stack. A close attempt cannot
+                # safely fence it mid-commit; refuse this close and let the
+                # caller retry once the transaction reaches its terminal.
+                return False
             self._closed = True
             self._generation += 1
             cancel = self._cancel

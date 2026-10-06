@@ -52,6 +52,8 @@ _MAX_RELEASE_MANIFEST_BYTES = 64 * 1024
 _MAX_CHECKSUMS_BYTES = 32 * 1024 * 1024
 _RELEASE_MANIFEST_MAX_OBJECT_MEMBERS = 64
 _RELEASE_MANIFEST_MAX_KEY_CHARS = 128
+_MAX_PACKAGE_PATH_COMPONENTS = 256
+_MAX_PACKAGE_PATH_UTF16_UNITS = 32_767
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -274,6 +276,10 @@ def _portable_component(value: str, *, label: str) -> None:
 def _relative_token(value: str, *, label: str) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         _fail(f"{label} must be non-empty text")
+    # Fail before path parsing or UTF-16 encoding can amplify an attacker-sized
+    # archive member name. UTF-16 units are never fewer than Python code points.
+    if len(value) > _MAX_PACKAGE_PATH_UTF16_UNITS:
+        _fail(f"{label} exceeds the package path-length limit")
     normalized = value.replace("\\", "/")
     token = PurePosixPath(normalized)
     if (
@@ -283,11 +289,19 @@ def _relative_token(value: str, *, label: str) -> str:
         or any(part in {"", ".", ".."} for part in token.parts)
     ):
         _fail(f"{label} is unsafe")
+    if len(token.parts) > _MAX_PACKAGE_PATH_COMPONENTS:
+        _fail(f"{label} exceeds the package path-depth limit")
     for part in token.parts:
         _portable_component(part, label=label)
     canonical = token.as_posix()
     if canonical != normalized:
         _fail(f"{label} is not canonical")
+    try:
+        utf16_units = len(canonical.encode("utf-16-le", errors="strict")) // 2
+    except UnicodeEncodeError:
+        _fail(f"{label} is not valid Win32 Unicode")
+    if utf16_units > _MAX_PACKAGE_PATH_UTF16_UNITS:
+        _fail(f"{label} exceeds the package path-length limit")
     return canonical
 
 
@@ -556,6 +570,8 @@ def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]
                 if folded in seen:
                     _fail("package paths collide under Windows case-folding")
                 seen.add(folded)
+                if len(seen) > limits.max_files * 2:
+                    _fail("package exceeds entry-count limit")
                 if PurePosixPath(relative).name.casefold() in _FORBIDDEN_COMPONENTS:
                     _fail(f"build/source component is forbidden: {relative}")
 
@@ -569,9 +585,13 @@ def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]
                 if folded in seen:
                     _fail("package paths collide under Windows case-folding")
                 seen.add(folded)
+                if len(seen) > limits.max_files * 2:
+                    _fail("package exceeds entry-count limit")
                 info = _safe_lstat(path, label="package file")
                 if not stat.S_ISREG(info.st_mode):
                     _fail(f"package entry must be a regular file: {relative}")
+                if int(info.st_size) > limits.max_member_bytes:
+                    _fail(f"package file exceeds per-file byte limit: {relative}")
                 _validate_file_policy(relative)
                 files.append(relative)
                 total += int(info.st_size)
@@ -733,6 +753,8 @@ def _pe_section_table_is_file_backed(
         return False
 
     file_backed = False
+    minimum_raw_offset = section_table_offset + section_table_size
+    raw_ranges: list[tuple[int, int]] = []
     for index in range(section_count):
         offset = index * 40
         raw_size = int.from_bytes(
@@ -746,11 +768,18 @@ def _pe_section_table_is_file_backed(
         if raw_size == 0:
             continue
         if (
-            raw_pointer <= 0
+            raw_pointer < minimum_raw_offset
             or raw_pointer > file_size
             or raw_size > file_size - raw_pointer
         ):
             return False
+        raw_end = raw_pointer + raw_size
+        if any(
+            raw_pointer < existing_end and existing_start < raw_end
+            for existing_start, existing_end in raw_ranges
+        ):
+            return False
+        raw_ranges.append((raw_pointer, raw_end))
         file_backed = True
     return file_backed
 
@@ -1755,16 +1784,31 @@ def _validate_required_runtime_resources(
                 max_bytes=_MAX_SOUND_FILE_BYTES,
             )
             with snapshot:
+                snapshot.seek(0, os.SEEK_END)
+                stable_snapshot_bytes = snapshot.tell()
+                snapshot.seek(0)
                 with wave.open(snapshot, "rb") as reader:
+                    channels = reader.getnchannels()
+                    sample_width = reader.getsampwidth()
+                    sample_rate = reader.getframerate()
+                    frames = reader.getnframes()
+                    compression = reader.getcomptype()
                     if (
-                        reader.getcomptype() != "NONE"
-                        or reader.getsampwidth() not in {1, 2}
-                        or reader.getframerate() <= 0
-                        or reader.getnframes() <= 0
+                        compression != "NONE"
+                        or channels <= 0
+                        or sample_width not in {1, 2}
+                        or sample_rate <= 0
+                        or frames <= 0
                     ):
                         _fail(
                             f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
                         )
+                    declared_pcm_bytes = frames * channels * sample_width
+                    if declared_pcm_bytes > stable_snapshot_bytes:
+                        _fail(f"packaged sound asset is truncated: {event.value}")
+                    frame_bytes = reader.readframes(frames)
+                    if len(frame_bytes) != declared_pcm_bytes:
+                        _fail(f"packaged sound asset is truncated: {event.value}")
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -1959,6 +2003,23 @@ def _revalidate_checksums(
             _fail(f"package file changed during validation: {relative}")
 
 
+def _revalidate_package_tree(
+    root: Path,
+    *,
+    inventory: tuple[str, ...],
+    total_bytes: int,
+    checksums: dict[str, str],
+    checksum_authority_sha256: str,
+    limits: PackageLimits,
+) -> None:
+    """Close the validation window across both known bytes and package membership."""
+    _revalidate_checksums(root, checksums, checksum_authority_sha256)
+    final_inventory, final_total = _inventory(root, limits)
+    if final_inventory != inventory or final_total != total_bytes:
+        _fail("package inventory changed during validation")
+    _validate_topology(root, final_inventory)
+
+
 def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:
     # max_text_scan_bytes is the streaming read bound, never an exemption.
     chunk_size = min(limits.max_text_scan_bytes, 1024 * 1024)
@@ -2044,7 +2105,14 @@ def validate_version2_package_tree(
         _fail("release manifest integration_sha does not match expected integration authority")
     checksums, checksum_authority_sha256 = _checksums(root, inventory, limits)
     _scan_text_hygiene(root, inventory, limits)
-    _revalidate_checksums(root, checksums, checksum_authority_sha256)
+    _revalidate_package_tree(
+        root,
+        inventory=inventory,
+        total_bytes=total,
+        checksums=checksums,
+        checksum_authority_sha256=checksum_authority_sha256,
+        limits=limits,
+    )
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
         inventory=inventory,

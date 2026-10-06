@@ -148,12 +148,64 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
         return left_identity == right_identity
 
 
+def _stable_change_metadata(info: os.stat_result) -> tuple[int, ...] | None:
+    """Return platform-reliable mutation metadata for one receipt snapshot."""
+
+    mtime_ns = getattr(info, "st_mtime_ns", None)
+    if type(mtime_ns) is not int or mtime_ns < 0:
+        return None
+    if os.name == "nt":
+        return (mtime_ns,)
+
+    ctime_ns = getattr(info, "st_ctime_ns", None)
+    if type(ctime_ns) is not int or ctime_ns < 0:
+        return None
+    return mtime_ns, ctime_ns
+
+
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare path/handle identity plus content-relevant receipt metadata."""
-    return bool(
-        _same_file_identity(left, right)
-        and int(left.st_size) == int(right.st_size)
-        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    """Compare one stable receipt snapshot without accepting missing metadata."""
+
+    if not _same_file_identity(left, right):
+        return False
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    if (
+        type(left_size) is not int
+        or type(right_size) is not int
+        or left_size < 0
+        or right_size < 0
+        or left_size != right_size
+    ):
+        return False
+    left_change = _stable_change_metadata(left)
+    right_change = _stable_change_metadata(right)
+    return left_change is not None and left_change == right_change
+
+
+def _same_publication_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare receipt content continuity across one hard-link namespace change."""
+
+    if not _same_file_identity(left, right):
+        return False
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    if (
+        type(left_size) is not int
+        or type(right_size) is not int
+        or left_size < 0
+        or right_size < 0
+        or left_size != right_size
+    ):
+        return False
+    left_mtime = getattr(left, "st_mtime_ns", None)
+    right_mtime = getattr(right, "st_mtime_ns", None)
+    return (
+        type(left_mtime) is int
+        and type(right_mtime) is int
+        and left_mtime >= 0
+        and right_mtime >= 0
+        and left_mtime == right_mtime
     )
 
 
@@ -524,7 +576,7 @@ def write_version2_release_receipt(
                     cleanup_staging = False
 
                 if (
-                    not _same_file_snapshot(staged, after_link_handle)
+                    not _same_publication_snapshot(staged, after_link_handle)
                     or not staging_still_owned
                     or not stat.S_ISREG(published_info.st_mode)
                     or _is_reparse(published_info)
