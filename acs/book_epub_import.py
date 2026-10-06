@@ -2327,10 +2327,17 @@ def import_epub_book(
                 archive, index, item.entry_name,
                 control_checkpoint=control_checkpoint,
             )
+            chapter_source_name = f"{display_source}::{item.entry_name}"
+            if len(chapter_source_name) > MAX_BOOK_TEXT_FIELD_CHARS:
+                # The nested HTML BookDocument is temporary; its source name is
+                # not part of EPUB block identity. Keep that adapter metadata
+                # canonical without rejecting an otherwise valid max-size EPUB
+                # source label merely because the entry path is appended.
+                chapter_source_name = item.entry_name
             try:
                 imported = import_html_book(
                     chapter,
-                    source_name=f"{display_source}::{item.entry_name}",
+                    source_name=chapter_source_name,
                     available_assets=None,
                     **({"control_checkpoint": control_checkpoint} if control_checkpoint is not None else {}),
                 )
