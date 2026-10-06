@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import islice
 import re
 from typing import Iterable
 
@@ -94,11 +95,16 @@ class PositionState:
             )
         else:
             try:
-                values = tuple(rights)
+                iterator = iter(rights)
+                values = tuple(islice(iterator, len(VALID_CASTLING) + 1))
             except TypeError as exc:
                 raise PositionValidationError(
                     "castling rights must be text or an iterable of text symbols"
                 ) from exc
+            if len(values) > len(VALID_CASTLING):
+                raise PositionValidationError(
+                    "castling rights iterable contains too many symbols"
+                )
             if any(type(value) is not str for value in values):
                 raise PositionValidationError(
                     "castling rights iterable must contain text symbols"
