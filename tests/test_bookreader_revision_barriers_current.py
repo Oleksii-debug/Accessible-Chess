@@ -268,6 +268,7 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         reader.go_to(2)
         reader.save_return_point("handoff")
         previous = reader.restore_return_point("handoff")
+        previous_key = reader._return_points["handoff"]
         self.assertEqual(previous.index, 2)
 
         reader.go_to(0)
@@ -279,7 +280,8 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
                 self.assertEqual(location.index, 0)
                 book.blocks[1].text = "drift while previous binding exists"
 
-        self.assertEqual(reader._return_points["handoff"], previous.target_key)
+        self.assertEqual(reader._return_points["handoff"], previous_key)
+        self.assertEqual(reader.restore_return_point("handoff").index, 2)
 
     def test_new_provisional_return_point_rejects_reentrant_deletion(self) -> None:
         reader = BookReader(self.make_book())
