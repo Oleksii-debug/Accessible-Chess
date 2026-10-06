@@ -457,6 +457,18 @@ def _iter_semantic_images(line: str):
         index += 1
 
 
+def _semantic_image_stripped_text(text: str) -> str:
+    """Remove recognized image references while preserving all other source text."""
+
+    parts: list[str] = []
+    cursor = 0
+    for match in _iter_semantic_images(text):
+        parts.append(text[cursor:match.start()])
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
 def _accessible_list_item_text(text: str) -> tuple[str, bool]:
     """Preserve inline image alt text inside a flat canonical list item.
 
@@ -633,11 +645,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
         first_image = next(image_matches, None)
         if first_image is not None and _LIST_RE.match(line) is None:
             flush()
-            # Before this source-order repair, all regex-shaped image Notes were
-            # appended first and one combined Paragraph containing the remaining
-            # prose was appended last. Keep that historical Paragraph identity
-            # while recognizing only unescaped images outside literal code now.
-            legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
+            # Keep the historical Paragraph identity for ordinary image
+            # references, but derive it from the same bounded recognizer that
+            # owns visible semantics. This keeps nested/escaped destination URLs
+            # out of deterministic reading-progress identity.
+            legacy_paragraph_identity = _semantic_image_stripped_text(line).strip() or None
             legacy_identity_available = legacy_paragraph_identity is not None
             cursor = 0
             match = first_image
