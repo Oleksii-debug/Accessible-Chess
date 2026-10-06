@@ -117,6 +117,7 @@ class Version2Application:
     _files = None
     _book_open_worker = None
     _pending_shell_publication = None
+    _pending_shell_publication_restore = None
     _pgn_browser_lease_required = False
     _book_browser_lease_required = False
     _book_browser_dispatch_token = None
@@ -176,7 +177,7 @@ class Version2Application:
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
-        self._events = deque(maxlen=64)
+        self._events = _BoundedApplicationEventQueue(maxlen=64)
         # Refused-close diagnostics are presentation-independent. Keep them
         # separate from route/domain events so a failure of the pending shell
         # publication transaction cannot suppress the accessible explanation
@@ -189,6 +190,7 @@ class Version2Application:
         self._focus = ""
         self._shell_publication_sequence = 0
         self._pending_shell_publication = None
+        self._pending_shell_publication_restore = None
         self._last_shell_publication_resolution = None
         self.session = None
         self.pgn_board_active = False
@@ -239,6 +241,30 @@ class Version2Application:
             raise ValueError("browser payload keys must be exact text")
         return keys
 
+    @staticmethod
+    def _shell_publication_request_id(payload):
+        """Validate one exact browser publication-start request."""
+        if type(payload) is not dict or len(payload) != 2:
+            raise ValueError("invalid shell publication request")
+        keys = tuple(payload)
+        if (
+            any(type(key) is not str for key in keys)
+            or "publication_protocol" not in payload
+            or "request_id" not in payload
+        ):
+            raise ValueError("invalid shell publication request")
+        protocol = payload["publication_protocol"]
+        if type(protocol) is not str or protocol != "ack-v1":
+            raise ValueError("unsupported shell publication protocol")
+        request_id = payload["request_id"]
+        if (
+            type(request_id) is not int
+            or request_id <= 0
+            or request_id > 9007199254740991
+        ):
+            raise ValueError("invalid shell publication request")
+        return request_id
+
     def _finish_shell_publication(self, token: int, *, commit: bool):
         """Commit or roll back one browser route only after DOM publication."""
         pending = self._pending_shell_publication
@@ -265,13 +291,15 @@ class Version2Application:
             raise ValueError("stale shell publication acknowledgement")
         if pending[0] != token:
             raise ValueError("stale shell publication acknowledgement")
+
+        publication_restore = self._pending_shell_publication_restore
         if commit:
-            # Retain the pending token until the shell has actually released its
-            # publication hold. If that boundary aborts, the exact same
-            # acknowledgement remains retryable instead of leaving a stuck hold
-            # with no recovery token.
+            # Retain both transaction authorities until the shell has actually
+            # released its publication hold. A transient host failure remains
+            # replayable with the same acknowledgement token.
             self.shell._end_publication_hold()
             self._pending_shell_publication = None
+            self._pending_shell_publication_restore = None
             self._last_shell_publication_resolution = (token, True, "", "")
             return {
                 "kind": "presentation-commit",
@@ -288,14 +316,26 @@ class Version2Application:
             prior_training_workspace,
             prior_training,
         ) = pending
-        # Rollback is a transaction too: do not consume its authority until the
-        # exact shell/application checkpoint and publication hold are restored.
+        # Rollback is a transaction too. Keep pending + domain restore authority
+        # live until shell, application owners and publication hold are restored.
         self.shell._restore_presentation_state(shell_state)
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
+        if publication_restore is not None:
+            (
+                prior_session,
+                prior_pgn,
+                prior_pgn_board_active,
+                prior_pgn_browser_lease_required,
+            ) = publication_restore
+            self.session = prior_session
+            self.pgn = prior_pgn
+            self.pgn_board_active = prior_pgn_board_active
+            self._pgn_browser_lease_required = prior_pgn_browser_lease_required
         self.shell._end_publication_hold()
         self._pending_shell_publication = None
+        self._pending_shell_publication_restore = None
         rollback_route = self.shell.current_route.route_id
         rollback_focus = self._focus
         self._last_shell_publication_resolution = (
@@ -553,6 +593,7 @@ class Version2Application:
 
     def set_document(self, session):
         self._assert_thread()
+        self.shell._assert_action_dispatch_ready()
         if type(session) is not PgnDocumentSession: raise TypeError("invalid PGN document")
         # Library/native domain actions can reach this seam without a shell route
         # action. Reject before publishing a new PGN session while modal focus is
@@ -1968,6 +2009,123 @@ class Version2Application:
             empty_authority_payload = payload is None or (
                 payload_keys is not None and len(payload_keys) == 0
             )
+            # Library Open is a route + PGN-owner transition even though it is
+            # initiated from the Library surface rather than global navigation.
+            # Use the same two-phase browser publication authority as screen.*
+            # so render failure/bridge response loss cannot leave stale Library
+            # DOM visible over a newly published canonical PGN owner.
+            library_open_publication = (
+                area_id == "library"
+                and type(command) is str
+                and command == "library.open_game"
+                and type(payload) is dict
+                and "publication_protocol" in payload
+            )
+            if library_open_publication:
+                publication_request_id = self._shell_publication_request_id(payload)
+                if self._pending_shell_publication is not None:
+                    pending = self._pending_shell_publication
+                    if (
+                        pending[1] == command
+                        and pending[2] == publication_request_id
+                    ):
+                        return pending[3]
+                    raise ValueError("shell publication acknowledgement is pending")
+                if (
+                    self.shell.current_route.route_id != "library"
+                    or self.shell.active_dialog_id is not None
+                ):
+                    raise ValueError("Library game open requires the visible Library")
+                if self._shell_publication_sequence >= 9007199254740990:
+                    raise RuntimeError("shell publication sequence exhausted")
+
+                prior_shell = self.shell._capture_presentation_state()
+                prior_focus = self._focus
+                prior_training_workspace = self.training_workspace
+                prior_training = self.training
+                prior_domain = (
+                    self.session,
+                    self.pgn,
+                    self.pgn_board_active,
+                    self._pgn_browser_lease_required,
+                )
+
+                hold_was_active = self.shell._publication_hold_active
+                if hold_was_active:
+                    raise ValueError("shell presentation publication is pending")
+
+                def restore_rejected_library_open() -> None:
+                    # No browser publication token exists yet, so there is no
+                    # external retry authority if this rejection cleanup fails.
+                    # Restore the independent application/domain owners before
+                    # calling shell cleanup seams that may themselves raise.
+                    self._focus = prior_focus
+                    self.training_workspace = prior_training_workspace
+                    self.training = prior_training
+                    (
+                        self.session,
+                        self.pgn,
+                        self.pgn_board_active,
+                        self._pgn_browser_lease_required,
+                    ) = prior_domain
+
+                    rollback_error: Exception | None = None
+                    if (
+                        not hold_was_active
+                        and self.shell._publication_hold_active
+                    ):
+                        try:
+                            self.shell._end_publication_hold()
+                        except Exception as exc:
+                            rollback_error = exc
+                    try:
+                        self.shell._restore_presentation_state(prior_shell)
+                    except Exception as exc:
+                        if rollback_error is None:
+                            rollback_error = exc
+                    if rollback_error is not None:
+                        raise RuntimeError(
+                            "Library Open rejection rollback failed"
+                        ) from rollback_error
+
+                try:
+                    value = self.library.dispatch(command, {})
+                    projected = asdict(value)
+                    if value.kind == "error":
+                        restore_rejected_library_open()
+                        return projected
+                    projected_payload = projected.get("payload")
+                    if (
+                        value.kind != "delegated"
+                        or type(projected_payload) is not dict
+                        or set(projected_payload) != {"action"}
+                        or projected_payload.get("action") != "library.open_game"
+                        or self.shell.current_route.route_id != "pgn"
+                    ):
+                        raise RuntimeError(
+                            "Library game open did not publish canonical PGN"
+                        )
+
+                    self._shell_publication_sequence += 1
+                    token = self._shell_publication_sequence
+                    self.shell._begin_publication_hold()
+                    projected_payload["publication_token"] = token
+                    self._pending_shell_publication_restore = prior_domain
+                    self._pending_shell_publication = (
+                        token,
+                        command,
+                        publication_request_id,
+                        projected,
+                        prior_shell,
+                        prior_focus,
+                        prior_training_workspace,
+                        prior_training,
+                    )
+                    return projected
+                except Exception:
+                    restore_rejected_library_open()
+                    raise
+
             if (
                 self._pending_shell_publication is not None
                 and area_id != "shell"
@@ -2019,21 +2177,7 @@ class Version2Application:
                     payload_keys is not None
                     and "publication_protocol" in payload_keys
                 ):
-                    if (
-                        len(payload_keys) != 2
-                        or "request_id" not in payload_keys
-                    ):
-                        raise ValueError("invalid shell publication request")
-                    value = payload["publication_protocol"]
-                    if type(value) is not str or value != "ack-v1":
-                        raise ValueError("unsupported shell publication protocol")
-                    publication_request_id = payload["request_id"]
-                    if (
-                        type(publication_request_id) is not int
-                        or publication_request_id <= 0
-                        or publication_request_id > 9007199254740991
-                    ):
-                        raise ValueError("invalid shell publication request")
+                    publication_request_id = self._shell_publication_request_id(payload)
                     publication_protocol = True
 
                 if not empty_authority_payload and not publication_protocol:
