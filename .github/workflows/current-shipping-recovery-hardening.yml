@@ -95,6 +95,11 @@ env:
   BOOK_HTML_STYLE_WORKFLOW_BLOB: f67ae577e7b73dd9b9f72847c38d26a6ec509f61
   BOOK_HTML_IMPORT_BLOB: 0dc6e07bfc410e612488908ccfebb7f97ffc9a2c
   BOOK_HTML_IMPORT_TEST_BLOB: 8ac8ea34eec9a179a486612505b25b3028c16a02
+  CURRENT_LAUNCHER_IDENTITY_WORKFLOW_BLOB: 659fb1aa81a171d522e5c5a497702e8a5dd465b6
+  P0_LAUNCHER_WORKFLOW_BLOB: 9890bdba06f2628177c094cf56adc49cbe652dad
+  PORTABLE_LAUNCH_REPARSE_WORKFLOW_BLOB: 3bd9dc39fe50642b43a443450bad46d5ee6d3954
+  PORTABLE_LAUNCHER_BLOB: ed71623ca55f20f2183cc5ff7485c9c6d177b399
+  PORTABLE_LAUNCHER_CONTRACT_TEST_BLOB: 9d82221e8e7933d864f003c2c71718a21f18e432
 
 jobs:
   recovery-hardening:
@@ -269,6 +274,11 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/w6-v2-release-payload-current-assembler.yml)" = "$RELEASE_PAYLOAD_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-package-passive-control-ingress.yml)" = "$CURRENT_PACKAGE_PASSIVE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-owner-portable-passive-ingress.yml)" = "$OWNER_PORTABLE_PASSIVE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-launcher-report-data-identity.yml)" = "$CURRENT_LAUNCHER_IDENTITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/portable-launch-report-reparse-safety.yml)" = "$PORTABLE_LAUNCH_REPARSE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "$PORTABLE_LAUNCHER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "$PORTABLE_LAUNCHER_CONTRACT_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
