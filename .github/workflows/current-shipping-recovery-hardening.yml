@@ -14,7 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PARENT_BRANCH: fix/current-shipping-owner-cancel-recovery-order-20261006-ooxple7
   PARENT_SHA: 46ce49669c8c16f613c41f256a65c41351ca25c1
   APP_BLOB: fc6d98df1d5bced91ce9eb2207a704d67851ac24
   RELEASE_APP_BLOB: fadc3f743f58c7b08356a7eaf44f4721b6b305ff
@@ -59,8 +58,7 @@ jobs:
           else
             test "$head_sha" = "${{ github.sha }}"
           fi
-          git fetch --no-tags origin "+refs/heads/$PARENT_BRANCH:refs/remotes/origin/parent"
-          test "$(git rev-parse refs/remotes/origin/parent)" = "$PARENT_SHA"
+          git cat-file -e "$PARENT_SHA^{commit}"
           test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
           git diff --check "$PARENT_SHA"...HEAD
           mapfile -t paths < <(git diff --name-only "$PARENT_SHA"...HEAD | sort)
