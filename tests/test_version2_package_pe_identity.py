@@ -239,6 +239,53 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             self.assertFalse(preflight._same_file_snapshot(negative, negative))
             self.assertFalse(preflight._same_file_snapshot(valid, changed))
 
+    def test_checksum_inventory_is_parsed_from_one_stable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            real_snapshot = preflight._snapshot_regular_file
+
+            with patch.object(
+                preflight,
+                "_snapshot_regular_file",
+                wraps=real_snapshot,
+            ) as snapshots:
+                report = _validate_tree(root)
+
+            checksum_calls = [
+                call
+                for call in snapshots.call_args_list
+                if Path(call.args[0]).name == preflight.CHECKSUMS_NAME
+            ]
+            self.assertEqual(len(checksum_calls), 1)
+            self.assertEqual(
+                checksum_calls[0].kwargs["label"],
+                "checksum inventory",
+            )
+            self.assertEqual(report.integration_sha, "a" * 40)
+
+    def test_checksum_inventory_snapshot_failure_is_authoritative(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            real_snapshot = preflight._snapshot_regular_file
+
+            def snapshot_or_fail(path: Path, *args, **kwargs):
+                if Path(path).name == preflight.CHECKSUMS_NAME:
+                    raise Version2PackagePreflightError(
+                        "checksum inventory changed while being read"
+                    )
+                return real_snapshot(path, *args, **kwargs)
+
+            with patch.object(
+                preflight,
+                "_snapshot_regular_file",
+                side_effect=snapshot_or_fail,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed while being read",
+                ):
+                    _validate_tree(root)
+
     def test_sha256_reads_one_stable_file_snapshot(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "payload.bin"
