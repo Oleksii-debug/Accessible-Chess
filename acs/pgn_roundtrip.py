@@ -276,6 +276,19 @@ def _preflight_recovered_brace_comment_lengths(
         index = next_index
 
 
+def _iter_normalized_lines(normalized: str) -> Iterable[tuple[int, str]]:
+    """Yield normalized PGN lines one at a time without a whole-source list."""
+
+    line_start = 0
+    while True:
+        line_end = normalized.find("\n", line_start)
+        if line_end < 0:
+            yield line_start, normalized[line_start:]
+            return
+        yield line_start, normalized[line_start:line_end]
+        line_start = line_end + 1
+
+
 def _preflight_text(
     text: object,
     *,
@@ -319,7 +332,6 @@ def _preflight_text(
     tags_in_game = 0
     seen_movetext = False
     comment_until = 0
-    line_start = 0
     game_framer = CanonicalPgnGameFramer()
     preflight_games = 0
 
@@ -340,10 +352,11 @@ def _preflight_text(
             )
         source_budget.claim_games(1)
 
-    lines = normalized.split("\n")
     if control_checkpoint is not None:
         control_checkpoint()
-    for line_index, line in enumerate(lines, start=1):
+    for line_index, (line_start, line) in enumerate(
+        _iter_normalized_lines(normalized), start=1
+    ):
         if control_checkpoint is not None and line_index % 128 == 1:
             control_checkpoint()
         line_end = line_start + len(line)
@@ -382,7 +395,6 @@ def _preflight_text(
                 )
             _claim_token(token_count, source_budget)
             claim_framed_line(line)
-            line_start = line_end + 1
             continue
 
         if line.strip() and not starts_inside_recovered_comment:
@@ -410,7 +422,6 @@ def _preflight_text(
         if starts_inside_recovered_comment:
             if comment_until > line_end:
                 claim_framed_line(line)
-                line_start = line_end + 1
                 continue
             index = comment_until - line_start
             comment_until = 0
@@ -490,7 +501,6 @@ def _preflight_text(
 
         flush_token()
         claim_framed_line(line)
-        line_start = line_end + 1
 
     if control_checkpoint is not None:
         control_checkpoint()
