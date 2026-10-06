@@ -101,6 +101,29 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.addCleanup(api.close_analysis)
         return api, selected
 
+    def test_failed_engine_game_restart_preserves_existing_session_lifecycle(self) -> None:
+        api, _engine = self.make_api()
+        started = api.start_engine_game("white", 4, 0, 0)
+        self.assertTrue(started["ok"])
+        prior_session = api._engine_session
+        prior_phase = api._engine_game_phase
+        prior_fen = api.board.fen()
+        original = api._prepare_root_state
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated replacement-root failure")
+
+        api._prepare_root_state = fail
+        try:
+            result = api.start_engine_game("black", 6, 0, 0)
+        finally:
+            api._prepare_root_state = original
+
+        self.assertFalse(result["ok"])
+        self.assertIs(api._engine_session, prior_session)
+        self.assertEqual(api._engine_game_phase, prior_phase)
+        self.assertEqual(api.board.fen(), prior_fen)
+
     def test_engine_game_start_aborts_if_standard_position_reset_cannot_publish(self) -> None:
         api, engine = self.make_api()
         self.assertTrue(api.make_move("e4")["ok"])
