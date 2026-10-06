@@ -52,6 +52,13 @@ class ToolSpec:
         object.__setattr__(self, "input_schema", MappingProxyType(dict(self.input_schema)))
 
 
+_MAX_TOOL_ARGUMENT_DEPTH = 32
+_MAX_TOOL_ARGUMENT_ITEMS = 4096
+_MAX_TOOL_ARGUMENT_TEXT_BYTES = 256 * 1024
+_MAX_TOOL_ARGUMENT_SERIALIZED_BYTES = 384 * 1024
+_MAX_TOOL_ARGUMENT_SAFE_INTEGER = (1 << 53) - 1
+
+
 @dataclass(frozen=True, slots=True)
 class ToolAuthorization:
     tool_id: str
@@ -95,7 +102,16 @@ class ToolCall:
             raise ValueError("task_id must be non-empty canonical text or None")
         if not isinstance(self.arguments, Mapping):
             raise TypeError("arguments must be a mapping")
-        object.__setattr__(self, "arguments", MappingProxyType(dict(self.arguments)))
+        if type(self.arguments) not in (dict, MappingProxyType):
+            raise TypeError("arguments must use a passive built-in mapping")
+        normalized = _normalize_json(self.arguments)
+        if type(normalized) is not dict:
+            raise TypeError("arguments must normalize to a built-in mapping")
+        _encode_tool_arguments(normalized)
+        frozen = _freeze_json(normalized)
+        if type(frozen) is not MappingProxyType:
+            raise TypeError("arguments must freeze to an immutable mapping")
+        object.__setattr__(self, "arguments", frozen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,39 +126,138 @@ class ToolResult:
         return self.error is None
 
 
-def _normalize_json(value: object, *, path: str = "arguments") -> object:
-    if value is None or isinstance(value, (bool, int)):
+def _normalize_json(
+    value: object,
+    *,
+    path: str = "arguments",
+    depth: int = 0,
+    budget: list[int] | None = None,
+    text_budget: list[int] | None = None,
+) -> object:
+    """Clone only bounded passive JSON-like argument values.
+
+    Tool calls are an authority boundary: direct callers must not be able to
+    inject active Mapping/list subclasses or unbounded nested graphs into a
+    handler or the argument fingerprint. The same canonicalizer is reused for
+    fingerprinting so approval identity and handler-visible arguments share one
+    exact representation.
+    """
+
+    if budget is None:
+        budget = [_MAX_TOOL_ARGUMENT_ITEMS]
+    if text_budget is None:
+        text_budget = [_MAX_TOOL_ARGUMENT_TEXT_BYTES]
+    if depth > _MAX_TOOL_ARGUMENT_DEPTH:
+        raise ValueError(f"{path} exceeds the maximum tool argument depth")
+
+    if value is None or type(value) is bool:
         return value
-    if isinstance(value, float):
+    if type(value) is int:
+        if value < -_MAX_TOOL_ARGUMENT_SAFE_INTEGER or value > _MAX_TOOL_ARGUMENT_SAFE_INTEGER:
+            raise ValueError(f"{path} integer exceeds JSON safe range")
+        return value
+    if type(value) is float:
         if not isfinite(value):
             raise ValueError(f"{path} must not contain NaN/infinity")
         return value
-    if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
-    if isinstance(value, (list, tuple)):
-        return [_normalize_json(item, path=f"{path}[{i}]") for i, item in enumerate(value)]
-    if isinstance(value, Mapping):
+    if type(value) is str:
+        canonical = unicodedata.normalize("NFC", value)
+        try:
+            encoded_size = len(canonical.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"{path} contains invalid Unicode text") from exc
+        text_budget[0] -= encoded_size
+        if text_budget[0] < 0:
+            raise ValueError(f"{path} contains too much text")
+        return canonical
+
+    if type(value) in (list, tuple):
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError(f"{path} contains too many aggregate items")
+        return [
+            _normalize_json(
+                item,
+                path=f"{path}[{i}]",
+                depth=depth + 1,
+                budget=budget,
+                text_budget=text_budget,
+            )
+            for i, item in enumerate(value)
+        ]
+
+    if type(value) in (dict, MappingProxyType):
+        size = len(value)
+        budget[0] -= size
+        if budget[0] < 0:
+            raise ValueError(f"{path} contains too many aggregate items")
         result: dict[str, object] = {}
         for raw_key, raw_value in value.items():
             if type(raw_key) is not str:
                 raise TypeError(f"{path} keys must be strings")
             key = unicodedata.normalize("NFC", raw_key)
+            try:
+                key_size = len(key.encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ValueError(f"{path} contains invalid Unicode key") from exc
+            text_budget[0] -= key_size
+            if text_budget[0] < 0:
+                raise ValueError(f"{path} contains too much text")
             if key in result:
-                raise ValueError(f"{path} contains duplicate normalized key {key!r}")
-            result[key] = _normalize_json(raw_value, path=f"{path}.{key}")
+                raise ValueError(
+                    f"{path} contains duplicate normalized key {key!r}"
+                )
+            result[key] = _normalize_json(
+                raw_value,
+                path=f"{path}.{key}",
+                depth=depth + 1,
+                budget=budget,
+                text_budget=text_budget,
+            )
         return result
-    raise ValueError(f"{path} contains unsupported value type {type(value).__name__}")
+
+    raise TypeError(f"{path} contains unsupported active value type")
+
+
+def _encode_tool_arguments(value: dict[str, object]) -> bytes:
+    """Encode one normalized argument object under the real JSON wire budget."""
+
+    try:
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        raise ValueError("arguments are not safely serializable") from exc
+    if len(encoded) > _MAX_TOOL_ARGUMENT_SERIALIZED_BYTES:
+        raise ValueError("arguments serialized form is too large")
+    return encoded
+
+
+def _freeze_json(value: object) -> object:
+    """Recursively freeze one already-normalized JSON-like value."""
+
+    if value is None or type(value) in (bool, int, float, str):
+        return value
+    if type(value) is list:
+        return tuple(_freeze_json(item) for item in value)
+    if type(value) is dict:
+        return MappingProxyType(
+            {key: _freeze_json(item) for key, item in value.items()}
+        )
+    raise TypeError("normalized arguments contain an unsupported value type")
 
 
 def tool_arguments_fingerprint(arguments: Mapping[str, object]) -> str:
-    encoded = json.dumps(
-        _normalize_json(arguments),
-        allow_nan=False,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    if type(arguments) not in (dict, MappingProxyType):
+        raise TypeError("arguments must use a passive built-in mapping")
+    normalized = _normalize_json(arguments)
+    if type(normalized) is not dict:
+        raise TypeError("arguments must normalize to a built-in mapping")
+    return hashlib.sha256(_encode_tool_arguments(normalized)).hexdigest()
 
 
 _MAX_TOOL_RESULT_DEPTH = 32
