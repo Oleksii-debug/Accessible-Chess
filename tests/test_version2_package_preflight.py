@@ -1419,6 +1419,26 @@ class Version2PackagePreflightTests(unittest.TestCase):
 
         builders.append((symlink, "symbolic links"))
 
+        def directory_mode_file_name(archive):
+            info = zipfile.ZipInfo("AccessibleChess/conflict.txt")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFDIR | 0o755) << 16
+            archive.writestr(info, b"")
+
+        builders.append(
+            (directory_mode_file_name, "conflicting directory mode")
+        )
+
+        def regular_mode_directory_name(archive):
+            info = zipfile.ZipInfo("AccessibleChess/conflict/")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o644) << 16
+            archive.writestr(info, b"")
+
+        builders.append(
+            (regular_mode_directory_name, "conflicting regular-file mode")
+        )
+
         for builder, expected in builders:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:
                 archive_path = Path(td) / "bad.zip"
