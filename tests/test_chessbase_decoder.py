@@ -238,17 +238,45 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
             decode_chessbase_external(cbv, self.config)
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.UNSUPPORTED_SOURCE)
 
-    def test_nonstandard_start_position_is_preserved_as_setup_fen(self) -> None:
+    def test_standard_start_position_rejects_conflicting_backend_setup_tags(self) -> None:
+        conflicting_fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+        record = decoded_game(
+            0,
+            [move(12, 28)],
+            tags=[
+                {"name": "SetUp", "value": "1"},
+                {"name": "FEN", "value": conflicting_fen},
+                {"name": "Source", "value": "Pinned external oracle"},
+            ],
+        )
+
+        game = self.decode(payload([record])).games[0]
+
+        self.assertNotIn("SetUp", game.tags)
+        self.assertNotIn("FEN", game.tags)
+        self.assertEqual(game.tags["Source"], "Pinned external oracle")
+        self.assertEqual(game.line.moves[0].san, "e4")
+
+    def test_nonstandard_start_position_overrides_conflicting_backend_setup_tags(self) -> None:
         fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+        conflicting_fen = "8/8/8/8/8/8/8/K6k w - - 0 1"
         record = decoded_game(
             0,
             [move(12, 20)],
             start_fen=fen,
             result=0,
+            tags=[
+                {"name": "SetUp", "value": "0"},
+                {"name": "FEN", "value": conflicting_fen},
+                {"name": "Source", "value": "Pinned external oracle"},
+            ],
         )
+
         game = self.decode(payload([record])).games[0]
+
         self.assertEqual(game.tags["SetUp"], "1")
         self.assertEqual(game.tags["FEN"], fen)
+        self.assertEqual(game.tags["Source"], "Pinned external oracle")
         self.assertEqual(game.line.moves[0].san, "e3")
         self.assertEqual(game.line.result, "*")
 
