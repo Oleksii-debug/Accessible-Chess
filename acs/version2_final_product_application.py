@@ -1079,6 +1079,20 @@ class Version2FinalProductApplication(Version2Application):
         state = self._rotation_state
         if plan is None or state is None:
             return
+        try:
+            lesson, workspace = self._classroom_orchestration_authorities()
+            validate_rotation_scope(plan, lesson)
+            self._validate_rotation_group_scope(
+                plan,
+                lesson,
+                workspace.classroom,
+            )
+        except Exception:
+            # Status is the accessible read-only truth surface. A classroom
+            # mutation that makes the live rotation scope invalid must become a
+            # recovery announcement, never an uncaught domain exception.
+            self._rotation_load_error = True
+            return
         store = self._rotation_store
         expected_revision = self._rotation_store_revision
         if store is None or expected_revision is None:

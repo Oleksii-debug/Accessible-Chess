@@ -420,6 +420,82 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         assert durable is not None
         self.assertEqual(bound, durable.state)
 
+    def test_keyboard_status_fences_group_scope_drift_after_workspace_change(self) -> None:
+        self.app.stop_teaching_session()
+        workspace = EducationWorkspace.empty(self._two_group_classroom())
+        self.app.replace_education_workspace(
+            workspace,
+            expected_revision=self.app.education_revision,
+        )
+        lesson = LessonSession(
+            "session-group-drift",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            ("student-1", "student-2", "student-3", "student-4"),
+            None,
+        )
+        self.app.start_teaching_session(lesson)
+        plan = build_rotation_plan(
+            lesson,
+            rotation_id="rotation-group-drift",
+            rounds=(
+                RotationRound(
+                    "pair",
+                    RotationActivity.PAIR_PLAY,
+                    "Pair group 1",
+                    5,
+                    RotationTarget.GROUP,
+                    ("group-1",),
+                ),
+            ),
+        )
+        state = start_rotation(plan)
+        self.store.save(plan, state, expected_revision=None)
+        self.app.begin_or_resume_default_group_rotation("rotation-group-drift")
+        durable_before = self.store.path.read_bytes()
+
+        students = self._two_group_classroom().students
+        replacement = ClassroomSnapshot(
+            students=students,
+            classes=(ClassroomClass("class-1", "Class", ("group-2",)),),
+            groups=(Group("group-2", "class-1", "Group 2"),),
+            courses=(Course("course-1", "Course", ("lesson-1",)),),
+            cohorts=(
+                Cohort(
+                    "cohort-2",
+                    "course-1",
+                    tuple(student.student_id for student in students),
+                    "group-2",
+                ),
+            ),
+            lessons=(
+                Lesson(
+                    "lesson-1",
+                    "course-1",
+                    "Lesson",
+                    (),
+                    "2026-10-04T10:00:00Z",
+                ),
+            ),
+        )
+        self.app.replace_education_workspace(
+            EducationWorkspace.empty(replacement),
+            expected_revision=self.app.education_revision,
+        )
+
+        status = self.app._rotation_keyboard_result()
+
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("recovery" in spoken or "віднов" in spoken)
+        self.assertEqual(durable_before, self.store.path.read_bytes())
+        self.assertEqual(state, self.app._rotation_state)
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.advance_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+
     def test_pair_round_requires_exact_current_pairing_then_advances_to_review(self) -> None:
         state = self._reach_pair_round()
         with self.assertRaisesRegex(
