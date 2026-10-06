@@ -682,11 +682,16 @@ class Version2Application:
         focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("books")
-            # Focus derived from the Book reader is part of candidate publication,
-            # not a post-commit observer. Resolve it while the candidate owners
+            # Focus derived from the Book route is part of candidate publication,
+            # not a post-commit observer. Accept only passive exact text before
+            # inspecting or persisting it: an active str subclass or non-text
+            # host result must not become application/NVDA focus authority.
+            if type(route_focus) is not str:
+                raise TypeError("Book route focus is invalid")
+            # Resolve reader-container/stale-block focus while the candidate owners
             # are still staged so a host/focus failure rolls the route back and
             # cannot produce a FAILED terminal after the Book already opened.
-            if type(route_focus) is str and (
+            if (
                 route_focus == "book-reader"
                 or route_focus.startswith("book-block-")
             ):
