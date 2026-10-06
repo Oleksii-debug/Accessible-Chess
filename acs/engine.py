@@ -8,6 +8,8 @@ import time
 from typing import Callable
 
 from .engine_ports import (
+    ANALYSIS_MAX_MOVETIME_MS,
+    ANALYSIS_MIN_MOVETIME_MS,
     EngineContractError,
     EngineContractErrorCode,
     RawAnalysisLine,
@@ -351,10 +353,18 @@ class UCIEngine:
         fen: str,
         multipv: int = 5,
         depth: int = 16,
+        movetime_ms: int | None = None,
     ) -> tuple[RawAnalysisLine, ...]:
         fen = self._normalize_fen(fen)
         multipv = self._bounded_integer("multipv", multipv, 1, 10)
         depth = self._bounded_integer("depth", depth, 1, 40)
+        if movetime_ms is not None:
+            movetime_ms = self._bounded_integer(
+                "movetime_ms",
+                movetime_ms,
+                ANALYSIS_MIN_MOVETIME_MS,
+                ANALYSIS_MAX_MOVETIME_MS,
+            )
         with self._lock:
             self.start()
             proc = self.proc
@@ -363,9 +373,14 @@ class UCIEngine:
                 self._raise_if_reader_fault(proc)
                 self._configure_request_options(multipv=multipv, skill_level=20)
                 self.send("position fen " + fen)
-                self.send(f"go depth {depth}")
+                if movetime_ms is None:
+                    self.send(f"go depth {depth}")
+                    search_timeout = 60.0
+                else:
+                    self.send(f"go movetime {movetime_ms}")
+                    search_timeout = max(5.0, movetime_ms / 1000.0 + 5.0)
                 best: dict[int, RawAnalysisLine] = {}
-                end = time.monotonic() + 60
+                end = time.monotonic() + search_timeout
                 while time.monotonic() < end:
                     self._raise_if_reader_fault(proc)
                     try:
