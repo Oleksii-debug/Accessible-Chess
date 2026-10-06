@@ -90,6 +90,48 @@ class EpdFormatTests(unittest.TestCase):
         with self.assertRaisesRegex(EpdParseError, "too many operations"):
             parse_epd(START_EPD + " " + operations)
 
+    def test_record_counter_operations_must_match_canonical_position(self):
+        position = PositionState.from_fen(f"{START_BOARD} w KQkq - 7 12")
+        with self.assertRaisesRegex(EpdParseError, "hmvc operation does not match"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("hmvc", "8"),),
+            )
+        with self.assertRaisesRegex(EpdParseError, "fmvn operation does not match"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("fmvn", "13"),),
+            )
+        with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("hmvc", "not-a-number"),),
+            )
+        with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("fmvn", "0"),),
+            )
+
+        canonical = EpdRecord(
+            position=position,
+            operations=(
+                EpdOperation("hmvc", "7"),
+                EpdOperation("fmvn", "12"),
+            ),
+        )
+        self.assertEqual(parse_epd(canonical.to_epd()), canonical)
+
+    def test_quoted_escape_sequences_round_trip_without_semicolon_confusion(self):
+        text = START_EPD + r' id "quote: \"; slash: \\";'
+        record = parse_epd(text)
+        self.assertEqual(record.operations, (EpdOperation("id", r'"quote: \"; slash: \\"'),))
+        self.assertEqual(record.to_epd(), text)
+        self.assertEqual(parse_epd(record.to_epd()), record)
+
+        with self.assertRaisesRegex(EpdParseError, "invalid escape"):
+            parse_epd(START_EPD + r' id "bad \n escape";')
+
     def test_record_constructor_rejects_duplicate_opcodes(self):
         position = PositionState.from_fen(START_FEN)
         with self.assertRaisesRegex(EpdParseError, "^duplicate EPD id operation$"):
