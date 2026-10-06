@@ -52,6 +52,7 @@ MAX_HTML_PGN_CANDIDATES = MAX_HTML_PGN_GAMES * 4
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
 MAX_HTML_WARNINGS = 2_048
 MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS = MAX_HTML_SOURCE_BYTES * 2
+MAX_HTML_MARKUP_NAME_CHARS = 256
 
 
 class BookHtmlImportErrorCode(str, Enum):
@@ -723,49 +724,40 @@ def _asset_name(
 ) -> str:
     if control_checkpoint is not None:
         control_checkpoint()
+    stripped = _controlled_strip(value, control_checkpoint)
     try:
-        parts = urlsplit(value.strip())
+        parts = urlsplit(stripped)
     except ValueError:
         return ""
     if control_checkpoint is not None:
         control_checkpoint()
     if parts.scheme or parts.netloc or not parts.path:
         return ""
-    raw_segments = parts.path.replace("\\", "/").split("/")
-    if control_checkpoint is not None:
-        control_checkpoint()
+
     segments: list[str] = []
+    segment_start = 0
     parent_seen = False
-    for segment_index, segment in enumerate(raw_segments, start=1):
-        if control_checkpoint is not None and segment_index % 128 == 1:
-            control_checkpoint()
+
+    def append_segment(segment: str) -> None:
+        nonlocal parent_seen
         if segment in {"", "."}:
-            continue
+            return
         if segment == "..":
             parent_seen = True
         segments.append(segment)
+
+    for character_index, character in enumerate(parts.path):
+        if control_checkpoint is not None and character_index % 4_096 == 0:
+            control_checkpoint()
+        if character not in {"/", "\\"}:
+            continue
+        append_segment(parts.path[segment_start:character_index])
+        segment_start = character_index + 1
+    append_segment(parts.path[segment_start:])
+
     if not segments or parent_seen:
         return ""
-    if control_checkpoint is not None:
-        control_checkpoint()
-    return "/".join(segments)
-
-
-_HTML_WARNING_SUPPRESSION_NOTICE = "additional HTML import warnings were suppressed"
-
-
-def _append_bounded_import_warning(warnings: list[str], message: str) -> bool:
-    """Append one diagnostic without exceeding the HTML importer warning budget."""
-
-    if MAX_HTML_WARNINGS <= 0:
-        return False
-    if len(warnings) < MAX_HTML_WARNINGS:
-        warnings.append(message)
-        return True
-    warnings[MAX_HTML_WARNINGS - 1] = _HTML_WARNING_SUPPRESSION_NOTICE
-    del warnings[MAX_HTML_WARNINGS:]
-    return False
-
+    return _controlled_join_strings(segments, "/", control_checkpoint)
 
 def _explicit_pgn_pre(
     raw: str,
@@ -1168,6 +1160,11 @@ class _SemanticHtmlParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self._parser_event_checkpoint()
+        if len(tag) > MAX_HTML_MARKUP_NAME_CHARS:
+            raise BookHtmlImportError(
+                "HTML markup name exceeds the supported size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
         tag = tag.lower()
         self._node_count += 1
         if self._node_count > MAX_HTML_BLOCKS * 20:
@@ -1209,6 +1206,11 @@ class _SemanticHtmlParser(HTMLParser):
         for attr_index, (name, value) in enumerate(attrs_list, start=1):
             if self.control_checkpoint is not None and attr_index % 128 == 0:
                 self._checkpoint()
+            if len(name) > MAX_HTML_MARKUP_NAME_CHARS:
+                raise BookHtmlImportError(
+                    "HTML attribute name exceeds the supported size",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
             normalized_name = name.lower()
             if normalized_name in attrs:
                 if normalized_name == "data-acs-fen":
@@ -1222,7 +1224,13 @@ class _SemanticHtmlParser(HTMLParser):
                 # malformed duplicates change semantic/image/progress metadata.
                 continue
             attrs[normalized_name] = value or ""
-        aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
+        aria_value = _controlled_strip(
+            attrs.get("aria-hidden", ""),
+            self._checkpoint if self.control_checkpoint is not None else None,
+        )
+        aria_hidden = (
+            len(aria_value) == 4 and aria_value.casefold() == "true"
+        )
         inline_style_hidden = _inline_style_hides(
             attrs.get("style", ""),
             self._checkpoint if self.control_checkpoint is not None else None,
@@ -1249,7 +1257,11 @@ class _SemanticHtmlParser(HTMLParser):
             if lang:
                 self.language = lang
         if tag == "meta":
-            name = (attrs.get("name") or attrs.get("property") or "").strip().lower()
+            raw_name = _controlled_strip(
+                attrs.get("name") or attrs.get("property") or "",
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
+            name = raw_name.lower() if len(raw_name) <= 64 else ""
             content = self._compact_text(attrs.get("content", ""))
             if content and name in {"author", "dc.creator", "dcterms.creator"} and not self.author:
                 self.author = content
@@ -1261,7 +1273,10 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML book contains too many image references",
                     code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
                 )
-            src = attrs.get("src", "").strip()
+            src = _controlled_strip(
+                attrs.get("src", ""),
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
             alt = self._compact_text(attrs.get("alt", ""))
             if src:
                 self.image_references.append(src)
@@ -2089,7 +2104,7 @@ def _asset_set(
                 "available_assets exceeds the supported aggregate name size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        if not item.strip():
+        if not _controlled_strip(item, control_checkpoint):
             raise BookHtmlImportError(
                 "available_assets entries must be non-empty text",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
