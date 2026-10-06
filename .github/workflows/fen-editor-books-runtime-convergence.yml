@@ -9,10 +9,12 @@ on:
       - 'acs/position_editor.py'
       - 'acs/webapp.py'
       - 'acs/webapp_keymap_core.py'
+      - 'acs/ui_analysis_adapter.py'
       - 'acs/webapp_keymap.py'
       - 'acs/stage1_release_ui_core.py'
       - 'tests/test_fen_position_editor_complete_user_flow.py'
       - 'tests/test_ui_analysis_webapp.py'
+      - 'tests/test_ui_analysis_adapter.py'
       - 'tests/test_stage1_engine_play_ui.py'
       - 'web/index.html'
   workflow_dispatch:
@@ -29,9 +31,11 @@ env:
   WEBAPP_BLOB: 6b146bcb5b2e7ca1460191797cb2209a3b8460c1
   FEN_FLOW_TEST_BLOB: a855fed6c799247818d3c18e4a25376ccc3de4fd
   KEYMAP_CORE_BLOB: 39cc4d8b2e5f3df0a972ebc502f12a9e85b59030
+  ANALYSIS_ADAPTER_BLOB: 2b8bff3c5543df1fa2c5ff82d78960a6316c87d2
   KEYMAP_FACADE_BLOB: 9ac8af3d9c7dc567edc87b29a2ab8be948294543
   STAGE1_RELEASE_CORE_BLOB: 3960011448a5ccf7dfe63304d1345569fcdd89a5
   ANALYSIS_WEBAPP_TEST_BLOB: fe4a7cf51c504fd49ed307b6afba0aaee4fecd44
+  ANALYSIS_ADAPTER_TEST_BLOB: 13868fd992a084aadc3a8942ff01daaec31f5fa5
   STAGE1_ENGINE_PLAY_TEST_BLOB: cae29321cd2238b5b19554f239cb6b0f38e96dd7
   WEB_INDEX_BLOB: 377c9855c054aa590b6dccecef5f6307dc4d8738
 
@@ -75,20 +79,24 @@ jobs:
             'acs/position_editor.py' \
             'acs/webapp.py' \
             'acs/webapp_keymap_core.py' \
+            'acs/ui_analysis_adapter.py' \
             'acs/webapp_keymap.py' \
             'acs/stage1_release_ui_core.py' \
             'tests/test_fen_position_editor_complete_user_flow.py' \
             'tests/test_ui_analysis_webapp.py' \
+            'tests/test_ui_analysis_adapter.py' \
             'tests/test_stage1_engine_play_ui.py' \
             'web/index.html' | sort)"
           test "$changed" = "$expected_paths"
           test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
           test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
           test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$KEYMAP_CORE_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_analysis_adapter.py)" = "$ANALYSIS_ADAPTER_BLOB"
           test "$(git rev-parse HEAD:acs/webapp_keymap.py)" = "$KEYMAP_FACADE_BLOB"
           test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = "$STAGE1_RELEASE_CORE_BLOB"
           test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$ANALYSIS_WEBAPP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_adapter.py)" = "$ANALYSIS_ADAPTER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = "$STAGE1_ENGINE_PLAY_TEST_BLOB"
           test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
 
@@ -102,10 +110,12 @@ jobs:
           acs/position_editor.py
           acs/webapp.py
           acs/webapp_keymap_core.py
+          acs/ui_analysis_adapter.py
           acs/webapp_keymap.py
           acs/stage1_release_ui_core.py
           tests/test_fen_position_editor_complete_user_flow.py
           tests/test_ui_analysis_webapp.py
+          tests/test_ui_analysis_adapter.py
           tests/test_stage1_engine_play_ui.py
 
       - name: Validate WebView JavaScript syntax
@@ -124,6 +134,7 @@ jobs:
           python -m unittest -v
           tests.test_fen_position_editor_complete_user_flow
           tests.test_ui_analysis_webapp
+          tests.test_ui_analysis_adapter
           tests.test_analysis_webview_bridge
           tests.test_position_editor
           tests.test_position_text_authority
