@@ -546,7 +546,7 @@ class _SemanticHtmlParser(HTMLParser):
         if self.control_checkpoint is None:
             return
         try:
-            self._checkpoint()
+            self.control_checkpoint()
         except BaseException as exc:
             self._control_failure = exc
             raise
