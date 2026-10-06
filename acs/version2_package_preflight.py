@@ -1705,14 +1705,30 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
     return integration_sha.casefold(), data
 
 
-def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
+def _checksums(
+    root: Path,
+    inventory: tuple[str, ...],
+    limits: PackageLimits,
+) -> dict[str, str]:
     path = root / CHECKSUMS_NAME
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
         _fail("checksum inventory must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="checksum inventory",
+        max_bytes=limits.max_member_bytes,
+    )
     try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(limits.max_member_bytes + 1)
+    except OSError as exc:
+        _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
+    if len(payload) > limits.max_member_bytes:
+        _fail("checksum inventory exceeds member byte limit")
+    try:
+        lines = payload.decode("utf-8-sig", errors="strict").splitlines()
+    except UnicodeError as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
 
     result: dict[str, str] = {}
@@ -1803,7 +1819,7 @@ def validate_version2_package_tree(
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
-    checksums = _checksums(root, inventory)
+    checksums = _checksums(root, inventory, limits)
     _scan_text_hygiene(root, inventory, limits)
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
