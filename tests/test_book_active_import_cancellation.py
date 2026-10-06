@@ -277,6 +277,23 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         parse.assert_not_called()
 
+    def test_html_visible_pgn_scan_observes_control_across_large_prose(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError('cancelled during visible PGN scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        visible = ('x' * 16_383 + '\r\n') * 4
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._pgn_candidates(visible, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
     def test_html_control_failure_is_not_translated_into_malformed_source(self):
         failure = RuntimeError('trusted control failure')
         calls = 0
