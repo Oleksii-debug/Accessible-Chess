@@ -297,8 +297,7 @@ jobs:
           function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
           once(helper_needle, helper_replacement, 'Book persistence helper insertion')
 
-          key_helper_needle = """            public static void Alt(byte vk) {
-"""
+          key_helper_needle = "            public static void Alt(byte vk) {\n"
           key_helper_replacement = """            public static void Alt(byte vk) {
               keybd_event(0x12, 0, 0, UIntPtr.Zero);
               keybd_event(vk, 0, 0, UIntPtr.Zero);
