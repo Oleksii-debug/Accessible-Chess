@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import stat
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
@@ -429,6 +428,59 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         label="package path",
                     )
 
+    def test_read_stable_bytes_file_uses_one_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            payload = b"stable-metadata"
+            path.write_bytes(payload)
+
+            self.assertEqual(
+                preflight._read_stable_bytes_file(
+                    path,
+                    label="metadata",
+                    max_bytes=1024,
+                ),
+                payload,
+            )
+
+    def test_read_stable_bytes_file_fails_closed_on_open_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            path.write_bytes(b"stable-metadata")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "metadata changed while being opened",
+                ):
+                    preflight._read_stable_bytes_file(
+                        path,
+                        label="metadata",
+                        max_bytes=1024,
+                    )
+
+    def test_winforms_accessibility_config_reads_from_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                return_value=_VALID_WINFORMS_CONFIG.encode("utf-8"),
+            ) as reader:
+                validate_winforms_accessibility_app_config(path)
+
+            reader.assert_called_once_with(
+                path,
+                label="WinForms accessibility app-config",
+                max_bytes=64 * 1024,
+            )
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
@@ -617,6 +669,43 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ),
             ):
                 _validate_tree(root)
+
+    def test_sound_validation_parses_wav_semantics_from_snapshot_handles(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            _write_checksums(root)
+
+            real_wave_open = preflight.wave.open
+            observed = []
+
+            def record_wave_source(source, *args, **kwargs):
+                observed.append(source)
+                return real_wave_open(source, *args, **kwargs)
+
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                patch.object(
+                    preflight.wave,
+                    "open",
+                    side_effect=record_wave_source,
+                ),
+            ):
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            self.assertTrue(observed)
+            self.assertTrue(
+                all(not isinstance(source, (str, Path)) for source in observed),
+                "sound semantic validation must not reopen mutable pathnames",
+            )
 
     def test_inventory_bound_runtime_variant_rejects_24bit_pcm(self):
         with tempfile.TemporaryDirectory() as td:
@@ -870,123 +959,6 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_zip(archive)
 
-    def test_file_snapshot_metadata_is_platform_specific_and_fail_closed(self):
-        stable = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=123,
-            st_ctime_ns=456,
-        )
-        ctime_drift = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=123,
-            st_ctime_ns=999,
-        )
-        mtime_drift = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=124,
-            st_ctime_ns=456,
-        )
-        size_drift = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4097,
-            st_mtime_ns=123,
-            st_ctime_ns=456,
-        )
-        negative_size = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=-1,
-            st_mtime_ns=123,
-            st_ctime_ns=456,
-        )
-        bool_size = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=True,
-            st_mtime_ns=123,
-            st_ctime_ns=456,
-        )
-        missing_mtime = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=None,
-            st_ctime_ns=456,
-        )
-        negative_mtime = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=-1,
-            st_ctime_ns=456,
-        )
-        bool_mtime = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=True,
-            st_ctime_ns=456,
-        )
-        missing_ctime = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=123,
-            st_ctime_ns=None,
-        )
-        negative_ctime = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=123,
-            st_ctime_ns=-1,
-        )
-        bool_ctime = SimpleNamespace(
-            st_dev=11,
-            st_ino=22,
-            st_size=4096,
-            st_mtime_ns=123,
-            st_ctime_ns=True,
-        )
-
-        with patch.object(preflight.os, "name", "nt"):
-            self.assertEqual(preflight._stable_change_metadata(stable), (123,))
-            self.assertTrue(preflight._same_file_snapshot(stable, ctime_drift))
-            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
-            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
-            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
-            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
-            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
-            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
-            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
-            self.assertTrue(preflight._same_file_snapshot(stable, missing_ctime))
-            self.assertTrue(preflight._same_file_snapshot(stable, negative_ctime))
-            self.assertTrue(preflight._same_file_snapshot(stable, bool_ctime))
-
-        with patch.object(preflight.os, "name", "posix"):
-            self.assertEqual(
-                preflight._stable_change_metadata(stable),
-                (123, 456),
-            )
-            self.assertFalse(preflight._same_file_snapshot(stable, ctime_drift))
-            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
-            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
-            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
-            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
-            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
-            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
-            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
-            self.assertFalse(preflight._same_file_snapshot(stable, missing_ctime))
-            self.assertFalse(preflight._same_file_snapshot(stable, negative_ctime))
-            self.assertFalse(preflight._same_file_snapshot(stable, bool_ctime))
-
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -1005,6 +977,115 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertGreaterEqual(len(wrapped.call_args_list), 2)
             for call in wrapped.call_args_list:
                 self.assertFalse(isinstance(call.args[0], (str, Path)))
+
+    def test_release_metadata_uses_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=preflight._read_stable_bytes_file,
+            ) as reader:
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            labels = {
+                call.kwargs["label"]
+                for call in reader.call_args_list
+                if "label" in call.kwargs
+            }
+            self.assertTrue(
+                {
+                    "sound provenance notice",
+                    "packaged sound inventory",
+                    "sound inventory audit notice",
+                    "WinForms accessibility app-config",
+                    "packaged sound manifest",
+                    "Stockfish GPL notice",
+                    "checksum inventory",
+                }.issubset(labels)
+            )
+
+    def test_terminal_revalidation_rejects_file_mutation_after_hygiene(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "web" / "index.html"
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_mutate(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                target.write_bytes(target.read_bytes() + b"\npost-scan-mutation")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed during validation",
+                ):
+                    _validate_tree(root)
+
+    def test_terminal_revalidation_rejects_checksum_authority_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            checksum_path = root / CHECKSUMS_NAME
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_mutate(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                with checksum_path.open("ab") as handle:
+                    handle.write(b"\n")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed during package validation",
+                ):
+                    _validate_tree(root)
+
+    def test_manifest_snapshot_rejects_coherent_drift_before_checksum_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            manifest_path = root / MANIFEST_NAME
+            real_checksums = preflight._checksums
+
+            def checksums_after_manifest_drift(checksum_root, inventory, limits):
+                manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+                manifest["integration_sha"] = "b" * 40
+                manifest_path.write_text(
+                    json.dumps(manifest, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                _write_checksums(checksum_root)
+                return real_checksums(checksum_root, inventory, limits)
+
+            with patch.object(
+                preflight,
+                "_checksums",
+                side_effect=checksums_after_manifest_drift,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "release manifest changed during validation",
+                ):
+                    _validate_tree(root)
 
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1130,6 +1211,56 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
                 report.inventory,
             )
+
+    def test_pe_hygiene_classification_and_scan_share_one_path_handle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dll = root / "helper.dll"
+            dll.write_bytes(
+                _minimal_windows_pe()
+                + b"\x00compiler=C:\\Users\\Builder\\source\\helper.pdb\x00"
+            )
+            real_open = Path.open
+            read_opens = 0
+
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == dll and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counting_open):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("helper.dll",),
+                    PackageLimits(),
+                )
+
+            self.assertEqual(read_opens, 1)
+
+    def test_text_hygiene_rejects_identity_change_during_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = root / "payload.txt"
+            payload.write_bytes(b"safe diagnostic text")
+
+            with (
+                patch.object(
+                    preflight,
+                    "_same_file_snapshot",
+                    side_effect=(True, False),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being scanned",
+                ),
+            ):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("payload.txt",),
+                    PackageLimits(),
+                )
 
     def test_text_disguised_as_dll_does_not_bypass_private_path_gate(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1285,6 +1416,122 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(Version2PackagePreflightError, "user state"):
                 _validate_zip(archive_path)
 
+    def test_file_snapshot_metadata_is_platform_specific_and_fail_closed(self):
+        stable = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        size_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4097,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        negative_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=-1,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=None,
+            st_ctime_ns=456,
+        )
+        negative_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=-1,
+            st_ctime_ns=456,
+        )
+        bool_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=True,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=None,
+        )
+        negative_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=-1,
+        )
+        bool_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=True,
+        )
+
+        with patch.object(preflight.os, "name", "nt"):
+            self.assertEqual(preflight._stable_change_metadata(stable), (123,))
+            self.assertTrue(preflight._same_file_snapshot(stable, ctime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
+            self.assertTrue(preflight._same_file_snapshot(stable, missing_ctime))
+            self.assertTrue(preflight._same_file_snapshot(stable, negative_ctime))
+            self.assertTrue(preflight._same_file_snapshot(stable, bool_ctime))
+
+        with patch.object(preflight.os, "name", "posix"):
+            self.assertEqual(
+                preflight._stable_change_metadata(stable),
+                (123, 456),
+            )
+            self.assertFalse(preflight._same_file_snapshot(stable, ctime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_ctime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_ctime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_ctime))
 
 if __name__ == "__main__":
     unittest.main()
