@@ -2,6 +2,7 @@ import codecs
 import unittest
 from unittest.mock import patch
 
+import acs.pgn_roundtrip as rt
 from acs.gametree import Comment, CommentStyle, MoveNode, PgnGame, VariationLine
 from acs.pgn_roundtrip import (
     PgnRoundTripError,
@@ -290,6 +291,483 @@ class D06PgnRoundTripTests(unittest.TestCase):
         game.line.moves[0].san = "Nf3"
         game.line.moves[0].nags = ["!?"]
         self.assertEqual(parse_pgn_text(serialize_pgn_text((game,))), (game,))
+
+
+    def test_strict_flag_requires_exact_boolean_before_any_parse_work(self):
+        source = '[Result "*"]\n\n*'
+        for invalid in (0, 1, None, "", (), object()):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaises(TypeError):
+                    parse_pgn_text(source, strict=invalid)
+        with patch(
+            "acs.pgn_roundtrip.decode_pgn_bytes",
+            side_effect=AssertionError("decode must not run"),
+        ) as decoder:
+            with self.assertRaises(TypeError):
+                parse_pgn_bytes(source.encode("utf-8"), strict=0)
+            decoder.assert_not_called()
+
+    def test_invalid_unicode_scalar_fails_closed_in_source_and_model(self):
+        surrogate = "\ud800"
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_TEXT,
+            parse_pgn_text,
+            f'[Event "{surrogate}"]\n[Result "*"]\n\n*',
+        )
+
+        tag_game = PgnGame(
+            tags={"Event": surrogate, "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (tag_game,),
+        )
+
+        comment_game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_after=[Comment(surrogate)],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (comment_game,),
+        )
+
+    def test_tag_names_share_parser_and_serializer_lexical_bound(self):
+        source = '[EventLong "x"]\n[Result "*"]\n\n*'
+        with patch("acs.pgn_roundtrip.MAX_PGN_TOKEN_CHARS", 8):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            game = PgnGame(
+                tags={"EventLong": "x", "Result": "*"},
+                line=VariationLine(result="*"),
+            )
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+
+    def test_serialization_counts_implicit_result_tag_before_payload_build(self):
+        game = PgnGame(
+            tags={"Event": "One"},
+            line=VariationLine(result="*"),
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TAGS_PER_GAME", 1),
+            patch("acs.pgn_roundtrip.serialize_games") as serializer,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+            serializer.assert_not_called()
+
+    def test_serialization_requires_explicit_matching_root_result(self):
+        missing = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(moves=[MoveNode("e4", move_number="1.")]),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (missing,),
+        )
+
+        mismatched = PgnGame(
+            tags={"Result": "1-0"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (mismatched,),
+        )
+
+    def test_empty_model_fails_closed_in_text_and_bytes_serialization(self):
+        self.assert_code(
+            PgnRoundTripErrorCode.EMPTY_PGN,
+            serialize_pgn_text,
+            (),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.EMPTY_PGN,
+            serialize_pgn_bytes,
+            (),
+        )
+
+    def test_lossy_comment_layouts_fail_before_serializer(self):
+        missing_move_number = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", comments_before=[Comment("before")])],
+                result="*",
+            ),
+        )
+        carriage_return = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_after=[Comment("one\rtwo")],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        for game in (missing_move_number, carriage_return):
+            with self.subTest(game=repr(game)):
+                with patch("acs.pgn_roundtrip.serialize_games") as serializer:
+                    self.assert_code(
+                        PgnRoundTripErrorCode.INVALID_MODEL,
+                        serialize_pgn_text,
+                        (game,),
+                    )
+                    serializer.assert_not_called()
+
+    def test_recovery_warning_container_remains_passive_text_only(self):
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        game.warnings = ("diagnostic",)
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+        game.warnings = [object()]
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+
+    def test_escaped_tag_growth_is_budgeted_before_serializer_payload(self):
+        game = PgnGame(
+            tags={"Event": "\\" * 200, "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TEXT_CHARS", 380),
+            patch("acs.pgn_roundtrip.serialize_games") as serializer,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+            serializer.assert_not_called()
+
+
+    def test_bytes_parse_runs_one_semantic_preflight(self):
+        source = '[Result "*"]\n\n*'
+        with patch(
+            "acs.pgn_roundtrip._preflight_text",
+            side_effect=[source, AssertionError("semantic preflight ran twice")],
+        ) as preflight:
+            games = parse_pgn_bytes(source.encode("utf-8"))
+        self.assertEqual(len(games), 1)
+        self.assertEqual(preflight.call_count, 1)
+
+    def test_byte_export_rejects_multibyte_overflow_before_encode_allocation(self):
+        class NoEncodeText(str):
+            def encode(self, *args, **kwargs):
+                raise AssertionError("encode must not run after byte-size preflight fails")
+
+        with (
+            patch(
+                "acs.pgn_roundtrip.serialize_pgn_text",
+                return_value=NoEncodeText("é" * 6),
+            ),
+            patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+                serialize_pgn_bytes,
+                (),
+            )
+
+    def test_canonical_byte_export_rejects_overflow_before_encode_allocation(self):
+        class NoEncodeText(str):
+            def encode(self, *args, **kwargs):
+                raise AssertionError("encode must not run after byte-size preflight fails")
+
+        class CanonicalResult:
+            text = NoEncodeText("é" * 6)
+            games = ()
+
+        with (
+            patch("acs.pgn_roundtrip.parse_pgn_bytes", return_value=()),
+            patch(
+                "acs.pgn_roundtrip._canonicalize_parsed_games",
+                return_value=CanonicalResult(),
+            ),
+            patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+                canonical_round_trip_bytes,
+                b"*",
+            )
+
+
+    def test_serialization_preflight_matches_strict_lexical_token_budget(self):
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.", nags=["!"])],
+                result="*",
+            ),
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 5):
+            text = serialize_pgn_text((game,))
+            self.assertEqual(parse_pgn_text(text), (game,))
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 4):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+
+    def test_invalid_first_yielded_game_stops_generator_before_read_ahead(self):
+        observed = []
+        valid_second = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+
+        def source():
+            observed.append("invalid")
+            yield object()
+            observed.append("second")
+            yield valid_second
+
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            source(),
+        )
+        self.assertEqual(observed, ["invalid"])
+
+    def test_invalid_canonical_model_stops_generator_before_read_ahead(self):
+        valid_second = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        invalid = PgnGame(
+            tags={"Bad Tag": "x", "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        observed = []
+
+        def source():
+            observed.append("invalid")
+            yield invalid
+            observed.append("second")
+            yield valid_second
+
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            source(),
+        )
+        self.assertEqual(observed, ["invalid"])
+
+
+    def test_game_count_limit_fails_before_parser_materialization(self):
+        source = (
+            '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Two"]\n[Result "*"]\n\n1. d4 *\n'
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1),
+            patch(
+                "acs.pgn_roundtrip.parse_games",
+                side_effect=AssertionError("parser materialization must not run"),
+            ) as parser,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            parser.assert_not_called()
+
+    def test_compact_move_number_token_budget_fails_before_parser(self):
+        source = '[Result "*"]\n\n1.e4 *'
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 3),
+            patch(
+                "acs.pgn_roundtrip.parse_games",
+                side_effect=AssertionError("parser token materialization must not run"),
+            ) as parser,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            parser.assert_not_called()
+
+    def test_game_preflight_preserves_multiline_nested_comment_frame_state(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 {outer\n'
+            '{inner\n'
+            '} inner close\n'
+            '[Event "comment text, not a boundary"]\n'
+            '} *\n'
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1):
+            games = parse_pgn_text(source, strict=False)
+        self.assertEqual(len(games), 1)
+
+    def test_recovery_span_cannot_hide_next_game_header_field_limit(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 {{literal}\n'
+            '[Event "abcdef"]\n'
+            '[Result "*"]\n\n'
+            '1. d4 } *\n'
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_TAG_VALUE_CHARS", 5):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+                strict=False,
+            )
+
+
+    def test_canonical_bytes_preflights_source_once_then_canonical_output_once(self):
+        source = '[Result "*"]\n\n*'
+        observed = []
+
+        def preflight(text, **kwargs):
+            observed.append(text)
+            return text
+
+        with patch("acs.pgn_roundtrip._preflight_text", side_effect=preflight):
+            encoded, games = canonical_round_trip_bytes(source.encode("utf-8"))
+
+        self.assertTrue(encoded)
+        self.assertEqual(len(games), 1)
+        self.assertEqual(len(observed), 2)
+
+
+    def test_source_budget_subclasses_fail_before_overrideable_claim_hooks(self):
+        calls = []
+
+        class ActiveBudget(rt.PgnSourceBudget):
+            def claim_text_chars(self, amount):
+                calls.append(("text", amount))
+                raise AssertionError("active budget hook must not execute")
+
+        budget = ActiveBudget(rt.WHOLE_DOCUMENT_PGN_LIMITS)
+        with self.assertRaisesRegex(TypeError, "source_budget must be PgnSourceBudget"):
+            parse_pgn_text(
+                '[Result "*"]\n\n1. e4 *',
+                source_budget=budget,
+            )
+        self.assertEqual(calls, [])
+
+        class DerivedLimits(rt.PgnSourceLimits):
+            pass
+
+        with self.assertRaisesRegex(TypeError, "limits must be PgnSourceLimits"):
+            rt.PgnSourceBudget(
+                DerivedLimits(
+                    max_source_bytes=1024,
+                    max_text_chars=1024,
+                    max_lexical_tokens=128,
+                    max_games=4,
+                )
+            )
+
+    def test_preflight_counts_recovery_tokenizer_expansion_before_materialization(self):
+        sources = (
+            '[Result "*"]\n\n1.e4 *',
+            '[Result "*"]\n\n{{x}} *',
+            '[Result "*"]\n\n$x *',
+            '[Result "*"]\n\n}} *',
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                with (
+                    patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 3),
+                    patch(
+                        "acs.pgn_roundtrip.parse_games",
+                        side_effect=AssertionError(
+                            "parser token materialization must not run"
+                        ),
+                    ) as parser,
+                ):
+                    self.assert_code(
+                        PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                        parse_pgn_text,
+                        source,
+                        strict=False,
+                    )
+                    parser.assert_not_called()
+
+    def test_tag_field_limit_runs_before_game_framer_allocation(self):
+        source = '[Event "abcdef"]\n[Result "*"]\n\n1. e4 *'
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TAG_VALUE_CHARS", 5),
+            patch(
+                "acs.pgn_roundtrip.CanonicalPgnGameFramer.feed_line",
+                side_effect=AssertionError("framer must not receive oversized tag"),
+            ) as feed_line,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            feed_line.assert_not_called()
+
+    def test_recovery_warning_provenance_does_not_override_canonical_serialization(self):
+        recovered = parse_pgn_text(
+            '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
+            strict=False,
+        )
+        warnings_before = list(recovered[0].warnings)
+        self.assertTrue(warnings_before)
+
+        canonical = serialize_pgn_text(recovered)
+
+        self.assertEqual(recovered[0].warnings, warnings_before)
+        reparsed = parse_pgn_text(canonical, strict=True)
+        self.assertEqual([move.san for move in reparsed[0].line.moves], ["e4", "e5"])
+        self.assertEqual(reparsed[0].line.result, "*")
+        self.assertEqual(reparsed[0].warnings, [])
 
 
 if __name__ == "__main__":

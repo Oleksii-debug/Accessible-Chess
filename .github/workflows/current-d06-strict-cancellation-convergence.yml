@@ -1,0 +1,68 @@
+name: Current D06 Strict Cancellation Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/book-pgn-epub-bounds-20261006-zftrkmo118
+    paths:
+      - '.github/workflows/current-d06-strict-cancellation-convergence.yml'
+      - 'acs/pgn_roundtrip.py'
+      - 'tests/test_d06_pgn_roundtrip.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-d06-strict-cancellation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  D06_SOURCE_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
+  D06_TEST_BLOB: 06e184390eb8b3957063ab8480ce707aec4da4fe
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact geometry and D06 blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-d06-strict-cancellation-convergence.yml' \
+            'acs/pgn_roundtrip.py' \
+            'tests/test_d06_pgn_roundtrip.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_pgn_roundtrip.py)" = "$D06_TEST_BLOB"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Compile strict PGN boundary
+        run: python -m py_compile acs/pgn_roundtrip.py tests/test_d06_pgn_roundtrip.py
+
+      - name: Run strict D06 and retained cancellation regressions
+        run: python -m unittest -v tests.test_d06_pgn_roundtrip tests.test_book_active_import_cancellation tests.test_gametree tests.test_book_html_pgn_loss_accounting
