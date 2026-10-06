@@ -141,7 +141,12 @@ class Version2WindowsLibraryExportDelegate:
             return self._failed("file_dialog_failed", previous_focus)
 
         try:
-            result = self._service.export_to(destination, request)
+            expected_sha256 = self._service.expected_destination_sha256(destination)
+            result = self._service.export_to(
+                destination,
+                request,
+                expected_sha256=expected_sha256,
+            )
         except Exception:
             # Never surface destination/backend/local-path text through this event.
             return self._failed("library_export_failed", previous_focus)
