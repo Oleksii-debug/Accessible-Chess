@@ -164,6 +164,39 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
         self.assertIn("[%cbh-square yellow e4]", after)
         self.assertEqual(node.nags, ["$1", "$14", "$36"])
 
+    def test_unrepresentable_decoded_game_fails_before_publication(self) -> None:
+        cases = (
+            decoded_game(
+                0,
+                [move(12, 28)],
+                event="line one\nline two",
+            ),
+            decoded_game(
+                0,
+                [
+                    move(
+                        12,
+                        28,
+                        comments=[
+                            {
+                                "kind": "text_after",
+                                "lang": 0,
+                                "text": "cannot } become a brace comment",
+                            }
+                        ],
+                    )
+                ],
+            ),
+        )
+        for record in cases:
+            with self.subTest(record=record):
+                with self.assertRaises(ChessBaseDecodeError) as caught:
+                    self.decode(payload([record]))
+                self.assertEqual(
+                    caught.exception.code,
+                    ChessBaseDecodeCode.INVALID_GAME,
+                )
+
     def test_illegal_backend_move_fails_closed_instead_of_becoming_game_data(self) -> None:
         with self.assertRaises(ChessBaseDecodeError) as caught:
             self.decode(payload([decoded_game(0, [move(12, 44)])]))
