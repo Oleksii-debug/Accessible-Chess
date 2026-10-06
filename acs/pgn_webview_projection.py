@@ -448,8 +448,21 @@ class PgnWebViewProjection:
                 or "\x00" in item.node_id
             ):
                 raise ValueError("PGN presenter node id is invalid")
-            if type(item.comments) is not tuple or type(item.nags) is not tuple:
+            if (
+                type(item.comments) is not tuple
+                or type(item.nags) is not tuple
+                or type(item.trailing_comments) is not tuple
+                or type(item.comments_before) is not tuple
+                or type(item.comments_after) is not tuple
+            ):
                 raise TypeError("PGN presenter item collections must be canonical tuples")
+            if (
+                len(item.comments) > _MAX_PGN_COMMENTS_PER_ITEM
+                or len(item.trailing_comments) > _MAX_PGN_COMMENTS_PER_ITEM
+                or len(item.comments_before) > _MAX_PGN_COMMENTS_PER_ITEM
+                or len(item.comments_after) > _MAX_PGN_COMMENTS_PER_ITEM
+            ):
+                raise ValueError("PGN presenter item has too many comments")
         for tag in view.tags:
             if type(tag) is not tuple or len(tag) != 2:
                 raise TypeError("PGN presenter tag entry is invalid")
@@ -710,26 +723,26 @@ class PgnWebViewProjection:
         return PgnWebViewEvent("delegated", {"action": action_id})
 
     def append_moves(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
             raise ValueError("PGN continuation text is invalid")
         return self._dispatch("pgn.append_moves", {"text": text})
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+        if type(name) is not str or not name or _utf16_units(name) > 80 or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
-        if type(value) is not str or len(value) > 360 or "\x00" in value:
+        if type(value) is not str or _utf16_units(value) > 360 or "\x00" in value:
             raise ValueError("PGN tag value is invalid")
         self._dispatch("pgn.tag_edit", {"name": name, "value": value})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+        if type(name) is not str or not name or _utf16_units(name) > 80 or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
         self._dispatch("pgn.tag_delete", {"name": name})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
 
     def search(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 4096 or "\x00" in text:
             raise ValueError("PGN search text is invalid")
         # Search is document-scoped, not move-scoped. A lawful PGN can have
         # tags/result but no moves, so search must work from the canonical root
@@ -777,12 +790,12 @@ class PgnWebViewProjection:
         return self._dispatch_selected("pgn.comment_delete", extra=extra)
 
     def edit_nags(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or len(text) > 512 or "\x00" in text:
+        if type(text) is not str or _utf16_units(text) > 512 or "\x00" in text:
             raise ValueError("PGN NAG text is invalid")
         return self._dispatch_selected("pgn.nag_edit", extra={"text": text})
 
     def add_variation(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
             raise ValueError("PGN variation text is invalid")
         return self._dispatch_selected("pgn.variation_add", extra={"text": text})
 
