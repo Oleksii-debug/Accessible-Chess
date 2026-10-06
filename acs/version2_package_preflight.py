@@ -303,6 +303,24 @@ def _safe_lstat(path: Path, *, label: str) -> os.stat_result:
     return info
 
 
+def _read_stable_bytes_file(path: Path, *, label: str, max_bytes: int) -> bytes:
+    """Read one bounded metadata file from the exact stable snapshot."""
+    if type(max_bytes) is not int or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    try:
+        with snapshot:
+            return snapshot.read(max_bytes)
+    except Version2PackagePreflightError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read: {type(exc).__name__}")
+
+
 def _sha256(path: Path) -> str:
     """Hash one exact regular-file snapshot, rejecting concurrent mutation."""
     before = _safe_lstat(path, label="package file")
@@ -945,7 +963,11 @@ def _validate_sound_provenance(
         label="sound provenance notice",
     )
     try:
-        text = provenance_path.read_text(encoding="utf-8-sig")
+        text = _read_stable_bytes_file(
+            provenance_path,
+            label="sound provenance notice",
+            max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+        ).decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeError) as exc:
         _fail(f"sound provenance notice is unreadable: {type(exc).__name__}")
     provenance = _json_no_duplicates(text, label="sound provenance notice")
@@ -1056,17 +1078,20 @@ def _validate_sound_inventory(
         label="sound inventory audit notice",
     )
     try:
-        if (
-            source_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
-            or notice_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
-        ):
-            _fail("sound inventory exceeds byte limit")
         source_doc = _json_no_duplicates(
-            source_path.read_text(encoding="utf-8-sig"),
+            _read_stable_bytes_file(
+                source_path,
+                label="packaged sound inventory",
+                max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+            ).decode("utf-8-sig", errors="strict"),
             label="packaged sound inventory",
         )
         notice_doc = _json_no_duplicates(
-            notice_path.read_text(encoding="utf-8-sig"),
+            _read_stable_bytes_file(
+                notice_path,
+                label="sound inventory audit notice",
+                max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+            ).decode("utf-8-sig", errors="strict"),
             label="sound inventory audit notice",
         )
     except Version2PackagePreflightError:
@@ -1398,7 +1423,11 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
     try:
-        payload = path.read_bytes()
+        payload = _read_stable_bytes_file(
+            path,
+            label="WinForms accessibility app-config",
+            max_bytes=_MAX_APPCONFIG_BYTES,
+        )
     except OSError as exc:
         _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
     if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
@@ -1573,7 +1602,11 @@ def _validate_required_runtime_resources(
         label="packaged sound manifest",
     )
     try:
-        manifest_text = manifest_path.read_text(encoding="utf-8-sig")
+        manifest_text = _read_stable_bytes_file(
+            manifest_path,
+            label="packaged sound manifest",
+            max_bytes=64 * 1024,
+        ).decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeError) as exc:
         _fail(f"packaged sound manifest is unreadable: {type(exc).__name__}")
     manifest = _json_no_duplicates(manifest_text, label="packaged sound manifest")
@@ -1639,7 +1672,11 @@ def _validate_required_runtime_resources(
         label="Stockfish GPL notice",
     )
     try:
-        notice = notice_path.read_text(encoding="utf-8-sig").casefold()
+        notice = _read_stable_bytes_file(
+            notice_path,
+            label="Stockfish GPL notice",
+            max_bytes=64 * 1024,
+        ).decode("utf-8-sig", errors="strict").casefold()
     except (OSError, UnicodeError) as exc:
         _fail(f"Stockfish GPL notice is unreadable: {type(exc).__name__}")
     if (
