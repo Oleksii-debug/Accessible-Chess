@@ -5,15 +5,14 @@
 Live GitHub exact heads, checks and artifacts supersede every older snapshot retained below. This section is descriptive audit state only; it does not create a new priority queue.
 
 - executable Product authority remains PR #1981 at `d0e14b998bb57b5c3b53609ecef41ab646b213a3`;
-- canonical shipping/recovery is PR #2184 at exact head `7809fbbe20d625676af768bf43692ec89def7383`, base `eace8b671934c1acf6e12a4a59a95bc6274a8f1d`, open/draft/mergeable;
-- base -> #2184 is ahead-only / behind=0 with an exact 62-path effective delta. `.github/workflows/current-shipping-recovery-hardening.yml` declares the same 62-path scope and exact blob assertions for the integrated shipping boundaries;
-- owner gameplay/accessibility #2195 and deterministic native Alt-mnemonic repair #2199 are merged into #2184;
-- the canonical malformed-Books rollback oracle from #2073 is integrated into #2184 without importing the divergent Library runtime: rollback is judged by semantic `aria-current` route state rather than DOM object identity; the exact DOM regression blob is `345c6b46eca464af51469145c15792282e532e12`;
-- child-coaching recovery #2097 is now reconverged directly onto exact #2184: head `740027531b88b2aaa4771ae0ad2f08d1213bb084`, base `7809fbbe20d625676af768bf43692ec89def7383`, ahead-only / behind=0, exact 11-path overlay, open/draft/mergeable. Its fresh exact-head Child Coaching/Context/Keyboard/Group Rotation and broader jobs are queued, so it is not integrated;
-- Library #2073 remains a separate Product-relative 17-path lineage at `7732d3a5ca6b74738697fc6863b6a99105ffc034`, open/draft/mergeable. Its newer refused-close/export recovery work overlaps shipping application/runtime paths and must be semantically reconciled rather than mechanically replayed;
-- the current default-branch-only divergence from shipping is policy/documentation only (AGENTS/README and canonical vision, Media/Agent, technical-roadmap, acceptance and Web architecture documents); no main-only executable/runtime/test/workflow/package delta was found in this audit;
-- exact-current-head terminal machine qualification for #2184 is not established by the live Actions/status read. Older queued/green heads cannot qualify `7809fbbe20d625676af768bf43692ec89def7383`;
-- Media Intelligence / Universal Chess Agent remains active required scope on separate live PR stacks, including current Media #2197/#2198 and Agent #2200/#2201. None is silently part of the current shipping bytes.
+- canonical shipping/recovery is PR #2184 at exact head `7ff88c9398a60aa0393da1c7c45cdc226463627a`, base `eace8b671934c1acf6e12a4a59a95bc6274a8f1d`, open/draft/mergeable;
+- base -> #2184 remains ahead-only / behind=0 with the same exact 62-path effective delta. The two commits after `7809fbbe...` are qualification-only changes to the already-scoped Current Shipping Recovery Hardening workflow; they add inherited PGN command/WebView CAS suite bindings and do not change runtime/chess/parser/UI/package bytes;
+- Current Shipping Recovery Hardening run `37446812631` on exact `7ff88c...` is QUEUED, with the broader exact-head workflow set queued/pending. Nonterminal is not GREEN;
+- owner gameplay/accessibility #2195 and deterministic native Alt-mnemonic repair #2199 are merged into #2184. The canonical malformed-Books rollback oracle from #2073 is also integrated without importing the divergent Library runtime;
+- child-coaching recovery #2097 is reconverged onto exact current #2184 through history-preserving merge receipt `f794007f663794e941da6442bf0904fe0a56b671`: merge-base exact `7ff88c...`, ahead-only / behind=0, exact 11-path overlay, open/draft/mergeable. Fresh exact-head Child Coaching/Context/Keyboard/Group Rotation/Windows/P0 jobs are QUEUED, so no intake/merge claim is made;
+- Library #2073 remains a separate Product-relative exact 17-path lineage at `7732d3a5ca6b74738697fc6863b6a99105ffc034`, open/draft/mergeable. Its refused-close/export recovery work overlaps shipping application/runtime paths and requires semantic reconciliation rather than mechanical replay;
+- default-branch-only divergence from shipping remains policy/documentation only (AGENTS/README and canonical vision, Media/Agent, technical-roadmap, acceptance and Web architecture documents); no main-only executable/runtime/test/workflow/package delta was found;
+- Media Intelligence / Universal Chess Agent remains active required scope on separate live PR stacks, including Media #2197/#2198 and Agent #2200/#2201. None is silently part of the current shipping bytes.
 
 Whole-product audit result:
 
@@ -22,7 +21,7 @@ Whole-product audit result:
 - binding owner acceptance remains open in #730, #691, #1601 and real-user finding #22. Native menu automation, UIA evidence and sound dispatch tests do not substitute for physical Windows/NVDA/audio/semantic-copy acceptance on the exact delivered bytes;
 - no final exact Windows archive has attributable terminal qualification, fresh artifact readback and physical restart/NVDA acceptance.
 
-The supplied Drive project plan and historical work ledger were re-read. Their live-GitHub/Issue #14 override governs; stale Drive SHA/queue snapshots are historical and were not allowed to override newer GitHub evidence.
+The supplied Drive project plan and historical Work Ledger were re-read. Their live-GitHub/Issue #14 override governs; stale Drive SHA/queue snapshots are historical and were not allowed to override newer GitHub evidence.
 
 Release truth remains:
 
