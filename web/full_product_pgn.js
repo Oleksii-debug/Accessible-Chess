@@ -16,6 +16,7 @@
     "pgn.previous_game",
     "pgn.next_game",
     "pgn.search",
+    "pgn.append_moves",
     "pgn.parent",
     "pgn.comment_edit",
     "pgn.comment_delete",
@@ -818,7 +819,7 @@
     };
   }
 
-  function renderActions(root, host, snapshot, invoke, announce, searchDialog, commentDialog, nagDialog, variationDialog) {
+  function renderActions(root, host, snapshot, invoke, announce, searchDialog, appendDialog, commentDialog, nagDialog, variationDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-orientation", "horizontal");
@@ -840,6 +841,10 @@
         if (button.disabled) return;
         if (action.action === "pgn.search") {
           searchDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.append_moves") {
+          appendDialog.open(button);
           return;
         }
         if (action.action === "pgn.comment_edit") {
@@ -999,6 +1004,18 @@
       emptyMessage: en ? "Enter search text." : "Введіть текст для пошуку.",
       initialValue: function () { return root._pgnLastSearch || ""; }
     });
+    const appendDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-append-dialog",
+      title: en ? "Continue current line" : "Продовжити поточну лінію",
+      label: en ? "Enter legal SAN moves from the current position, for example Nf3 Nc6" : "Введіть легальні SAN-ходи від поточної позиції, наприклад Nf3 Nc6",
+      saveLabel: en ? "Add moves" : "Додати ходи",
+      cancelLabel: en ? "Cancel" : "Скасувати",
+      command: "pgn.append_moves",
+      maxLength: 8192,
+      requireNonEmpty: true,
+      emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
+      initialValue: function () { return ""; }
+    });
     const nagDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
       id: "pgn-nag-dialog",
       title: en ? "NAG annotations" : "Анотації NAG",
@@ -1025,8 +1042,9 @@
       emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
       initialValue: function () { return ""; }
     });
-    renderActions(root, main, snapshot, invoke, announce, searchDialog, commentDialog, nagDialog, variationDialog);
+    renderActions(root, main, snapshot, invoke, announce, searchDialog, appendDialog, commentDialog, nagDialog, variationDialog);
     main.appendChild(searchDialog.dialog);
+    main.appendChild(appendDialog.dialog);
     main.appendChild(commentDialog.dialog);
     main.appendChild(nagDialog.dialog);
     main.appendChild(variationDialog.dialog);
