@@ -695,6 +695,16 @@ class _SemanticHtmlParser(HTMLParser):
                 return index
         return None
 
+    def _recover_capture_tail(self, target_length: int) -> None:
+        """Recover a malformed capture tail with bounded cancellation latency."""
+        recovered = 0
+        while len(self._captures) > target_length:
+            if self.control_checkpoint is not None and recovered % 128 == 0:
+                self._checkpoint()
+            capture = self._captures.pop()
+            self._finish_capture_and_record_parent(capture, recovered=True)
+            recovered += 1
+
     def _inline_requires_split(self, capture: _Capture) -> bool:
         for event_index, event in enumerate(capture.inline_semantics, start=1):
             if self.control_checkpoint is not None and event_index % 128 == 0:
@@ -933,9 +943,7 @@ class _SemanticHtmlParser(HTMLParser):
                 lambda capture: capture.kind == "title"
             )
             if title_index is not None:
-                while len(self._captures) > title_index:
-                    capture = self._captures.pop()
-                    self._finish_capture_and_record_parent(capture, recovered=True)
+                self._recover_capture_tail(title_index)
             self._head_depth = 0
             self._warning("malformed HTML head was implicitly closed by body start")
         if self._head_depth and tag not in {"title", "meta"}:
@@ -1120,9 +1128,7 @@ class _SemanticHtmlParser(HTMLParser):
                 lambda capture: capture.kind == "title"
             )
             if title_index is not None:
-                while len(self._captures) > title_index:
-                    capture = self._captures.pop()
-                    self._finish_capture_and_record_parent(capture, recovered=True)
+                self._recover_capture_tail(title_index)
             if self._head_depth:
                 self._head_depth -= 1
             return
@@ -1138,9 +1144,7 @@ class _SemanticHtmlParser(HTMLParser):
             # recover any still-open semantic descendants first, then honor the
             # explicit close. Leaving the ancestor live until EOF would let
             # following source text leak into a region the source already closed.
-            while len(self._captures) - 1 > matching_capture_index:
-                capture = self._captures.pop()
-                self._finish_capture_and_record_parent(capture, recovered=True)
+            self._recover_capture_tail(matching_capture_index + 1)
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture)
         if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
@@ -1159,9 +1163,7 @@ class _SemanticHtmlParser(HTMLParser):
                 reverse=True,
             )
             if open_item_index is not None:
-                while len(self._captures) > open_item_index:
-                    capture = self._captures.pop()
-                    self._finish_capture_and_record_parent(capture, recovered=True)
+                self._recover_capture_tail(open_item_index)
             captured = self._lists.pop()
             if captured.nested:
                 for capture_index, capture in enumerate(self._captures, start=1):
@@ -1632,13 +1634,7 @@ class _SemanticHtmlParser(HTMLParser):
                 "malformed HTML left hidden content unclosed; subsequent readable text may have been omitted"
             )
             self._hidden_tags.clear()
-        recovered_captures = 0
-        while self._captures:
-            if self.control_checkpoint is not None and recovered_captures % 128 == 0:
-                self._checkpoint()
-            capture = self._captures.pop()
-            self._finish_capture_and_record_parent(capture, recovered=True)
-            recovered_captures += 1
+        self._recover_capture_tail(0)
         recovered_lists = 0
         while self._lists:
             if self.control_checkpoint is not None and recovered_lists % 128 == 0:

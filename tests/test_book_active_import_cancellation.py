@@ -534,6 +534,71 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(len(parser._captures), 400)
 
+    def test_html_body_implicit_head_unwind_observes_control_before_capture_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<head>" + "<title>" * 300)
+        before = tuple(parser._captures)
+        failure = SourceReadCancelledError("cancelled before implicit HEAD unwind")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 1
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag("body", [])
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 1)
+        self.assertEqual(tuple(parser._captures), before)
+
+    def test_html_ancestor_unwind_observes_control_before_capture_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<p>" + "<blockquote>" * 300)
+        before = tuple(parser._captures)
+        failure = SourceReadCancelledError("cancelled before malformed ancestor unwind")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 1
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag("p")
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(tuple(parser._captures), before)
+
+    def test_html_list_close_unwind_observes_control_before_capture_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<ul><li>" + "<blockquote>" * 300)
+        before_captures = tuple(parser._captures)
+        before_lists = tuple(parser._lists)
+        failure = SourceReadCancelledError("cancelled before malformed list unwind")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 1
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag("ul")
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(tuple(parser._captures), before_captures)
+        self.assertEqual(tuple(parser._lists), before_lists)
+
     def test_html_large_list_fallback_observes_control_before_publication(self):
         import acs.book_html_import as html
 
