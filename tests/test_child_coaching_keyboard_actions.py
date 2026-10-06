@@ -483,6 +483,26 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         self.assertIsNone(self.app._rotation_state)
         self.app.shell.close_dialog("teacher-dialog")
 
+    def test_active_action_string_is_rejected_before_hash_or_equality_hooks(self) -> None:
+        calls: list[str] = []
+
+        class ActiveAction(str):
+            def __hash__(self):
+                calls.append("hash")
+                raise AssertionError("active action hash must not run")
+
+            def __eq__(self, other):
+                calls.append("eq")
+                raise AssertionError("active action equality must not run")
+
+        before = self.app.prepared_position_snapshot()
+        with self.assertRaisesRegex(ValueError, "command is malformed"):
+            self.app._delegate(ActiveAction("teacher.rotation_status"), {})
+
+        self.assertEqual([], calls)
+        self.assertEqual(before, self.app.prepared_position_snapshot())
+        self.assertIsNone(self.app._rotation_state)
+
     def test_payload_injection_is_rejected_before_any_teacher_state_change(self) -> None:
         before = self.app.prepared_position_snapshot()
         with self.assertRaisesRegex(ValueError, "accepts no payload"):

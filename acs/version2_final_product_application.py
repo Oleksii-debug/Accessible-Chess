@@ -1107,8 +1107,13 @@ class Version2FinalProductApplication(Version2Application):
         raise KeyError(f"unsupported Teacher keyboard action: {action}")
 
     def _delegate(self, action, payload):
+        # Action ids are an ingress boundary. Reject active string subclasses
+        # before set membership/equality can invoke caller-owned hash/compare
+        # hooks. Canonical router actions are exact built-in strings.
+        if type(action) is not str:
+            raise ValueError("Application command is malformed")
         if action in self._COACHING_KEYBOARD_ACTIONS:
-            if type(action) is not str or type(payload) is not dict:
+            if type(payload) is not dict:
                 raise ValueError("Teacher keyboard command is malformed")
             return self._dispatch_teacher_keyboard_action(action, payload)
         return super()._delegate(action, payload)
