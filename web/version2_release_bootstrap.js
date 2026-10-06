@@ -325,12 +325,17 @@
     }
   }
 
-  function recoverShellPublication(bridge, token, failedMessage) {
+  function recoverShellPublication(bridge, token, failedMessage, preservePresentation) {
     return finishShellPublication(
       bridge,
       "shell.presentation_rollback",
       token
     ).then(function () {
+      if (preservePresentation) {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }
       return refresh(true).then(function () {
         clearPendingShellPublication(token);
         announce(failedMessage);
@@ -356,6 +361,11 @@
             if (hostToken !== token) pendingShellPublicationToken = hostToken;
             announce(failedMessage);
             return false;
+          }
+          if (preservePresentation) {
+            clearPendingShellPublication(token);
+            announce(failedMessage);
+            return true;
           }
           try {
             render(snapshot, true);
@@ -486,7 +496,8 @@
         return recoverShellPublication(
           bridge,
           token,
-          failedMessage
+          failedMessage,
+          true
         ).then(function () { return null; });
       });
     }, function () {
@@ -722,13 +733,34 @@
       routeId === "training"
     ) {
       const workspaceWasHidden = workspace.hidden;
-      const productFocus = renderProductSurface(
-        snapshot,
-        routeId,
-        requestedFocus,
-        heading,
-        nextLanguage
+      const previousWorkspaceNodes = Array.from(
+        workspace.childNodes || workspace.children || []
       );
+      const previousActiveElement = documentRef.activeElement;
+      let productFocus;
+      try {
+        productFocus = renderProductSurface(
+          snapshot,
+          routeId,
+          requestedFocus,
+          heading,
+          nextLanguage
+        );
+      } catch (error) {
+        // Product rendering is a presentation transaction. A malformed
+        // candidate may have detached/replaced nodes before throwing; restore
+        // the exact committed node objects and focus so rollback does not
+        // reconstruct or perturb the surface NVDA/keyboard users were on.
+        workspace.replaceChildren(...previousWorkspaceNodes);
+        if (
+          previousActiveElement &&
+          typeof previousActiveElement.focus === "function" &&
+          !hiddenByAncestor(previousActiveElement)
+        ) {
+          previousActiveElement.focus({ preventScroll: true });
+        }
+        throw error;
+      }
 
       // Candidate validation/render succeeded. Retire the previously rendered
       // Library command authority only now: malformed target rendering must
