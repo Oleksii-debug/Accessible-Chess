@@ -51,6 +51,8 @@ env:
   LIBRARY_PROJECTION_BLOB: 099b9d5300577873fda30bedc5c1736808f7af2e
   SETTINGS_BLOB: 81d7d7e2d05b87552aadbda476eb3618ffa4fff1
   STAGE1_RELEASE_UI_BLOB: f4b026bfe74dc1953958556469700839adf26345
+  FULL_PRODUCT_NATIVE_MENU_BLOB: ba0832c97af8d93d4ac4b302a3bc2f2dc9da7bcf
+  UI_NATIVE_MENU_BLOB: 158f10aaac107e275a533c6805ab08177ffc782f
   V2_UPGRADE_STATUS_RELEASE_BLOB: 5382eee936c174a53b01b82f746c0e225a614faa
   WEBAPP_BLOB: 084bf4eb68708afa68b6b7d401a6fa5dc5d63181
   WEBAPP_KEYMAP_CORE_BLOB: 1ca46fa05c5e307a8d2060a60a7047b152dea3ce
@@ -66,6 +68,8 @@ env:
   STAGE1_CORE_LANGUAGE_TEST_BLOB: de9ed33762a8aa6f1771ead21aa6070e1bb9b012
   ACCESSIBLE_WEBUI_TEST_BLOB: 9609be5b953922822f2841081bf831e04d0246c3
   DEV1_RELEASE_UI_REGRESSIONS_TEST_BLOB: 4fb51179498937f842baa644c817835d9b23270d
+  FULL_PRODUCT_NATIVE_MENU_TEST_BLOB: 1be05cb652a93a7d452ffdee51d4b146a52c2c5a
+  UI_NATIVE_MENU_RECOVERY_TEST_BLOB: b355c57bd7c9e2b19e0f049ada62b2bee43590dc
   STAGE1_RELEASE_COMPOSITION_UI_TEST_BLOB: d1dbb20a1e9e33d874047513bd26d4ba6700dbf4
   V2_UPGRADE_STATUS_SHIPPING_TEST_BLOB: 3cdac1a2c91d4b37cbd23500042f5d855340144d
   PHYSICAL_RECORDER_BLOB: d569f82be929b3b979ef2c4514501521052696a9
@@ -129,9 +133,11 @@ jobs:
             ".github/workflows/w6-v2-package-assembler.yml"
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
+            "acs/full_product_native_menu.py"
             "acs/library_webview_projection.py"
             "acs/settings.py"
             "acs/stage1_release_ui.py"
+            "acs/ui_native_menu.py"
             "acs/version2_application.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
@@ -153,10 +159,12 @@ jobs:
             "tests/js/version2_release_bootstrap_dom_test.js"
             "tests/test_accessible_webui.py"
             "tests/test_dev1_release_ui_regressions.py"
+            "tests/test_full_product_native_menu.py"
             "tests/test_owner_gameplay_feedback.py"
             "tests/test_owner_gameplay_wav_delivery.py"
             "tests/test_owner_physical_acceptance_json_hardening.py"
             "tests/test_stage1_release_composition_ui.py"
+            "tests/test_ui_native_menu_recovery.py"
             "tests/test_v2_board_analysis_hotkey_feedback.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
@@ -223,6 +231,8 @@ jobs:
           test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "$LIBRARY_PROJECTION_BLOB"
           test "$(git rev-parse HEAD:acs/settings.py)" = "$SETTINGS_BLOB"
           test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = "$STAGE1_RELEASE_UI_BLOB"
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = "$FULL_PRODUCT_NATIVE_MENU_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_native_menu.py)" = "$UI_NATIVE_MENU_BLOB"
           test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$V2_UPGRADE_STATUS_RELEASE_BLOB"
           test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
           test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$WEBAPP_KEYMAP_CORE_BLOB"
@@ -238,6 +248,8 @@ jobs:
           test "$(git rev-parse HEAD:tests/js/stage1_core_language_test.js)" = "$STAGE1_CORE_LANGUAGE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_accessible_webui.py)" = "$ACCESSIBLE_WEBUI_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev1_release_ui_regressions.py)" = "$DEV1_RELEASE_UI_REGRESSIONS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = "$FULL_PRODUCT_NATIVE_MENU_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_native_menu_recovery.py)" = "$UI_NATIVE_MENU_RECOVERY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_release_composition_ui.py)" = "$STAGE1_RELEASE_COMPOSITION_UI_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status_shipping.py)" = "$V2_UPGRADE_STATUS_SHIPPING_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
@@ -249,9 +261,11 @@ jobs:
       - name: Compile changed and integrated boundaries
         run: >-
           python -m py_compile
+          acs/full_product_native_menu.py
           acs/library_webview_projection.py
           acs/settings.py
           acs/stage1_release_ui.py
+          acs/ui_native_menu.py
           acs/version2_upgrade_status_release.py
           acs/webapp.py
           acs/webapp_keymap_core.py
@@ -271,7 +285,9 @@ jobs:
           tests/test_v2_windows_upgrade_status_shipping.py
           tests/test_accessible_webui.py
           tests/test_dev1_release_ui_regressions.py
+          tests/test_full_product_native_menu.py
           tests/test_stage1_release_composition_ui.py
+          tests/test_ui_native_menu_recovery.py
           tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_version2_application.py
           tests/test_version2_shutdown.py
@@ -324,9 +340,11 @@ jobs:
           tests.test_sound_events
           tests.test_dev3_sound_failure_isolation
           tests.test_dev1_release_ui_regressions
+          tests.test_full_product_native_menu
           tests.test_dev1_library_webview_projection
           tests.test_accessible_webui
           tests.test_stage1_release_composition_ui
+          tests.test_ui_native_menu_recovery
           tests.test_bookreader_revision_barriers_current
           tests.test_book_bidirectional_semantic_navigation
           tests.test_bookdocument_identity_bounds_current
