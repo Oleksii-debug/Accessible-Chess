@@ -64,6 +64,45 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertEqual(reopened.copy_pgn(), session.copy_pgn())
         self.assertEqual(reopened.workspace.current_game().tags["White"], "Ada")
 
+    def test_append_and_delete_games_keep_document_canonical_and_nonempty(self) -> None:
+        session = PgnDocumentSession.new_game({"Event": "First"})
+        first = session.copy_pgn()
+
+        added = session.append_new_game({"Event": "Second"})
+        self.assertEqual(2, added.game_count)
+        self.assertEqual(1, added.selected_game_index)
+        self.assertEqual("Second", session.workspace.current_game().tags["Event"])
+        self.assertTrue(session.dirty)
+
+        deleted = session.delete_current_game()
+        self.assertEqual(1, deleted.game_count)
+        self.assertEqual(0, deleted.selected_game_index)
+        self.assertEqual("First", session.workspace.current_game().tags["Event"])
+        self.assertEqual(first, session.copy_pgn())
+
+        with self.assertRaises(Exception):
+            session.delete_current_game()
+        self.assertEqual(1, session.workspace.game_count)
+        self.assertEqual("First", session.workspace.current_game().tags["Event"])
+
+    def test_delete_middle_game_renumbers_source_identity_and_reopens(self) -> None:
+        session = PgnDocumentSession.new_game({"Event": "A"})
+        session.append_new_game({"Event": "B"})
+        session.append_new_game({"Event": "C"})
+        session.workspace.select_game(1)
+
+        view = session.delete_current_game()
+
+        self.assertEqual(2, view.game_count)
+        self.assertEqual(1, view.selected_game_index)
+        self.assertEqual(["A", "C"], [game.tags["Event"] for game in session.workspace.games()])
+        self.assertEqual([0, 1], [game.source_index for game in session.workspace.games()])
+
+        target = self.root / "multi-edited.pgn"
+        session.save_as(target)
+        reopened = PgnDocumentSession.open(target)
+        self.assertEqual(["A", "C"], [game.tags["Event"] for game in reopened.workspace.games()])
+
     def test_open_multigame_copy_and_exact_nested_context_restore(self) -> None:
         session = PgnDocumentSession.open(self.write_document())
         session.workspace.set_cursor(
