@@ -190,6 +190,14 @@ def _uia_menu_handle_binding_checks(
         and isinstance(exact_rows[0], dict)
         else {}
     )
+    any_id_rows = uia.get("same_process_elements_with_exact_automation_id")
+    any_id_row = (
+        any_id_rows[0]
+        if isinstance(any_id_rows, list)
+        and len(any_id_rows) == 1
+        and isinstance(any_id_rows[0], dict)
+        else {}
+    )
     return {
         "uia_handle_element_present": bool(from_handle),
         "uia_handle_automation_id_canonical": (
@@ -205,6 +213,31 @@ def _uia_menu_handle_binding_checks(
         "uia_handle_enabled": from_handle.get("enabled") is True,
         "uia_handle_onscreen": from_handle.get("offscreen") is False,
         "uia_handle_probe_clean": not bool(uia.get("menu_from_handle_error")),
+        "uia_automation_id_unique_in_process": (
+            isinstance(any_id_rows, list) and len(any_id_rows) == 1
+        ),
+        "uia_automation_id_row_binds_same_handle": (
+            menu_handle != 0
+            and any_id_row.get("automation_id") == "AccessibleChessFullProductMenu"
+            and any_id_row.get("control_type") == "ControlType.MenuBar"
+            and any_id_row.get("process_id") == pid
+            and any_id_row.get("native_window_handle") == menu_handle
+        ),
+        "uia_from_handle_matches_automation_id_row": (
+            bool(from_handle)
+            and bool(any_id_row)
+            and all(
+                from_handle.get(field) == any_id_row.get(field)
+                for field in (
+                    "automation_id",
+                    "control_type",
+                    "process_id",
+                    "native_window_handle",
+                    "enabled",
+                    "offscreen",
+                )
+            )
+        ),
         "uia_exact_row_binds_same_handle": (
             menu_handle != 0
             and exact_row.get("automation_id") == "AccessibleChessFullProductMenu"
