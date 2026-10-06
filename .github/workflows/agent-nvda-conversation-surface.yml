@@ -15,6 +15,7 @@ on:
       - web/version2_final_product_bootstrap.js
       - tests/test_agent_webview_surface.py
       - tests/test_agent_final_product_reachability.py
+      - tests/test_universal_chess_agent_crossrepo.py
       - tests/js/agent_surface_dom_test.js
       - .github/workflows/agent-nvda-conversation-surface.yml
   workflow_dispatch:
@@ -72,6 +73,7 @@ jobs:
             "tests/js/agent_surface_dom_test.js"
             "tests/test_agent_final_product_reachability.py"
             "tests/test_agent_webview_surface.py"
+            "tests/test_universal_chess_agent_crossrepo.py"
             "web/full_product_agent.js"
             "web/version2_final_product_bootstrap.js"
           )
@@ -99,6 +101,7 @@ jobs:
           acs/version2_final_release.py
           tests/test_agent_webview_surface.py
           tests/test_agent_final_product_reachability.py
+          tests/test_universal_chess_agent_crossrepo.py
 
       - name: Run focused projection and bridge contracts
         run: python -m unittest discover -s tests -p "test_agent_webview_surface.py" -v
