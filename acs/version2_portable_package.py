@@ -1062,6 +1062,8 @@ def write_portable_oneclick_zip(
             label="verified portable ZIP archive",
             directory=False,
         )
+        if not _same_file_snapshot(prepared, verified_before_digest):
+            _fail("verified portable ZIP archive changed after durability confirmation")
         verified_archive_sha = _stable_digest(
             temporary,
             label="verified portable ZIP archive",
