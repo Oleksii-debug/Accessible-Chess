@@ -2,21 +2,14 @@ name: Portable Launcher Report Reparse Safety
 
 on:
   pull_request:
-    paths:
-      - 'packaging/portable_launcher.c'
-      - 'tests/test_portable_launcher_contract.py'
-      - 'tests/test_portable_launcher_core_guard.py'
-      - '.github/workflows/portable-launch-report-reparse-safety.yml'
-  push:
     branches:
-      - 'fix/portable-launch-report-reparse-20261004-sol56a4'
-      - 'converge/books-training-owner-current-20261004-zftrkmo'
-      - 'fix/portable-launcher-core-inode-guard-20261004-sol56r9k4'
-      - 'converge/current-product-settings-launcher-20261004-c2mbezb'
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_window_readiness.py'
       - 'tests/test_portable_launcher_core_guard.py'
+      - '.github/workflows/current-launcher-report-data-identity.yml'
       - '.github/workflows/portable-launch-report-reparse-safety.yml'
   workflow_dispatch:
 
@@ -24,14 +17,14 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE: f328be2c8a5d3423d09c1629854f24a3ce7df71d
-  LAUNCHER_BLOB: 9ffc6677e33637d89d8834ebb6c135ab6d26f3bb
-  CONTRACT_TEST_BLOB: 4ae48babd7ada71d38148dfb537982b74140da6b
+  PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  LAUNCHER_BLOB: b51fd45a0aba2c665787c5362cfa601caa1aabe7
+  CONTRACT_TEST_BLOB: c0b639aaa0f1723f6445f28555cb78c6f21240f8
   WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 concurrency:
-  group: portable-launch-report-reparse-${{ github.ref }}
+  group: portable-launch-report-reparse-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -48,29 +41,41 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
-          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
+          git fetch --no-tags origin "refs/heads/$PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$PRODUCT_REF"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
+          fi
+          product_base="$live_product_base"
+          test -n "$product_base"
+          git merge-base --is-ancestor "$product_base" HEAD
+          test "$(git merge-base "$product_base" HEAD)" = "$product_base"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
-          actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
+          actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-launcher-report-data-identity.yml' \
-            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_window_readiness.py' | LC_ALL=C sort)"
+            'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
-          git diff --check "$PRODUCT_BASE" HEAD
+          git diff --check "$product_base" HEAD
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -92,29 +97,41 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
-          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
+          git fetch --no-tags origin "refs/heads/$PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$PRODUCT_REF"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
+          fi
+          product_base="$live_product_base"
+          test -n "$product_base"
+          git merge-base --is-ancestor "$product_base" HEAD
+          test "$(git merge-base "$product_base" HEAD)" = "$product_base"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
-          actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
+          actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-launcher-report-data-identity.yml' \
-            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_window_readiness.py' | LC_ALL=C sort)"
+            'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
-          git diff --check "$PRODUCT_BASE" HEAD
+          git diff --check "$product_base" HEAD
       - name: Build native x64 launcher with warnings as errors
         shell: cmd
         run: |

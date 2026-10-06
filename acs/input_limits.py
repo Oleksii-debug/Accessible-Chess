@@ -6,3 +6,6 @@ enforce the same boundary before allocating split/token structures.
 """
 
 MAX_FEN_CHARS = 4096
+# Canonical square names are two characters; retain generous surrounding-space
+# compatibility while bounding strip/lower work on direct UI/API input.
+MAX_SQUARE_TEXT_CHARS = 256

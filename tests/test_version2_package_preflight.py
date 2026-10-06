@@ -1758,6 +1758,131 @@ class Version2PackagePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(Version2PackagePreflightError, "user state"):
                 _validate_zip(archive_path)
 
+    def test_control_objects_are_exact_before_hooks_or_filesystem_work(self) -> None:
+        touched: list[str] = []
+
+        class ActiveLimits(PackageLimits):
+            def __getattribute__(self, name):
+                touched.append(f"limits:{name}")
+                raise AssertionError("derived PackageLimits attribute hook executed")
+
+        class ActiveSha(str):
+            def casefold(self):
+                touched.append("sha:casefold")
+                raise AssertionError("derived integration SHA hook executed")
+
+        active_limits = object.__new__(ActiveLimits)
+
+        with patch.object(
+            preflight,
+            "_inventory",
+            side_effect=AssertionError("tree filesystem work must not start"),
+        ) as inventory:
+            with self.assertRaisesRegex(TypeError, "exact PackageLimits"):
+                validate_version2_package_tree(
+                    Path("unused-tree"),
+                    expected_integration_sha=_SHA,
+                    limits=active_limits,
+                )
+        inventory.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with patch.object(
+            preflight,
+            "_snapshot_regular_file",
+            side_effect=AssertionError("ZIP filesystem work must not start"),
+        ) as snapshot:
+            with self.assertRaisesRegex(TypeError, "exact PackageLimits"):
+                validate_version2_package_zip(
+                    Path("unused.zip"),
+                    expected_integration_sha=_SHA,
+                    limits=active_limits,
+                )
+        snapshot.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with patch.object(
+            preflight,
+            "_inventory",
+            side_effect=AssertionError("tree filesystem work must not start"),
+        ) as inventory:
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "40-hex commit",
+            ):
+                validate_version2_package_tree(
+                    Path("unused-tree"),
+                    expected_integration_sha=ActiveSha(_SHA),
+                )
+        inventory.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with patch.object(
+            preflight,
+            "_snapshot_regular_file",
+            side_effect=AssertionError("ZIP filesystem work must not start"),
+        ) as snapshot:
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "40-hex commit",
+            ):
+                validate_version2_package_zip(
+                    Path("unused.zip"),
+                    expected_integration_sha=ActiveSha(_SHA),
+                )
+        snapshot.assert_not_called()
+        self.assertEqual(touched, [])
+
+
+
+    def test_path_controls_reject_active_pathlike_before_hooks_or_filesystem_work(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        active = ActivePath()
+
+        with patch.object(
+            preflight,
+            "_read_stable_bytes_file",
+            side_effect=AssertionError("app-config read must not start"),
+        ) as reader:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                validate_winforms_accessibility_app_config(active)
+        reader.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with patch.object(
+            preflight,
+            "_inventory",
+            side_effect=AssertionError("tree filesystem work must not start"),
+        ) as inventory:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                validate_version2_package_tree(
+                    active,
+                    expected_integration_sha=_SHA,
+                )
+        inventory.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with patch.object(
+            preflight,
+            "_snapshot_regular_file",
+            side_effect=AssertionError("ZIP filesystem work must not start"),
+        ) as snapshot:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                validate_version2_package_zip(
+                    active,
+                    expected_integration_sha=_SHA,
+                )
+        snapshot.assert_not_called()
+        self.assertEqual(touched, [])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

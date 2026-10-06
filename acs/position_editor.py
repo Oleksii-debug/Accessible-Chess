@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import islice
 import re
 from typing import Iterable
 
@@ -94,11 +95,16 @@ class PositionState:
             )
         else:
             try:
-                values = tuple(rights)
+                iterator = iter(rights)
+                values = tuple(islice(iterator, len(VALID_CASTLING) + 1))
             except TypeError as exc:
                 raise PositionValidationError(
                     "castling rights must be text or an iterable of text symbols"
                 ) from exc
+            if len(values) > len(VALID_CASTLING):
+                raise PositionValidationError(
+                    "castling rights iterable contains too many symbols"
+                )
             if any(type(value) is not str for value in values):
                 raise PositionValidationError(
                     "castling rights iterable must contain text symbols"
@@ -174,11 +180,18 @@ class PositionState:
             board_rank = 7 - fen_rank
             file_index = 0
             for token in rank_text:
-                if token.isdigit():
-                    count = int(token)
-                    if not 1 <= count <= 8:
-                        raise PositionValidationError("FEN empty-square count must be 1..8")
-                    file_index += count
+                # FEN piece-placement counts are ASCII grammar, not a generic
+                # Unicode numeral channel. Keep this lexical boundary aligned
+                # with canonical Board.set_fen without importing chess legality
+                # into the editable PositionState representation.
+                if token in "12345678":
+                    file_index += ord(token) - ord("0")
+                    if file_index > 8:
+                        raise PositionValidationError("FEN rank contains more than 8 squares")
+                elif token.isdigit():
+                    raise PositionValidationError(
+                        "FEN empty-square count must use ASCII digits 1..8"
+                    )
                 elif token in VALID_PIECES:
                     if file_index >= 8:
                         raise PositionValidationError("FEN rank contains more than 8 squares")
@@ -189,11 +202,20 @@ class PositionState:
             if file_index != 8:
                 raise PositionValidationError("each FEN rank must expand to exactly 8 squares")
 
-        try:
-            halfmove = int(halfmove_text)
-            fullmove = int(fullmove_text)
-        except ValueError as exc:
-            raise PositionValidationError("FEN move counters must be integers") from exc
+        # Python int() accepts signs and many Unicode decimal digits. FEN does
+        # not: canonical Board.set_fen already requires unsigned ASCII decimal
+        # counters. Enforce the same lexical contract here while leaving chess
+        # legality (kings, checks, move provenance) outside the editor parser.
+        for counter, label in (
+            (halfmove_text, "halfmove"),
+            (fullmove_text, "fullmove"),
+        ):
+            if not counter.isascii() or not counter.isdecimal():
+                raise PositionValidationError(
+                    f"FEN {label} counter must be an unsigned ASCII decimal integer"
+                )
+        halfmove = int(halfmove_text)
+        fullmove = int(fullmove_text)
 
         return cls(
             tuple(pieces),

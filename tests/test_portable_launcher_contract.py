@@ -73,6 +73,88 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn(".accessible-chess-instance.lock", self.workflow)
         self.assertIn("[IO.File]::Open(", self.workflow)
 
+    def test_report_write_failure_retires_owned_child_before_popup_and_exit(self):
+        retire_start = self.source.index(
+            "static BOOL ac_retire_owned_child(DWORD code)"
+        )
+        retire_end = self.source.index(
+            "static void ac_report_write_fail(HANDLE report, DWORD code)",
+            retire_start,
+        )
+        retire = self.source[retire_start:retire_end]
+        for token in (
+            "WaitForSingleObject(g_process.hProcess, 0)",
+            "TerminateProcess(g_process.hProcess, stable_code)",
+            "AC_TIMEOUT_CLEANUP_WAIT_MS",
+            "WAIT_OBJECT_0",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, retire)
+
+        fail_start = retire_end
+        fail_end = self.source.index(
+            "static void ac_write_utf8(HANDLE handle",
+            fail_start,
+        )
+        failure = self.source[fail_start:fail_end]
+        self.assertIn(
+            "BOOL child_stopped = ac_retire_owned_child(stable_code);",
+            failure,
+        )
+        self.assertIn("ac_close_child_process_handle();", failure)
+        self.assertIn("The main Accessible Chess process may still be running.", failure)
+        self.assertLess(
+            failure.index("ac_retire_owned_child(stable_code)"),
+            failure.index("MessageBoxW("),
+        )
+        self.assertLess(
+            failure.index("ac_close_child_process_handle();"),
+            failure.index("MessageBoxW("),
+        )
+        self.assertLess(failure.index("MessageBoxW("), failure.index("ExitProcess(stable_code)"))
+
+        fail_generic_start = self.source.index(
+            "static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code)"
+        )
+        fail_generic_end = self.source.index(
+            "static BOOL ac_direct_directory",
+            fail_generic_start,
+        )
+        generic_failure = self.source[fail_generic_start:fail_generic_end]
+        self.assertIn(
+            "BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);",
+            generic_failure,
+        )
+        self.assertLess(
+            generic_failure.index("ac_retire_owned_child("),
+            generic_failure.index("ac_write_line(report"),
+        )
+        self.assertIn("ac_close_child_process_handle();", generic_failure)
+        self.assertLess(
+            generic_failure.index("ac_write_line(report"),
+            generic_failure.index("ac_close_child_process_handle();"),
+        )
+        self.assertLess(
+            generic_failure.index("ac_close_child_process_handle();"),
+            generic_failure.index("MessageBoxW("),
+        )
+
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        self.assertNotIn("CloseHandle(g_process.hProcess);", main)
+        for stage in (
+            'L"package-local data ownership transfer"',
+            'L"package-local data directory guard transfer"',
+            'L"core process resume"',
+            'L"child process identity report"',
+            'L"early child exit-code read"',
+            'L"startup window observation"',
+        ):
+            with self.subTest(stage=stage):
+                stage_at = main.index(stage)
+                prefix = main[max(0, stage_at - 240):stage_at]
+                self.assertNotIn("ac_close_child_process_handle();", prefix)
+                self.assertNotIn("TerminateProcess(g_process.hProcess", prefix)
+
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
             (
@@ -460,9 +542,13 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "resume_result = ResumeThread(g_process.hThread)", transfer_start
         )
         transfer = main[transfer_start:transfer_end]
-        self.assertIn("TerminateProcess(g_process.hProcess", transfer)
+        self.assertNotIn("TerminateProcess(g_process.hProcess", transfer)
         self.assertIn("CloseHandle(g_process.hThread)", transfer)
-        self.assertIn("CloseHandle(g_process.hProcess)", transfer)
+        self.assertNotIn("ac_close_child_process_handle()", transfer)
+        self.assertIn(
+            'ac_fail(report, L"package-local data directory guard transfer", error)',
+            transfer,
+        )
 
 
 if __name__ == "__main__":
