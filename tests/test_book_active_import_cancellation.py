@@ -309,6 +309,38 @@ class BookActiveImportCancellationTests(unittest.TestCase):
 
         self.assertEqual(rootfiles, ('package.opf',))
 
+    def test_epub_full_import_accepts_multiple_container_links_sections(self):
+        container = b'''<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+  <links>
+    <link href="metadata-a.xml" rel="alternate"/>
+  </links>
+  <links>
+    <link href="metadata-b.xml" rel="alternate"/>
+  </links>
+</container>'''
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            container=container,
+            entries={
+                'OEBPS/Text/ch1.xhtml': b'<html><body><p>Readable chapter</p></body></html>',
+                'metadata-a.xml': b'<metadata/>',
+                'metadata-b.xml': b'<metadata/>',
+            },
+        )
+
+        imported = import_epub_book(raw, source_name='repeatable-links.epub')
+
+        self.assertEqual(imported.spine_documents, 1)
+        self.assertEqual(len(imported.document.blocks), 1)
+
     def test_epub_each_repeatable_links_section_must_remain_nonempty(self):
         import acs.book_epub_import as epub
 
