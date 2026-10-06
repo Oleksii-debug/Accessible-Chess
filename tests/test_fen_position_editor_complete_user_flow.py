@@ -145,6 +145,33 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
                 self.assertEqual(api.board.fen(), before)
                 self.assertIsNone(api.selected_source)
 
+    def test_editor_api_rejects_oversized_input_without_publishing_state(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+
+        self.assertFalse(api.edit_position_piece("a" * 300, "K")["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertFalse(api.edit_position_piece("a1", "K" * 2)["ok"])
+        self.assertEqual(api.board.fen(), before)
+
+        huge = "1" * 3000
+        self.assertFalse(api.edit_position_metadata("w", "-", "-", huge, huge)["ok"])
+        self.assertEqual(api.board.fen(), before)
+
+        too_long = "9" * 5000
+        self.assertFalse(api.edit_position_metadata("w", "-", "-", too_long, "1")["ok"])
+        self.assertEqual(api.board.fen(), before)
+
+    def test_editor_feedback_is_visible_and_plain_enter_is_keyboard_first(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("positionEditorActionNames=new Set", html)
+        self.assertIn("setPositionEditorActionStatus(name,r&&r.announcement?r.announcement:'')", html)
+        self.assertIn("el('position-square').addEventListener('keydown'", html)
+        self.assertIn("el('position-piece-apply').click()", html)
+        self.assertIn("el('position-metadata-apply').click()", html)
+
     def test_position_editor_lock_composes_history_and_analysis_reasons(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"

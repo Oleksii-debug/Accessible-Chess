@@ -16,7 +16,7 @@ from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san, format_san
 from .position_editor import PositionState, PositionValidationError
@@ -548,6 +548,8 @@ class AccessibleChessAPI:
     def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
         if type(square) is not str or type(piece) is not str:
             return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
+        if len(square) > MAX_SQUARE_TEXT_CHARS or len(piece) > 1:
+            return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
         square = square.strip().lower()
         if not re.fullmatch(r"[a-h][1-8]", square):
             return self._error("Неправильне поле." if self.lang == "uk" else "Invalid square.")
@@ -573,6 +575,11 @@ class AccessibleChessAPI:
         values = (turn, castling, en_passant, halfmove_text, fullmove_text)
         if any(type(value) is not str for value in values):
             return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        if (
+            any(len(value) > MAX_FEN_CHARS for value in values)
+            or len(en_passant) > MAX_SQUARE_TEXT_CHARS
+        ):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
         if turn not in {"w", "b"}:
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
         if not halfmove_text.isascii() or not halfmove_text.isdecimal() or not fullmove_text.isascii() or not fullmove_text.isdecimal():
@@ -588,6 +595,8 @@ class AccessibleChessAPI:
                 halfmove=int(halfmove_text),
                 fullmove=int(fullmove_text),
             )
+            if len(state.to_fen()) > MAX_FEN_CHARS:
+                raise PositionValidationError("edited FEN exceeds the shared input budget")
         except (PositionValidationError, ValueError):
             return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
         return self._commit_position_editor_state(
