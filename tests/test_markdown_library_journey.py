@@ -93,6 +93,9 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             "~~~code`meta\n"
             "# not a heading\n"
             "![not a semantic image](https://example.invalid/board.png)\n"
+            "```fen\n"
+            + Board.START
+            + "\n```\n"
             "~~~\n\n"
             "After fence."
         )
@@ -103,11 +106,14 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         )
 
         self.assertFalse(any(type(block) is Heading for block in book.document.blocks))
+        self.assertFalse(any(type(block) is Position for block in book.document.blocks))
+        self.assertFalse(any(type(block) is Game for block in book.document.blocks))
         notes = [block for block in book.document.blocks if type(block) is Note]
         self.assertEqual(len(notes), 1)
         self.assertEqual(notes[0].note_type, "code:code`meta")
         self.assertIn("# not a heading", notes[0].text)
         self.assertIn("![not a semantic image]", notes[0].text)
+        self.assertIn(Board.START, notes[0].text)
         self.assertFalse(any("image reference" in warning for warning in book.warnings))
 
     def test_native_import_action_accepts_markdown_on_worker_and_reopens_database(self):
