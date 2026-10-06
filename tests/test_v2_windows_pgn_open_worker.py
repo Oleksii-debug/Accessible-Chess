@@ -631,11 +631,8 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             previous_path = Path(tmp) / "previous.pgn"
             previous_path.write_text(PGN_TEXT.replace("Async open", "Previous"), encoding="utf-8")
             previous = PgnDocumentSession.open(previous_path)
-            owner_async_events: list[FileWorkflowEvent] = []
             controller, _, poster, events, session_box, publications = self._controller(
-                source,
-                previous=previous,
-                owner_async_events=owner_async_events,
+                source, previous=previous
             )
 
             with mock.patch(
@@ -664,8 +661,11 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             previous = PgnDocumentSession.open(previous_path)
+            owner_async_events: list[FileWorkflowEvent] = []
             controller, _, poster, events, session_box, publications = self._controller(
-                source, previous=previous
+                source,
+                previous=previous,
+                owner_async_events=owner_async_events,
             )
 
             with mock.patch(
@@ -683,9 +683,11 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                     FileWorkflowEventKind.PGN_OPEN_CANCELLING,
                     [event.kind for event in events],
                 )
-                event_count = len(events)
+                self.assertEqual(events, [started])
+                self.assertEqual(owner_async_events, [])
                 poster.drain()
-                self.assertEqual(len(events), event_count)
+                self.assertEqual(events, [started])
+                self.assertEqual(owner_async_events, [])
 
             self.assertIs(session_box["value"], previous)
             self.assertEqual(publications, [])
