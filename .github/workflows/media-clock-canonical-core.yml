@@ -1,10 +1,11 @@
-name: Canonical Media Clock Core
+name: Canonical Media Core Foundation
 
 on:
   pull_request:
     paths:
       - "acs/media_core.py"
       - "tests/test_media_core.py"
+      - "tests/test_architecture.py"
       - ".github/workflows/media-clock-canonical-core.yml"
   workflow_dispatch:
 
@@ -12,11 +13,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: media-clock-core-${{ github.event.pull_request.number || github.ref }}
+  group: media-core-foundation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  media-clock-contract:
+  media-core-contract:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -27,19 +28,20 @@ jobs:
         with:
           python-version: "3.12.10"
 
-      - name: Verify exact canonical parent geometry
+      - name: Verify exact canonical Product parent geometry
         shell: bash
         env:
-          CANONICAL_PARENT: 2fab0518976ad3938f56b9c9cf129f3a368e1f04
+          CANONICAL_PARENT: d0e14b998bb57b5c3b53609ecef41ab646b213a3
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git merge-base "$CANONICAL_PARENT" HEAD)" = "$CANONICAL_PARENT"
           mapfile -t paths < <(git diff --name-only "$CANONICAL_PARENT" "$GITHUB_SHA")
-          test "${#paths[@]}" -eq 3
+          test "${#paths[@]}" -eq 4
           test "${paths[0]}" = ".github/workflows/media-clock-canonical-core.yml"
           test "${paths[1]}" = "acs/media_core.py"
-          test "${paths[2]}" = "tests/test_media_core.py"
+          test "${paths[2]}" = "tests/test_architecture.py"
+          test "${paths[3]}" = "tests/test_media_core.py"
           test -z "$(git status --porcelain=v1)"
 
       - name: Compile canonical Media Core
