@@ -68,6 +68,97 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_partial_worker_retirement_refusal_reopens_each_recoverable_owner(self) -> None:
+        class Worker:
+            def __init__(self, shutdown_result, resume_result) -> None:
+                self.shutdown_result = shutdown_result
+                self.resume_result = resume_result
+                self.shutdown_calls = 0
+                self.resume_calls = 0
+
+            def shutdown(self, timeout=None):
+                self.shutdown_calls += 1
+                return self.shutdown_result
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                return self.resume_result
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                still_busy = Worker(False, False)
+                already_retired = Worker(True, True)
+                application._book_open_worker = still_busy
+                application._files = already_retired
+
+                self.assertFalse(application.shutdown(timeout=0.1))
+
+                self.assertEqual(still_busy.shutdown_calls, 1)
+                self.assertEqual(already_retired.shutdown_calls, 1)
+                self.assertEqual(still_busy.resume_calls, 1)
+                self.assertEqual(already_retired.resume_calls, 1)
+                self.assertIsInstance(
+                    application._native_shutdown_recovery_error,
+                    RuntimeError,
+                )
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
+    def test_worker_retirement_abort_reopens_other_owner_without_replacing_primary(self) -> None:
+        class RetirementAbort(BaseException):
+            pass
+
+        class Worker:
+            def __init__(self, *, error=None) -> None:
+                self.error = error
+                self.resume_calls = 0
+
+            def shutdown(self, timeout=None):
+                if self.error is not None:
+                    raise self.error
+                return True
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            primary = RetirementAbort("PRIMARY_RETIREMENT_ABORT")
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                failed = Worker(error=primary)
+                retired = Worker()
+                application._book_open_worker = failed
+                application._files = retired
+
+                with self.assertRaises(RetirementAbort) as caught:
+                    application.shutdown()
+
+                self.assertIs(caught.exception, primary)
+                self.assertEqual(failed.resume_calls, 1)
+                self.assertEqual(retired.resume_calls, 1)
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
     def test_bounded_shutdown_retry_finishes_after_prior_worker_refusal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -224,6 +315,55 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 book.assert_not_called()
                 close.assert_not_called()
                 self.assertEqual(application._pending_shell_publication, (17,))
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
+    def test_shell_rollback_abort_reopens_retired_workers_and_preserves_primary(self) -> None:
+        class RollbackAbort(BaseException):
+            pass
+
+        class Worker:
+            def __init__(self) -> None:
+                self.resume_calls = 0
+
+            def shutdown(self, timeout=None):
+                return True
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            primary = RollbackAbort("PRIMARY_SHELL_ROLLBACK")
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                book_worker = Worker()
+                file_worker = Worker()
+                application._book_open_worker = book_worker
+                application._files = file_worker
+                application._pending_shell_publication = (29,)
+
+                with mock.patch.object(
+                    application,
+                    "_finish_shell_publication",
+                    side_effect=primary,
+                ):
+                    with self.assertRaises(RollbackAbort) as caught:
+                        application.shutdown()
+
+                self.assertIs(caught.exception, primary)
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
+                self.assertEqual(application._pending_shell_publication, (29,))
                 self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
             finally:
                 database.close()
