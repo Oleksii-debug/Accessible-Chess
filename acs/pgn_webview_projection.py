@@ -389,7 +389,7 @@ class PgnWebViewProjection:
             for slot, comments, slot_label in selected_slots:
                 add_slots.append({"slot": slot, "label": slot_label, "main": False})
                 for index, comment in enumerate(comments):
-                    safe = _bounded_text(comment, language=self._language, limit=8000)
+                    safe = _bounded_text(comment, language=self._language, limit=MAX_PGN_COMMENT_TEXT_UNITS)
                     entries.append(
                         {
                             "slot": slot,
@@ -415,7 +415,7 @@ class PgnWebViewProjection:
         for slot, comments, slot_label in main_slots:
             add_slots.append({"slot": slot, "label": slot_label, "main": True})
             for index, comment in enumerate(comments):
-                safe = _bounded_text(comment, language=self._language, limit=8000)
+                safe = _bounded_text(comment, language=self._language, limit=MAX_PGN_COMMENT_TEXT_UNITS)
                 entries.append(
                     {
                         "slot": slot,
