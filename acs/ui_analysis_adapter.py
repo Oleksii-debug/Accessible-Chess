@@ -802,6 +802,7 @@ class AnalysisPresentationAdapter:
                 False,
                 False,
                 self._selected_pv,
+                movetime_ms=self._movetime_ms,
             )
 
         state = self._service.state()
