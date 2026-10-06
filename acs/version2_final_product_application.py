@@ -530,6 +530,14 @@ class Version2FinalProductApplication(Version2Application):
         if self._rotation_store is not None and self._rotation_store is not store:
             raise RuntimeError("Child coaching rotation store is already bound")
         self._rotation_store = store
+        try:
+            store.load()
+        except Exception:
+            # Binding never adopts durable lesson state, but malformed or
+            # unreadable storage is already recovery-relevant product truth.
+            self._rotation_load_error = True
+        else:
+            self._rotation_load_error = False
 
     def _rotation_authorities(
         self,
