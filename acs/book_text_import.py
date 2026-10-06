@@ -364,7 +364,7 @@ _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
-    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
+    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
 
