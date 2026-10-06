@@ -223,39 +223,50 @@ class AgentConversationProjection:
             lines.append(f"{labels['tool_calls']}: {self._tool_calls}")
         return lines
 
+    def _snapshot_locked(self, *, include_transcript: bool) -> dict[str, object]:
+        labels = self._labels()
+        active = self._active_run_id is not None
+        result: dict[str, object] = {
+            "language": self._language,
+            "heading": labels["heading"],
+            "description": labels["description"],
+            "transcript_heading": labels["transcript"],
+            "empty_transcript": labels["empty"],
+            "input_label": labels["input"],
+            "input_placeholder": labels["placeholder"],
+            "send_label": labels["send"],
+            "stop_label": labels["stop"],
+            "status_heading": labels["status"],
+            "state": self._state,
+            "available": self.available,
+            "can_submit": self.available and not active,
+            "can_cancel": self.available and active,
+            "run_id": self._active_run_id or "",
+            "live_status": labels[self._state],
+            "status_text": "\n".join(self._status_lines(labels)),
+            "focus_target": "agent-stop" if active else "agent-input",
+        }
+        if include_transcript:
+            result["transcript"] = [
+                {
+                    "id": turn.turn_id,
+                    "role": turn.role,
+                    "label": labels["you"] if turn.role == "user" else labels["agent"],
+                    "text": turn.text,
+                }
+                for turn in self._turns
+            ]
+        return result
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
-            labels = self._labels()
-            active = self._active_run_id is not None
-            return {
-                "language": self._language,
-                "heading": labels["heading"],
-                "description": labels["description"],
-                "transcript_heading": labels["transcript"],
-                "empty_transcript": labels["empty"],
-                "input_label": labels["input"],
-                "input_placeholder": labels["placeholder"],
-                "send_label": labels["send"],
-                "stop_label": labels["stop"],
-                "status_heading": labels["status"],
-                "state": self._state,
-                "available": self.available,
-                "can_submit": self.available and not active,
-                "can_cancel": self.available and active,
-                "run_id": self._active_run_id or "",
-                "live_status": labels[self._state],
-                "status_text": "\n".join(self._status_lines(labels)),
-                "focus_target": "agent-stop" if active else "agent-input",
-                "transcript": [
-                    {
-                        "id": turn.turn_id,
-                        "role": turn.role,
-                        "label": labels["you"] if turn.role == "user" else labels["agent"],
-                        "text": turn.text,
-                    }
-                    for turn in self._turns
-                ],
-            }
+            return self._snapshot_locked(include_transcript=True)
+
+    def status_snapshot(self) -> dict[str, object]:
+        """Return the lightweight polling view without retransmitting transcript."""
+
+        with self._lock:
+            return self._snapshot_locked(include_transcript=False)
 
     def _event(self, kind: str, *, message: str = "", focus_target: str = "") -> AgentConversationEvent:
         payload: dict[str, object] = {"snapshot": self.snapshot()}
@@ -302,7 +313,13 @@ class AgentConversationProjection:
         except Exception:
             self.fail(run_id)
             return self.generic_error()
-        return self._event("accepted", focus_target="agent-stop")
+        with self._lock:
+            focus_target = (
+                "agent-stop"
+                if self._active_run_id == run_id
+                else "agent-input"
+            )
+        return self._event("accepted", focus_target=focus_target)
 
     def cancel(self) -> AgentConversationEvent:
         with self._lock:
@@ -354,12 +371,25 @@ class AgentConversationProjection:
     ) -> bool:
         try:
             token = _bounded_text(run_id, name="agent run id", limit=180)
+        except Exception:
+            return False
+        with self._lock:
+            if self._active_run_id != token:
+                return False
+        try:
             text = _bounded_text(
                 response_text,
                 name="agent response",
                 limit=MAX_AGENT_RESPONSE_CHARS,
             )
         except Exception:
+            # A trusted host published an unusable result for the active run.
+            # Fail closed and release the UI instead of leaving Stop/Send stuck.
+            with self._lock:
+                if self._active_run_id == token:
+                    self._active_run_id = None
+                    self._state = "failed"
+                    self._tool = ""
             return False
         with self._lock:
             if self._active_run_id != token:
