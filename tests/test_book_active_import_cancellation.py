@@ -309,6 +309,23 @@ class BookActiveImportCancellationTests(unittest.TestCase):
 
         self.assertEqual(imported.document.source_name, '12345678')
 
+    def test_epub_max_source_label_does_not_overflow_nested_html_metadata(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
+        source_name = 's' * 64
+        with (
+            patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 64),
+            patch.object(epub, 'import_html_book', wraps=epub.import_html_book) as html_import,
+        ):
+            imported = import_epub_book(raw, source_name=source_name)
+
+        self.assertEqual(imported.document.source_name, source_name)
+        self.assertEqual(
+            html_import.call_args.kwargs['source_name'],
+            'OEBPS/Text/ch1.xhtml',
+        )
+
     def test_epub_final_bookdocument_aggregate_overflow_maps_to_resource_limit(self):
         import acs.book_epub_import as epub
 
