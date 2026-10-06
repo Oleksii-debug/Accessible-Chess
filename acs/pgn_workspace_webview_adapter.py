@@ -496,6 +496,16 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             return rejected
         return self._operate_and_render(operation)
 
+    def append_moves(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("PGN continuation text is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.append_moves",
+                {**self._trusted_current_target(), "text": text},
+            )
+        )
+
     def search(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.search(self, text))
 
