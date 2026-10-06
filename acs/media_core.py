@@ -177,7 +177,13 @@ class MediaClock:
             )
         elapsed = now - self._last_now_ms
         if self._state is MediaPlaybackState.PLAYING and elapsed:
-            media_elapsed = elapsed * self._playback_rate + self._fractional_ms
+            try:
+                media_elapsed = elapsed * self._playback_rate + self._fractional_ms
+            except (OverflowError, ValueError) as exc:
+                raise MediaContractError(
+                    "media clock delta is not representable",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                ) from exc
             if not math.isfinite(media_elapsed):
                 raise MediaContractError(
                     "media clock delta is not representable",
