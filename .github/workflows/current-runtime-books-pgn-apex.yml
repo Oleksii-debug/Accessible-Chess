@@ -6,6 +6,7 @@ on:
       - converge/current-runtime-books-pgn-apex-20261006-zftrkmo
       - converge/current-shipping-runtime-evidence-apex-20261006-zftrkmo
       - converge/current-shipping-atomicity-evidence-successor-20261006-sol56
+      - converge/current-shipping-pgn-cancel-successor-20261006-ooxple7
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
