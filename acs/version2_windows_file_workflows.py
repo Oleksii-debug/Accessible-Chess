@@ -857,6 +857,8 @@ class Version2WindowsFileActionDelegate:
         cancel_event: threading.Event,
         expected_session: PgnDocumentSession | None,
         expected_generation: tuple[PgnWorkspace, int, int, str, SourceFingerprint | None, bool, str | None, tuple[str, ...]] | None,
+        *,
+        deliver_owner_async: bool = True,
     ) -> FileWorkflowEvent | None:
         with self._lock:
             current = (
@@ -1016,7 +1018,9 @@ class Version2WindowsFileActionDelegate:
             ):
                 return
             self._clear_worker_locked()
-        return self._emit_owner_async(terminal)
+        if deliver_owner_async:
+            return self._emit_owner_async(terminal)
+        return terminal
 
     def _cancel_pgn_open(self) -> FileWorkflowEvent:
         pending: tuple[object, ...] | None = None
@@ -1038,7 +1042,10 @@ class Version2WindowsFileActionDelegate:
                 if candidate is not None and candidate[0] == self._generation:
                     pending = candidate
         if pending is not None:
-            terminal = self._finish_pgn_open_on_owner(*pending)
+            terminal = self._finish_pgn_open_on_owner(
+                *pending,
+                deliver_owner_async=False,
+            )
             if terminal is not None:
                 return terminal
         if not running:
@@ -1584,6 +1591,7 @@ class Version2WindowsFileActionDelegate:
         game_count: int,
         *,
         allow_shutdown_commit: bool = False,
+        deliver_owner_async: bool = True,
     ) -> FileWorkflowEvent | None:
         with self._lock:
             current = (
@@ -1669,7 +1677,9 @@ class Version2WindowsFileActionDelegate:
             ):
                 return None
             self._clear_worker_locked()
-        return self._emit_owner_async(terminal)
+        if deliver_owner_async:
+            return self._emit_owner_async(terminal)
+        return terminal
 
     def _cancel_pgn_save(self) -> FileWorkflowEvent:
         pending: tuple[object, ...] | None = None
@@ -1694,7 +1704,10 @@ class Version2WindowsFileActionDelegate:
                 else:
                     cancel_event.set()
         if pending is not None:
-            terminal = self._finish_pgn_save_on_owner(*pending)
+            terminal = self._finish_pgn_save_on_owner(
+                *pending,
+                deliver_owner_async=False,
+            )
             if terminal is not None:
                 return terminal
         if not running:
