@@ -17,28 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BASE_BRANCH: fix/current-local-profile-durable-publication-20261006-ooxple7
-  BASE_SHA: 9a11e447de3a745aa3ce26084892b74445b68133
-  BOOKS_SOURCE_BRANCH: fix/bookreader-detached-metadata-passive-20261006-sol56z8q6
-  BOOKS_SOURCE_SHA: 75b27989127a68d06d1f730348b6b871820ab8b0
-  ABORT_SOURCE_BRANCH: fix/current-books-training-webview-abort-atomicity-20261005-ooxple7
-  ABORT_SOURCE_SHA: 7f31dc448f82e15c24c6f187d2589a6da74228c0
-  SOURCE_METADATA_WORKFLOW_BLOB: 27a08b5f513d1a117b1e8aedbf2922e0d5d9002c
-  SOURCE_WORKSPACE_WORKFLOW_BLOB: cd8b9932817e9d4ee25574d45edd3658ba409082
-  BOOKREADER_METADATA_SOURCE_BLOB: bb4228a97e1620d0d475df1acbb46bbec3ab39fc
-  BOOKREADER_ABORT_SOURCE_BLOB: d17d4065824752e84300dbbaa0959f4204eb8e89
-  BOOKREADER_COMBINED_BLOB: acf006c02217277da8c2b9da4da549ecf56ae487
-  BOOK_WORKSPACE_BLOB: 199dae350bd7f7b54925d80fc2a5647de8078cf6
-  BOOK_INGRESS_TEST_BLOB: 37c9656af46da097aeff8f5acd99abc266465749
-  BOOKREADER_TEST_BLOB: 3cf28fcb9ac9187f6b6b6d84f0da6fb2b601d692
-  BOOK_WORKSPACE_TEST_BLOB: 3deed6918c79e7f4526e1521e618e3e1d59cd5a2
-  BOOK_WEBVIEW_BRIDGE_BLOB: 01cf537da26809ce63126cdfb5b468aa8ec808b3
-  BOOK_WEBVIEW_PROJECTION_BLOB: 0513cfc0af14fc38fb57152e4832e2ab3fb423d3
-  TRAINING_WEBVIEW_BRIDGE_BLOB: d5cd449aa2fd194e7c8070a727e7b02ec40d85e2
-  TRAINING_WEBVIEW_PROJECTION_BLOB: 021d17178c68725ef050743ccd88cacb23cc5eb6
-  BOOKREADER_REVISION_TEST_BLOB: 22ec7fd21e65c34ca56dee1aa5bfdafcbfc7e357
-  BOOKS_TRAINING_BRIDGE_TEST_BLOB: 9faa5903771041f17c1ee2fa04300010b925936a
-  BOOKS_TRAINING_PROJECTION_TEST_BLOB: 4c56285fa46281de2504e49356b9a26240390f87
+  PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  PERSISTENCE_BASE_SHA: 9a11e447de3a745aa3ce26084892b74445b68133
+  PRE_NAV_APEX_SHA: df42b54bbffa40731d17ea3242eb49c7d379412d
+  NAVIGATION_SOURCE_SHA: cda6b3654514d4792f2cf1d820210e78321777be
 
 jobs:
   converge:
@@ -57,93 +39,57 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact authorities and thirteen-path convergence
+      - name: Prove absorbed Books authority and exact scope
         shell: bash
         run: |
           set -euo pipefail
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$head"
+          git cat-file -e "$PRODUCT_SHA^{commit}"
+          git cat-file -e "$PERSISTENCE_BASE_SHA^{commit}"
+          git cat-file -e "$PRE_NAV_APEX_SHA^{commit}"
+          git cat-file -e "$NAVIGATION_SOURCE_SHA^{commit}"
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          test "$(git merge-base "$PERSISTENCE_BASE_SHA" HEAD)" = "$PERSISTENCE_BASE_SHA"
+          git merge-base --is-ancestor "$PRE_NAV_APEX_SHA" "$NAVIGATION_SOURCE_SHA"
+          git merge-base --is-ancestor "$NAVIGATION_SOURCE_SHA" HEAD
+          git diff --check "$PERSISTENCE_BASE_SHA"...HEAD
 
-          git fetch --no-tags origin \
-            "+refs/heads/$BASE_BRANCH:refs/remotes/origin/persistence-base" \
-            "+refs/heads/$BOOKS_SOURCE_BRANCH:refs/remotes/origin/books-source" \
-            "+refs/heads/$ABORT_SOURCE_BRANCH:refs/remotes/origin/abort-source"
-
-          test "$(git rev-parse refs/remotes/origin/persistence-base)" = "$BASE_SHA"
-          test "$(git rev-parse refs/remotes/origin/books-source)" = "$BOOKS_SOURCE_SHA"
-          test "$(git rev-parse refs/remotes/origin/abort-source)" = "$ABORT_SOURCE_SHA"
-          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          git diff --check "$BASE_SHA"...HEAD
-
-          mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
-          expected=(
-            ".github/workflows/current-books-persistence-apex.yml"
-            "acs/book_webview_bridge.py"
-            "acs/book_webview_projection.py"
+          mapfile -t leaf_paths < <(git diff --name-only "$PRE_NAV_APEX_SHA"..."$NAVIGATION_SOURCE_SHA" | sort)
+          leaf_expected=(
+            ".github/workflows/books-navigation-abort-rollback.yml"
+            "acs/book_board_workflow.py"
             "acs/bookreader.py"
-            "acs/training_webview_bridge.py"
-            "acs/training_webview_projection.py"
-            "acs/version2_book_workspace.py"
-            "tests/test_book_engine_authority_passive_ingress.py"
-            "tests/test_bookreader.py"
             "tests/test_bookreader_revision_barriers_current.py"
             "tests/test_dev1_books_training_webview_bridge.py"
-            "tests/test_dev1_books_training_webview_projection.py"
-            "tests/test_version2_book_workspace.py"
+            "tests/test_v2_book_board_workflow.py"
           )
-          test "${#paths[@]}" -eq "${#expected[@]}"
+          test "${#leaf_paths[@]}" -eq "${#leaf_expected[@]}"
+          for i in "${!leaf_expected[@]}"; do
+            test "${leaf_paths[$i]}" = "${leaf_expected[$i]}"
+          done
+
+          mapfile -t expected < <(git diff --name-only "$PERSISTENCE_BASE_SHA"..."$NAVIGATION_SOURCE_SHA" | sort)
+          mapfile -t actual < <(git diff --name-only "$PERSISTENCE_BASE_SHA"...HEAD | sort)
+          test "${#actual[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
-            test "${paths[$i]}" = "${expected[$i]}"
+            test "${actual[$i]}" = "${expected[$i]}"
           done
 
-          test "$(git rev-parse refs/remotes/origin/books-source:.github/workflows/bookreader-detached-metadata-passive.yml)" = "$SOURCE_METADATA_WORKFLOW_BLOB"
-          test "$(git rev-parse refs/remotes/origin/books-source:.github/workflows/current-book-workspace-passive-ingress.yml)" = "$SOURCE_WORKSPACE_WORKFLOW_BLOB"
-          test "$(git rev-parse refs/remotes/origin/books-source:acs/bookreader.py)" = "$BOOKREADER_METADATA_SOURCE_BLOB"
-          test "$(git rev-parse refs/remotes/origin/abort-source:acs/bookreader.py)" = "$BOOKREADER_ABORT_SOURCE_BLOB"
-
-          test "$(git rev-parse HEAD:acs/bookreader.py)" = "$BOOKREADER_COMBINED_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_book_workspace.py)" = "$BOOK_WORKSPACE_BLOB"
-          test "$(git rev-parse HEAD:tests/test_book_engine_authority_passive_ingress.py)" = "$BOOK_INGRESS_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_bookreader.py)" = "$BOOKREADER_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_book_workspace.py)" = "$BOOK_WORKSPACE_TEST_BLOB"
-
-          test "$(git rev-parse HEAD:acs/book_webview_bridge.py)" = "$BOOK_WEBVIEW_BRIDGE_BLOB"
-          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = "$BOOK_WEBVIEW_PROJECTION_BLOB"
-          test "$(git rev-parse HEAD:acs/training_webview_bridge.py)" = "$TRAINING_WEBVIEW_BRIDGE_BLOB"
-          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = "$TRAINING_WEBVIEW_PROJECTION_BLOB"
-          test "$(git rev-parse HEAD:tests/test_bookreader_revision_barriers_current.py)" = "$BOOKREADER_REVISION_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_bridge.py)" = "$BOOKS_TRAINING_BRIDGE_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = "$BOOKS_TRAINING_PROJECTION_TEST_BLOB"
-
-          for path in \
-            acs/version2_book_workspace.py \
-            tests/test_book_engine_authority_passive_ingress.py \
-            tests/test_bookreader.py \
-            tests/test_version2_book_workspace.py
-          do
-            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse refs/remotes/origin/books-source:$path)"
-          done
-
-          for path in \
-            acs/book_webview_bridge.py \
-            acs/book_webview_projection.py \
-            acs/training_webview_bridge.py \
-            acs/training_webview_projection.py \
-            tests/test_bookreader_revision_barriers_current.py \
-            tests/test_dev1_books_training_webview_bridge.py \
-            tests/test_dev1_books_training_webview_projection.py
-          do
-            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse refs/remotes/origin/abort-source:$path)"
-          done
+          mapfile -t integration_delta < <(git diff --name-only "$NAVIGATION_SOURCE_SHA"...HEAD | sort)
+          test "${#integration_delta[@]}" -eq 1
+          test "${integration_delta[0]}" = ".github/workflows/current-books-persistence-apex.yml"
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' || true)"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
 
-      - name: Compile semantic, WebView, and recovery boundaries
+      - name: Compile semantic, WebView, Board and recovery boundaries
         run: >-
           python -m py_compile
           acs/bookreader.py
+          acs/book_board_workflow.py
           acs/version2_book_workspace.py
           acs/book_webview_bridge.py
           acs/book_webview_projection.py
@@ -153,18 +99,14 @@ jobs:
           acs/version2_gametree_resume.py
           acs/local_profile.py
           acs/version2_local_profile_api.py
-          tests/test_book_engine_authority_passive_ingress.py
           tests/test_bookreader.py
           tests/test_bookreader_revision_barriers_current.py
+          tests/test_v2_book_board_workflow.py
           tests/test_dev1_books_training_webview_bridge.py
           tests/test_dev1_books_training_webview_projection.py
           tests/test_version2_book_workspace.py
-          tests/test_d06_gametree_snapshot_resume.py
-          tests/test_d06_v2_gametree_resume_reachability.py
-          tests/test_local_profile.py
-          tests/test_version2_local_profile_api.py
 
-      - name: Execute Books semantic and abort-atomicity regressions
+      - name: Execute Books semantic, navigation and abort-atomicity regressions
         run: >-
           python -m unittest -v
           tests.test_bookreader
