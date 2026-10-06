@@ -1,45 +1,96 @@
-name: Final Product Event Drain Parity
+name: Final Product Event Drain And Publication Fence
 
 on:
-  push:
+  pull_request:
     branches:
       - work/final-product-event-drain-parity-20261006-x7q2
     paths:
-      - web/version2_final_product_bootstrap.js
-      - tests/js/version2_final_product_event_drain_serialization_test.js
-      - .github/workflows/current-final-product-event-drain-parity.yml
-  pull_request:
-    paths:
-      - web/version2_final_product_bootstrap.js
-      - tests/js/version2_final_product_event_drain_serialization_test.js
-      - .github/workflows/current-final-product-event-drain-parity.yml
+      - '.github/workflows/current-final-product-event-drain-parity.yml'
+      - 'tests/js/version2_final_product_event_drain_serialization_test.js'
+      - 'web/version2_final_product_bootstrap.js'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: final-product-publication-fence-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  FINAL_BOOTSTRAP_BLOB: fa173d16458d5a3d9e6f371a6fa18a8e3bd8717e
+  FINAL_TEST_BLOB: 913873b63b37dad808581f0f3fea3cfd376336df
+  RELEASE_BOOTSTRAP_BLOB: 7d385bb0e1cfa55521b74ba6a4904700379e8f9c
+  RELEASE_DOM_TEST_BLOB: ab982e5db979477860d19158b7233587fdc54cdb
+
 jobs:
-  event-drain-parity:
+  exact-head:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-22.04
-          - windows-2025
+        os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact parent and bounded scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha }}"
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base"...HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-final-product-event-drain-parity.yml' \
+            'tests/js/version2_final_product_event_drain_serialization_test.js' \
+            'web/version2_final_product_bootstrap.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "$FINAL_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_final_product_event_drain_serialization_test.js)" = "$FINAL_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$RELEASE_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$RELEASE_DOM_TEST_BLOB"
+
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-      - uses: actions/setup-python@v5
+          node-version: '22'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: "3.13"
-      - name: JavaScript syntax
-        run: node --check web/version2_final_product_bootstrap.js
-      - name: Final-product event drain race regression
-        run: node tests/js/version2_final_product_event_drain_serialization_test.js
-      - name: Semantic selection executable
-        run: node tests/p0_semantic_document_copy_executable.js
-      - name: Semantic copy source contract
-        run: python -m unittest tests.test_p0_semantic_document_copy
+          python-version: '3.12.10'
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/version2_final_product_bootstrap.js
+          node --check tests/js/version2_final_product_event_drain_serialization_test.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Execute final-product publication and presentation regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/js/version2_final_product_event_drain_serialization_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/p0_semantic_document_copy_executable.js
+
+      - name: Execute host publication and semantic-copy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_library_open_game_publication
+          tests.test_v2_book_training_route_rollback
+          tests.test_p0_semantic_document_copy
