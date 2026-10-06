@@ -139,7 +139,12 @@ jobs:
           tests/test_fen_editor_turn_and_visible_status.py
           tests/test_pgn_complete_editing_user_flow.py
       - name: Parse browser PGN surface
-        run: node --check web/full_product_pgn.js
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+
+      - name: Exercise browser PGN DOM contract
+        run: node tests/js/pgn_surface_dom_test.js
 
       - name: Exercise PGN editing and retained safety
         run: >-
