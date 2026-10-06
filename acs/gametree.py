@@ -14,7 +14,7 @@ post-Stage-1 UI, workflow, or release path.
 from dataclasses import dataclass, field
 from enum import Enum
 import re
-from typing import Iterable
+from typing import Callable, Iterable
 
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
 TAG_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
@@ -141,7 +141,11 @@ def _numeric_nag_is_in_range(value: object) -> bool:
     return len(digits) < 3 or (len(digits) == 3 and digits <= str(MAX_NUMERIC_NAG))
 
 
-def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
+def _scan_brace_comment_span(
+    text: str,
+    start: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[int, bool, bool]:
     """Find one recoverable brace-comment span without allocating its text.
 
     PGN brace comments are not nestable, but lawful historical corpora contain
@@ -154,7 +158,11 @@ def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
     nested = False
     first_closing = -1
     index = start + 1
+    next_control_index = index
     while index < len(text):
+        if control_checkpoint is not None and index >= next_control_index:
+            control_checkpoint()
+            next_control_index = index + 4_096
         character = text[index]
         if character == "{":
             depth += 1
@@ -175,10 +183,16 @@ def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
     return len(text), nested, True
 
 
-def _consume_brace_comment(text: str, start: int) -> tuple[str, int, bool, bool]:
+def _consume_brace_comment(
+    text: str,
+    start: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, int, bool, bool]:
     """Consume and normalize one span selected by ``_scan_brace_comment_span``."""
 
-    next_index, nested, unterminated = _scan_brace_comment_span(text, start)
+    next_index, nested, unterminated = _scan_brace_comment_span(
+        text, start, control_checkpoint
+    )
     content_end = next_index if unterminated else next_index - 1
     comment = text[start + 1 : content_end]
     if nested:
@@ -188,17 +202,26 @@ def _consume_brace_comment(text: str, start: int) -> tuple[str, int, bool, bool]
     return comment, next_index, nested, unterminated
 
 
-def tokenize_movetext(text: str) -> list[_Token]:
+def tokenize_movetext(
+    text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[_Token]:
     out: list[_Token] = []
     i = 0
     n = len(text)
+    next_control_index = 0
     while i < n:
+        if control_checkpoint is not None and i >= next_control_index:
+            control_checkpoint()
+            next_control_index = i + 4_096
         c = text[i]
         if c.isspace():
             i += 1
             continue
         if c == "{":
-            comment, next_index, nested, unterminated = _consume_brace_comment(text, i)
+            comment, next_index, nested, unterminated = _consume_brace_comment(
+                text, i, control_checkpoint
+            )
             out.append(_Token("COMMENT_BRACE", comment))
             if nested:
                 out.append(
@@ -234,6 +257,8 @@ def tokenize_movetext(text: str) -> list[_Token]:
         if c == "$":
             j = i + 1
             while j < n and text[j].isdigit():
+                if control_checkpoint is not None and (j - i) % 4_096 == 0:
+                    control_checkpoint()
                 j += 1
             if j > i + 1:
                 out.append(_Token("NAG", text[i:j])); i = j; continue
@@ -242,6 +267,8 @@ def tokenize_movetext(text: str) -> list[_Token]:
             continue
         j = i
         while j < n and not text[j].isspace() and text[j] not in "{};()$":
+            if control_checkpoint is not None and (j - i) % 4_096 == 0:
+                control_checkpoint()
             j += 1
         value = text[i:j]
         if MOVE_NUMBER_TOKEN_RE.fullmatch(value):
@@ -295,6 +322,7 @@ def _parse_line(
     nested: bool = False,
     depth: int = 0,
     budget: list[int] | None = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[VariationLine, int, list[str]]:
     if depth > MAX_VARIATION_DEPTH:
         raise GameTreeContractError(
@@ -308,8 +336,12 @@ def _parse_line(
     pending_number: str | None = None
     pending_comments: list[Comment] = []
     last: MoveNode | None = None
+    tokens_seen = 0
 
     while pos < len(tokens):
+        if control_checkpoint is not None and tokens_seen % 128 == 0:
+            control_checkpoint()
+        tokens_seen += 1
         tok = tokens[pos]
         if tok.kind == "WARNING":
             warnings.append(tok.value); pos += 1; continue
@@ -333,6 +365,7 @@ def _parse_line(
                 nested=True,
                 depth=depth + 1,
                 budget=budget,
+                control_checkpoint=control_checkpoint,
             )
             warnings.extend(child_warnings)
             if pos < len(tokens) and tokens[pos].kind == "RPAREN":
@@ -384,7 +417,11 @@ def _parse_line(
         if tok.kind == "RESULT":
             line.result = tok.value
             pos += 1
+            trailing_seen = 0
             while pos < len(tokens):
+                if control_checkpoint is not None and trailing_seen % 128 == 0:
+                    control_checkpoint()
+                trailing_seen += 1
                 trailing = tokens[pos]
                 if trailing.kind == "WARNING":
                     warnings.append(trailing.value)
@@ -422,7 +459,11 @@ def _parse_line(
     return line, pos, warnings
 
 
-def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
+def _brace_comment_state_after_line(
+    line: str,
+    comment_depth: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> int:
     """Track recoverable brace-comment depth for canonical game framing.
 
     Nested recovery keeps an outer comment open across inner ``}`` tokens.  The
@@ -436,6 +477,8 @@ def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
 
     index = 0
     while index < len(line):
+        if control_checkpoint is not None and index % 4_096 == 0:
+            control_checkpoint()
         character = line[index]
         if comment_depth == 0:
             if character == ";":
@@ -482,13 +525,21 @@ class CanonicalPgnGameFramer:
     both paths.  It recognizes a boundary only for the exact ``TAG_RE`` grammar.
     """
 
-    def __init__(self, *, max_frame_bytes: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_frame_bytes: int | None = None,
+        control_checkpoint: Callable[[], None] | None = None,
+    ) -> None:
+        if control_checkpoint is not None and not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable or None")
         if max_frame_bytes is not None:
             if type(max_frame_bytes) is not int:
                 raise TypeError("max_frame_bytes must be an integer or None")
             if max_frame_bytes < 1:
                 raise ValueError("max_frame_bytes must be positive")
         self._max_frame_bytes = max_frame_bytes
+        self._control_checkpoint = control_checkpoint
         self._reset()
 
     @property
@@ -518,6 +569,8 @@ class CanonicalPgnGameFramer:
         self._raw_lines.append(line)
 
     def _flush(self) -> PgnGameFrame | None:
+        if self._control_checkpoint is not None:
+            self._control_checkpoint()
         if not self._tags and not any(line.strip() for line in self._moves):
             self._reset()
             return None
@@ -532,6 +585,8 @@ class CanonicalPgnGameFramer:
         return frame
 
     def feed_line(self, line: str) -> PgnGameFrame | None:
+        if self._control_checkpoint is not None:
+            self._control_checkpoint()
         if type(line) is not str:
             raise TypeError("PGN frame line must be exact text")
 
@@ -555,6 +610,7 @@ class CanonicalPgnGameFramer:
         self._brace_comment_depth = _brace_comment_state_after_line(
             line,
             self._brace_comment_depth,
+            self._control_checkpoint,
         )
         return completed
 
@@ -562,9 +618,16 @@ class CanonicalPgnGameFramer:
         return self._flush()
 
 
-def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
+def _split_games(
+    text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[tuple[dict[str, str], str, list[str]]]:
+    if control_checkpoint is not None:
+        control_checkpoint()
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    framer = CanonicalPgnGameFramer()
+    if control_checkpoint is not None:
+        control_checkpoint()
+    framer = CanonicalPgnGameFramer(control_checkpoint=control_checkpoint)
     framed: list[PgnGameFrame] = []
     for line in lines:
         completed = framer.feed_line(line)
@@ -573,17 +636,31 @@ def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
     completed = framer.finish()
     if completed is not None:
         framed.append(completed)
-    return [
-        (frame.tags, frame.movetext, list(frame.warnings))
-        for frame in framed
-    ]
+    output: list[tuple[dict[str, str], str, list[str]]] = []
+    for frame_index, frame in enumerate(framed, start=1):
+        if control_checkpoint is not None and frame_index % 128 == 1:
+            control_checkpoint()
+        output.append((frame.tags, frame.movetext, list(frame.warnings)))
+    return output
 
 
-def parse_games(text: str) -> list[PgnGame]:
+def parse_games(
+    text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[PgnGame]:
+    if control_checkpoint is not None and not callable(control_checkpoint):
+        raise TypeError("control_checkpoint must be callable or None")
     games: list[PgnGame] = []
-    for index, (tags, movetext, split_warnings) in enumerate(_split_games(text)):
-        tokens = tokenize_movetext(movetext)
-        line, pos, warnings = _parse_line(tokens)
+    for index, (tags, movetext, split_warnings) in enumerate(
+        _split_games(text, control_checkpoint)
+    ):
+        if control_checkpoint is not None:
+            control_checkpoint()
+        tokens = tokenize_movetext(movetext, control_checkpoint)
+        line, pos, warnings = _parse_line(
+            tokens,
+            control_checkpoint=control_checkpoint,
+        )
         warnings[:0] = split_warnings
         if pos < len(tokens):
             warnings.append(f"{len(tokens) - pos} unconsumed token(s)")
