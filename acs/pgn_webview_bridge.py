@@ -10,8 +10,13 @@ from collections.abc import Mapping
 from .full_product_ui_shell import concise_user_error
 from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
 from .pgn_workspace import (
+    MAX_PGN_COMMENT_TEXT_UNITS,
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
+    MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS,
+    MAX_PGN_NAG_TEXT_UNITS,
+    MAX_PGN_SEARCH_TEXT_UNITS,
+    _contains_unicode_surrogate,
 )
 
 
@@ -67,7 +72,11 @@ class PgnWebViewBridge:
     def _text(value: object, *, name: str, limit: int) -> str:
         if type(value) is not str:
             raise TypeError(f"{name} must be text")
-        if _utf16_units(value) > limit or "\x00" in value:
+        if (
+            _utf16_units(value) > limit
+            or "\x00" in value
+            or _contains_unicode_surrogate(value)
+        ):
             raise ValueError(f"{name} is invalid")
         token = value.strip() if name != "comment text" else value
         if name != "comment text" and not token:
@@ -160,6 +169,7 @@ class PgnWebViewBridge:
                     or "\x00" in value
                     or "\r" in value
                     or "\n" in value
+                    or _contains_unicode_surrogate(value)
                 ):
                     raise ValueError("tag value is invalid")
                 guarded = presentation_guard()
@@ -179,14 +189,14 @@ class PgnWebViewBridge:
                 return self._projection.delete_tag(name)
             if command_id == "pgn.append_moves":
                 self._exact_fields(data, {"text"})
-                text = self._text(data["text"], name="continuation text", limit=8192)
+                text = self._text(data["text"], name="continuation text", limit=MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS)
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
                 return self._projection.append_moves(text)
             if command_id == "pgn.search":
                 self._exact_fields(data, {"text"})
-                text = self._text(data["text"], name="search text", limit=4096)
+                text = self._text(data["text"], name="search text", limit=MAX_PGN_SEARCH_TEXT_UNITS)
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
@@ -194,7 +204,7 @@ class PgnWebViewBridge:
             if command_id == "pgn.comment_edit":
                 main = False
                 if set(data) == {"text"}:
-                    text = self._text(data["text"], name="comment text", limit=8000)
+                    text = self._text(data["text"], name="comment text", limit=MAX_PGN_COMMENT_TEXT_UNITS)
                     slot = None
                     index = None
                 else:
@@ -205,7 +215,7 @@ class PgnWebViewBridge:
                         main = True
                     else:
                         self._exact_fields(data, allowed)
-                    text = self._text(data["text"], name="comment text", limit=8000)
+                    text = self._text(data["text"], name="comment text", limit=MAX_PGN_COMMENT_TEXT_UNITS)
                     slot = self._text(data["slot"], name="comment slot", limit=16)
                     index = data["index"]
                     if type(index) is not int or index < -1 or index > 255:
@@ -251,7 +261,12 @@ class PgnWebViewBridge:
             if command_id == "pgn.nag_edit":
                 self._exact_fields(data, {"text"})
                 raw = data["text"]
-                if type(raw) is not str or _utf16_units(raw) > 512 or "\x00" in raw:
+                if (
+                    type(raw) is not str
+                    or _utf16_units(raw) > MAX_PGN_NAG_TEXT_UNITS
+                    or "\x00" in raw
+                    or _contains_unicode_surrogate(raw)
+                ):
                     raise ValueError("NAG text is invalid")
                 text = raw.strip()
                 guarded = presentation_guard()
@@ -260,7 +275,7 @@ class PgnWebViewBridge:
                 return self._projection.edit_nags(text)
             if command_id == "pgn.variation_add":
                 self._exact_fields(data, {"text"})
-                text = self._text(data["text"], name="variation text", limit=8192)
+                text = self._text(data["text"], name="variation text", limit=MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS)
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
