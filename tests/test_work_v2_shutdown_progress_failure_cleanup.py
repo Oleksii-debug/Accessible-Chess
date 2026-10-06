@@ -68,6 +68,45 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_bounded_shutdown_retry_finishes_after_prior_worker_refusal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            store = mock.Mock()
+            store.path = root / "book-progress.json"
+            try:
+                application = self._application(database, analysis, store)
+                book_worker = mock.Mock()
+                book_worker.shutdown.side_effect = [False, True]
+                file_worker = mock.Mock()
+                file_worker.shutdown.return_value = True
+                application._book_open_worker = book_worker
+                application._files = file_worker
+
+                self.assertFalse(application.shutdown(timeout=0.01))
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+
+                self.assertTrue(application.shutdown(timeout=0.5))
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    database.conn.execute("SELECT 1")
+
+                self.assertEqual(
+                    book_worker.shutdown.call_args_list,
+                    [mock.call(timeout=0.01), mock.call(timeout=0.5)],
+                )
+                self.assertEqual(
+                    file_worker.shutdown.call_args_list,
+                    [mock.call(timeout=0.01), mock.call(timeout=0.5)],
+                )
+                store.save.assert_called_once_with(
+                    application.book_key,
+                    application.reader,
+                )
+            finally:
+                database.close()
+                analysis.close()
+
     def test_worker_abort_still_retires_other_worker_and_preserves_first_abort(self) -> None:
         class BookAbort(BaseException):
             pass
