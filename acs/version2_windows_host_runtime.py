@@ -194,12 +194,13 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+        delegate_was_fenced = self._file_delegate.shutdown_requested
         # Cancellation owns the matching pre-publication decision itself. If an
         # owner callback is retained after UI-post failures, running it before a
         # matching Cancel would publish/commit the pending result first and make
-        # that cancellation observe only "no ... running". Skip recovery only
-        # while the corresponding worker authority is still live; a mismatched
-        # Cancel must retain the normal pre-action recovery behavior.
+        # that cancellation observe only "no ... running". Skip owner-callback
+        # recovery only while the corresponding worker authority is still live;
+        # a mismatched Cancel must retain the normal pre-action recovery behavior.
         cancel_owns_pending = (
             action_id == "pgn.cancel_open" and self._file_delegate.pgn_open_running
         ) or (
@@ -207,6 +208,26 @@ class Version2WindowsFileWorkflowRuntime:
         )
         if not cancel_owns_pending:
             self._pump.request_pending_owner_callback()
+
+        # Retained mailbox events are accessibility truth, not background
+        # telemetry. A presentation failure can exhaust its one automatic retry;
+        # the next real owner-thread command is therefore a deterministic recovery
+        # opportunity before any newer command result can overtake that terminal.
+        self._pump.request_pending_wakeup()
+
+        # Either recovery callback above is an owner boundary and can re-enter
+        # native shutdown. Never dispatch the command against a runtime that was
+        # synchronously closed, or through a delegate that became newly fenced
+        # during this exact recovery transaction.
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(
+                    "Version 2 Windows file workflow runtime closed during UI recovery"
+                )
+        if not delegate_was_fenced and self._file_delegate.shutdown_requested:
+            raise RuntimeError(
+                "Version 2 Windows file workflow runtime fenced during UI recovery"
+            )
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
