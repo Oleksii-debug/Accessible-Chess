@@ -258,6 +258,16 @@ class AccessibleGameTreeCompletionTests(unittest.TestCase):
         self.assertEqual(calls[-1][0], "pgn.variation_move_down")
         self.assertEqual(set(calls[-1][1]), {"game_index", "node_id"})
 
+    def test_browser_action_toolbar_has_localized_accessible_name(self):
+        js = (
+            Path(__file__).resolve().parents[1] / "web" / "full_product_pgn.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'snapshot.document.lang === "en" ? "PGN actions" : "Дії PGN"',
+            js,
+        )
+        self.assertIn('toolbar.setAttribute(\n      "aria-label"', js)
+
     def test_browser_surface_describes_selected_treeitem_with_structural_context(self):
         js = (
             Path(__file__).resolve().parents[1] / "web" / "full_product_pgn.js"

@@ -1173,6 +1173,10 @@
   function renderActions(root, host, snapshot, invoke, announce, searchDialog, appendDialog, tagDialog, commentDialog, nagDialog, variationDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute(
+      "aria-label",
+      snapshot.document.lang === "en" ? "PGN actions" : "Дії PGN"
+    );
     toolbar.setAttribute("aria-orientation", "horizontal");
     const buttons = [];
 
