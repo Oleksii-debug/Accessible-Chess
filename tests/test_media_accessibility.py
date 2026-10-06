@@ -11,6 +11,8 @@ from acs.media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationState,
+    MediaTimelineBarrier,
     MediaSource,
     MediaSourceKind,
 )
@@ -81,6 +83,54 @@ class MediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertNotIn("tree:analysis-private", rendered)
         for forbidden in ("sourceId", "chessRef", "analysisChessRef", "synchronizedChessRef"):
             self.assertNotIn(forbidden, state)
+
+
+    def test_resync_required_is_visible_copyable_localized_and_restore_disabled(self) -> None:
+        timeline = MediaPositionTimeline(
+            "fixture-media",
+            (_link(10_000, "tree:old"),),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="fixture-media",
+                    timestamp_ms=20_000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                    reason="provider jumped to an unrelated position",
+                ),
+            ),
+        )
+        service = MediaApplicationService(
+            source=_source(),
+            timeline=timeline,
+            session=MediaChessSession(
+                MediaCursor("fixture-media", 20_500),
+                "tree:analysis-private",
+            ),
+            restore_chess_ref=lambda _value: self.fail(
+                "resync-required state must not invoke restore authority"
+            ),
+        )
+        bridge = MediaAccessibilityBridge(service)
+
+        state = bridge.snapshot()
+        self.assertEqual(state["qualification"], "resync_required")
+        self.assertFalse(state["restoreEnabled"])
+        self.assertEqual(state["focusTarget"], "media-sync-status")
+        self.assertIn("synchronization", state["statusText"].lower())
+
+        failed = bridge.restore_position()
+        self.assertFalse(failed["ok"])
+        self.assertEqual(failed["qualification"], "resync_required")
+        self.assertIn("must be rebuilt", failed["announcement"].lower())
+        self.assertIn("nothing was restored", failed["announcement"].lower())
+        self.assertNotIn("tree:old", repr(failed))
+        self.assertNotIn("tree:analysis-private", repr(failed))
+
+        uk = bridge.set_language("uk")
+        self.assertEqual(uk["qualification"], "resync_required")
+        self.assertIn("Синхронізацію медіа", uk["statusText"])
+        uk_failed = bridge.restore_position()
+        self.assertIn("потрібно відновити", uk_failed["announcement"])
+        self.assertIn("Нічого не відновлено", uk_failed["announcement"])
 
     def test_candidate_state_disables_restore_and_exposes_plain_status(self) -> None:
         bridge = MediaAccessibilityBridge(

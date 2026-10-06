@@ -58,6 +58,10 @@ def _copyable_status(qualification: str, position_ms: int, language: str) -> str
         messages = {
             "confirmed": f"Позицію шахів підтверджено для часу медіа {time_text}.",
             "ambiguous": "Позиція медіа неоднозначна. Відновлення шахової позиції вимкнено.",
+            "resync_required": (
+                "Синхронізацію медіа перервано для цього часу. "
+                "Відновлення шахової позиції вимкнено до повторної синхронізації."
+            ),
             "candidate": "Є непідтверджені кандидати позиції. Відновлення шахової позиції вимкнено.",
             "unlinked": "Для поточного часу медіа немає синхронізованої шахової позиції.",
         }
@@ -65,6 +69,10 @@ def _copyable_status(qualification: str, position_ms: int, language: str) -> str
         messages = {
             "confirmed": f"A confirmed chess position is synchronized at media time {time_text}.",
             "ambiguous": "The media position is ambiguous. Chess-position restore is disabled.",
+            "resync_required": (
+                "Media synchronization was interrupted at this time. "
+                "Chess-position restore is disabled until synchronization is rebuilt."
+            ),
             "candidate": "The media position has unconfirmed candidates. Chess-position restore is disabled.",
             "unlinked": "No chess position is synchronized with the current media time.",
         }
@@ -93,6 +101,11 @@ def _restore_error(code: MediaApplicationCode | None, language: str) -> str:
             return "Позиція медіа неоднозначна. Нічого не відновлено."
         if code is MediaApplicationCode.NO_CONFIRMED_POSITION:
             return "Для поточного часу медіа немає підтвердженої позиції. Нічого не відновлено."
+        if code is MediaApplicationCode.RESYNC_REQUIRED:
+            return (
+                "Синхронізацію медіа потрібно відновити перед поверненням до позиції. "
+                "Нічого не відновлено."
+            )
         return (
             "Не вдалося підтвердити результат відновлення позиції медіа. "
             "Перевірте поточну шахову дошку перед продовженням."
@@ -101,6 +114,11 @@ def _restore_error(code: MediaApplicationCode | None, language: str) -> str:
         return "The media position is ambiguous. Nothing was restored."
     if code is MediaApplicationCode.NO_CONFIRMED_POSITION:
         return "There is no confirmed position at the current media time. Nothing was restored."
+    if code is MediaApplicationCode.RESYNC_REQUIRED:
+        return (
+            "Media synchronization must be rebuilt before restoring this position. "
+            "Nothing was restored."
+        )
     return (
         "The Restore Media Position result could not be confirmed. "
         "Check the current chess board before continuing."

@@ -11,6 +11,8 @@ from acs.media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationState,
+    MediaTimelineBarrier,
     MediaSource,
     MediaSourceKind,
 )
@@ -58,6 +60,45 @@ def _service(restored: list[str]) -> MediaApplicationService:
     )
 
 
+
+def _resync_service(restored: list[str]) -> MediaApplicationService:
+    source = MediaSource(
+        source_id="product-media",
+        title="Product Media",
+        kind=MediaSourceKind.LOCAL_FILE,
+        duration_ms=60_000,
+    )
+    timeline = MediaPositionTimeline(
+        "product-media",
+        (
+            MediaChessLink(
+                "product-media",
+                10_000,
+                "opaque:old-position",
+                status=MediaLinkStatus.CONFIRMED,
+                confidence=1.0,
+            ),
+        ),
+        barriers=(
+            MediaTimelineBarrier(
+                source_id="product-media",
+                timestamp_ms=20_000,
+                state=MediaReconciliationState.RESYNC_REQUIRED,
+                reason="provider discontinuity",
+            ),
+        ),
+    )
+    return MediaApplicationService(
+        source=source,
+        timeline=timeline,
+        session=MediaChessSession(
+            MediaCursor("product-media", 20_500),
+            "opaque:analysis-only",
+        ),
+        restore_chess_ref=lambda value: restored.append(value),
+    )
+
+
 class Version2FinalMediaRestoreCompositionTests(unittest.TestCase):
     def test_unbound_product_surface_is_truthful_disabled_and_copyable(self) -> None:
         api = _Api()
@@ -97,6 +138,38 @@ class Version2FinalMediaRestoreCompositionTests(unittest.TestCase):
         self.assertNotIn("opaque:canonical-position", repr(result))
         self.assertNotIn("opaque:analysis-only", repr(result))
         self.assertEqual(2, api.invocations)
+
+
+    def test_product_api_projects_resync_required_without_chess_restore(self) -> None:
+        restored_refs: list[str] = []
+        api = _Api("en")
+        release._bind_api_media(api, _resync_service(restored_refs))
+
+        state = api.media_restore_snapshot()
+        self.assertTrue(state["ok"])
+        self.assertEqual(state["qualification"], "resync_required")
+        self.assertFalse(state["restoreEnabled"])
+        self.assertEqual(state["focusTarget"], "media-sync-status")
+        self.assertIn("synchronization", state["statusText"].lower())
+        self.assertNotIn("opaque:old-position", repr(state))
+        self.assertNotIn("opaque:analysis-only", repr(state))
+
+        result = api.media_restore_position()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["qualification"], "resync_required")
+        self.assertFalse(result["restoreEnabled"])
+        self.assertIn("must be rebuilt", result["announcement"].lower())
+        self.assertIn("nothing was restored", result["announcement"].lower())
+        self.assertEqual(restored_refs, [])
+
+        api.lang = "uk"
+        uk_state = api.media_restore_snapshot()
+        self.assertEqual(uk_state["qualification"], "resync_required")
+        self.assertIn("Синхронізацію медіа", uk_state["statusText"])
+        uk_result = api.media_restore_position()
+        self.assertIn("потрібно відновити", uk_result["announcement"])
+        self.assertIn("Нічого не відновлено", uk_result["announcement"])
+        self.assertEqual(restored_refs, [])
 
     def test_media_projection_follows_current_product_language_without_new_authority(self) -> None:
         api = _Api("en")
