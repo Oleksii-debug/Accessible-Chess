@@ -1,0 +1,100 @@
+name: Current WebView Keyboard Passive Ingress
+
+on:
+  pull_request:
+    branches:
+      - fix/current-webview-abort-presentation-rollback-20261005-ooxple7
+    paths:
+      - 'acs/full_product_webview_adapter.py'
+      - 'tests/test_dev1_full_product_webview_adapter.py'
+      - '.github/workflows/current-webview-keyboard-passive-ingress.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-webview-keyboard-ingress-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked successor and current Product ancestry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          STACK_BASE: fix/current-webview-abort-presentation-rollback-20261005-ooxple7
+          PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test "${EVENT_BASE_REF:-$STACK_BASE}" = "$STACK_BASE"
+
+          git fetch --no-tags origin "+refs/heads/$STACK_BASE:refs/remotes/origin/$STACK_BASE"
+          live_stack="$(git rev-parse "refs/remotes/origin/$STACK_BASE")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_stack" || {
+              echo "WEBVIEW_KEYBOARD_STACK_MOVED event=$EVENT_BASE_SHA live=$live_stack" >&2
+              exit 1
+            }
+          fi
+          test "$(git merge-base "$live_stack" HEAD)" = "$live_stack"
+
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/$PRODUCT_REF"
+          live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_REF")"
+          git merge-base --is-ancestor "$live_product" "$live_stack"
+          git merge-base --is-ancestor "$live_product" HEAD
+
+          git diff --check "$live_stack"...HEAD
+          changed="$(git diff --name-only "$live_stack"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-webview-keyboard-passive-ingress.yml' \
+            'acs/full_product_webview_adapter.py' \
+            'tests/test_dev1_full_product_webview_adapter.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected WebView keyboard ingress scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          echo "WEBVIEW_KEYBOARD_PRODUCT=$live_product"
+          echo "WEBVIEW_KEYBOARD_STACK=$live_stack"
+          echo "WEBVIEW_KEYBOARD_SCOPE=PASS"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile keyboard boundary
+        run: >-
+          python -m py_compile
+          acs/full_product_webview_adapter.py
+          tests/test_dev1_full_product_webview_adapter.py
+
+      - name: Execute keyboard and NVDA-adjacent regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_dev1_full_product_accessible_shell
+          tests.test_keybindings
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_nvda_p0_contract
+
+      - name: Core selftest
+        run: python -m acs.selftest

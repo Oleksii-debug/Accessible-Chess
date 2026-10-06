@@ -1,0 +1,149 @@
+name: Owner Physical Acceptance + Release Receipt Contract
+
+on:
+  push:
+    branches:
+      - fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
+  pull_request:
+    branches:
+      - converge/release-receipt-physical-acceptance-20261005-zftrkmo
+    paths:
+      - scripts/record_owner_physical_acceptance.py
+      - tests/test_owner_physical_acceptance.py
+      - tests/test_owner_physical_acceptance_json_hardening.py
+      - .github/workflows/owner-physical-acceptance-record.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-physical-release-receipt-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_RELEASE_HEAD: 0e9538438f664d925109ebc99c96098fef12ce47
+  RELEASE_BRANCH: converge/release-receipt-physical-acceptance-20261005-zftrkmo
+  EXPECTED_PHYSICAL_PARENT: e8a23625dcb9f3ab759878c4b007af4801dc170e
+  EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  EXPECTED_PORTABLE_PACKAGE_BLOB: fb52da953d3a13ef8ca0d4568f7b2a9f796057fd
+  EXPECTED_PORTABLE_PACKAGE_TEST_BLOB: 7aba9bb9b3f79f91d1cea817e9553ccecd186952
+  EXPECTED_RELEASE_RECEIPT_BLOB: 290e653ef5d4998189b7b61df1add8882d80ffcd
+  EXPECTED_PE_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  EXPECTED_PHYSICAL_SOURCE_BLOB: 50ee797412d7c22a88ba4b8b3974d45dc01a3faf
+  EXPECTED_PHYSICAL_TEST_BLOB: 966c223f884e56ec241d66e73e4829de619f62d2
+  EXPECTED_PHYSICAL_JSON_TEST_BLOB: b168af51f1ed9fd247a353661d8fde4d0b2c231e
+
+jobs:
+  contract:
+    name: Physical acceptance + release receipt / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove dual-parent convergence and exact physical scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          git fetch --no-tags origin "+refs/heads/$RELEASE_BRANCH:refs/remotes/origin/physical-release-base"
+          live_release="$(git rev-parse refs/remotes/origin/physical-release-base)"
+          test "$live_release" = "$EXPECTED_RELEASE_HEAD" || {
+            echo "PHYSICAL_RELEASE_BASE_MOVED expected=$EXPECTED_RELEASE_HEAD live=$live_release" >&2
+            exit 1
+          }
+
+          git cat-file -e "$EXPECTED_PHYSICAL_PARENT^{commit}"
+          git merge-base --is-ancestor "$EXPECTED_RELEASE_HEAD" HEAD
+          git merge-base --is-ancestor "$EXPECTED_PHYSICAL_PARENT" HEAD
+          git diff --check "$EXPECTED_RELEASE_HEAD"...HEAD
+
+          mapfile -t paths < <(git diff --name-only "$EXPECTED_RELEASE_HEAD"...HEAD | sort)
+          printf '%s\n' "${paths[@]}"
+          expected=(
+            ".github/workflows/owner-physical-acceptance-record.yml"
+            "scripts/record_owner_physical_acceptance.py"
+            "tests/test_owner_physical_acceptance_json_hardening.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${paths[$index]}" = "${expected[$index]}"
+          done
+
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "$EXPECTED_PORTABLE_PACKAGE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_portable_package.py)" = "$EXPECTED_PORTABLE_PACKAGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$EXPECTED_RELEASE_RECEIPT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$EXPECTED_PE_IDENTITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$EXPECTED_PHYSICAL_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance.py)" = "$EXPECTED_PHYSICAL_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$EXPECTED_PHYSICAL_JSON_TEST_BLOB"
+
+          echo "PHYSICAL_RELEASE_HEAD=$EXPECTED_RELEASE_HEAD"
+          echo "PHYSICAL_PARENT=$EXPECTED_PHYSICAL_PARENT"
+          echo "PHYSICAL_CONVERGENCE_HEAD=$expected_head"
+
+      - name: Set up canonical package-test Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile full evidence chain
+        run: >-
+          python -m py_compile
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_receipt.py
+          scripts/finalize_owner_final_receipt.py
+          scripts/record_owner_physical_acceptance.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_portable_package.py
+          tests/test_version2_package_pe_identity.py
+          tests/test_version2_release_receipt.py
+          tests/test_finalize_owner_final_receipt.py
+          tests/test_owner_physical_acceptance.py
+          tests/test_owner_physical_acceptance_json_hardening.py
+
+      - name: Run package receipt machine and physical evidence regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_portable_package
+          tests.test_version2_package_pe_identity
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+
+      - name: Prove CI cannot record physical acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from scripts.record_owner_physical_acceptance import (
+              OwnerPhysicalAcceptanceError,
+              _manual_recording_allowed,
+          )
+
+          assert os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+          try:
+              _manual_recording_allowed()
+          except OwnerPhysicalAcceptanceError as exc:
+              assert "disabled in automation" in str(exc)
+          else:
+              raise SystemExit("CI unexpectedly acquired physical acceptance recording authority")
+          print("AUTOMATED_PHYSICAL_ACCEPTANCE_RECORDING=REJECTED")
+          PY

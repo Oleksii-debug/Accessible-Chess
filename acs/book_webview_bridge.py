@@ -20,16 +20,20 @@ class BookWebViewBridge:
     def _payload(value: object) -> dict[str, object]:
         if value is None:
             return {}
-        if not isinstance(value, Mapping):
+        # PyWebView JSON objects arrive as built-in dicts. Reject Mapping/dict
+        # subclasses before len()/items() can execute hostile Python hooks.
+        if type(value) is not dict:
             raise TypeError("book browser payload must be a mapping")
         if len(value) > 2:
             raise ValueError("book browser payload has too many fields")
         out: dict[str, object] = {}
         for key, item in value.items():
-            if not isinstance(key, str):
+            if type(key) is not str:
                 raise TypeError("book browser payload keys must be text")
+            if len(key) > 64:
+                raise ValueError("invalid book browser payload key")
             token = key.strip()
-            if not token or len(token) > 64 or token in out:
+            if not token or token in out:
                 raise ValueError("invalid book browser payload key")
             out[token] = item
         return out
@@ -45,10 +49,12 @@ class BookWebViewBridge:
         payload: Mapping[str, object] | None = None,
     ) -> BookWebViewEvent:
         try:
-            if not isinstance(command, str):
+            if type(command) is not str:
                 raise TypeError("book browser command must be text")
+            if len(command) > 64:
+                raise ValueError("invalid book browser command")
             command_id = command.strip()
-            if not command_id or len(command_id) > 64:
+            if not command_id:
                 raise ValueError("invalid book browser command")
             data = self._payload(payload)
 
@@ -57,9 +63,12 @@ class BookWebViewBridge:
                 "book.next": self._projection.next,
                 "book.previous_heading": self._projection.previous_heading,
                 "book.next_heading": self._projection.next_heading,
+                "book.previous_position": self._projection.previous_position,
                 "book.next_position": self._projection.next_position,
+                "book.previous_game": self._projection.previous_game,
                 "book.next_game": self._projection.next_game,
                 "book.open_position": self._projection.open_position,
+                "book.open_game": self._projection.open_game,
                 "book.return_from_board": self._projection.return_from_board,
             }
             callback = no_payload.get(command_id)
@@ -76,6 +85,6 @@ class BookWebViewBridge:
                 self._exact(data, {"language"})
                 return self._projection.set_language(data["language"])
             raise ValueError("unsupported book browser command")
-        except Exception:
+        except BaseException:
             # Do not echo FEN, bookmark input, local paths, source data or internals.
             return self._projection.generic_error()

@@ -1,0 +1,128 @@
+name: ChessBase libcbh Semantic Fidelity Current
+
+on:
+  pull_request:
+    paths:
+      - 'tools/optional/libcbh_json_bridge.cpp'
+      - 'tests/test_chessbase_libcbh_external_fixture.py'
+      - 'tests/test_chessbase_libcbh_semantic_fidelity_workflow.py'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/gametree.py'
+      - '.github/workflows/chessbase-libcbh-semantic-fidelity-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chessbase-libcbh-semantic-fidelity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
+jobs:
+  pinned-real-semantic-oracle:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact Accessible Chess candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Checkout pinned libcbh evidence corpus
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rolandlo/libcbh
+          ref: ${{ env.LIBCBH_COMMIT }}
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile canonical decoder and real-corpus oracle
+        working-directory: product
+        run: >-
+          python -m py_compile
+          acs/chessbase_decoder.py
+          acs/gametree.py
+          tests/test_chessbase_decoder.py
+          tests/test_chessbase_libcbh_external_fixture.py
+          tests/test_chessbase_libcbh_semantic_fidelity_workflow.py
+
+      - name: Run canonical ChessBase safety regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_chessbase_libcbh_semantic_fidelity_workflow
+
+      - name: Build pinned external libcbh
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+
+      - name: Build current Accessible Chess bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT="\"${LIBCBH_COMMIT}\"" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+
+      - name: Run pinned variation and annotation semantic oracles
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_ANNOTATION_FIXTURE_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+        run: python -m unittest -v tests.test_chessbase_libcbh_external_fixture
+
+      - name: Verify mapping scope and default-package boundary
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('tools/optional/libcbh_json_bridge.cpp').read_text(encoding='utf-8')
+          required = (
+              'PINNED_LIBCBH_NAG_COMMIT',
+              'canonicalize_pinned_evaluation_nag',
+              'canonical_evaluation_nag(value.evaluation)',
+              'case 10: return 11;',
+              'case 33: return 32;',
+              'case 37: return 36;',
+              'case 41: return 40;',
+              'case 45: return 44;',
+              'case 133: return 132;',
+              'return 138;',
+          )
+          for token in required:
+              assert token in source, token
+          assert 'std::string_view(LIBCBH_SOURCE_COMMIT) != PINNED_LIBCBH_NAG_COMMIT' in source
+          print('LIBCBH_NAG_MAPPING_SCOPE=PASS')
+          PY
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo 'LIBCBH_DEFAULT_PACKAGE_BOUNDARY=PASS'

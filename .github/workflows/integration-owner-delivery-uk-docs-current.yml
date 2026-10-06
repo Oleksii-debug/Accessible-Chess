@@ -1,0 +1,101 @@
+name: Integration Owner Delivery Ukrainian Docs Current
+
+on:
+  push:
+    branches:
+      - integration/owner-delivery-uk-docs-post-pgn-20261004
+  pull_request:
+    branches:
+      - fix/pgn-modifier-keymap-delegation-20261004
+    paths:
+      - 'web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt'
+      - 'web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt'
+      - 'tests/test_owner_delivery_uk_docs.py'
+      - '.github/workflows/integration-owner-delivery-uk-docs-current.yml'
+      - 'web/keybindings.json'
+      - 'web/index.html'
+      - 'web/full_product_pgn.js'
+      - 'web/full_product_library.js'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_assembler.py'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-owner-delivery-uk-docs-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact parent, scope and product bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='680bf9944c9c47c514334dcc96dd9d15ea51faf4'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-owner-delivery-uk-docs-current.yml' \
+            'tests/test_owner_delivery_uk_docs.py' \
+            'web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt' \
+            'web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt)" = '19bc974275a7470f1756dd0a3262422e8ca5b7a7'
+          test "$(git rev-parse HEAD:web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt)" = 'be8bfc1935c13a440748408157f9a14f076b93d4'
+          test "$(git rev-parse HEAD:tests/test_owner_delivery_uk_docs.py)" = '1e84ce7dabd6f165bae7795969fa58a30be7760b'
+
+          test "$(git rev-parse HEAD:web/keybindings.json)" = '012f6eb19cd46998aa5a72945c254a9935028305'
+          test "$(git rev-parse HEAD:web/index.html)" = '9bbf9eb537de9d572e91d482494b0da7ec52928f'
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = '1fa71cf6fea78d9d6d3ceb1aedee060c8756355e'
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = '9943aa2e1924c9087faca7e9ead610475bfb98e5'
+          test "$(git rev-parse HEAD:acs/version2_release_payload.py)" = 'e26a265210639a50457db364926c16363097e3cd'
+          test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = '5224ed4516fb1a09d9ac6465b6d72d6ff575a229'
+          test "$(git rev-parse HEAD:.github/workflows/w4-v2-p0-fresh-windows-candidate.yml)" = 'bd04cee9f38b2e43dc10e393f0900df528afc541'
+
+          echo 'OWNER_DELIVERY_UK_DOCS_CURRENT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile documentation contract
+        run: python -m py_compile tests/test_owner_delivery_uk_docs.py
+
+      - name: Run owner, keyboard and accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_owner_delivery_uk_docs
+          tests.test_accessible_webui
+          tests.test_v2_board_analysis_hotkey_feedback
+
+      - name: Verify package-copy path
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_payload
+          tests.test_version2_package_assembler
+
+      - name: Core selftest
+        run: python -m acs.selftest

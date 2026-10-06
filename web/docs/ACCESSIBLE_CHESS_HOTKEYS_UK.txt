@@ -1,0 +1,129 @@
+ACCESSIBLE CHESS — КЛАВІАТУРА І РОБОТА З NVDA
+
+Цей файл є звичайним UTF-8 текстом: його можна читати, виділяти й копіювати. Він пакується разом із програмою і звіряється автоматичним тестом із поточним web/keybindings.json.
+
+ВАЖЛИВО ПРО КОНТЕКСТ
+
+1. Звичайні поля редагування зберігають стандартну поведінку Windows/WebView2: стрілки, Home/End, Ctrl+A, Ctrl+C, Ctrl+X і Ctrl+V не повинні перехоплюватися програмою як шахові команди.
+2. У полях редагування комбінації аналізу з Alt залишаються доступними через центральну карту клавіш. Немодифіковані клавіші в редакторі залишаються текстовим вводом.
+3. На дошці всі клавіші звіряються з центральною картою. Типові стрілки пересувають фокус по 64 клітинках, Enter або Space активує поле, Escape виходить із дошки. Після переназначення діють нові комбінації, а старі більше не виконують переназначену дію.
+4. У дереві PGN типові ArrowUp/ArrowDown переходять на попередній/наступний вузол, ArrowLeft переходить до батьківського вузла, якщо він є. Дерево виконує лише свої поточні прив’язки, зокрема переназначені комбінації з модифікаторами. Інші клавіші залишає центральному обробнику. Alt+1…Alt+5, Alt+Up/Alt+Down доступні для аналізу, якщо їх не призначено діям активного дерева.
+5. У результатах Бібліотеки ArrowUp/ArrowDown змінюють вибраний запис, Enter відкриває вибрану партію.
+6. Виділений звичайний текст копіюється нативним Ctrl+C. Поле «Хід» окремо зберігає нативні Ctrl+A і Ctrl+C; програма не підміняє це скриптовим буфером обміну.
+7. Команди нижче є поточними типовими прив’язками. Користувацька карта клавіш може змінити прив’язки під час роботи; цей файл описує типовий пакетний стан.
+
+ІСТОРІЯ, ГЛОБАЛЬНІ ДІЇ
+ACTION: history.previous | Попередня позиція в історії | context=document | binding=Shift+A | alias=NONE
+ACTION: history.next | Наступна позиція в історії | context=document | binding=Shift+D | alias=NONE
+ACTION: history.go_to_move | Перейти до ходу | context=document | binding=Ctrl+G | alias=NONE
+ACTION: history.commit_go_to_move | Підтвердити перехід до введеного ходу | context=document | binding=Enter | alias=NONE
+ACTION: file.new | Нова стандартна позиція | context=document | binding=Ctrl+N | alias=NONE
+ACTION: edit.undo | Скасувати хід | context=document | binding=Ctrl+Z | alias=NONE
+ACTION: edit.redo | Повторити хід | context=document | binding=Ctrl+Shift+Z | alias=NONE
+
+АНАЛІЗ STOCKFISH
+ACTION: analysis.pv1 | Перший варіант Stockfish | context=analysis | binding=Alt+1 | alias=NONE
+ACTION: analysis.pv2 | Другий варіант Stockfish | context=analysis | binding=Alt+2 | alias=NONE
+ACTION: analysis.pv3 | Третій варіант Stockfish | context=analysis | binding=Alt+3 | alias=NONE
+ACTION: analysis.pv4 | Четвертий варіант Stockfish | context=analysis | binding=Alt+4 | alias=NONE
+ACTION: analysis.pv5 | П’ятий варіант Stockfish | context=analysis | binding=Alt+5 | alias=NONE
+ACTION: analysis.previous_pv | Попередній варіант Stockfish | context=analysis | binding=Alt+Up | alias=NONE
+ACTION: analysis.next_pv | Наступний варіант Stockfish | context=analysis | binding=Alt+Down | alias=NONE
+ACTION: analysis.lock_target | Зафіксувати ціль аналізу або стежити за позицією | context=analysis | binding=Alt+L | alias=NONE
+ACTION: analysis.explore_pv | Тимчасово переглянути вибраний варіант | context=analysis | binding=Alt+Enter | alias=NONE
+ACTION: analysis.return | Повернутися з тимчасового варіанта | context=analysis | binding=Alt+Escape | alias=NONE
+ACTION: analysis.insert_move | Вставити вибраний хід Stockfish | context=analysis | binding=Ctrl+Alt+M | alias=NONE
+ACTION: analysis.insert_line | Вставити вибраний варіант Stockfish | context=analysis | binding=Ctrl+Alt+V | alias=NONE
+ACTION: analysis.restart | Перезапустити аналіз Stockfish | context=analysis | binding=Alt+R | alias=NONE
+
+ДОШКА
+ACTION: board.cursor_left | Курсор дошки ліворуч | context=board | binding=Left | alias=NONE
+ACTION: board.cursor_right | Курсор дошки праворуч | context=board | binding=Right | alias=NONE
+ACTION: board.cursor_up | Курсор дошки вгору | context=board | binding=Up | alias=NONE
+ACTION: board.cursor_down | Курсор дошки вниз | context=board | binding=Down | alias=NONE
+ACTION: board.activate | Активувати поле дошки | context=board | binding=Enter | alias=NONE
+ACTION: board.activate_alternative | Активувати поле дошки, альтернативна клавіша | context=board | binding=Space | alias=NONE
+ACTION: board.exit | Вийти з дошки | context=board | binding=Escape | alias=NONE
+ACTION: board.current | Поточне поле | context=board | binding=O | alias=NONE
+ACTION: board.last_captured | Остання взята фігура | context=board | binding=C | alias=NONE
+ACTION: board.last_move | Останній хід | context=board | binding=L | alias=NONE
+ACTION: board.my_clock | Мій час | context=board | binding=T | alias=NONE
+ACTION: board.opponent_clock | Час суперника | context=board | binding=Shift+T | alias=NONE
+ACTION: board.legal_moves | Легальні ходи | context=board | binding=M | alias=NONE
+ACTION: board.captures | Взяття | context=board | binding=Shift+M | alias=NONE
+ACTION: board.surroundings | Оточення поля | context=board | binding=X | alias=NONE
+ACTION: board.attackers | Атакуючі | context=board | binding=A | alias=NONE
+ACTION: board.defenders | Захисники | context=board | binding=D | alias=NONE
+ACTION: board.material | Матеріальний баланс | context=board | binding=NONE | alias=NONE
+ACTION: board.evaluation | Оцінка позиції | context=board | binding=V | alias=NONE
+ACTION: board.best_move | Найкращий хід | context=board | binding=G | alias=NONE
+ACTION: board.play_best | Зіграти найкращий хід | context=board | binding=Shift+G | alias=NONE
+ACTION: board.next_king | Наступний король | context=board | binding=K | alias=NONE
+ACTION: board.next_queen | Наступний ферзь | context=board | binding=Q | alias=NONE
+ACTION: board.next_rook | Наступна тура | context=board | binding=R | alias=NONE
+ACTION: board.next_bishop | Наступний слон | context=board | binding=B | alias=NONE
+ACTION: board.next_knight | Наступний кінь | context=board | binding=N | alias=NONE
+ACTION: board.next_pawn | Наступний пішак | context=board | binding=P | alias=NONE
+ACTION: board.previous_king | Попередній король | context=board | binding=Shift+K | alias=NONE
+ACTION: board.previous_queen | Попередній ферзь | context=board | binding=Shift+Q | alias=NONE
+ACTION: board.previous_rook | Попередня тура | context=board | binding=Shift+R | alias=NONE
+ACTION: board.previous_bishop | Попередній слон | context=board | binding=Shift+B | alias=NONE
+ACTION: board.previous_knight | Попередній кінь | context=board | binding=Shift+N | alias=NONE
+ACTION: board.previous_pawn | Попередній пішак | context=board | binding=Shift+P | alias=NONE
+ACTION: board.rank_1 | Горизонталь 1 | context=board | binding=1 | alias=NONE
+ACTION: board.rank_2 | Горизонталь 2 | context=board | binding=2 | alias=NONE
+ACTION: board.rank_3 | Горизонталь 3 | context=board | binding=3 | alias=NONE
+ACTION: board.rank_4 | Горизонталь 4 | context=board | binding=4 | alias=NONE
+ACTION: board.rank_5 | Горизонталь 5 | context=board | binding=5 | alias=NONE
+ACTION: board.rank_6 | Горизонталь 6 | context=board | binding=6 | alias=NONE
+ACTION: board.rank_7 | Горизонталь 7 | context=board | binding=7 | alias=NONE
+ACTION: board.rank_8 | Горизонталь 8 | context=board | binding=8 | alias=NONE
+ACTION: board.file_1 | Вертикаль a | context=board | binding=Shift+1 | alias=NONE
+ACTION: board.file_2 | Вертикаль b | context=board | binding=Shift+2 | alias=NONE
+ACTION: board.file_3 | Вертикаль c | context=board | binding=Shift+3 | alias=NONE
+ACTION: board.file_4 | Вертикаль d | context=board | binding=Shift+4 | alias=NONE
+ACTION: board.file_5 | Вертикаль e | context=board | binding=Shift+5 | alias=NONE
+ACTION: board.file_6 | Вертикаль f | context=board | binding=Shift+6 | alias=NONE
+ACTION: board.file_7 | Вертикаль g | context=board | binding=Shift+7 | alias=NONE
+ACTION: board.file_8 | Вертикаль h | context=board | binding=Shift+8 | alias=NONE
+ACTION: board.input | Поле введення ходу | context=board | binding=I | alias=NONE
+
+КОРОТКІ КОМАНДИ У ПОЛІ «ХІД»
+ACTION: move.submit | Зробити введений хід | context=move-entry | binding=Enter | alias=NONE
+ACTION: move.undo | Команда undo | context=move-entry | binding=NONE | alias=u
+ACTION: move.redo | Команда redo | context=move-entry | binding=NONE | alias=y
+ACTION: move.last | Команда останнього ходу | context=move-entry | binding=NONE | alias=l
+ACTION: move.white_to_move | Команда ходу білих | context=move-entry | binding=NONE | alias=w
+ACTION: move.black_to_move | Команда ходу чорних | context=move-entry | binding=NONE | alias=b
+ACTION: move.clear | Команда очищення дошки | context=move-entry | binding=NONE | alias=c
+ACTION: move.standard | Команда стандартної позиції | context=move-entry | binding=NONE | alias=s
+ACTION: move.empty | Команда порожньої позиції | context=move-entry | binding=NONE | alias=e
+
+PGN / GAME TREE
+- ArrowUp: попередній вузол дерева.
+- ArrowDown: наступний вузол дерева.
+- ArrowLeft: батьківський вузол, коли він існує.
+- Переназначені Alt/Ctrl/Shift/Meta-комбінації дерева виконуються тільки в його контексті. Непризначені клавіші не перехоплюються.
+- Коментарі й варіанти залишаються звичайним семантичним текстом; фокус повертається до канонічного вузла після оновлення.
+
+БІБЛІОТЕКА / ACSDB
+- ArrowUp / ArrowDown у списку результатів: попередня / наступна партія.
+- Enter: відкрити вибрану партію.
+- Поля пошуку — звичайні редаговані елементи; стандартне виділення й копіювання в них не підміняється шаховими командами.
+
+ПАНЕЛІ, КЛАСИ Й ЛОКАЛЬНИЙ ПРОФІЛЬ
+- На панелях інструментів PGN, Книг і Тренування Left/Right пересувають фокус між доступними кнопками, Home/End переходять до першої/останньої. Enter і Space залишаються стандартною активацією кнопки, Tab виходить із панелі. Вимкнені кнопки пропускаються.
+- У списку навчальних елементів на екрані «Класи та учні» Up/Down змінюють вибір, Enter відкриває вибраний елемент.
+- У полі імені локального профілю Enter зберігає ім’я. Інші клавіші редагування залишаються стандартними.
+- Ці команди також використовують центральні налаштування клавіш; їхні поточні прив’язки показано у внутрішній Довідці.
+
+ПЕРЕНАЗНАЧЕННЯ, ІМПОРТ І ВІДНОВЛЕННЯ
+Відкрийте «Налаштування», розділ клавіатури й команд. За допомогою Tab перейдіть до пошуку, знайдіть команду за українською або англійською назвою та перейдіть до її поля прив’язки. Комбінацію можна ввести або захопити відповідною кнопкою. Tab завершує захоплення, Escape скасовує його. Збережіть команду й підтвердьте попередження, якщо воно є; конфлікт, який блокує збереження, потрібно виправити.
+Зміни зберігаються після перезапуску. Скидання контексту відновлює його типові прив’язки. Внутрішня Довідка показує поточні, а не старі типові клавіші.
+Імпорт із попередженнями застосовується лише після підтвердження. Некоректний, дубльований або завеликий профіль відхиляється без зміни попередніх налаштувань. Якщо збережений профіль пошкоджений чи не читається, автоматичний запис блокується; використайте явне відновлення або імпорт коректного профілю. Помилка запису не означає успішного збереження.
+
+ПЕРЕВІРКА З NVDA
+Для фізичної перевірки наступного кандидата окремо перевірити: навігацію всіма 64 клітинками; читання результату Alt+1…Alt+5; Alt+Up/Alt+Down у PGN-дереві; Ctrl+A/Ctrl+C у полі «Хід»; виділення звичайного статичного тексту та нативний Ctrl+C; ArrowUp/ArrowDown/Enter у Бібліотеці; повернення фокуса після відкриття партії та переходів у PGN.
+
+HUMAN_TESTED=NO
+NVDA_VERIFIED=NO

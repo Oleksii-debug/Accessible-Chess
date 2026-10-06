@@ -1,0 +1,209 @@
+name: V2 Data Upgrade V6
+
+on:
+  push:
+    branches:
+      - work/v2-data-upgrade-v6-20260831
+  pull_request:
+    paths:
+      - 'acs/version2_upgrade.py'
+      - 'acs/version2_upgrade_base.py'
+      - 'acs/legacy_library_migration.py'
+      - 'acs/settings.py'
+      - 'acs/book_progress_store.py'
+      - 'acs/gametree_resume.py'
+      - 'acs/education_workspace_store.py'
+      - 'acs/version2_final_product_application.py'
+      - 'tests/test_settings_read_identity_current.py'
+      - 'tests/test_settings_stale_writer_current.py'
+      - 'tests/test_version2_upgrade.py'
+      - 'tests/test_v2_upgrade_sound_artifact_control.py'
+      - 'tests/test_v2_upgrade_root_writer_artifact_grammar.py'
+      - 'tests/test_v2_upgrade_book_progress_temp_artifact_control.py'
+      - 'tests/test_v2_upgrade_training_progress_artifact_control.py'
+      - 'tests/test_v2_upgrade_self_coordination_artifact_control.py'
+      - 'tests/test_v2_upgrade_education_workspace_artifact_control.py'
+      - 'tests/test_v2_upgrade_generated_artifact_authentication.py'
+      - 'tests/test_version2_upgrade_stale_writer.py'
+      - 'tests/test_version2_upgrade_recovery_integrity.py'
+      - 'tests/test_v2_upgrade_v6_successor.py'
+      - 'tests/test_v2_upgrade_current_acsdb_identity_audit.py'
+      - 'tests/test_v2_upgrade_tracked_writer_conflict.py'
+      - 'tests/test_v2_upgrade_publish_race_audit.py'
+      - 'tests/test_v2_upgrade_schema0_integration.py'
+      - '.github/workflows/v2-data-upgrade-v6.yml'
+      - '.github/workflows/v2-data-upgrade-tracked-writer.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-data-upgrade-v6-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATA_OWNER: 9828010f7b0c08776684a176352ad1914eeb6409
+  D07_V6_BLOB: ee8e3394549bf0498bd1908f9ff782c481169700
+  EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+jobs:
+  upgrade-correctness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Normalize worktree to canonical Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Exact data-owner ancestry and immutable Product/test locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$DATA_OWNER^{commit}"
+          git merge-base --is-ancestor "$DATA_OWNER" HEAD
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          fi
+          test "$(git rev-parse HEAD:acs/acsdb.py)" = "$D07_V6_BLOB"
+          git diff --check "$DATA_OWNER" HEAD -- \
+            acs/settings.py \
+            acs/version2_upgrade.py \
+            acs/version2_upgrade_base.py \
+            acs/legacy_library_migration.py \
+            tests/test_settings_read_identity_current.py \
+            tests/test_settings_stale_writer_current.py \
+            tests/test_v2_upgrade_current_acsdb_identity_audit.py \
+            tests/test_v2_upgrade_publish_race_audit.py \
+            tests/test_v2_upgrade_tracked_writer_conflict.py \
+            tests/test_v2_upgrade_v6_successor.py \
+            tests/test_v2_upgrade_schema0_integration.py \
+            tests/test_v2_upgrade_sound_artifact_control.py \
+            tests/test_v2_upgrade_root_writer_artifact_grammar.py \
+            tests/test_v2_upgrade_book_progress_temp_artifact_control.py \
+            tests/test_v2_upgrade_training_progress_artifact_control.py \
+            tests/test_v2_upgrade_self_coordination_artifact_control.py \
+            tests/test_v2_upgrade_education_workspace_artifact_control.py \
+            tests/test_v2_upgrade_generated_artifact_authentication.py \
+            tests/test_version2_upgrade.py \
+            tests/test_version2_upgrade_recovery_integrity.py \
+            tests/test_version2_upgrade_stale_writer.py
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            effective_expected="$expected"
+            if [ -n "${EVENT_BASE_SHA:-}" ] && git diff --quiet "$EVENT_BASE_SHA" HEAD -- "$path"; then
+              effective_expected="$(git rev-parse "$EVENT_BASE_SHA:$path")"
+            fi
+            test "$actual" = "$effective_expected" || {
+              echo "Accepted V2 data owner drift: $path expected=$effective_expected actual=$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          acs/settings.py=838e9b3d765bd115e20fab09534353b4b0c444b9
+          acs/book_progress_store.py=3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
+          acs/gametree_resume.py=e22a406a8f4c1f00c3d36390109d53f3088d332b
+          acs/version2_release_app.py=426355896fc3d18c143e245876291d6ae01dec4f
+          acs/version2_application.py=300c0e71d1d714a51722ca4d517235be282bf9ae
+          acs/version2_training_workspace.py=4d73f8f4ee7a11ec16bbb624189616703f4b84f2
+          acs/training_progress_store.py=e00c58541836a390991a0366436a9eb5049468d9
+          acs/education_workspace_store.py=773bb02701288af6b37c07771d67ede6a627dafb
+          acs/version2_final_product_application.py=b90927d8e026a9debfca5cd7d7d095bb1f40413d
+          acs/version2_upgrade.py=bb18e879384e1fe2945617b026eac820cff1194e
+          acs/version2_upgrade_base.py=0b4c43269595d297456625611b59c739f0d1704c
+          acs/legacy_library_migration.py=cbb6a5e84608bdcd00c7cac58994433d34e8c3d6
+          tests/test_settings_stale_writer_current.py=d80b10a647d7d57f621c32c06efd52250fb69124
+          tests/test_v2_upgrade_current_acsdb_identity_audit.py=931e02d1cbcea667df8a857b413c343ee19770f8
+          tests/test_v2_upgrade_publish_race_audit.py=b9377d18118c02b479e78ad93e5ab46c5fdb36f4
+          tests/test_v2_upgrade_tracked_writer_conflict.py=5d04c0dd33a19912ff939f6010df8ee210c4fdeb
+          tests/test_v2_upgrade_v6_successor.py=163abc29f7c2709fdab3851c32fc710b3fcf4ddf
+          tests/test_v2_upgrade_schema0_integration.py=26a73690ceaca3af82990963e87d806bdfbe8bd3
+          tests/test_v2_upgrade_sound_artifact_control.py=9e26a615c933042378ef33004b54ac2c45ff404c
+          tests/test_v2_upgrade_root_writer_artifact_grammar.py=89905a46d551cfb109ea649ac0a857139a9710d7
+          tests/test_v2_upgrade_book_progress_temp_artifact_control.py=7b3c00911ce1fb24b3daf1cba851646d85df8a3a
+          tests/test_v2_upgrade_training_progress_artifact_control.py=cd0be4e3d9e0cff14f8d2b1288d92e3b9a428465
+          tests/test_v2_upgrade_self_coordination_artifact_control.py=ddba3b932b065ce981125b14e4bedc292de69d71
+          tests/test_v2_upgrade_education_workspace_artifact_control.py=5a33d240d0d49651162d07866f84c7e7066ae4e2
+          tests/test_v2_upgrade_generated_artifact_authentication.py=1fe2394f81dd247d529b04bf027f81cca54ee9cd
+          tests/test_version2_upgrade.py=ef87bddf6f7e4ceb33dddb49455dbe2df8b5f1c7
+          tests/test_version2_upgrade_recovery_integrity.py=c4ee3bd0b27ef3e69c81d06e536805da5ed7f20d
+          tests/test_version2_upgrade_stale_writer.py=c3967104ec33827a6027ce0f0af1ba5a18a04744
+          LOCKS
+      - name: Compile
+        run: python -m compileall -q acs tests run_accessible_chess.py
+      - name: Focused V1 to V2 upgrade, schema-0, and D07 v6 integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_settings_read_identity_current
+          tests.test_settings_stale_writer_current
+          tests.test_v2_upgrade_schema0_integration
+          tests.test_v2_upgrade_current_acsdb_identity_audit
+          tests.test_v2_upgrade_v6_successor
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_version2_upgrade
+          tests.test_v2_upgrade_sound_artifact_control
+          tests.test_v2_upgrade_root_writer_artifact_grammar
+          tests.test_v2_upgrade_book_progress_temp_artifact_control
+          tests.test_v2_upgrade_training_progress_artifact_control
+          tests.test_v2_upgrade_self_coordination_artifact_control
+          tests.test_v2_upgrade_education_workspace_artifact_control
+          tests.test_v2_upgrade_generated_artifact_authentication
+          tests.test_version2_upgrade_recovery_integrity
+          tests.test_version2_upgrade_stale_writer
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_integrity_repair
+          tests.test_windows_data_release_regressions
+
+  broad-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: SELFTEST and complete diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          if [ -f run_accessible_chess_v2.py ]; then python run_accessible_chess_v2.py --diagnostic; fi

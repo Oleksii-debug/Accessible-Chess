@@ -1,0 +1,221 @@
+name: W6 V2 Package Preflight Current Runtime
+
+on:
+  push:
+    branches:
+      - fix/w6-v2-package-assembler-current-composition-20260912
+  pull_request:
+    paths:
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight_hardening.py'
+      - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_version2_package_pe_identity.py'
+      - 'tests/test_version2_package_zip_topology_preflight.py'
+      - 'tests/test_version2_stockfish_source_archive_preflight.py'
+      - 'tests/test_current_launcher_resource_contract.py'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-package-preflight-current-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LEGACY_RUNTIME_BASE: 8610b3a79c1631a9619427a58ae1617cb1576210
+  LEGACY_OWNER_511_HEAD: 58be5a7e577714f221be6653655f4bc1d6bb1acd
+  LEGACY_OWNER_565_PARENT_HEAD: f9f9ba6915ce88674214365a6260c92c091ebc1b
+  LEGACY_OWNER_565_CURRENT_HEAD: 2830fe08f0ad820711ab3ad258f792ba72c58d8c
+  LEGACY_PREFLIGHT_BLOB: 8237eb297818d401c29af476f4ef6081d6efcee8
+  LEGACY_TEST_BLOB: d20c858de65947c7aa1e9543da0b355f697ed359
+  CURRENT_PREFLIGHT_OWNER: 44aa0dbb6340e0d85aa7a2b439a72bb2f450c6d9
+  CURRENT_PREFLIGHT_BLOB: 5331c79063e465284a486b3f57ae5b78f9e52778
+  CURRENT_TEST_BLOB: f3b46bf598b8402cc82efdddb84681a1bb786f81
+  RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
+  RESOURCE_PREFLIGHT_TEST_BLOB: 82ea17bd50c3e1680e95422715454e35ee67ec5e
+  RUNTIME_PREFLIGHT_BLOB: 81a0af758b980eccb12278625e7b50ac87af6834
+  RUNTIME_PREFLIGHT_TEST_BLOB: 01b7c32311bd231684cf9ece9481609a20267610
+  PE_IDENTITY_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
+  PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
+  SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: ea86b7b0458fe47487a735bdc24d58435c7abaad
+  STABLE_READS_TEST_BLOB: b956ad90eace69520aca3c80245793ccdee7086f
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 7e39e8051194559bf8c4001161030a70fc5d74ad
+  CURRENT_HARDENING_BLOB: 967764ce30024d9c4649f2c84b14af9207bb923f
+  CURRENT_REQUIRED_RESOURCES_BLOB: 6bfa7920a9aedb4fde7cb52ca305330ab5fdb084
+  RESOURCE_REQUIRED_RESOURCES_BLOB: f90081232c9d2ea75ce456b0bd097da123e99e34
+  RUNTIME_REQUIRED_RESOURCES_BLOB: 9ea7b3b07a9df59092fad8679b6ec9e38eed144a
+  CURRENT_ZIP_TOPOLOGY_BLOB: 2a849e00e192d8d91118d7f2edd5274ff576c5ed
+  CURRENT_STOCKFISH_SOURCE_BLOB: 7b772885f8bdb68bbf2c8a65a1e776d0da0f630e
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove canonical preflight identity on legacy or current composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$LEGACY_RUNTIME_BASE" HEAD
+          git diff --check "$LEGACY_RUNTIME_BASE" HEAD
+          changed="$(git diff --name-only "$LEGACY_RUNTIME_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
+            'acs/version2_package_preflight.py' \
+            'tests/test_version2_package_preflight.py' | sort)"
+
+          if [ "$changed" = "$expected" ]; then
+            git cat-file -e "$LEGACY_OWNER_565_CURRENT_HEAD^{commit}"
+            git merge-base --is-ancestor "$LEGACY_OWNER_565_PARENT_HEAD" "$LEGACY_OWNER_565_CURRENT_HEAD"
+            test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$LEGACY_PREFLIGHT_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$LEGACY_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
+            case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
+              *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
+            esac
+            test "$(git rev-parse "$LEGACY_OWNER_565_CURRENT_HEAD":acs/version2_package_preflight.py)" = "$LEGACY_PREFLIGHT_BLOB"
+            test "$(git rev-parse "$LEGACY_OWNER_565_CURRENT_HEAD":tests/test_version2_package_preflight.py)" = "$LEGACY_TEST_BLOB"
+            test "$(git rev-parse "$LEGACY_OWNER_565_CURRENT_HEAD":tests/test_v2_package_required_resources.py)" = "$CURRENT_REQUIRED_RESOURCES_BLOB"
+            test "$(git rev-parse "$LEGACY_OWNER_511_HEAD":tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
+            echo 'W6_PREFLIGHT_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
+          else
+            git merge-base --is-ancestor "$CURRENT_PREFLIGHT_OWNER" HEAD
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            preflight_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_preflight.py)"
+            case "$preflight_pair" in
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$STABLE_READS_TEST_BLOB") ;;
+              *) echo 'Unqualified canonical preflight/test pair' >&2; exit 1 ;;
+            esac
+            if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
+            fi
+            test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
+            case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
+              *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
+            esac
+            test "$(git rev-parse HEAD:tests/test_version2_package_zip_topology_preflight.py)" = "$CURRENT_ZIP_TOPOLOGY_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_stockfish_source_archive_preflight.py)" = "$CURRENT_STOCKFISH_SOURCE_BLOB"
+            echo 'W6_PREFLIGHT_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
+          fi
+
+      - name: Verify all actual launcher scripts are mandatory
+        run: python -m unittest -v tests.test_current_launcher_resource_contract
+
+      - name: Prove one canonical V2 package validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          candidates = sorted(
+              p.as_posix()
+              for p in Path('acs').glob('*.py')
+              if ('version2_package_preflight' in p.name or 'version2_package_validator' in p.name)
+          )
+          assert candidates == ['acs/version2_package_preflight.py'], candidates
+          assert Path('acs/release_preflight.py').exists(), 'Stage1 preflight remains separate but must not replace V2 preflight'
+          print('ONE_CANONICAL_V2_PACKAGE_VALIDATOR', candidates[0])
+          PY
+
+      - name: Compile validator and current production contracts
+        run: >-
+          python -m compileall -q
+          acs/version2_package_preflight.py
+          acs/acsdb.py
+          acs/settings.py
+          acs/version2_upgrade.py
+          acs/sound_events.py
+          acs/sound_windows.py
+          acs/stockfish_runtime.py
+          acs/version2_release_ui.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
+          tests/test_version2_package_pe_identity.py
+          tests/test_version2_package_zip_topology_preflight.py
+          tests/test_version2_stockfish_source_archive_preflight.py
+
+      - name: Current schema and resource identity smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.acsdb import ACSDB_SCHEMA_VERSION
+          from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
+          from acs.sound_events import SoundEvent
+          from acs.sound_windows import DEFAULT_SOUND_MANIFEST, DEFAULT_SOUND_RELATIVE_DIR, SOUND_MANIFEST_SCHEMA_VERSION
+          from acs.stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
+          from acs.version2_package_preflight import V2_PACKAGE_MANIFEST_SCHEMA_VERSION, V2_PACKAGE_PROFILE
+          from acs.version2_upgrade import UPGRADE_JOURNAL_SCHEMA_VERSION
+
+          assert type(ACSDB_SCHEMA_VERSION) is int and ACSDB_SCHEMA_VERSION > 0
+          assert type(SETTINGS_SCHEMA_VERSION) is int and SETTINGS_SCHEMA_VERSION > 0
+          assert type(UPGRADE_JOURNAL_SCHEMA_VERSION) is int and UPGRADE_JOURNAL_SCHEMA_VERSION > 0
+          assert V2_PACKAGE_MANIFEST_SCHEMA_VERSION == 1
+          assert V2_PACKAGE_PROFILE == 'version2-default'
+          assert SOUND_MANIFEST_SCHEMA_VERSION == 1
+          assert DEFAULT_SOUND_RELATIVE_DIR.as_posix() == 'assets/sounds'
+          assert DEFAULT_SOUND_MANIFEST == 'manifest.json'
+          assert PACKAGED_STOCKFISH_RELATIVE_PATH.as_posix() == 'engines/stockfish/stockfish.exe'
+          assert {event.value for event in SoundEvent} == {
+              'move', 'capture', 'check', 'castle', 'promotion', 'illegal',
+              'start', 'end', 'mate', 'draw', 'tick', 'low_time'
+          }
+          print('CURRENT V2 PACKAGE CONTRACT IDENTITY PASS')
+          PY
+
+      - name: Canonical V2 tree ZIP and required-resource regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_zip_topology_preflight
+          tests.test_version2_stockfish_source_archive_preflight
+
+  broad:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q tests
+      - name: Exact diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic

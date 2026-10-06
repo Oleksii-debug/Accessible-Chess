@@ -1,0 +1,70 @@
+name: Takeback Lifecycle Checkpoint Qualification
+on:
+  push:
+    branches:
+      - repair/takeback-lifecycle-checkpoint-20261002
+  pull_request:
+    branches:
+      - integration/clock-engine-serial-intake-20261002
+
+permissions:
+  contents: read
+
+concurrency:
+  group: takeback-lifecycle-checkpoint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact stacked ownership and ancestor
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=080d58d61ea7e9d8f296b66c33eafcfd98671a09
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          actual="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/takeback-lifecycle-checkpoint.yml' \
+            'acs/game_lifecycle.py' \
+            'tests/test_game_lifecycle.py' | sort)"
+          test "$actual" = "$expected" || {
+            printf 'Unexpected lifecycle ownership scope:\n%s\n' "$actual" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 37d6c11a782c02850efdc646b034abaafee81dc4
+          test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+      - name: Compile source and tests
+        run: python -m compileall -q acs tests run_accessible_chess_v2.py
+      - name: Lifecycle and adjacent engine Stage1 tests
+        run: >-
+          python -m unittest -v
+          tests.test_game_lifecycle
+          tests.test_engine_game_session
+          tests.test_stage1_engine_play_ui
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests

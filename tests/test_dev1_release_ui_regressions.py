@@ -19,6 +19,18 @@ class _PartialMenuAPI:
 
 
 class Dev1ReleaseUiRegressionTests(unittest.TestCase):
+    def test_invalid_move_keeps_position_and_speaks_localized_domain_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            api = Stage1ReleaseAccessibleChessAPI(
+                keymap_path=Path(td) / "keymap.json"
+            )
+            api.make_move("e4")
+            fen = api.board.fen()
+            result = api.make_move("e9")
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["announcement"], api._t("move_invalid"))
+            self.assertEqual(api.board.fen(), fen)
+
     def test_native_menu_proxy_accepts_partial_release_seam_but_registry_actions_fail_closed(self) -> None:
         api = _PartialMenuAPI()
         proxy = Stage1NativeMenuActionProxy(api)
@@ -88,26 +100,56 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         self.assertLess(source.index(dependency_gate), source.index(ready_guard))
         self.assertLess(source.index("window.renderHelp();"), source.index(ready_guard))
 
-    def test_editable_controls_bypass_global_app_shortcuts_before_prevent_default(self) -> None:
+    def test_editable_controls_preserve_native_copy_and_only_claim_owned_shortcuts(self) -> None:
         html = (
             Path(__file__).resolve().parents[1] / "web" / "index.html"
         ).read_text(encoding="utf-8")
-        marker = "document.addEventListener('keydown',async e=>{if(capture)return;if(e.target.closest('#board-application'))return;"
+        marker = "function projectedOwnedAction(e,contexts)"
         start = html.index(marker)
         end = html.index("el('move-submit').addEventListener", start)
         handler = html[start:end]
-        editable_guard = "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
-        binding_resolve = "resolveBinding(chord,'analysis','analysis')"
-        mapped_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
-        self.assertIn(editable_guard, handler)
-        self.assertIn(binding_resolve, handler)
-        self.assertIn(mapped_prevent_default, handler)
-        self.assertLess(handler.index(editable_guard), handler.index(binding_resolve))
-        self.assertLess(handler.index(editable_guard), handler.index(mapped_prevent_default))
 
-        move_listener = "el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitMove()}})"
+        editable_helper = (
+            "function editableShortcutTarget(node){return !!(node&&"
+            "(['INPUT','TEXTAREA','SELECT'].includes(node.tagName)||node.isContentEditable))}"
+        )
+        plain_copy_guard = (
+            "if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&String(e.key).toLowerCase()==='c')return;"
+        )
+        selection_copy_guard = (
+            "if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
+        )
+        chord = "const chord=eventChord(e);"
+        editable_dispatch = "if(editable){const projectedHelp=projectedOwnedAction(e,['global']);"
+        help_resolution = "resolveBinding(chord,'global','document')"
+        editable_alt_gate = "if(!e.altKey)return;"
+        analysis_resolution = "resolveBinding(chord,'analysis','analysis')"
+        claim = "{claimOwnedKey(e);"
+
+        self.assertIn(editable_helper, handler)
+        self.assertIn(plain_copy_guard, handler)
+        self.assertIn(selection_copy_guard, handler)
+        self.assertIn(editable_dispatch, handler)
+        self.assertIn(help_resolution, handler)
+        self.assertIn(editable_alt_gate, handler)
+        self.assertIn(analysis_resolution, handler)
+        self.assertLess(handler.index(plain_copy_guard), handler.index(chord))
+        self.assertLess(handler.index(selection_copy_guard), handler.index(chord))
+        self.assertLess(handler.index(chord), handler.index(editable_dispatch))
+        self.assertLess(handler.index(editable_dispatch), handler.index(editable_alt_gate))
+        self.assertLess(handler.index(editable_dispatch), handler.index(claim))
+
+        move_listener = (
+            "el('move-input').addEventListener('keydown',async e=>{const chord=eventChord(e),"
+            "candidate=keymapActionForEvent(e,'move_entry');if(candidate!=='move.submit')return;"
+            "e.preventDefault();e.stopPropagation();const a=await resolveBinding(chord,'move_entry','move-entry');"
+            "if(a&&a.actionId===candidate)executeAction(a.actionId)})"
+        )
         self.assertIn(move_listener, html)
-        self.assertNotIn("'move-input').addEventListener('keydown',e=>{e.preventDefault()", html)
+        self.assertNotIn(
+            "el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter')",
+            html,
+        )
 
     def test_board_square_accessible_names_are_concise_and_bilingual(self) -> None:
         with tempfile.TemporaryDirectory() as td:

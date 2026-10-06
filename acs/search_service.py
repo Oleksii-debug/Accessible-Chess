@@ -14,9 +14,7 @@ from typing import Literal
 
 from .acsdb import AcsDatabase
 from .search_policy import (
-    SEARCH_FOLD_SQL_FUNCTION,
-    install_search_fold,
-    literal_like_pattern,
+    normalize_search_date_bound,
     normalize_search_limit,
     normalize_search_result,
     normalize_search_source_id,
@@ -55,6 +53,51 @@ def _sqlite_integer(value: object, *, name: str, minimum: int) -> int:
     return integer
 
 
+def _canonical_search_row(row: object) -> dict:
+    """Accept only the exact row container published by the ACSDB API."""
+
+    if type(row) is not dict:
+        raise TypeError("search row must be a dictionary")
+    return row
+
+
+def _row_required_integer(
+    row: dict,
+    key: str,
+    *,
+    minimum: int,
+) -> int:
+    """Read one canonical SQLite integer without presentation-side coercion."""
+
+    if key not in row:
+        raise ValueError(f"search row is missing {key}")
+    return _sqlite_integer(row[key], name=key, minimum=minimum)
+
+
+def _row_required_text(row: dict, key: str) -> str:
+    """Read required persisted text without converting malformed scalars."""
+
+    if key not in row:
+        raise ValueError(f"search row is missing {key}")
+    value = row[key]
+    if type(value) is not str:
+        raise TypeError(f"{key} must be text")
+    return value
+
+
+def _row_optional_text(row: dict, key: str) -> str | None:
+    """Read optional persisted text while preserving SQL NULL exactly."""
+
+    if key not in row:
+        raise ValueError(f"search row is missing {key}")
+    value = row[key]
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise TypeError(f"{key} must be text or null")
+    return value
+
+
 def _validate_cancel_check(
     cancel_check: Callable[[], bool] | None,
 ) -> Callable[[], bool] | None:
@@ -77,8 +120,13 @@ def _poll_cancel(cancel_check: Callable[[], bool]) -> bool:
 class GameSearchQuery:
     """Stable, neutral query contract for a page of ACSDB games.
 
+    ``game_date`` matches the stored loss-aware PGN Date tag exactly after the
+    normal text normalization policy. ``date_from`` and ``date_to`` are strict
+    calendar bounds and accept only complete real ``YYYY.MM.DD`` dates; partial
+    or unknown source dates remain stored but do not become invented range facts.
+
     ``after_game_id`` is a keyset cursor rather than a row offset. This keeps paging
-    deterministic while imports append games to the database. Text filters are
+    deterministic while imports append games to the database. Filters are
     intentionally explicit so callers do not pass raw SQL fragments.
     """
 
@@ -86,6 +134,9 @@ class GameSearchQuery:
     event: str | None = None
     eco: str | None = None
     opening: str | None = None
+    game_date: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
     result: SearchResult | None = None
     source_id: int | None = None
     source_name: str | None = None
@@ -105,12 +156,19 @@ class GameSearchQuery:
             )
 
         result = normalize_search_result(self.result)
+        date_from = normalize_search_date_bound(self.date_from, name="date_from")
+        date_to = normalize_search_date_bound(self.date_to, name="date_to")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise ValueError("date_from must not be later than date_to")
 
         return GameSearchQuery(
             player=normalize_search_term(self.player, name="player"),
             event=normalize_search_term(self.event, name="event"),
             eco=normalize_search_term(self.eco, name="eco"),
             opening=normalize_search_term(self.opening, name="opening"),
+            game_date=normalize_search_term(self.game_date, name="game_date"),
+            date_from=date_from,
+            date_to=date_to,
             result=result,  # type: ignore[arg-type]
             source_id=source_id,
             source_name=normalize_search_term(self.source_name, name="source_name"),
@@ -151,7 +209,6 @@ class GameSearchService:
 
     def __init__(self, database: AcsDatabase) -> None:
         self._database = database
-        install_search_fold(self._database.conn)
 
     def search(
         self,
@@ -164,9 +221,14 @@ class GameSearchService:
         Cancellation is cooperative and presentation-neutral. A caller supplies a
         cheap zero-argument predicate returning an exact boolean. The predicate is
         polled before execution, from SQLite's VM progress hook during potentially
-        large Unicode scans, and once before publishing a completed page. SQLite's
+        large scans, and once before publishing a completed page. SQLite's
         connection-global progress hook is always removed before returning or
         raising so a cancelled query cannot poison later Library operations.
+
+        Query construction and Unicode/literal/date semantics are delegated to
+        :meth:`AcsDatabase.search_games`. This keeps the application service on the
+        same schema-v5 search/index path, ordering and provenance contract as the
+        direct database API instead of maintaining a second SQL implementation.
 
         The VM hook is deliberately not exposed as a percentage: SQLite opcode
         counts are implementation details and are not a meaningful row/progress
@@ -178,66 +240,24 @@ class GameSearchService:
         if cancel_check is not None and _poll_cancel(cancel_check):
             raise SearchCancelledError("Search cancelled")
 
-        clauses: list[str] = []
-        params: list[object] = []
-
-        if q.player:
-            clauses.append(
-                f"({SEARCH_FOLD_SQL_FUNCTION}(g.white) LIKE ? ESCAPE '\\' OR "
-                f"{SEARCH_FOLD_SQL_FUNCTION}(g.black) LIKE ? ESCAPE '\\')"
+        def execute_search() -> list[dict]:
+            return self._database.search_games(
+                player=q.player,
+                event=q.event,
+                eco=q.eco,
+                opening=q.opening,
+                game_date=q.game_date,
+                date_from=q.date_from,
+                date_to=q.date_to,
+                result=q.result,
+                source_id=q.source_id,
+                source_name=q.source_name,
+                after_id=q.after_game_id,
+                limit=q.limit + 1,
             )
-            needle = literal_like_pattern(q.player)
-            params.extend((needle, needle))
-        if q.event:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.event) LIKE ? ESCAPE '\\'")
-            params.append(literal_like_pattern(q.event))
-        if q.eco:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.eco) LIKE ? ESCAPE '\\'")
-            params.append(literal_like_pattern(q.eco, prefix=True))
-        if q.opening:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(g.opening) LIKE ? ESCAPE '\\'")
-            params.append(literal_like_pattern(q.opening))
-        if q.result:
-            clauses.append("g.result=?")
-            params.append(q.result)
-        if q.source_id is not None:
-            clauses.append("g.source_id=?")
-            params.append(q.source_id)
-        if q.source_name:
-            clauses.append(f"{SEARCH_FOLD_SQL_FUNCTION}(s.source_name) LIKE ? ESCAPE '\\'")
-            params.append(literal_like_pattern(q.source_name))
-        if q.after_game_id is not None:
-            clauses.append("g.id>?")
-            params.append(q.after_game_id)
-
-        sql = """
-            SELECT
-                g.id AS game_id,
-                g.source_id,
-                s.source_name,
-                s.source_format,
-                g.source_index,
-                g.import_status,
-                g.white,
-                g.black,
-                g.event,
-                g.site,
-                g.game_date,
-                g.round,
-                g.result,
-                g.eco,
-                g.opening,
-                g.start_fen
-            FROM games g
-            JOIN sources s ON s.id = g.source_id
-        """
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY g.id LIMIT ?"
-        params.append(q.limit + 1)
 
         if cancel_check is None:
-            rows = self._database.conn.execute(sql, params).fetchall()
+            rows = execute_search()
         else:
             progress_cancelled = False
             progress_error: SearchControlError | None = None
@@ -256,7 +276,7 @@ class GameSearchService:
                 _SQLITE_PROGRESS_OPCODES,
             )
             try:
-                rows = self._database.conn.execute(sql, params).fetchall()
+                rows = execute_search()
             except sqlite3.OperationalError:
                 if progress_error is not None:
                     raise progress_error from None
@@ -269,28 +289,31 @@ class GameSearchService:
             if _poll_cancel(cancel_check):
                 raise SearchCancelledError("Search cancelled")
 
-        has_more = len(rows) > q.limit
-        visible_rows = rows[: q.limit]
-        items = tuple(
+        if type(rows) is not list:
+            raise TypeError("search result must be a list")
+        canonical_rows = tuple(_canonical_search_row(row) for row in rows)
+        projected_items = tuple(
             GameSearchItem(
-                game_id=int(row["game_id"]),
-                source_id=int(row["source_id"]),
-                source_name=str(row["source_name"]),
-                source_format=str(row["source_format"]),
-                source_index=int(row["source_index"]),
-                import_status=str(row["import_status"]),
-                white=row["white"],
-                black=row["black"],
-                event=row["event"],
-                site=row["site"],
-                game_date=row["game_date"],
-                round=row["round"],
-                result=row["result"],
-                eco=row["eco"],
-                opening=row["opening"],
-                start_fen=row["start_fen"],
+                game_id=_row_required_integer(row, "id", minimum=1),
+                source_id=_row_required_integer(row, "source_id", minimum=1),
+                source_name=_row_required_text(row, "source_name"),
+                source_format=_row_required_text(row, "source_format"),
+                source_index=_row_required_integer(row, "source_index", minimum=0),
+                import_status=_row_required_text(row, "import_status"),
+                white=_row_optional_text(row, "white"),
+                black=_row_optional_text(row, "black"),
+                event=_row_optional_text(row, "event"),
+                site=_row_optional_text(row, "site"),
+                game_date=_row_optional_text(row, "game_date"),
+                round=_row_optional_text(row, "round"),
+                result=_row_optional_text(row, "result"),
+                eco=_row_optional_text(row, "eco"),
+                opening=_row_optional_text(row, "opening"),
+                start_fen=_row_optional_text(row, "start_fen"),
             )
-            for row in visible_rows
+            for row in canonical_rows
         )
+        has_more = len(projected_items) > q.limit
+        items = projected_items[: q.limit]
         next_cursor = items[-1].game_id if has_more and items else None
         return GameSearchPage(items=items, next_after_game_id=next_cursor, has_more=has_more)

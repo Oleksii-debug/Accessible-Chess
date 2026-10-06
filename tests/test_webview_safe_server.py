@@ -6,6 +6,7 @@ from pathlib import Path
 from acs.webview_safe_server import (
     CHROMIUM_RESTRICTED_PORTS,
     STAGE1_WEBVIEW_SAFE_PORTS,
+    SafeLocalServerPortError,
     choose_chromium_safe_loopback_port,
     install_pywebview_safe_local_server_port,
     validate_chromium_safe_port,
@@ -52,7 +53,7 @@ class WebViewSafeServerTests(unittest.TestCase):
         self.assertEqual(chosen, 42003)
 
     def test_selector_fails_closed_when_no_vetted_port_is_available(self) -> None:
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(SafeLocalServerPortError):
             choose_chromium_safe_loopback_port(
                 (6666, 42001),
                 availability_probe=lambda port: False,
@@ -79,6 +80,38 @@ class WebViewSafeServerTests(unittest.TestCase):
         self.assertEqual(args[6], 42002)
         self.assertNotIn("http_port", kwargs)
 
+    def test_installed_guard_translates_selector_failure_to_specific_startup_error(self) -> None:
+        fake = _FakeWebview()
+
+        def fail_selector() -> int:
+            raise RuntimeError("no port")
+
+        install_pywebview_safe_local_server_port(fake, port_selector=fail_selector)
+        with self.assertRaises(SafeLocalServerPortError):
+            fake.start(gui="edgechromium")
+        self.assertEqual(fake.calls, [])
+
+    def test_installed_guard_translates_invalid_selected_port_to_specific_startup_error(self) -> None:
+        fake = _FakeWebview()
+        install_pywebview_safe_local_server_port(fake, port_selector=lambda: 6666)
+        with self.assertRaises(SafeLocalServerPortError):
+            fake.start(gui="edgechromium")
+        self.assertEqual(fake.calls, [])
+
+    def test_original_webview_start_failure_is_not_misclassified_as_port_error(self) -> None:
+        fake = _FakeWebview()
+
+        def fail_start(*_args, **_kwargs):
+            raise RuntimeError("synthetic original webview start failure")
+
+        fake.start = fail_start
+        install_pywebview_safe_local_server_port(fake, port_selector=lambda: 42001)
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "synthetic original webview start failure",
+        ):
+            fake.start(gui="edgechromium")
+
     def test_install_is_idempotent_and_does_not_stack_wrappers(self) -> None:
         fake = _FakeWebview()
         install_pywebview_safe_local_server_port(fake, port_selector=lambda: 42001)
@@ -91,10 +124,11 @@ class WebViewSafeServerTests(unittest.TestCase):
 
     def test_packaged_launcher_installs_safe_server_before_stage1_main(self) -> None:
         launcher = (self.root / "run_accessible_chess.py").read_text(encoding="utf-8")
-        install_import = "from acs.webview_safe_server import install_pywebview_safe_local_server_port"
         install_call = "install_pywebview_safe_local_server_port()"
         main_import = "from acs.stage1_release_ui import main"
-        self.assertIn(install_import, launcher)
+        self.assertIn("from acs.webview_safe_server import (", launcher)
+        self.assertIn("SafeLocalServerPortError,", launcher)
+        self.assertIn("install_pywebview_safe_local_server_port,", launcher)
         self.assertIn(install_call, launcher)
         self.assertIn(main_import, launcher)
         self.assertLess(launcher.index(install_call), launcher.index(main_import))

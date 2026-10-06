@@ -1,0 +1,269 @@
+name: Current Product Accessibility Formats Convergence
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/current-product-accessibility-formats-convergence.yml'
+      - '.github/workflows/current-books-keymap-semantic-convergence.yml'
+      - '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml'
+      - '.github/workflows/keybindings-current-apex-core.yml'
+      - '.github/workflows/keybindings-current-apex-dom-native.yml'
+      - '.github/workflows/webview-keymap-authority.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/d01-teacher-classroom-webview.yml'
+      - '.github/workflows/book-html-epub-pgn-collections.yml'
+      - 'acs/keybindings.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/webapp.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/book_html_import.py'
+      - 'acs/book_library_import.py'
+      - 'acs/book_training.py'
+      - 'acs/gametree_legality.py'
+      - 'acs/import_contract.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'web/index.html'
+      - 'web/full_product_classroom.js'
+      - 'web/full_product_pgn.js'
+      - 'web/full_product_books_training.js'
+      - 'tests/js/dynamic_keymap_help_test.js'
+      - 'tests/js/classroom_surface_dom_test.js'
+      - 'tests/js/pgn_remaining_keybindings_test.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
+      - 'tests/test_keybindings.py'
+      - 'tests/test_dynamic_keymap_help_contract.py'
+      - 'tests/test_dev1_release_ui_regressions.py'
+      - 'tests/test_pgn_tree_remaining_keybindings.py'
+      - 'tests/test_book_html_inline_image_order.py'
+      - 'tests/test_book_html_pgn_loss_accounting.py'
+      - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_book_training_variant_authority.py'
+      - 'tests/test_pgn_board_start_authority.py'
+  push:
+    branches:
+      - 'converge/current-product-diagnostic-help-classroom-20261005-sol56m7k2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-product-accessibility-formats-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_EXACT_HEAD=PASS'
+
+      - name: Prove serial source ancestry and exact scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_BASE: bf418985e9e20dc3491db7e229a33052a399e1a6
+          DIAGNOSTIC_HELP: 7baaaa5f6b90987b60b08595808b5ab2808141d4
+          CLASSROOM_SOURCE: d901cb1ba880af2348b5f9ca0b700eb3b1c59b02
+          CLASSROOM_MERGE: 0e5b5fbea520d2cc101cff01024d056483c40d98
+          PGN_SOURCE: e55d4d2a0a4fe69170b8a80e600423f2a6f49175
+          PGN_MERGE: 8e7dcdbeac453c31eb05474e07bbeecdfa6d6ded
+          FORMATS_SOURCE: 34348e9be9e2c6286e33474ddfaf2137112ee1a3
+          FORMATS_MERGE: c17941f4f58a8fbd9d88e0ad558d95e00d2e0bf3
+          CURRENT_PRODUCT: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          KEYMAP_SOURCE: fc4c6c85dbdf4e5d7c3798a6171a696b27f0472b
+          BOOKS_SOURCE: 9b9f923639b27d4f4d674ff3e086298f1acb8491
+          MERGED_BOOKS_RUNTIME_BLOB: a269a5771c87bb39837b0d78247fbe938da794c9
+          SEMANTIC_BOOKS_DOM_BLOB: a1ce64e2ded06518f0e0c9f5e623bf78a8de1855
+          TOOLBAR_CONVERGENCE_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          for commit in "$PRODUCT_BASE" "$DIAGNOSTIC_HELP" "$CLASSROOM_SOURCE" "$CLASSROOM_MERGE" "$PGN_SOURCE" "$PGN_MERGE" "$FORMATS_SOURCE" "$FORMATS_MERGE"; do
+            git cat-file -e "$commit^{commit}"
+            git merge-base --is-ancestor "$commit" HEAD
+          done
+
+          test "$(git rev-parse "$CLASSROOM_MERGE^1")" = "$DIAGNOSTIC_HELP"
+          test "$(git rev-parse "$CLASSROOM_MERGE^2")" = "$CLASSROOM_SOURCE"
+          test "$(git rev-parse "$PGN_MERGE^1")" = "$CLASSROOM_MERGE"
+          test "$(git rev-parse "$PGN_MERGE^2")" = "$PGN_SOURCE"
+          test "$(git rev-parse "$FORMATS_MERGE^1")" = "$PGN_MERGE"
+          test "$(git rev-parse "$FORMATS_MERGE^2")" = "$FORMATS_SOURCE"
+          test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
+          git diff --check "$PRODUCT_BASE"...HEAD
+
+          changed="$(git diff --name-only "$PRODUCT_BASE"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/book-html-epub-pgn-collections.yml' \
+            '.github/workflows/current-product-accessibility-formats-convergence.yml' \
+            '.github/workflows/current-product-diagnostic-dynamic-help-convergence.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/d01-teacher-classroom-webview.yml' \
+            '.github/workflows/keybindings-current-apex-core.yml' \
+            '.github/workflows/keybindings-current-apex-dom-native.yml' \
+            '.github/workflows/webview-keymap-authority.yml' \
+            'acs/book_html_import.py' \
+            'acs/book_library_import.py' \
+            'acs/book_training.py' \
+            'acs/full_product_actions.py' \
+            'acs/gametree_legality.py' \
+            'acs/import_contract.py' \
+            'acs/keybindings.py' \
+            'acs/stage1_release_ui.py' \
+            'acs/version2_windows_file_workflows.py' \
+            'acs/webapp.py' \
+            'tests/js/classroom_surface_dom_test.js' \
+            'tests/js/dynamic_keymap_help_test.js' \
+            'tests/js/pgn_remaining_keybindings_test.js' \
+            'tests/test_book_html_inline_image_order.py' \
+            'tests/test_book_html_pgn_loss_accounting.py' \
+            'tests/test_book_library_import_journey.py' \
+            'tests/test_book_training_variant_authority.py' \
+            'tests/test_dev1_release_ui_regressions.py' \
+            'tests/test_dynamic_keymap_help_contract.py' \
+            'tests/test_keybindings.py' \
+            'tests/test_pgn_board_start_authority.py' \
+            'tests/test_pgn_tree_remaining_keybindings.py' \
+            'web/full_product_classroom.js' \
+            'web/full_product_pgn.js' \
+            'web/index.html' | sort)"
+
+          if [ "$changed" = "$expected_paths" ]; then
+            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=FOCUSED_SCOPE'
+          else
+            if [ -n "${EVENT_BASE_SHA:-}" ] && [ -n "${EVENT_BASE_REF:-}" ]; then
+              git cat-file -e "$EVENT_BASE_SHA^{commit}"
+              git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
+              live_shipping_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
+              git cat-file -e "$live_shipping_base^{commit}"
+              git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_shipping_base"
+              absorbed_shipping_base="$(git merge-base "$live_shipping_base" HEAD)"
+              git merge-base --is-ancestor "$EVENT_BASE_SHA" "$absorbed_shipping_base"
+              git merge-base --is-ancestor "$CURRENT_PRODUCT" "$absorbed_shipping_base"
+              git merge-base --is-ancestor "$absorbed_shipping_base" "$live_shipping_base"
+              git merge-base --is-ancestor "$absorbed_shipping_base" HEAD
+              shipping_changed="$(git diff --name-only "$absorbed_shipping_base"...HEAD | sort)"
+              shipping_ui_expected="$(printf '%s\n' \
+                '.github/workflows/current-product-accessibility-formats-convergence.yml' \
+                '.github/workflows/current-webui-accessibility-oracle.yml' \
+                '.github/workflows/d01-pgn-workspace-webview.yml' \
+                '.github/workflows/keybindings-current-apex-dom-native.yml' \
+                'tests/js/keymap_recovery_accessibility_test.js' \
+                'tests/js/owner_gameplay_keyboard_test.js' \
+                'tests/test_accessible_webui.py' \
+                'web/index.html' | sort)"
+              if [ "$shipping_changed" = "$shipping_ui_expected" ]; then
+                echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=SHIPPING_UI_TRANSACTION_EXACT'
+                exit 0
+              fi
+            fi
+
+            for commit in "$CURRENT_PRODUCT" "$KEYMAP_SOURCE" "$BOOKS_SOURCE"; do
+              git cat-file -e "$commit^{commit}"
+              git merge-base --is-ancestor "$commit" HEAD
+            done
+            test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
+
+            successor_changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
+            successor_expected="$(
+              {
+                git diff --name-only "$CURRENT_PRODUCT"..."$KEYMAP_SOURCE"
+                git diff --name-only "$CURRENT_PRODUCT"..."$BOOKS_SOURCE"
+                printf '%s\n' \
+                  '.github/workflows/current-books-keymap-semantic-convergence.yml' \
+                  'tests/js/books_training_toolbar_keymap_convergence_test.js' \
+                  'tests/test_current_books_keymap_semantic_convergence_workflow.py'
+              } | sort -u
+            )"
+            test "$successor_changed" = "$successor_expected" || {
+              printf 'Unexpected combined Product successor scope.\nExpected:\n%s\nActual:\n%s\n' "$successor_expected" "$successor_changed" >&2
+              exit 1
+            }
+
+            test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "$MERGED_BOOKS_RUNTIME_BLOB"
+            test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "$SEMANTIC_BOOKS_DOM_BLOB"
+            test "$(git rev-parse HEAD:tests/js/books_training_toolbar_keymap_convergence_test.js)" = "$TOOLBAR_CONVERGENCE_DOM_BLOB"
+            echo 'CURRENT_PRODUCT_ACCESSIBILITY_FORMATS_TOPOLOGY=BOOKS_KEYMAP_SUCCESSOR'
+          fi
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile current convergence boundaries
+        run: >-
+          python -m py_compile
+          acs/keybindings.py
+          acs/stage1_release_ui.py
+          acs/webapp.py
+          acs/full_product_actions.py
+          acs/book_html_import.py
+          acs/book_library_import.py
+          acs/book_training.py
+          acs/gametree_legality.py
+          acs/import_contract.py
+          acs/version2_windows_file_workflows.py
+          tests/test_current_books_keymap_semantic_convergence_workflow.py
+          tests/test_dynamic_keymap_help_contract.py
+          tests/test_pgn_tree_remaining_keybindings.py
+          tests/test_book_html_pgn_loss_accounting.py
+          tests/test_book_library_import_journey.py
+          tests/test_book_training_variant_authority.py
+          tests/test_pgn_board_start_authority.py
+
+      - name: Run browser accessibility and keymap contracts
+        run: |
+          node tests/js/dynamic_keymap_help_test.js
+          node tests/js/classroom_surface_dom_test.js
+          node tests/js/pgn_remaining_keybindings_test.js
+
+      - name: Run focused Python convergence regressions
+        run: >-
+          python -m unittest -v
+          tests.test_current_books_keymap_semantic_convergence_workflow
+          tests.test_keybindings
+          tests.test_dynamic_keymap_help_contract
+          tests.test_dev1_release_ui_regressions
+          tests.test_webview_keymap_bridge_contract
+          tests.test_stage1_unbound_shortcut_capture
+          tests.test_pgn_tree_remaining_keybindings
+          tests.test_book_html_inline_image_order
+          tests.test_book_html_pgn_loss_accounting
+          tests.test_book_library_import_journey
+          tests.test_book_training_variant_authority
+          tests.test_pgn_board_start_authority
+
+      - name: Run current V2 diagnostic and core selftest
+        run: |
+          python run_accessible_chess_v2.py --diagnostic
+          python -m acs.selftest

@@ -1,0 +1,53 @@
+name: WebView Keymap Authority
+
+on:
+  pull_request:
+    paths:
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'acs/ui_keymap_service.py'
+      - 'acs/keybindings.py'
+      - 'web/index.html'
+      - 'tests/test_webview_keymap_bridge_contract.py'
+      - 'tests/test_dynamic_keymap_help_contract.py'
+      - 'tests/js/dynamic_keymap_help_test.js'
+      - '.github/workflows/webview-keymap-authority.yml'
+  push:
+    paths:
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'acs/ui_keymap_service.py'
+      - 'acs/keybindings.py'
+      - 'web/index.html'
+      - 'tests/test_webview_keymap_bridge_contract.py'
+      - 'tests/test_dynamic_keymap_help_contract.py'
+      - 'tests/js/dynamic_keymap_help_test.js'
+      - '.github/workflows/webview-keymap-authority.yml'
+
+concurrency:
+  group: webview-keymap-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout tested ref
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Compile keymap authority contracts
+        run: python -m py_compile tests/test_webview_keymap_bridge_contract.py tests/test_dynamic_keymap_help_contract.py
+      - name: Run keymap authority contracts
+        run: python -m unittest -v tests.test_webview_keymap_bridge_contract tests.test_dynamic_keymap_help_contract
+      - name: Run dynamic Help behavior contract
+        run: node tests/js/dynamic_keymap_help_test.js

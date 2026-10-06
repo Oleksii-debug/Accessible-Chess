@@ -5,7 +5,8 @@ from __future__ import annotations
 This module is deliberately presentation-neutral.  It does not parse chess moves
 itself and it does not own a second board.  Book structure is read through the
 existing BookDocument/BookIndex contracts, solution PGN is read through the
-existing GameTree parser, and every answer is resolved by ``chesscore.Board``.
+canonical bounded D06 PGN ingress, and every answer is resolved by
+``chesscore.Board``.
 """
 
 from dataclasses import dataclass
@@ -18,13 +19,26 @@ from .book_index import AmbiguousBookTargetError, BookIndex
 from .bookdocument import BookDocument, Exercise
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
-from .gametree import GameTreeContractError, MoveNode, PgnGame, parse_games
-from .training import ExerciseDefinition, ExerciseStep
+from .gametree import MoveNode, PgnGame
+from .gametree_legality import supports_standard_variant
+from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
+from .training import (
+    ExerciseDefinition,
+    ExerciseStep,
+    _MAX_ACCEPTED_MOVES_PER_STEP,
+    _MAX_EXERCISE_STEPS,
+    _MAX_MOVE_TEXT,
+)
 
 
 BOOK_TRAINING_SCHEMA_VERSION = 1
 _MAX_SOLUTION_PGN_TEXT = 256_000
 _MAX_ORIGIN_TEXT = 4096
+_MAX_HEADING_PATH_ITEMS = 256
+_MAX_DEFINITION_TAGS = 256
+_MAX_DEFINITION_METADATA_ITEMS = 256
+_MAX_DEFINITION_AUX_TEXT = 4096
+_MAX_WIRE_FIELD_NAME = 128
 _MATERIAL_FIELDS = frozenset({"schema_version", "origin", "definition"})
 _ORIGIN_FIELDS = frozenset(
     {
@@ -70,8 +84,15 @@ def _bounded_text(value: object, name: str, *, allow_none: bool = False) -> str 
             f"{name} must be text" if not allow_none else f"{name} must be text or null",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
+    # Reject from O(1) raw length metadata before strip() can scan an
+    # attacker-controlled provenance scalar.
+    if len(value) > _MAX_ORIGIN_TEXT:
+        raise BookTrainingError(
+            f"{name} is empty or exceeds the safety limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
     text = value.strip()
-    if not text or len(text) > _MAX_ORIGIN_TEXT:
+    if not text:
         raise BookTrainingError(
             f"{name} is empty or exceeds the safety limit",
             code=BookTrainingErrorCode.INVALID_FIELD,
@@ -90,6 +111,8 @@ def _sha256_json(value: object) -> str:
 
 
 def _book_fingerprint(document: BookDocument) -> str:
+    if type(document) is not BookDocument:
+        raise TypeError("document must be a BookDocument")
     # The fingerprint binds stable book-level provenance while keeping source_name
     # (which may be a private local path) out of exported training payloads.
     return _sha256_json(
@@ -103,6 +126,8 @@ def _book_fingerprint(document: BookDocument) -> str:
 
 
 def _block_digest(block: Exercise) -> str:
+    if type(block) is not Exercise:
+        raise TypeError("book training block must be an exact Exercise")
     return _sha256_json(block.as_dict())
 
 
@@ -118,11 +143,39 @@ def _require_sha256(value: object, name: str) -> str:
 
 
 def _require_exact_fields(
-    payload: Mapping[str, object],
+    payload: object,
     expected: frozenset[str],
     name: str,
 ) -> None:
-    fields = set(payload)
+    # JSON objects arrive as built-in dicts. Reject Mapping/dict subclasses
+    # before len(), iteration, hashing or equality can execute custom hooks.
+    if type(payload) is not dict:
+        raise BookTrainingError(
+            f"{name} must be an exact dictionary",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    # An exact JSON object cannot contain duplicate keys. More keys than the
+    # schema therefore proves an unknown field without iterating attacker-sized
+    # mappings or hashing attacker-controlled names.
+    if len(payload) > len(expected):
+        raise BookTrainingError(
+            f"invalid {name} fields (too many fields)",
+            code=BookTrainingErrorCode.UNKNOWN_FIELD,
+        )
+    field_names: list[str] = []
+    for field in payload:
+        if type(field) is not str:
+            raise BookTrainingError(
+                f"{name} field names must be exact text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        if len(field) > _MAX_WIRE_FIELD_NAME:
+            raise BookTrainingError(
+                f"invalid {name} fields (field name exceeds safety limit)",
+                code=BookTrainingErrorCode.UNKNOWN_FIELD,
+            )
+        field_names.append(field)
+    fields = set(field_names)
     if fields == expected:
         return
     missing = sorted(expected - fields)
@@ -181,41 +234,56 @@ class BookTrainingOrigin:
             "book training source_anchor",
             allow_none=True,
         )
-        if type(self.heading_path) is not tuple or any(
-            type(item) is not str or not item.strip() or len(item) > _MAX_ORIGIN_TEXT
-            for item in self.heading_path
+        if (
+            type(self.heading_path) is not tuple
+            or len(self.heading_path) > _MAX_HEADING_PATH_ITEMS
         ):
             raise BookTrainingError(
-                "book training heading_path must be a tuple of bounded non-empty text",
+                "book training heading_path must be a bounded tuple",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
+        for item in self.heading_path:
+            if type(item) is not str or len(item) > _MAX_ORIGIN_TEXT or not item.strip():
+                raise BookTrainingError(
+                    "book training heading_path must contain bounded non-empty text",
+                    code=BookTrainingErrorCode.INVALID_FIELD,
+                )
         object.__setattr__(self, "target_key", target_key)
         object.__setattr__(self, "block_id", block_id)
         object.__setattr__(self, "source_anchor", source_anchor)
 
     def as_dict(self) -> dict[str, object]:
+        if type(self) is not BookTrainingOrigin:
+            raise TypeError("origin must be an exact BookTrainingOrigin")
+        canonical = BookTrainingOrigin(
+            target_key=self.target_key,
+            block_digest=self.block_digest,
+            index_at_export=self.index_at_export,
+            block_id=self.block_id,
+            source_anchor=self.source_anchor,
+            heading_path=self.heading_path,
+            book_fingerprint=self.book_fingerprint,
+        )
         return {
-            "target_key": self.target_key,
-            "block_digest": self.block_digest,
-            "index_at_export": self.index_at_export,
-            "block_id": self.block_id,
-            "source_anchor": self.source_anchor,
-            "heading_path": list(self.heading_path),
-            "book_fingerprint": self.book_fingerprint,
+            "target_key": canonical.target_key,
+            "block_digest": canonical.block_digest,
+            "index_at_export": canonical.index_at_export,
+            "block_id": canonical.block_id,
+            "source_anchor": canonical.source_anchor,
+            "heading_path": list(canonical.heading_path),
+            "book_fingerprint": canonical.book_fingerprint,
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "BookTrainingOrigin":
-        if not isinstance(payload, Mapping):
-            raise BookTrainingError(
-                "book training origin must be a mapping",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
         _require_exact_fields(payload, _ORIGIN_FIELDS, "book training origin")
         heading_path = payload["heading_path"]
-        if type(heading_path) is not list:
+        if (
+            type(heading_path) is not list
+            or len(heading_path) > _MAX_HEADING_PATH_ITEMS
+        ):
             raise BookTrainingError(
-                "book training heading_path must be a list",
+                "book training heading_path must be a bounded list",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         return cls(
@@ -237,15 +305,13 @@ class BookTrainingMaterial:
     definition: ExerciseDefinition
 
     def __post_init__(self) -> None:
-        if not isinstance(self.origin, BookTrainingOrigin):
-            raise TypeError("origin must be a BookTrainingOrigin")
-        if not isinstance(self.definition, ExerciseDefinition):
-            raise TypeError("definition must be an ExerciseDefinition")
+        if type(self.origin) is not BookTrainingOrigin:
+            raise TypeError("origin must be an exact BookTrainingOrigin")
+        if type(self.definition) is not ExerciseDefinition:
+            raise TypeError("definition must be an exact ExerciseDefinition")
 
     def as_dict(self) -> dict[str, object]:
-        # Rebuild the definition through the strict wire decoder so a caller that
-        # mutated the Mapping held by a frozen ExerciseDefinition cannot publish
-        # malformed or coercive content.
+        self.__post_init__()
         canonical = _definition_from_dict(_definition_to_dict(self.definition))
         return {
             "schema_version": BOOK_TRAINING_SCHEMA_VERSION,
@@ -255,81 +321,183 @@ class BookTrainingMaterial:
 
 
 def _definition_to_dict(definition: ExerciseDefinition) -> dict[str, object]:
-    if not isinstance(definition, ExerciseDefinition):
-        raise TypeError("definition must be an ExerciseDefinition")
-    if type(definition.title) is not str:
-        raise BookTrainingError(
-            "exercise title must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
+    if type(definition) is not ExerciseDefinition:
+        raise TypeError("definition must be an exact ExerciseDefinition")
+
+    exercise_id = definition.exercise_id
+    start_fen = definition.start_fen
+    title = definition.title
+    source_id = definition.source_id
+    if (
+        type(exercise_id) is not str
+        or type(start_fen) is not str
+        or len(exercise_id) > _MAX_DEFINITION_AUX_TEXT
+        or len(start_fen) > _MAX_DEFINITION_AUX_TEXT
+        or type(title) is not str
+        or len(title) > _MAX_DEFINITION_AUX_TEXT
+        or (
+            source_id is not None
+            and (
+                type(source_id) is not str
+                or len(source_id) > _MAX_DEFINITION_AUX_TEXT
+            )
         )
-    if type(definition.tags) is not tuple or any(type(tag) is not str for tag in definition.tags):
-        raise BookTrainingError(
-            "exercise tags must be a tuple of text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if not isinstance(definition.metadata, Mapping) or any(
-        type(key) is not str or type(value) is not str
-        for key, value in definition.metadata.items()
     ):
         raise BookTrainingError(
-            "exercise metadata must map text keys to text values",
+            "exercise scalar fields exceed the wire safety contract",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    return {
-        "exercise_id": definition.exercise_id,
-        "start_fen": definition.start_fen,
-        "steps": [
+
+    steps = definition.steps
+    if (
+        type(steps) is not tuple
+        or not steps
+        or len(steps) > _MAX_EXERCISE_STEPS
+    ):
+        raise BookTrainingError(
+            "exercise steps must be a bounded non-empty tuple",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    rendered_steps: list[dict[str, object]] = []
+    for step in steps:
+        if type(step) is not ExerciseStep:
+            raise BookTrainingError(
+                "exercise steps must contain exact ExerciseStep values",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        accepted = step.accepted_moves
+        if (
+            type(accepted) is not frozenset
+            or not accepted
+            or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP
+        ):
+            raise BookTrainingError(
+                "exercise accepted moves exceed the wire safety contract",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        for move in accepted:
+            if type(move) is not str or len(move) > _MAX_MOVE_TEXT:
+                raise BookTrainingError(
+                    "exercise accepted moves must contain bounded exact text",
+                    code=BookTrainingErrorCode.INVALID_FIELD,
+                )
+        hint = step.hint
+        explanation = step.explanation
+        if (
+            hint is not None
+            and (
+                type(hint) is not str
+                or len(hint) > _MAX_DEFINITION_AUX_TEXT
+            )
+        ) or (
+            explanation is not None
+            and (
+                type(explanation) is not str
+                or len(explanation) > _MAX_DEFINITION_AUX_TEXT
+            )
+        ):
+            raise BookTrainingError(
+                "exercise step auxiliary text exceeds the wire safety contract",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+        rendered_steps.append(
             {
-                "accepted_moves": sorted(step.accepted_moves),
-                "hint": step.hint,
-                "explanation": step.explanation,
+                "accepted_moves": sorted(accepted),
+                "hint": hint,
+                "explanation": explanation,
             }
-            for step in definition.steps
-        ],
-        "title": definition.title,
-        "tags": list(definition.tags),
-        "source_id": definition.source_id,
-        "metadata": dict(sorted(definition.metadata.items())),
+        )
+
+    tags = definition.tags
+    if type(tags) is not tuple or len(tags) > _MAX_DEFINITION_TAGS:
+        raise BookTrainingError(
+            "exercise tags exceed the wire safety contract",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for tag in tags:
+        if type(tag) is not str or len(tag) > _MAX_DEFINITION_AUX_TEXT:
+            raise BookTrainingError(
+                "exercise tags must contain bounded exact text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+
+    metadata = definition.metadata
+    if type(metadata) is not dict or len(metadata) > _MAX_DEFINITION_METADATA_ITEMS:
+        raise BookTrainingError(
+            "exercise metadata exceeds the wire safety contract",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for key, value in metadata.items():
+        if (
+            type(key) is not str
+            or type(value) is not str
+            or len(key) > _MAX_DEFINITION_AUX_TEXT
+            or len(value) > _MAX_DEFINITION_AUX_TEXT
+        ):
+            raise BookTrainingError(
+                "exercise metadata must map bounded exact text to bounded exact text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+
+    return {
+        "exercise_id": exercise_id,
+        "start_fen": start_fen,
+        "steps": rendered_steps,
+        "title": title,
+        "tags": list(tags),
+        "source_id": source_id,
+        "metadata": dict(sorted(metadata.items())),
     }
 
 
 def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
-    if not isinstance(payload, Mapping):
-        raise BookTrainingError(
-            "book training definition must be a mapping",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
     _require_exact_fields(payload, _DEFINITION_FIELDS, "book training definition")
     steps_value = payload["steps"]
-    if type(steps_value) is not list:
+    if type(steps_value) is not list or len(steps_value) > _MAX_EXERCISE_STEPS:
         raise BookTrainingError(
-            "book training definition steps must be a list",
+            "book training definition steps must be a bounded list",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     steps: list[ExerciseStep] = []
     for raw_step in steps_value:
-        if not isinstance(raw_step, Mapping):
-            raise BookTrainingError(
-                "book training step must be a mapping",
-                code=BookTrainingErrorCode.INVALID_FIELD,
-            )
         _require_exact_fields(raw_step, _STEP_FIELDS, "book training step")
         accepted = raw_step["accepted_moves"]
-        if type(accepted) is not list or any(type(move) is not str for move in accepted):
+        if (
+            type(accepted) is not list
+            or len(accepted) > _MAX_ACCEPTED_MOVES_PER_STEP
+        ):
             raise BookTrainingError(
-                "book training accepted_moves must be a list of text",
+                "book training accepted_moves must be a bounded list",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
+        for move in accepted:
+            if type(move) is not str or len(move) > _MAX_MOVE_TEXT:
+                raise BookTrainingError(
+                    "book training accepted_moves must contain bounded text",
+                    code=BookTrainingErrorCode.INVALID_FIELD,
+                )
         hint = raw_step["hint"]
         explanation = raw_step["explanation"]
-        if hint is not None and type(hint) is not str:
+        if (
+            hint is not None
+            and (
+                type(hint) is not str
+                or len(hint) > _MAX_DEFINITION_AUX_TEXT
+            )
+        ):
             raise BookTrainingError(
-                "book training hint must be text or null",
+                "book training hint must be bounded text or null",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
-        if explanation is not None and type(explanation) is not str:
+        if (
+            explanation is not None
+            and (
+                type(explanation) is not str
+                or len(explanation) > _MAX_DEFINITION_AUX_TEXT
+            )
+        ):
             raise BookTrainingError(
-                "book training explanation must be text or null",
+                "book training explanation must be bounded text or null",
                 code=BookTrainingErrorCode.INVALID_FIELD,
             )
         try:
@@ -342,32 +510,67 @@ def _definition_from_dict(payload: Mapping[str, object]) -> ExerciseDefinition:
 
     tags = payload["tags"]
     metadata = payload["metadata"]
-    if type(tags) is not list or any(type(tag) is not str for tag in tags):
+    if type(tags) is not list or len(tags) > _MAX_DEFINITION_TAGS:
         raise BookTrainingError(
-            "book training tags must be a list of text",
+            "book training tags must be a bounded list",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    if not isinstance(metadata, Mapping) or any(
-        type(key) is not str or type(value) is not str for key, value in metadata.items()
+    for tag in tags:
+        if type(tag) is not str or len(tag) > _MAX_DEFINITION_AUX_TEXT:
+            raise BookTrainingError(
+                "book training tags must contain bounded text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+    if type(metadata) is not dict:
+        raise BookTrainingError(
+            "book training metadata must be an exact dictionary",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    metadata_count = len(metadata)
+    if metadata_count > _MAX_DEFINITION_METADATA_ITEMS:
+        raise BookTrainingError(
+            "book training metadata exceeds the item limit",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        )
+    for key, value in metadata.items():
+        if (
+            type(key) is not str
+            or type(value) is not str
+            or len(key) > _MAX_DEFINITION_AUX_TEXT
+            or len(value) > _MAX_DEFINITION_AUX_TEXT
+        ):
+            raise BookTrainingError(
+                "book training metadata must map bounded text to bounded text",
+                code=BookTrainingErrorCode.INVALID_FIELD,
+            )
+    source_id = payload["source_id"]
+    if (
+        source_id is not None
+        and (
+            type(source_id) is not str
+            or len(source_id) > _MAX_DEFINITION_AUX_TEXT
+        )
     ):
         raise BookTrainingError(
-            "book training metadata must map text keys to text values",
+            "book training source_id must be bounded text or null",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    source_id = payload["source_id"]
-    if source_id is not None and type(source_id) is not str:
+    exercise_id = payload["exercise_id"]
+    start_fen = payload["start_fen"]
+    title = payload["title"]
+    if (
+        type(exercise_id) is not str
+        or type(start_fen) is not str
+        or len(exercise_id) > _MAX_DEFINITION_AUX_TEXT
+        or len(start_fen) > _MAX_DEFINITION_AUX_TEXT
+    ):
         raise BookTrainingError(
-            "book training source_id must be text or null",
+            "book training exercise_id and start_fen must be bounded text",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
-    if type(payload["exercise_id"]) is not str or type(payload["start_fen"]) is not str:
+    if type(title) is not str or len(title) > _MAX_DEFINITION_AUX_TEXT:
         raise BookTrainingError(
-            "book training exercise_id and start_fen must be text",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
-    if type(payload["title"]) is not str:
-        raise BookTrainingError(
-            "book training title must be text",
+            "book training title must be bounded text",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     try:
@@ -447,8 +650,8 @@ def _canonical_steps_from_pgn(start_board: Board, solution_pgn: str) -> tuple[Ex
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     try:
-        games = parse_games(solution_pgn)
-    except (GameTreeContractError, TypeError, ValueError) as exc:
+        games = parse_pgn_text(solution_pgn, strict=False)
+    except (PgnRoundTripError, TypeError, ValueError) as exc:
         raise BookTrainingError(
             "book exercise solution_pgn is structurally invalid",
             code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION,
@@ -459,6 +662,11 @@ def _canonical_steps_from_pgn(start_board: Board, solution_pgn: str) -> tuple[Ex
             code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION_STRUCTURE,
         )
     game = games[0]
+    if not supports_standard_variant(game.tags.get("Variant")):
+        raise BookTrainingError(
+            "book exercise solution variant is not supported by the canonical Standard board",
+            code=BookTrainingErrorCode.UNSUPPORTED_SOLUTION,
+        )
     if game.warnings:
         raise BookTrainingError(
             "book exercise solution_pgn contains recovery warnings",
@@ -542,14 +750,22 @@ def _definition_from_book_exercise(
     if exercise.difficulty is not None:
         metadata["difficulty"] = exercise.difficulty
 
-    return ExerciseDefinition(
-        exercise_id=exercise_id,
-        start_fen=start_board.fen(),
-        steps=steps,
-        title=exercise.prompt,
-        source_id=source_id,
-        metadata=metadata,
-    )
+    try:
+        return ExerciseDefinition(
+            exercise_id=exercise_id,
+            start_fen=start_board.fen(),
+            steps=steps,
+            title=exercise.prompt,
+            source_id=source_id,
+            metadata=metadata,
+        )
+    except (TypeError, ValueError) as exc:
+        # BookDocument remains mutable for authoring. Normalize post-construction
+        # scalar/resource corruption at the Book->Training boundary.
+        raise BookTrainingError(
+            "book exercise training definition is invalid",
+            code=BookTrainingErrorCode.INVALID_FIELD,
+        ) from exc
 
 
 def build_book_training_material(
@@ -562,7 +778,7 @@ def build_book_training_material(
     Semantic duplicate keys fail closed through BookIndex instead of silently
     selecting the first matching exercise.
     """
-    if not isinstance(document, BookDocument):
+    if type(document) is not BookDocument:
         raise TypeError("document must be a BookDocument")
     index = BookIndex(document)
     if type(target) is int:
@@ -594,7 +810,7 @@ def build_book_training_material(
         )
 
     block = document.blocks[entry.target.index]
-    if not isinstance(block, Exercise):
+    if type(block) is not Exercise:
         raise BookTrainingError(
             "book target is not an Exercise block",
             code=BookTrainingErrorCode.INVALID_TARGET,
@@ -620,7 +836,7 @@ def build_book_training_material(
 
 def build_current_book_training_material(reader: BookReader) -> BookTrainingMaterial:
     """Create training from the reader's exact current semantic exercise."""
-    if not isinstance(reader, BookReader):
+    if type(reader) is not BookReader:
         raise TypeError("reader must be a BookReader")
     location = reader.location()
     if location.kind != "Exercise":
@@ -628,7 +844,12 @@ def build_current_book_training_material(reader: BookReader) -> BookTrainingMate
             "current BookReader location is not an Exercise",
             code=BookTrainingErrorCode.INVALID_TARGET,
         )
-    return build_book_training_material(reader.document, location.index)
+    indexed_document = reader.document_snapshot()
+    material = build_book_training_material(indexed_document, location.index)
+    # Authoring can change while detached provenance work runs. Recheck the
+    # live revision before publication without traversing it outside BookReader.
+    reader.block_snapshot(location.index)
+    return material
 
 
 def resolve_book_training_origin(
@@ -636,9 +857,9 @@ def resolve_book_training_origin(
     origin: BookTrainingOrigin,
 ) -> ReadingLocation:
     """Resolve a durable origin without mutating chess/application state."""
-    if not isinstance(document, BookDocument):
+    if type(document) is not BookDocument:
         raise TypeError("document must be a BookDocument")
-    if not isinstance(origin, BookTrainingOrigin):
+    if type(origin) is not BookTrainingOrigin:
         raise TypeError("origin must be a BookTrainingOrigin")
     if _book_fingerprint(document) != origin.book_fingerprint:
         raise BookTrainingError(
@@ -654,7 +875,7 @@ def resolve_book_training_origin(
             code=BookTrainingErrorCode.STALE_ORIGIN,
         ) from exc
     block = document.blocks[entry.target.index]
-    if not isinstance(block, Exercise) or _block_digest(block) != origin.block_digest:
+    if type(block) is not Exercise or _block_digest(block) != origin.block_digest:
         raise BookTrainingError(
             "book training origin exercise content changed",
             code=BookTrainingErrorCode.STALE_ORIGIN,
@@ -677,9 +898,13 @@ def return_reader_to_book_training_origin(
     This moves only the presentation-neutral reading cursor.  It never changes a
     chess Position, ExerciseSession, Teacher/Classroom state or persistence.
     """
-    if not isinstance(reader, BookReader):
+    if type(reader) is not BookReader:
         raise TypeError("reader must be a BookReader")
-    location = resolve_book_training_origin(reader.document, origin)
+    if type(origin) is not BookTrainingOrigin:
+        raise TypeError("origin must be a BookTrainingOrigin")
+    location = resolve_book_training_origin(reader.document_snapshot(), origin)
+    # go_to() rechecks the live authoring revision before moving the canonical
+    # reader cursor, so provenance resolution never needs to traverse live state.
     return reader.go_to(location.index)
 
 
@@ -693,11 +918,8 @@ def restore_book_training_material(
     resolved back to BookDocument and the canonical definition is regenerated;
     any stale/tampered definition fails closed.
     """
-    if not isinstance(payload, Mapping):
-        raise BookTrainingError(
-            "book training material must be a mapping",
-            code=BookTrainingErrorCode.INVALID_FIELD,
-        )
+    if type(document) is not BookDocument:
+        raise TypeError("document must be a BookDocument")
     _require_exact_fields(payload, _MATERIAL_FIELDS, "book training material")
     version = payload["schema_version"]
     if type(version) is not int:
@@ -707,14 +929,14 @@ def restore_book_training_material(
         )
     if version != BOOK_TRAINING_SCHEMA_VERSION:
         raise BookTrainingError(
-            f"unsupported book training schema_version: {version}",
+            "unsupported book training schema_version",
             code=BookTrainingErrorCode.UNSUPPORTED_SCHEMA,
         )
     origin_value = payload["origin"]
     definition_value = payload["definition"]
-    if not isinstance(origin_value, Mapping) or not isinstance(definition_value, Mapping):
+    if type(origin_value) is not dict or type(definition_value) is not dict:
         raise BookTrainingError(
-            "book training origin and definition must be mappings",
+            "book training origin and definition must be exact dictionaries",
             code=BookTrainingErrorCode.INVALID_FIELD,
         )
     origin = BookTrainingOrigin.from_dict(origin_value)

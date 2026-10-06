@@ -1,0 +1,139 @@
+name: W6 V2 Package Assembler Current Runtime
+
+on:
+  push:
+    branches:
+      - work/w6-v2-package-assembler-current-preflight-20260910
+      - fix/w6-v2-package-assembler-current-composition-20260912
+  pull_request:
+    paths:
+      - 'acs/version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_assembler.py'
+      - 'tests/test_version2_package_pe_identity.py'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-package-assembler-current-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
+  CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
+  CURRENT_PREFLIGHT_BLOB: 5331c79063e465284a486b3f57ae5b78f9e52778
+  CURRENT_ASSEMBLER_TEST_BLOB: 8b7703128af25397d6c992c01e0910eb29f0766a
+  RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
+  RESOURCE_ASSEMBLER_TEST_BLOB: 80dcfb53f59e3ba01aff2b1bb13a21afe609378c
+  RUNTIME_PREFLIGHT_BLOB: 81a0af758b980eccb12278625e7b50ac87af6834
+  RUNTIME_ASSEMBLER_TEST_BLOB: a946d2da1742177d3caa0b07cbc7508eeb98afbe
+  PE_IDENTITY_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
+  PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
+  SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: ea86b7b0458fe47487a735bdc24d58435c7abaad
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 7e39e8051194559bf8c4001161030a70fc5d74ad
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact current assembler identity and convergence-safe scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
+          git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+
+          changed="$(git diff --name-only "$CURRENT_ASSEMBLER_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-package-assembler.yml' \
+            'acs/version2_package_assembler.py' \
+            'tests/test_version2_package_assembler.py' | sort)"
+
+          if [ "$changed" = "$expected" ]; then
+            echo 'W6_ASSEMBLER_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
+          else
+            test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            resource_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
+            case "$resource_pair" in
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB") ;;
+              *) echo 'Unqualified preflight/assembler-test pair' >&2; exit 1 ;;
+            esac
+            if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
+            fi
+            echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
+          fi
+
+      - name: Compile assembler and canonical preflight
+        run: >-
+          python -m compileall -q
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_v2_package_required_resources.py
+          tests/test_version2_package_pe_identity.py
+
+      - name: Direct fresh temp sibling oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import tempfile
+          from unittest.mock import patch
+
+          from acs.version2_package_assembler import assemble_version2_package_tree
+          from tests.test_version2_package_assembler import Version2PackageAssemblerTests, _SHA
+
+          real_mkdtemp = tempfile.mkdtemp
+          observed = []
+
+          def record_mkdtemp(*args, **kwargs):
+              observed.append((kwargs.get("prefix"), kwargs.get("dir")))
+              return real_mkdtemp(*args, **kwargs)
+
+          with tempfile.TemporaryDirectory() as td:
+              root = Path(td)
+              product, notices = Version2PackageAssemblerTests()._sources(root)
+              output = root / "candidate"
+              with patch("acs.version2_package_assembler.tempfile.mkdtemp", side_effect=record_mkdtemp):
+                  assemble_version2_package_tree(product, notices, output, integration_sha=_SHA)
+              assert observed == [(".candidate.assemble-", root)], observed
+              assert output.is_dir()
+              assert not any(root.glob(".candidate.assemble-*"))
+          print("DIRECT FRESH TEMP SIBLING PASS")
+          PY
+
+      - name: Deterministic assembler plus current canonical preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity

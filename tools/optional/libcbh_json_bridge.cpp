@@ -8,13 +8,13 @@
 #include <cbh.h>
 #include <interface.h>
 
-#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -25,11 +25,51 @@
 
 namespace {
 
-// Protocol-v1 record-level adapter code.  This is deliberately outside the
-// libcbh errorT range: it means the backend decoded the proprietary record but
-// Accessible Chess intentionally did not expose it to the Standard-only
-// canonical core because the record is explicitly Chess960/Fischer Random.
+constexpr std::string_view PINNED_LIBCBH_NAG_COMMIT =
+    "9641c5c3949d8fb210b17dd9aa54455645843696";
+
+// Protocol-v1 record-level adapter code. Deliberately outside libcbh's
+ // errorT range: the record decoded, but Accessible Chess must not expose an
+ // explicitly identified Chess960/Fischer Random game to the Standard core.
 constexpr unsigned int UNSUPPORTED_CHESS960_RECORD = 960;
+
+constexpr unsigned int canonicalize_pinned_evaluation_nag(nagT value) {
+    // The pinned libcbh commit has already interpreted the raw ChessBase
+    // evaluation byte before exposing SymbolComment. The independent pinned
+    // ChessBase-export fixture establishes the canonical PGN value for these
+    // exact raw codes. Reverse only transformations belonging to those
+    // qualified codes; every other value remains untouched.
+    switch (static_cast<unsigned int>(value)) {
+    case 10: return 11;
+    case 33: return 32;
+    case 37: return 36;
+    case 41: return 40;
+    case 45: return 44;
+    case 133: return 132;
+    case 136:
+    case 137:
+        return 138;
+    default:
+        return static_cast<unsigned int>(value);
+    }
+}
+
+constexpr unsigned int canonical_evaluation_nag(nagT value) {
+    if (std::string_view(LIBCBH_SOURCE_COMMIT) != PINNED_LIBCBH_NAG_COMMIT) {
+        return static_cast<unsigned int>(value);
+    }
+    return canonicalize_pinned_evaluation_nag(value);
+}
+
+static_assert(canonicalize_pinned_evaluation_nag(10) == 11);
+static_assert(canonicalize_pinned_evaluation_nag(33) == 32);
+static_assert(canonicalize_pinned_evaluation_nag(37) == 36);
+static_assert(canonicalize_pinned_evaluation_nag(41) == 40);
+static_assert(canonicalize_pinned_evaluation_nag(45) == 44);
+static_assert(canonicalize_pinned_evaluation_nag(133) == 132);
+static_assert(canonicalize_pinned_evaluation_nag(136) == 138);
+static_assert(canonicalize_pinned_evaluation_nag(137) == 138);
+static_assert(canonicalize_pinned_evaluation_nag(14) == 14);
 
 std::string json_string(const std::string& value) {
     std::ostringstream out;
@@ -85,11 +125,10 @@ bool has_explicit_chess960_tag(const std::vector<Tag>& tags) {
 }
 
 bool has_shredder_fen_castling_rights(const std::string& fen) {
-    // The pinned real Chess960 corpus uses Shredder-FEN/X-FEN rook-file
-    // castling rights (for example AHah).  Standard FEN uses only KQkq or '-'.
-    // Treat only that explicit transport signature as Chess960; a merely
-    // non-standard board layout is still a valid Standard custom position and
-    // must continue through the canonical Board validator.
+    // Standard FEN castling rights use only KQkq or '-'. Rook-file rights
+    // (A-H/a-h) are an explicit Shredder-FEN/X-FEN Chess960 transport signal.
+    // A non-standard board layout alone is still allowed through Standard
+    // position validation; no Chess960 rules are implemented here.
     std::istringstream input(fen);
     std::string board;
     std::string side;
@@ -135,7 +174,7 @@ void write_comment(std::ostream& out, const Comment& comment) {
                 out << "{\"kind\":\"symbol\",\"symbol\":"
                     << static_cast<unsigned int>(value.symbol)
                     << ",\"evaluation\":"
-                    << static_cast<unsigned int>(value.evaluation)
+                    << canonical_evaluation_nag(value.evaluation)
                     << ",\"prefix\":" << static_cast<unsigned int>(value.prefix)
                     << '}';
             }

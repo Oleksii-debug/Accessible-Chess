@@ -1,0 +1,209 @@
+name: Books Current Owner Convergence
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+  pull_request:
+    paths:
+      - .github/workflows/books-current-owner-convergence-20261004.yml
+      - acs/**
+      - tests/**
+      - web/**
+      - run_accessible_chess.py
+      - run_accessible_chess_v2.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-current-owner-convergence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout exact convergence head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove absorbed successor ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+          for absorbed in \
+            c0c86c11d6f9e520797bfeacc13c15df6a26dab1 \
+            e00eea84cf8c1ab0b93fb1a99f091eb814ab47d3 \
+            4c11b8e63c3af7a4814e8e386bbef74609c64376 \
+            73bcf84885a5219606b00149370705e74c3c984a \
+            0fe5eb7eb2da69f3bf7f8941d573c7b78b463be2 \
+            36cf0bb63cc45255df3e60dd160cdd4e0ad195a2 \
+            64cd6bd75cef34bfc477f651919202d2774ecd74 \
+            a0d0a5cfdbae45f25033f129c8d8cb82d28fce3b \
+            74c7a2f614801fbb4bacb6ef0fe4b16763c922a1 \
+            be2061e8193fe953efdf5536548a7e964bfd829b \
+            0bf46b2561db3d1dc26f354699c5610d331edb6a \
+            b6aaaf50e20aec31f908da80249cb285a090fc23 \
+            448d6ccd099549354fee23c5d3f6acfd08179eba \
+            5759e454e9382a09f276d09b15894ae2e77d6c65 \
+            66e627fb097db582bac37cde882690fe10aa89a4 \
+            1ee73ed85ac8eac3bc46c6fd5f495889e8a84d0e \
+            474ccb8a6299db25d5bae9462e5e9c8831c23a7b \
+            ff74a4b5fb22967bd89d9175500cf00497c51c62
+          do
+            git cat-file -e "$absorbed^{commit}"
+            git merge-base --is-ancestor "$absorbed" HEAD
+          done
+          git diff --check cd7656ddf19e528b445f5e21de6cf14912677b9a HEAD
+          echo 'BOOKS_CURRENT_OWNER_ANCESTRY=PASS'
+
+      - name: Compile affected production and regressions
+        run: >-
+          python -m py_compile
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          acs/bookdocument.py
+          acs/bookreader.py
+          acs/book_progress_store.py
+          acs/training_progress_store.py
+          acs/ui_keymap_service.py
+          acs/full_product_presenters.py
+          acs/presentation_privacy.py
+          acs/version2_application.py
+          acs/version2_starter_content_application.py
+          acs/child_coaching.py
+          acs/child_coaching_store.py
+          acs/child_coaching_application.py
+          acs/child_coaching_projection.py
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
+          acs/child_coaching_prepared_positions.py
+          tests/test_book_html_inline_image_order.py
+          tests/test_v2_book_epub_import.py
+          tests/test_bookdocument.py
+          tests/test_bookreader.py
+          tests/test_book_document_warning_accessibility.py
+          tests/test_v2_shared_presentation_path_privacy.py
+          tests/test_version2_application.py
+          tests/test_v2_book_progress_store.py
+          tests/test_v2_book_progress_store_production.py
+          tests/test_w2_training_progress_crash_recovery.py
+          tests/test_training_progress_ancestor_authority.py
+          tests/test_ui_keymap_service.py
+          tests/test_book_browser_presentation_lease_required.py
+          tests/test_child_coaching.py
+          tests/test_child_coaching_application.py
+          tests/test_child_coaching_projection.py
+          tests/test_child_coaching_rotation.py
+          tests/test_child_coaching_prepared_positions.py
+          tests/test_p0_semantic_document_copy.py
+
+      - name: Qualify malformed HTML and source-order semantics
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_inline_image_order
+          tests.test_v2_book_html_import
+          tests.test_v2_html_semantic_lists
+
+      - name: Qualify EPUB malformed-package and reading-order semantics
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_epub_package_contract
+
+      - name: Qualify canonical BookDocument ingress
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_v2_accessible_book_core
+
+      - name: Qualify Book reader navigation and board handoff atomicity
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_v2_book_training_route_rollback
+          tests.test_book_reverse_progress_failure_exact
+          tests.test_version2_application
+          tests.test_books_semantic_host_bounds
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_atomicity
+
+      - name: Qualify retained document warning accessibility and privacy
+        shell: bash
+        run: |
+          python -m unittest -v \
+            tests.test_book_document_warning_accessibility \
+            tests.test_v2_shared_presentation_path_privacy
+          node --check tests/js/book_document_warning_accessibility_dom_test.js
+          node tests/js/book_document_warning_accessibility_dom_test.js
+
+      - name: Qualify browser presentation lease
+        shell: bash
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node --check tests/js/stage1_terminal_keymap_dom_test.js
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/stage1_terminal_keymap_dom_test.js
+          node tests/p0_semantic_document_copy_executable.js
+          python -m unittest -v \
+            tests.test_book_browser_presentation_lease_required \
+            tests.test_full_product_book_command_authority \
+            tests.test_w3_p0f_starter_books_training_content
+
+      - name: Qualify native accessibility and keyboard feedback
+        run: >-
+          python -m unittest -v
+          tests.test_version2_accessibility_convergence
+          tests.test_nvda_p0_contract
+          tests.test_full_product_native_menu
+          tests.test_keybindings
+          tests.test_ui_keymap_service
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_windows_book_board_adapter
+
+      - name: Qualify persistence CAS, portability and semantic copy
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_training_progress_ancestor_authority
+          tests.test_p0_semantic_document_copy
+
+      - name: Qualify child coaching over canonical teaching authority
+        run: >-
+          python -m unittest -v
+          tests.test_child_coaching
+          tests.test_child_coaching_application
+          tests.test_child_coaching_projection
+          tests.test_child_coaching_rotation
+          tests.test_child_coaching_prepared_positions
+          tests.test_teaching_session
+          tests.test_education_records
+          tests.test_education_workspace
+
+      - name: Core selftest
+        run: python -m acs.selftest

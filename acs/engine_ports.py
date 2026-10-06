@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, Sequence, runtime_checkable
 
+from .input_limits import MAX_FEN_CHARS
+
 
 class EngineContractErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
@@ -38,15 +40,14 @@ class RawAnalysisLine:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.depth, int)
-            or isinstance(self.depth, bool)
+            type(self.depth) is not int
             or self.depth < 0
         ):
             raise EngineContractError(
                 "analysis depth must be a non-negative integer",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.score_kind, str):
+        if type(self.score_kind) is not str:
             raise EngineContractError(
                 "analysis score kind must be text",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -57,22 +58,19 @@ class RawAnalysisLine:
                 "analysis score kind must be 'cp' or 'mate'",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.score_value, int) or isinstance(
-            self.score_value,
-            bool,
-        ):
+        if type(self.score_value) is not int:
             raise EngineContractError(
                 "analysis score value must be an integer",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        if not isinstance(self.pv, tuple):
+        if type(self.pv) is not tuple:
             raise EngineContractError(
                 "analysis PV must be a tuple",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         moves: list[str] = []
         for move in self.pv:
-            if not isinstance(move, str) or not move.strip():
+            if type(move) is not str or not move.strip():
                 raise EngineContractError(
                     "analysis PV moves must be non-empty text",
                     code=EngineContractErrorCode.INVALID_RESULT,
@@ -93,25 +91,30 @@ class EngineMoveRequest:
     movetime_ms: int | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        # Match the canonical raw FEN representation budget before normalization.
+        # Reject active text subclasses before any overridable string hook runs.
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
             raise EngineContractError(
                 "engine move request FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        if not isinstance(self.level, int) or isinstance(self.level, bool):
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
+            raise EngineContractError(
+                "engine move request FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        if type(self.level) is not int:
             raise EngineContractError(
                 "engine move request level must be an integer",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        if self.movetime_ms is not None and (
-            not isinstance(self.movetime_ms, int)
-            or isinstance(self.movetime_ms, bool)
-        ):
+        if self.movetime_ms is not None and type(self.movetime_ms) is not int:
             raise EngineContractError(
                 "engine move request movetime_ms must be an integer or None",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
 
 @dataclass(frozen=True)
@@ -122,15 +125,14 @@ class EngineMoveResult:
 
     def __post_init__(self) -> None:
         if self.move is not None:
-            if not isinstance(self.move, str) or not self.move.strip():
+            if type(self.move) is not str or not self.move.strip():
                 raise EngineContractError(
                     "engine move result must contain non-empty move text or None",
                     code=EngineContractErrorCode.INVALID_RESULT,
                 )
             object.__setattr__(self, "move", self.move.strip())
         if (
-            not isinstance(self.level, int)
-            or isinstance(self.level, bool)
+            type(self.level) is not int
             or not 1 <= self.level <= 10
         ):
             raise EngineContractError(
@@ -138,8 +140,7 @@ class EngineMoveResult:
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         if (
-            not isinstance(self.movetime_ms, int)
-            or isinstance(self.movetime_ms, bool)
+            type(self.movetime_ms) is not int
             or self.movetime_ms < 50
         ):
             raise EngineContractError(

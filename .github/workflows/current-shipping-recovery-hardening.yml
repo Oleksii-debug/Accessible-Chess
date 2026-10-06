@@ -1,0 +1,725 @@
+name: Current Shipping Recovery Hardening
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-recovery-hardening-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PARENT_SHA: eace8b671934c1acf6e12a4a59a95bc6274a8f1d
+
+jobs:
+  recovery-hardening:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+
+      - name: Prove exact parent, scope and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+            base_sha="$PARENT_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
+          expected=(
+            ".github/workflows/child-coaching-context-current-apex.yml"
+            ".github/workflows/child-coaching-current-apex-20261004.yml"
+            ".github/workflows/child-coaching-keyboard-current-apex.yml"
+            ".github/workflows/current-book-html-inline-style-visibility.yml"
+            ".github/workflows/current-book-markdown-ordered-list-semantics.yml"
+            ".github/workflows/current-book-progress-passive-ingress.yml"
+            ".github/workflows/current-bookreader-provisional-return-point.yml"
+            ".github/workflows/current-epub-xml-structure-bounds.yml"
+            ".github/workflows/current-launcher-report-data-identity.yml"
+            ".github/workflows/current-legacy-utf8-bom-authority.yml"
+            ".github/workflows/current-library-export-destination-cas.yml"
+            ".github/workflows/current-library-export-refused-close-terminal.yml"
+            ".github/workflows/current-library-open-publication-ack.yml"
+            ".github/workflows/current-owner-portable-passive-ingress.yml"
+            ".github/workflows/current-package-passive-control-ingress.yml"
+            ".github/workflows/current-position-editor-ascii-fen.yml"
+            ".github/workflows/current-position-text-square-localization.yml"
+            ".github/workflows/current-product-accessibility-formats-convergence.yml"
+            ".github/workflows/current-san-input-budget.yml"
+            ".github/workflows/current-shipping-native-menubar-parity.yml"
+            ".github/workflows/current-shipping-recovery-hardening.yml"
+            ".github/workflows/current-square-text-bound.yml"
+            ".github/workflows/current-webui-accessibility-oracle.yml"
+            ".github/workflows/current-windows-runtime-transactional-presentation-retry-apex.yml"
+            ".github/workflows/d01-pgn-workspace-webview.yml"
+            ".github/workflows/group-rotation-current-apex.yml"
+            ".github/workflows/keybindings-current-apex-dom-native.yml"
+            ".github/workflows/owner-gameplay-feedback.yml"
+            ".github/workflows/p0-native-menubar-uia-runtime.yml"
+            ".github/workflows/p0-user-oneclick-portable-launcher.yml"
+            ".github/workflows/portable-launch-report-reparse-safety.yml"
+            ".github/workflows/settings-stale-writer-current.yml"
+            ".github/workflows/sound-scaled-cache-integrity.yml"
+            ".github/workflows/v2-book-progress-production-repair.yml"
+            ".github/workflows/w5-release-receipt-contract.yml"
+            ".github/workflows/w6-v2-package-assembler.yml"
+            ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
+            ".github/workflows/w6-v2-release-payload-current-assembler.yml"
+            "acs/book_epub_import.py"
+            "acs/book_html_import.py"
+            "acs/book_progress_store.py"
+            "acs/book_text_import.py"
+            "acs/bookreader.py"
+            "acs/child_coaching_rotation.py"
+            "acs/child_coaching_rotation_store.py"
+            "acs/full_product_actions.py"
+            "acs/full_product_native_menu.py"
+            "acs/input_limits.py"
+            "acs/legacy_text_encoding.py"
+            "acs/library_export_service.py"
+            "acs/library_export_webview_projection.py"
+            "acs/library_webview_bridge.py"
+            "acs/library_webview_projection.py"
+            "acs/notation.py"
+            "acs/position_editor.py"
+            "acs/position_text.py"
+            "acs/settings.py"
+            "acs/squares.py"
+            "acs/stage1_release_ui.py"
+            "acs/ui_keymap_adapter.py"
+            "acs/ui_native_menu.py"
+            "acs/version2_application.py"
+            "acs/version2_final_product_application.py"
+            "acs/version2_package_assembler.py"
+            "acs/version2_package_preflight.py"
+            "acs/version2_portable_package.py"
+            "acs/version2_release_app.py"
+            "acs/version2_release_payload.py"
+            "acs/version2_release_receipt.py"
+            "acs/version2_release_ui.py"
+            "acs/version2_upgrade_status_release.py"
+            "acs/version2_windows_book_open_worker.py"
+            "acs/version2_windows_file_workflows.py"
+            "acs/version2_windows_host_runtime.py"
+            "acs/version2_windows_import_ui_pump.py"
+            "acs/version2_windows_library_export.py"
+            "acs/webapp.py"
+            "acs/webapp_keymap_core.py"
+            "docs/changes/OWNER_GAMEPLAY_FEEDBACK_20261006.md"
+            "packaging/portable_launcher.c"
+            "run_accessible_chess_v2.py"
+            "scripts/build_owner_portable_candidate.py"
+            "scripts/p0_native_menubar_uia_oracle.py"
+            "scripts/record_owner_physical_acceptance.py"
+            "tests/js/keymap_recovery_accessibility_test.js"
+            "tests/js/library_export_surface_dom_test.js"
+            "tests/js/owner_gameplay_keyboard_test.js"
+            "tests/js/owner_sound_bridge_ready_test.js"
+            "tests/js/pgn_surface_dom_test.js"
+            "tests/js/stage1_core_language_test.js"
+            "tests/js/version2_library_open_route_refresh_dom_test.js"
+            "tests/js/version2_release_bootstrap_dom_test.js"
+            "tests/test_accessible_webui.py"
+            "tests/test_book_progress_passive_ingress_current.py"
+            "tests/test_bookreader_revision_barriers_current.py"
+            "tests/test_child_coaching_keyboard_actions.py"
+            "tests/test_child_coaching_rotation.py"
+            "tests/test_child_coaching_rotation_completed_recovery.py"
+            "tests/test_dev1_release_ui_regressions.py"
+            "tests/test_full_product_native_menu.py"
+            "tests/test_issue22_release_contract.py"
+            "tests/test_legacy_book_utf16_integration.py"
+            "tests/test_legacy_text_encoding.py"
+            "tests/test_library_open_game_publication.py"
+            "tests/test_notation.py"
+            "tests/test_owner_gameplay_feedback.py"
+            "tests/test_owner_gameplay_wav_delivery.py"
+            "tests/test_owner_physical_acceptance_json_hardening.py"
+            "tests/test_owner_portable_candidate.py"
+            "tests/test_portable_launcher_contract.py"
+            "tests/test_portable_launcher_window_readiness.py"
+            "tests/test_position_editor.py"
+            "tests/test_position_text_authority.py"
+            "tests/test_squares.py"
+            "tests/test_stage1_release_composition_ui.py"
+            "tests/test_ui_native_menu_recovery.py"
+            "tests/test_v2_board_analysis_hotkey_feedback.py"
+            "tests/test_v2_book_epub_import.py"
+            "tests/test_v2_book_html_import.py"
+            "tests/test_v2_book_text_import.py"
+            "tests/test_v2_windows_file_worker_shutdown_fence.py"
+            "tests/test_v2_windows_host_runtime.py"
+            "tests/test_v2_windows_import_ui_pump.py"
+            "tests/test_v2_windows_library_export_background.py"
+            "tests/test_v2_windows_pgn_open_worker.py"
+            "tests/test_v2_windows_pgn_save_terminal_truth.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
+            "tests/test_v2_windows_upgrade_status_shipping.py"
+            "tests/test_version2_application.py"
+            "tests/test_version2_composition_startup_cleanup_current.py"
+            "tests/test_version2_group_rotation_binding.py"
+            "tests/test_version2_package_assembler.py"
+            "tests/test_version2_package_pe_identity.py"
+            "tests/test_version2_package_preflight.py"
+            "tests/test_version2_portable_package.py"
+            "tests/test_version2_release_cleanup_precedence.py"
+            "tests/test_version2_release_payload.py"
+            "tests/test_version2_release_receipt.py"
+            "tests/test_version2_release_ui.py"
+            "tests/test_version2_teacher_session_runtime_binding.py"
+            "tests/test_version2_windows_book_open_worker.py"
+            "tests/test_w5_native_formclosing_dirty_pgn.py"
+            "tests/test_windows_native_menu_smoke_contract.py"
+            "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
+            "web/full_product_library.js"
+            "web/full_product_pgn.js"
+            "web/index.html"
+            "web/stage1_release_bootstrap.js"
+            "web/version2_final_product_bootstrap.js"
+            "web/version2_release_bootstrap.js"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+          test ! -e .github/workflows/current-shipping-owner-cancel-recovery-order.yml
+
+      - name: Prove exact blob authorities A
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="$PARENT_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          test "$(git rev-parse HEAD:.github/workflows/sound-scaled-cache-integrity.yml)" = "0650e282bb6fedaee2a6f6434e3271947c319ec5"
+          test "$(git rev-parse HEAD:.github/workflows/w6-v2-package-assembler.yml)" = "fcad08b5f1d48cdb9b6251a97be43d94b6019c08"
+          test "$(git rev-parse HEAD:.github/workflows/w6-v2-package-preflight-current-runtime.yml)" = "608a631a9d05f6b5c90e38c2f94eca0241a368a8"
+          test "$(git rev-parse HEAD:.github/workflows/w6-v2-release-payload-current-assembler.yml)" = "5644555effaffdd64acbd4f4e1483193ff72dc30"
+          test "$(git rev-parse HEAD:.github/workflows/current-package-passive-control-ingress.yml)" = "7dd08b65fe56e93f98fd79fb18ebe6cbca0aaff4"
+          test "$(git rev-parse HEAD:.github/workflows/current-owner-portable-passive-ingress.yml)" = "a4ce0d8dadbcba43c5651bfa58721d1c4de2a2f4"
+          test "$(git rev-parse HEAD:.github/workflows/current-launcher-report-data-identity.yml)" = "8ac0ff840f781c67d4b5a90039711b5659f0ea27"
+          test "$(git rev-parse HEAD:.github/workflows/p0-user-oneclick-portable-launcher.yml)" = "00b8dfb79dcd5e9457bef6934303a2a8e145600f"
+          test "$(git rev-parse HEAD:.github/workflows/portable-launch-report-reparse-safety.yml)" = "91d97c01394033bcdbb362712d284b4c0d7c63ef"
+          test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "1a1365c7c5bab6f6463414c9ff9c2aa2f1037e06"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "3cdd10f060e2713639210ce246524c0c2b448a19"
+          test "$(git rev-parse HEAD:.github/workflows/child-coaching-context-current-apex.yml)" = "0f7d016b82863d94e0a485a18f1198330c0dc782"
+          test "$(git rev-parse HEAD:.github/workflows/child-coaching-current-apex-20261004.yml)" = "c49c0a78cef1dc2dbd53a6f3c7e437dfc04e5325"
+          test "$(git rev-parse HEAD:.github/workflows/child-coaching-keyboard-current-apex.yml)" = "c5e4fb5f68a392487c90f9f48321240267fd685a"
+          test "$(git rev-parse HEAD:.github/workflows/settings-stale-writer-current.yml)" = "2d454d6e5ff0f39d11230a29cb3a785457801cd0"
+          test "$(git rev-parse HEAD:.github/workflows/group-rotation-current-apex.yml)" = "46c63ef66f3b2f094a4cfa00685b7420d54f57e2"
+          test "$(git rev-parse HEAD:acs/child_coaching_rotation.py)" = "6db594aa3ab21b637588142a9c9e86ff3c9dd63c"
+          test "$(git rev-parse HEAD:acs/child_coaching_rotation_store.py)" = "c8f224fa220b1570a71782d27a20c2594551f9a7"
+          test "$(git rev-parse HEAD:acs/version2_final_product_application.py)" = "5fd141b9c8832658273fe49fdf857f0fabf4e86c"
+          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "b6b40023d1e59fb7ec74e30d151d5d009a14bbad"
+          test "$(git rev-parse HEAD:tests/test_child_coaching_keyboard_actions.py)" = "0e208bd15c0ba51d450718af9e53690d605a1e07"
+          test "$(git rev-parse HEAD:tests/test_child_coaching_rotation.py)" = "3acee0fa67f1d1e9320cdc9985912d5ca4edc8c3"
+          test "$(git rev-parse HEAD:tests/test_child_coaching_rotation_completed_recovery.py)" = "5a3233b611cca861de497d3e7692560f7d9b449e"
+          test "$(git rev-parse HEAD:tests/test_version2_group_rotation_binding.py)" = "a3d8e457673b48bc707c938a9d4cc5ac5b942344"
+          test "$(git rev-parse HEAD:.github/workflows/current-library-export-destination-cas.yml)" = "20465341a036c3d118af1b3eca0ffce447714066"
+          test "$(git rev-parse HEAD:.github/workflows/current-library-export-refused-close-terminal.yml)" = "1ac0c749ba6039287171c11ef1d5343b00aab0e7"
+          test "$(git rev-parse HEAD:.github/workflows/current-bookreader-provisional-return-point.yml)" = "5642e344c0915970c0df671330e95cd91abb181a"
+          test "$(git rev-parse HEAD:acs/bookreader.py)" = "7afb17856686683c5cce5fd8f80ed00383d255a3"
+          test "$(git rev-parse HEAD:tests/test_bookreader_revision_barriers_current.py)" = "ba87b9627097aa53a169e159168286e6faffdcda"
+          test "$(git rev-parse HEAD:.github/workflows/current-library-open-publication-ack.yml)" = "1c67fe0e2b8fbecdd918b6dbf630f14c52830e34"
+          test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "cc3c1eadd86498e6ced76c3ea898f80b33d25975"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "5cd205682da6aeb8df64e6f9ee3f606a7254091e"
+          test "$(git rev-parse HEAD:acs/library_export_service.py)" = "8efa08f714d6f14d2e6a251e442f0fcd47af2570"
+          test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = "f43f9fd71953035a582a84bd8a64ead0d54ee25a"
+          test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = "b4be6f6fd08d9876acfa86d018a78f9d164e484d"
+          test "$(git rev-parse HEAD:acs/version2_windows_library_export.py)" = "16e6c65e3f62a0e19e81810b40d938a55d573a04"
+          test "$(git rev-parse HEAD:tests/js/library_export_surface_dom_test.js)" = "61af02b4fe654c02b76403a100ac73ea4fde479f"
+          test "$(git rev-parse HEAD:.github/workflows/current-position-editor-ascii-fen.yml)" = "4a67bdc01446406ea0b4515688167ff916034ee8"
+          test "$(git rev-parse HEAD:.github/workflows/current-product-accessibility-formats-convergence.yml)" = "c4053269b6cff428a5e24790079f9d50ecbdda9a"
+          test "$(git rev-parse HEAD:.github/workflows/current-square-text-bound.yml)" = "4a28c7598532bd52f567f9f141122522dfc48ee0"
+          test "$(git rev-parse HEAD:.github/workflows/current-webui-accessibility-oracle.yml)" = "28dae83d74267e46ba55d550224228c83103d826"
+          test "$(git rev-parse HEAD:.github/workflows/current-windows-runtime-transactional-presentation-retry-apex.yml)" = "1902bf6b0c95170bab003a239a96ad30a55a57a9"
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "60e53ba659a16eb3201ae135db21cb585571c84a"
+          test "$(git rev-parse HEAD:.github/workflows/keybindings-current-apex-dom-native.yml)" = "e65842bd52eb0792cdfd9b957f1f0988e5e49c50"
+          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = "ef33a8530e43ae78f6a56a6ecf5ba5f5ae9f4b4f"
+          test "$(git rev-parse HEAD:acs/input_limits.py)" = "f06a74bc4d6e3e7f7461bb5dac1fd7f25776ec7a"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "b3b51e71f55f7477bf1b4dc9e35492f82625be7f"
+          test "$(git rev-parse HEAD:acs/squares.py)" = "b74cf01767590f057deb805b0793e040bac62044"
+          test "$(git rev-parse HEAD:acs/ui_keymap_adapter.py)" = "68ee886873ec96bfca9f8a25ec499deb67a5b25a"
+          test "$(git rev-parse HEAD:tests/js/keymap_recovery_accessibility_test.js)" = "fc4f48c625c9b258fdb67e7f0ac19839ed445868"
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "1054a49f7c9cb57acde843cc1dee0bdf943e77fc"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_window_readiness.py)" = "ee81983f4a94f6bec5e246c2ebac638b4eff5d10"
+          test "$(git rev-parse HEAD:tests/test_position_editor.py)" = "53d03f9daa249ca013af2feb67f889794b172235"
+          test "$(git rev-parse HEAD:tests/test_squares.py)" = "f539b9bb5f7145a04affa27a21ec4e2dc5c0be03"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "a093ac419098978d6ca614e761d9a2ed687963b1"
+          test "$(git rev-parse HEAD:tests/test_version2_teacher_session_runtime_binding.py)" = "7771d307728738c277e242d660e7d52c908cb5d3"
+          test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "144a1c1486ff9f8ce87121d0d765417ea5f45956"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "6cbb849f5b8f4d75ef81bd85ac8eac7fc60134c5"
+          test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "490d4ff6e4bb2cc7eb47f36800ee711a78d858e5"
+          test "$(git rev-parse HEAD:.github/workflows/current-position-text-square-localization.yml)" = "866cc2d2e0f0407b93ddd466c77bbda0601e3b23"
+          test "$(git rev-parse HEAD:.github/workflows/current-san-input-budget.yml)" = "b81e6ee94468df93318853034d2a65ffa94de2f3"
+          test "$(git rev-parse HEAD:acs/notation.py)" = "4ce7cca2576d4a20b0fae86aa019719d3609c6e3"
+          test "$(git rev-parse HEAD:acs/position_text.py)" = "c4eed9078ec8f12b9286235355e7af09bd778355"
+          test "$(git rev-parse HEAD:tests/test_notation.py)" = "77c3f12f91d0ca219848bdf263fe33a0c6308ee8"
+          test "$(git rev-parse HEAD:tests/test_position_text_authority.py)" = "e6676e6b6f8ed0299662e35f4e12ee329abe4bc4"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "9aa783700d0fc928a3c160ed7f2588082843a4eb"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "d0a5188175afdc6f3e707745b525abe10c8bf411"
+          test "$(git rev-parse HEAD:acs/version2_release_ui.py)" = "f94c319db2e29838aa2e50e800d7a59ad78f0f6c"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "0bfe296b70dc8eb99bef31f1e2852d0fef49c986"
+          test "$(git rev-parse HEAD:tests/test_version2_composition_startup_cleanup_current.py)" = "ad1e6e661c3e961e8cf9fd089da03207508ab490"
+          test "$(git rev-parse HEAD:tests/test_work_v2_shutdown_progress_failure_cleanup.py)" = "9ed8b132edb6a8eb3bb92b2b4ac1c9dabf7ee66d"
+          test "$(git rev-parse HEAD:tests/test_version2_shutdown.py)" = "8bf248af2f64156e93c4ce1be7455754efe1dd78"
+          test "$(git rev-parse HEAD:tests/test_version2_release_ui.py)" = "5993cc5cb4315fe50adf9b89d0f7583dfb90e065"
+          test "$(git rev-parse HEAD:tests/test_version2_release_cleanup_precedence.py)" = "1e802195473deda933f1039f607c4aaa3bff1195"
+          test "$(git rev-parse HEAD:acs/version2_windows_book_open_worker.py)" = "516edf78739212b3766443a04f4ae38b1c189764"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "9c33d9121d8378144dd12e6bb9884063ac78f64b"
+          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "777b93fd42f8fe2f2ccb04aa5ab8e70384b9ba8b"
+          test "$(git rev-parse HEAD:acs/version2_windows_import_ui_pump.py)" = "2551c9a3a06cef24b1a849154e9ced66aac6f23b"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_import_ui_pump.py)" = "7131b3cafd8a6a4673c1296fb739e16abfa1e4f2"
+          test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = "434d66ce85d8da05891c220cd477d3ea41ff36b1"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "200dbbf6c065671d4537481de528d3b2e290eff7"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "999475ab6289877a21392de0dbf3550729b7f4a3"
+          test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "197661e6fee63d19fcdc86535815389cb1c70868"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "8b54944644e68e512daee3b6b6f3f9c303d70d8d"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "7bf2445152189091f5aa2351255a4a35bc1f980b"
+          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "7e39e8051194559bf8c4001161030a70fc5d74ad"
+          test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "a474d9698f0e702e206428cb7ec0b206b641ea0d"
+          test "$(git rev-parse HEAD:tests/test_version2_portable_package.py)" = "2f375d8cdf9df70fcdd404fe346a95ed509aca1f"
+          test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "81b3ab5c5840eaa01da5b3263b2ab88495083bdb"
+          test "$(git rev-parse HEAD:tests/test_version2_package_assembler.py)" = "3fcd41a86d7d637da7ba8adda3e898e3d6fcd56f"
+          test "$(git rev-parse HEAD:acs/version2_release_payload.py)" = "be02628203fd41880fbea082cb3fe3424e1f8cc2"
+          test "$(git rev-parse HEAD:tests/test_version2_release_payload.py)" = "7821ef50c1ab375306321297658093114998e9dd"
+          test "$(git rev-parse HEAD:scripts/build_owner_portable_candidate.py)" = "0c881127d7f6aaccc0378cf62c06e2b2b3f470b2"
+      
+      - name: Prove exact blob authorities B
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="$PARENT_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          test "$(git rev-parse HEAD:.github/workflows/current-shipping-native-menubar-parity.yml)" = "4c0a7b0e91a9cd5247b41517983d2d39bbc486ae"
+          test "$(git rev-parse HEAD:.github/workflows/p0-native-menubar-uia-runtime.yml)" = "3fe35515cc30585751a5aa5aa44f2b0651dbd10f"
+          test "$(git rev-parse HEAD:scripts/p0_native_menubar_uia_oracle.py)" = "d4d5ade1838c99f7280a59123f8e070fd71831e3"
+          test "$(git rev-parse HEAD:tests/test_windows_native_menu_smoke_contract.py)" = "4193a51a868a5e28fb99c98e940e6a41375969e8"
+          test "$(git rev-parse HEAD:tests/test_owner_portable_candidate.py)" = "a1bc15f4c0f6042351e6949aeef55dbec8616aa4"
+          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "491fab63b7cc0609bb6d8f6d67b9acf06350cc72"
+          test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "9d4e7470eb98a68cc5e5fb8dd821147b8ddfca08"
+          test "$(git rev-parse HEAD:.github/workflows/w5-release-receipt-contract.yml)" = "b89434326135e4fda94670757809c24c511eb537"
+          test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "87060c11febc787b65a482bc897f1464a443e3b2"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "7d385bb0e1cfa55521b74ba6a4904700379e8f9c"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "ab982e5db979477860d19158b7233587fdc54cdb"
+          test "$(git rev-parse HEAD:tests/js/version2_library_open_route_refresh_dom_test.js)" = "731369f4bca5b831cf4528921dec58df652c37c7"
+          test "$(git rev-parse HEAD:.github/workflows/owner-gameplay-feedback.yml)" = "055f4529012c9e784b9999637179fa350d052d1e"
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "099b9d5300577873fda30bedc5c1736808f7af2e"
+          test "$(git rev-parse HEAD:acs/settings.py)" = "81d7d7e2d05b87552aadbda476eb3618ffa4fff1"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = "f4b026bfe74dc1953958556469700839adf26345"
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = "ba0832c97af8d93d4ac4b302a3bc2f2dc9da7bcf"
+          test "$(git rev-parse HEAD:acs/ui_native_menu.py)" = "158f10aaac107e275a533c6805ab08177ffc782f"
+          test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "5382eee936c174a53b01b82f746c0e225a614faa"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "084bf4eb68708afa68b6b7d401a6fa5dc5d63181"
+          test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "1ca46fa05c5e307a8d2060a60a7047b152dea3ce"
+          test "$(git rev-parse HEAD:tests/test_owner_gameplay_feedback.py)" = "f9419bf58f5e953bf897e6930f8bb64555f9a496"
+          test "$(git rev-parse HEAD:tests/test_owner_gameplay_wav_delivery.py)" = "3ec1ab9c8c7dfc99f49158ad5a6f51b6ae5b639a"
+          test "$(git rev-parse HEAD:tests/js/owner_gameplay_keyboard_test.js)" = "e845e7238bcd54d8ad3c94555deb2bd7b545ed18"
+          test "$(git rev-parse HEAD:tests/js/owner_sound_bridge_ready_test.js)" = "df1458a92729d4888ea6ffa780e778547970d162"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "7fd5a97c9781734399f8cecc604c2a6f2540c3fc"
+          test "$(git rev-parse HEAD:web/index.html)" = "477c0f155a5f3777da71c6e110429a024309dfa6"
+          test "$(git rev-parse HEAD:web/stage1_release_bootstrap.js)" = "bbb36b6f8f48ae063c0fc98bfd1dcefbede7b0a9"
+          test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "7c39227cbbfcf5a4629bf12ae5b7fa1955e0e6c6"
+          test "$(git rev-parse HEAD:docs/changes/OWNER_GAMEPLAY_FEEDBACK_20261006.md)" = "e3db8d9c77358e10e0e51983305c6bed4107f66f"
+          test "$(git rev-parse HEAD:tests/js/stage1_core_language_test.js)" = "de9ed33762a8aa6f1771ead21aa6070e1bb9b012"
+          test "$(git rev-parse HEAD:tests/test_accessible_webui.py)" = "21281c349c0c3d626de0453954be6a54a87a1a5b"
+          test "$(git rev-parse HEAD:tests/test_dev1_release_ui_regressions.py)" = "4fb51179498937f842baa644c817835d9b23270d"
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = "1be05cb652a93a7d452ffdee51d4b146a52c2c5a"
+          test "$(git rev-parse HEAD:tests/test_issue22_release_contract.py)" = "03514932e11fca47960005532248eb73b9b2fbb7"
+          test "$(git rev-parse HEAD:tests/test_ui_native_menu_recovery.py)" = "b355c57bd7c9e2b19e0f049ada62b2bee43590dc"
+          test "$(git rev-parse HEAD:tests/test_stage1_release_composition_ui.py)" = "d1dbb20a1e9e33d874047513bd26d4ba6700dbf4"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status_shipping.py)" = "3cdac1a2c91d4b37cbd23500042f5d855340144d"
+          test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "d569f82be929b3b979ef2c4514501521052696a9"
+          test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "3b20f3295b420984151bfe1048660182e5d16c23"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_terminal_truth.py)" = "21c22aca52b4aa6fb3a1bab2509e0a89d19fb290"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "5ddd7c4634dad4bd0e8c4d41b6f7549395220c04"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$(git rev-parse "$base_sha":acs/version2_pgn_commands.py)"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$(git rev-parse "$base_sha":acs/pgn_workspace_webview_adapter.py)"
+          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "$(git rev-parse "$base_sha":tests/test_version2_pgn_commands.py)"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$(git rev-parse "$base_sha":tests/test_dev1_pgn_workspace_webview_adapter.py)"
+          test "$(git rev-parse HEAD:acs/training.py)" = "$(git rev-parse "$base_sha":acs/training.py)"
+          test "$(git rev-parse HEAD:tests/test_training.py)" = "$(git rev-parse "$base_sha":tests/test_training.py)"
+          test "$(git rev-parse HEAD:tests/test_p0f_packaged_starter_application.py)" = "$(git rev-parse "$base_sha":tests/test_p0f_packaged_starter_application.py)"
+          test "$(git rev-parse HEAD:tests/test_stage_p0f_release_content.py)" = "$(git rev-parse "$base_sha":tests/test_stage_p0f_release_content.py)"
+          test "$(git rev-parse HEAD:tests/test_w3_p0f_starter_books_training_content.py)" = "$(git rev-parse "$base_sha":tests/test_w3_p0f_starter_books_training_content.py)"
+          test "$(git rev-parse HEAD:tests/test_p0f_starter_structured_examples.py)" = "$(git rev-parse "$base_sha":tests/test_p0f_starter_structured_examples.py)"
+          test "$(git rev-parse HEAD:tests/test_p0f_starter_training_canonical_legality.py)" = "$(git rev-parse "$base_sha":tests/test_p0f_starter_training_canonical_legality.py)"
+          test "$(git rev-parse HEAD:tests/test_p0g_accessible_results.py)" = "$(git rev-parse "$base_sha":tests/test_p0g_accessible_results.py)"
+          test "$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)" = "$(git rev-parse "$base_sha":tests/test_p0g_final_product_runtime_reachability.py)"
+          test "$(git rev-parse HEAD:tests/test_p0_release_critical_triad_convergence.py)" = "$(git rev-parse "$base_sha":tests/test_p0_release_critical_triad_convergence.py)"
+          test "$(git rev-parse HEAD:scripts/run_p0_packaged_acceptance.ps1)" = "$(git rev-parse "$base_sha":scripts/run_p0_packaged_acceptance.ps1)"
+          test "$(git rev-parse HEAD:scripts/p0_packaged_document_copy_probe.ps1)" = "$(git rev-parse "$base_sha":scripts/p0_packaged_document_copy_probe.ps1)"
+          test "$(git rev-parse HEAD:scripts/p0g_packaged_hotkey_result_probe.ps1)" = "$(git rev-parse "$base_sha":scripts/p0g_packaged_hotkey_result_probe.ps1)"
+          test "$(git rev-parse HEAD:scripts/verify_p0_packaged_document_copy_evidence.py)" = "$(git rev-parse "$base_sha":scripts/verify_p0_packaged_document_copy_evidence.py)"
+          test "$(git rev-parse HEAD:scripts/verify_p0g_packaged_hotkey_result_evidence.py)" = "$(git rev-parse "$base_sha":scripts/verify_p0g_packaged_hotkey_result_evidence.py)"
+          test "$(git rev-parse HEAD:.github/workflows/p0-packaged-document-copy-probe-contract.yml)" = "$(git rev-parse "$base_sha":.github/workflows/p0-packaged-document-copy-probe-contract.yml)"
+          test "$(git rev-parse HEAD:.github/workflows/p0-packaged-release-probe-convergence.yml)" = "$(git rev-parse "$base_sha":.github/workflows/p0-packaged-release-probe-convergence.yml)"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_acceptance_orchestrator.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_acceptance_orchestrator.py)"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_document_copy_probe.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_document_copy_probe.py)"
+          test "$(git rev-parse HEAD:tests/test_p0g_packaged_hotkey_result_probe.py)" = "$(git rev-parse "$base_sha":tests/test_p0g_packaged_hotkey_result_probe.py)"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_release_probe_convergence.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_release_probe_convergence.py)"
+          test "$(git rev-parse HEAD:tests/test_verify_p0_packaged_document_copy_evidence.py)" = "$(git rev-parse "$base_sha":tests/test_verify_p0_packaged_document_copy_evidence.py)"
+          test "$(git rev-parse HEAD:tests/test_verify_p0g_packaged_hotkey_result_evidence.py)" = "$(git rev-parse "$base_sha":tests/test_verify_p0g_packaged_hotkey_result_evidence.py)"
+          test "$(git rev-parse HEAD:tests/test_nvda_p0_contract.py)" = "$(git rev-parse "$base_sha":tests/test_nvda_p0_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "$(git rev-parse "$base_sha":tests/test_version2_release_accessibility_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_stage1_packaged_focus_origin_contract.py)" = "$(git rev-parse "$base_sha":tests/test_stage1_packaged_focus_origin_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_current_launcher_resource_contract.py)" = "$(git rev-parse "$base_sha":tests/test_current_launcher_resource_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_core_guard.py)" = "$(git rev-parse "$base_sha":tests/test_portable_launcher_core_guard.py)"
+
+      - name: Prove absorbed Book format and progress blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:.github/workflows/current-book-markdown-ordered-list-semantics.yml)" = "f46fc10fe6ca4afd397504ed7f6635aa388170b6"
+          test "$(git rev-parse HEAD:.github/workflows/current-book-progress-passive-ingress.yml)" = "5dd4abedb865ee4c29c25fc87474889fdc351f4e"
+          test "$(git rev-parse HEAD:.github/workflows/current-epub-xml-structure-bounds.yml)" = "39b1250e550cb66cacc0df1343b954bb2ba52363"
+          test "$(git rev-parse HEAD:.github/workflows/current-legacy-utf8-bom-authority.yml)" = "7ee7f325a18d475ea5608ba01b3ef94b1bcd4c29"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "e08b9033caefc310243b6d9bb93394a03abca6e7"
+          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = "185aa736cf87bc38cfe7a125bdc2bc6efd068c1b"
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "9679133f914839439bc42b63c4d79064b9c49bdd"
+          test "$(git rev-parse HEAD:acs/book_text_import.py)" = "d9fbde3983315c9e6d54f6b85904b5d04704730e"
+          test "$(git rev-parse HEAD:acs/legacy_text_encoding.py)" = "1f38fe854aa73440c7269c46fa6a725df6340cdb"
+          test "$(git rev-parse HEAD:tests/test_book_progress_passive_ingress_current.py)" = "fdc34f0637c2b26c2e5e70bab63c973204bb6481"
+          test "$(git rev-parse HEAD:tests/test_legacy_book_utf16_integration.py)" = "b33ec4dccdade25d5d6746442d5de4dedee66271"
+          test "$(git rev-parse HEAD:tests/test_legacy_text_encoding.py)" = "d1c1be00a21451a3a73b075f205c78f1a7c86295"
+          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = "44a2ff310e15621615d92e0084d47dfca950dda1"
+          test "$(git rev-parse HEAD:tests/test_v2_book_text_import.py)" = "8ff7816c586792ad82b8cf418f0c4050d7acbbd5"
+
+      - name: Compile changed and integrated boundaries
+        run: >-
+          python -m py_compile
+          acs/full_product_native_menu.py
+          acs/full_product_actions.py
+          acs/input_limits.py
+          acs/position_editor.py
+          acs/squares.py
+          acs/ui_keymap_adapter.py
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
+          acs/version2_final_product_application.py
+          run_accessible_chess_v2.py
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          acs/book_progress_store.py
+          acs/book_text_import.py
+          acs/legacy_text_encoding.py
+          acs/bookreader.py
+          acs/library_webview_projection.py
+          acs/library_export_service.py
+          acs/library_export_webview_projection.py
+          acs/library_webview_bridge.py
+          acs/version2_windows_library_export.py
+          acs/notation.py
+          acs/position_text.py
+          acs/settings.py
+          acs/stage1_release_ui.py
+          acs/training.py
+          acs/ui_native_menu.py
+          acs/version2_upgrade_status_release.py
+          acs/webapp.py
+          acs/webapp_keymap_core.py
+          acs/version2_application.py
+          acs/version2_package_preflight.py
+          acs/version2_package_assembler.py
+          acs/version2_release_payload.py
+          scripts/build_owner_portable_candidate.py
+          tests/test_owner_portable_candidate.py
+          tests/test_portable_launcher_contract.py
+          tests/test_portable_launcher_window_readiness.py
+          tests/test_position_editor.py
+          tests/test_squares.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_pe_identity.py
+          tests/test_version2_release_payload.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
+          acs/version2_release_receipt.py
+          acs/version2_release_ui.py
+          acs/version2_windows_book_open_worker.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_ui_pump.py
+          scripts/record_owner_physical_acceptance.py
+          scripts/p0_native_menubar_uia_oracle.py
+          tests/test_windows_native_menu_smoke_contract.py
+          tests/test_owner_gameplay_feedback.py
+          tests/test_owner_gameplay_wav_delivery.py
+          tests/test_v2_windows_upgrade_status_shipping.py
+          tests/test_accessible_webui.py
+          tests/test_dev1_release_ui_regressions.py
+          tests/test_full_product_native_menu.py
+          tests/test_child_coaching_keyboard_actions.py
+          tests/test_child_coaching_rotation.py
+          tests/test_child_coaching_rotation_completed_recovery.py
+          tests/test_version2_group_rotation_binding.py
+          tests/test_issue22_release_contract.py
+          tests/test_library_open_game_publication.py
+          tests/test_v2_windows_library_export_background.py
+          tests/test_notation.py
+          tests/test_position_text_authority.py
+          tests/test_nvda_p0_contract.py
+          tests/test_version2_release_accessibility_contract.py
+          tests/test_stage1_packaged_focus_origin_contract.py
+          tests/test_current_launcher_resource_contract.py
+          tests/test_portable_launcher_core_guard.py
+          tests/test_stage1_release_composition_ui.py
+          tests/test_training.py
+          tests/test_p0f_packaged_starter_application.py
+          tests/test_stage_p0f_release_content.py
+          tests/test_w3_p0f_starter_books_training_content.py
+          tests/test_p0f_starter_structured_examples.py
+          tests/test_p0f_starter_training_canonical_legality.py
+          tests/test_p0g_accessible_results.py
+          tests/test_p0g_final_product_runtime_reachability.py
+          tests/test_p0_release_critical_triad_convergence.py
+          scripts/verify_p0_packaged_document_copy_evidence.py
+          scripts/verify_p0g_packaged_hotkey_result_evidence.py
+          tests/test_p0_packaged_acceptance_orchestrator.py
+          tests/test_p0_packaged_document_copy_probe.py
+          tests/test_p0g_packaged_hotkey_result_probe.py
+          tests/test_p0_packaged_release_probe_convergence.py
+          tests/test_verify_p0_packaged_document_copy_evidence.py
+          tests/test_verify_p0g_packaged_hotkey_result_evidence.py
+          tests/test_ui_native_menu_recovery.py
+          tests/test_bookreader_revision_barriers_current.py
+          tests/test_book_progress_passive_ingress_current.py
+          tests/test_legacy_book_utf16_integration.py
+          tests/test_legacy_text_encoding.py
+          tests/test_v2_book_epub_import.py
+          tests/test_v2_book_text_import.py
+          tests/test_v2_book_html_import.py
+          tests/test_owner_physical_acceptance_json_hardening.py
+          tests/test_version2_application.py
+          tests/test_version2_teacher_session_runtime_binding.py
+          tests/test_version2_shutdown.py
+          tests/test_work_v2_shutdown_progress_failure_cleanup.py
+          tests/test_version2_composition_startup_cleanup_current.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_portable_package.py
+          tests/test_version2_release_ui.py
+          tests/test_version2_release_cleanup_precedence.py
+          tests/test_version2_release_receipt.py
+          tests/test_version2_windows_book_open_worker.py
+          tests/test_v2_board_analysis_hotkey_feedback.py
+          tests/test_v2_windows_file_worker_shutdown_fence.py
+          tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_save_terminal_truth.py
+          tests/test_v2_windows_pgn_save_worker.py
+          tests/test_version2_pgn_commands.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_w5_native_formclosing_dirty_pgn.py
+
+      - name: Execute recovery, persistence and accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_version2_teacher_session_runtime_binding
+          tests.test_version2_shutdown
+          tests.test_work_v2_shutdown_progress_failure_cleanup
+          tests.test_version2_composition_startup_cleanup_current
+          tests.test_version2_release_ui
+          tests.test_version2_release_cleanup_precedence
+          tests.test_version2_windows_book_open_worker
+          tests.test_w5_native_formclosing_dirty_pgn
+          tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_library_import_observer
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_file_logging_passive
+          tests.test_chessbase_library_import_report_passive
+          tests.test_owner_gameplay_feedback
+          tests.test_owner_gameplay_wav_delivery
+          tests.test_v2_windows_upgrade_status_shipping
+          tests.test_settings
+          tests.test_settings_read_identity_current
+          tests.test_settings_stale_writer_current
+          tests.test_move_entry
+          tests.test_notation
+          tests.test_position_text_authority
+          tests.test_sound_runtime
+          tests.test_sound_events
+          tests.test_dev3_sound_failure_isolation
+          tests.test_dev1_release_ui_regressions
+          tests.test_full_product_native_menu
+          tests.test_dev1_library_webview_projection
+          tests.test_library_open_game_publication
+          tests.test_v2_windows_library_export_background
+          tests.test_accessible_webui
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+          tests.test_version2_release_accessibility_contract
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_stage1_release_composition_ui
+          tests.test_ui_native_menu_recovery
+          tests.test_training
+          tests.test_child_coaching_rotation
+          tests.test_child_coaching_rotation_completed_recovery
+          tests.test_child_coaching_keyboard_actions
+          tests.test_version2_group_rotation_binding
+          tests.test_p0f_packaged_starter_application
+          tests.test_stage_p0f_release_content
+          tests.test_w3_p0f_starter_books_training_content
+          tests.test_p0f_starter_structured_examples
+          tests.test_p0f_starter_training_canonical_legality
+          tests.test_p0g_accessible_results
+          tests.test_p0g_final_product_runtime_reachability
+          tests.test_p0_release_critical_triad_convergence
+          tests.test_bookreader_revision_barriers_current
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookdocument_identity_bounds_current
+          tests.test_bookdocument_scalar_bounds_current
+          tests.test_bookdocument_deserialize_bounds_current
+          tests.test_bookdocument_total_text_budget_current
+          tests.test_book_document_ingress_passive_current
+          tests.test_bookreader_snapshot_bounds
+          tests.test_book_progress_passive_ingress_current
+          tests.test_legacy_book_utf16_integration
+          tests.test_legacy_text_encoding
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_board_workflow
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_real_corpus_recovery
+          tests.test_dev4_pgn_resource_security
+          tests.test_dev4_pgn_truncation_quality
+          tests.test_whole_product_user_journey
+
+      - name: Execute integrated owner gameplay DOM contracts
+        run: |
+          node --check web/stage1_release_bootstrap.js
+          node --check web/version2_release_bootstrap.js
+          node --check web/version2_final_product_bootstrap.js
+          node --check web/full_product_library.js
+          node --check web/full_product_pgn.js
+          node tests/js/keymap_recovery_accessibility_test.js
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/owner_gameplay_keyboard_test.js
+          node tests/js/owner_sound_bridge_ready_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/version2_library_open_route_refresh_dom_test.js
+          node tests/js/library_surface_dom_test.js
+          node tests/js/library_export_surface_dom_test.js
+          node tests/js/stage1_core_language_test.js
+          node tests/js/remappable_input_submit_keys_current_test.js
+          python run_accessible_chess_v2.py --diagnostic
+
+      - name: Execute shipping boundary contracts
+        run: >-
+          python -m unittest -v
+          tests.test_p0_packaged_acceptance_orchestrator
+          tests.test_p0_packaged_document_copy_probe
+          tests.test_p0g_packaged_hotkey_result_probe
+          tests.test_p0_packaged_release_probe_convergence
+          tests.test_verify_p0_packaged_document_copy_evidence
+          tests.test_verify_p0g_packaged_hotkey_result_evidence
+          tests.test_current_launcher_resource_contract
+          tests.test_portable_launcher_core_guard
+          tests.test_portable_launcher_window_readiness
+          tests.test_position_editor
+          tests.test_squares
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_owner_oneclick_from_w4_workflow
+          tests.test_owner_docx_win32_portability
+          tests.test_materialize_owner_library_seed
+          tests.test_owner_portable_candidate
+          tests.test_verify_owner_w4_run_provenance
+          tests.test_user_library_seed
+          tests.test_user_sound_pack_builder
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_app
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_windows_native_menu_smoke_contract
+          tests.test_version2_package_zip_topology_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Execute semantic document-copy oracle
+        run: |
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          python -m unittest -v tests.test_p0_semantic_document_copy

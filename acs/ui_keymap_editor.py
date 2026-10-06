@@ -26,6 +26,12 @@ _CONTEXT_LABELS_UK = {
     BindingContext.ENGINE_GAME.value: "Гра з рушієм",
     BindingContext.DATABASE.value: "База даних",
     BindingContext.BOOK_READER.value: "Читання книги",
+    BindingContext.PGN_TREE.value: "Дерево PGN",
+    BindingContext.LIBRARY_RESULTS.value: "Результати бібліотеки",
+    BindingContext.EDUCATION_LIST.value: "Навчальний список",
+    BindingContext.CLASSROOM_LIST.value: "Список класу",
+    BindingContext.TOOLBAR.value: "Панель інструментів",
+    BindingContext.PROFILE_DIALOG.value: "Локальний профіль",
 }
 
 _CONTEXT_LABELS_EN = {
@@ -39,6 +45,12 @@ _CONTEXT_LABELS_EN = {
     BindingContext.ENGINE_GAME.value: "Engine game",
     BindingContext.DATABASE.value: "Database",
     BindingContext.BOOK_READER.value: "Book reader",
+    BindingContext.PGN_TREE.value: "PGN tree",
+    BindingContext.LIBRARY_RESULTS.value: "Library results",
+    BindingContext.EDUCATION_LIST.value: "Education list",
+    BindingContext.CLASSROOM_LIST.value: "Classroom list",
+    BindingContext.TOOLBAR.value: "Toolbar",
+    BindingContext.PROFILE_DIALOG.value: "Local profile",
 }
 
 
@@ -122,17 +134,22 @@ class KeymapEditorModel:
             default = item["defaultBinding"] if shortcut else item["defaultAlias"]
             current_text = "" if current is None else str(current)
             default_text = "" if default is None else str(default)
-            haystack = " ".join((label, registry_context, current_text, default_text, str(item["id"]))).casefold()
+            context_labels = _CONTEXT_LABELS_EN if self.lang == "en" else _CONTEXT_LABELS_UK
+            context_label = context_labels.get(registry_context, registry_context)
+            # Search only user-facing semantics. Internal action IDs and raw
+            # registry-context tokens are stable transport identifiers and can
+            # contain English implementation terms that should not pollute a
+            # localized search. The visible localized context is searchable.
+            haystack = " ".join((label, context_label, current_text, default_text)).casefold()
             if term and term not in haystack:
                 continue
-            context_labels = _CONTEXT_LABELS_EN if self.lang == "en" else _CONTEXT_LABELS_UK
             preview = self.preview(str(item["id"]), current_text)
             rows.append(
                 EditorRow(
                     action_id=str(item["id"]),
                     label=label,
                     context=registry_context,
-                    context_label=context_labels.get(registry_context, registry_context),
+                    context_label=context_label,
                     value=current_text,
                     default_value=default_text,
                     value_kind="shortcut" if shortcut else "alias",

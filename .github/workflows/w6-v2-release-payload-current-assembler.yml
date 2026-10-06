@@ -1,0 +1,164 @@
+name: W6 V2 Release Payload Current Assembler
+
+on:
+  push:
+    branches:
+      - work/w6-v2-release-payload-current-assembler-20260910-9f3c
+  pull_request:
+    paths:
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_assembler.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_pe_identity.py'
+      - 'tests/test_current_launcher_resource_contract.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w6-v2-release-payload-current-assembler-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
+  CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
+  CURRENT_PREFLIGHT_BLOB: 5331c79063e465284a486b3f57ae5b78f9e52778
+  SOURCE_PAYLOAD_OWNER: acd277cafd5ac6f7d312e26dc79105308c6fac0b
+  SOURCE_PAYLOAD_BLOB: 14ff9a19eac258945e6bdcaefcf9297079f74468
+  SOURCE_TEST_BLOB: 2549779e21d3148a9c3c766540c296643c3652f7
+  RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
+  RESOURCE_PAYLOAD_BLOB: f93db09b617e5ec3cd4149153e5bff3fb5e68efb
+  RESOURCE_PAYLOAD_TEST_BLOB: ab29624c6be6a16f0158aa4c34f460b3f84cc98c
+  RUNTIME_PREFLIGHT_BLOB: 81a0af758b980eccb12278625e7b50ac87af6834
+  RUNTIME_PAYLOAD_TEST_BLOB: d5585a6f31e66c34142dccd73cc11984a964224e
+  PE_IDENTITY_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
+  PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
+  SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: ea86b7b0458fe47487a735bdc24d58435c7abaad
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 7e39e8051194559bf8c4001161030a70fc5d74ad
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Exact current assembler ancestry and convergence identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
+          git merge-base --is-ancestor "$SOURCE_PAYLOAD_OWNER" HEAD
+          git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+
+          changed="$(git diff --name-only "$CURRENT_ASSEMBLER_PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/w6-v2-release-payload-current-assembler.yml' \
+            'acs/version2_release_payload.py' \
+            'tests/test_version2_release_payload.py' | sort)"
+
+          if [ "$changed" = "$expected" ]; then
+            echo 'W6_PAYLOAD_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
+          else
+            test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            case "$preflight_blob" in
+              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB") ;;
+              *) echo 'Unqualified canonical preflight identity' >&2; exit 1 ;;
+            esac
+            if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
+            fi
+            echo 'W6_PAYLOAD_TOPOLOGY=CURRENT_RUNTIME_COMPOSITION'
+          fi
+
+          payload_pair="$(git rev-parse HEAD:acs/version2_release_payload.py):$(git rev-parse HEAD:tests/test_version2_release_payload.py)"
+          case "$payload_pair" in
+            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RUNTIME_PAYLOAD_TEST_BLOB") ;;
+            *) echo 'Unqualified release payload/test pair' >&2; exit 1 ;;
+          esac
+
+      - name: Compile bounded release payload boundary
+        run: >-
+          python -m compileall -q
+          acs/version2_release_payload.py
+          tests/test_version2_release_payload.py
+          tests/test_version2_package_pe_identity.py
+
+      - name: Payload plus current assembler/preflight regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_payload
+          tests.test_sound_runtime
+          tests.test_stockfish_runtime
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_current_launcher_resource_contract
+
+  official-stockfish-contract:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download pinned official Stockfish 18 Windows x86-64 asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output stockfish.zip "$STOCKFISH_URL"
+          echo '40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139  stockfish.zip' | sha256sum --check --strict
+      - name: Verify official archive through Product payload inspector
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from acs.version2_release_payload import _inspect_stockfish_archive
+          inspected = _inspect_stockfish_archive(Path('stockfish.zip'))
+          assert inspected.executable.filename.lower().endswith('.exe')
+          assert inspected.source_members
+          print('OFFICIAL STOCKFISH 18 ARCHIVE CONTRACT PASS')
+          PY
+
+  broad-regression:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned pytest
+        run: python -m pip install -q pytest==8.4.2
+      - name: Full unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full pytest
+        run: python -m pytest -q

@@ -1,5 +1,6 @@
 import unittest
 from acs.gametree import (
+    CanonicalPgnGameFramer,
     Comment,
     CommentStyle,
     GameTreeContractError,
@@ -7,6 +8,7 @@ from acs.gametree import (
     GameTreeSerializationError,
     MoveNode,
     PgnGame,
+    PgnGameFrameSizeError,
     VariationLine,
     parse_games,
     serialize_games,
@@ -14,6 +16,24 @@ from acs.gametree import (
 
 
 class GameTreeTests(unittest.TestCase):
+    def test_unbounded_framer_skips_unused_utf8_byte_accounting(self):
+        framer = CanonicalPgnGameFramer()
+        self.assertEqual(framer._frame_bytes, 0)
+
+        self.assertIsNone(framer.feed_line("😀😀"))
+        self.assertEqual(
+            framer._frame_bytes,
+            0,
+            "unbounded framing must not encode text just to maintain an unused byte counter",
+        )
+
+        bounded = CanonicalPgnGameFramer(max_frame_bytes=8)
+        with self.assertRaisesRegex(
+            PgnGameFrameSizeError,
+            "frame safety limit",
+        ):
+            bounded.feed_line("😀😀")
+
     def test_nested_rav_comments_and_nags_are_preserved(self):
         text = '''[Event "Nested"]
 [White "A"]
@@ -36,6 +56,81 @@ class GameTreeTests(unittest.TestCase):
         reparsed = parse_games(serialize_games(games))[0]
         self.assertEqual([m.san for m in reparsed.line.moves], ['e4', 'e5', 'Nf3', 'Nc6'])
         self.assertEqual([m.san for m in reparsed.line.moves[1].variations[0].moves], ['c5', 'Nf3'])
+
+    def test_import_move_number_grammar_and_san_boundary(self):
+        source = '[Result "*"]\n\n1 e4 1 ..e5 2....Nf3 2 ... Nc6 *'
+        parsed = parse_games(source)[0]
+        self.assertEqual(
+            [move.move_number for move in parsed.line.moves],
+            ["1", "1..", "2....", "2..."],
+        )
+        self.assertEqual(
+            [move.san for move in parsed.line.moves],
+            ["e4", "e5", "Nf3", "Nc6"],
+        )
+        self.assertFalse(parsed.warnings)
+
+        reparsed = parse_games(serialize_games([parsed]))[0]
+        self.assertEqual(reparsed, parsed)
+
+        for damaged in (
+            '... e4 *',
+            '....e4 *',
+            '1 . . e4 *',
+            '1 {between integer and periods} .. e4 *',
+        ):
+            with self.subTest(damaged=damaged):
+                recovered = parse_games(f'[Result "*"]\n\n{damaged}')[0]
+                self.assertEqual([move.san for move in recovered.line.moves], ["e4"])
+                self.assertTrue(
+                    any(
+                        "orphan move-number periods" in warning
+                        for warning in recovered.warnings
+                    )
+                )
+
+        for damaged in (
+            '1 2 e4 *',
+            '1 {between move numbers} 2 e4 *',
+            '1. 2... e4 *',
+            '1 *',
+        ):
+            with self.subTest(damaged=damaged):
+                recovered = parse_games(f'[Result "*"]\n\n{damaged}')[0]
+                self.assertTrue(
+                    any("orphan move number" in warning for warning in recovered.warnings)
+                )
+
+        for annotation in ("$1", "!"):
+            with self.subTest(annotation=annotation):
+                recovered = parse_games(
+                    f'[Result "*"]\n\n1. e4 1... {annotation} e5 *'
+                )[0]
+                self.assertEqual(recovered.line.moves[0].nags, [])
+                self.assertEqual(recovered.line.moves[1].move_number, "1...")
+                self.assertIn(f"orphan annotation {annotation}", recovered.warnings)
+
+        game = PgnGame(
+            line=VariationLine(
+                moves=[MoveNode("e4")],
+                result="*",
+            )
+        )
+        for structural_san in (
+            "1.",
+            "1.e4",
+            "1..",
+            "1..e4",
+            "1...e5",
+            "1....e4",
+            "...",
+            "...e5",
+        ):
+            with self.subTest(structural_san=structural_san):
+                game.line.moves[0].san = structural_san
+                with self.assertRaises(GameTreeSerializationError) as caught:
+                    serialize_games([game])
+                self.assertEqual(caught.exception.code, GameTreeErrorCode.INVALID_MOVE)
 
     def test_multi_game_collection_stays_separate(self):
         text = '''[Event "G1"]

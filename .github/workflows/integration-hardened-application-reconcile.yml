@@ -1,0 +1,104 @@
+name: Integration Hardened Application Reconcile
+
+on:
+  push:
+    branches:
+      - integration/hardened-application-reconcile-20261004
+  pull_request:
+    branches:
+      - integration/hardened-browser-authority-20261004
+    paths:
+      - 'acs/version2_application.py'
+      - 'tests/test_version2_application.py'
+      - '.github/workflows/integration-hardened-application-reconcile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-hardened-application-reconcile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and reconciled application blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='d95f4f32631591f05bd86fff5e7067ed7fd6e6ab'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-hardened-application-reconcile.yml' \
+            'acs/version2_application.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = 'c66d2c17865824e481cdf7281026b7805f633cd7'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = '4aa9ed510189b6be5be6f48f15a767bda838fc7c'
+
+          grep -q '_BOOK_PROGRESS_RELOAD_CODES' acs/version2_application.py
+          grep -q 'def _repair_book_block_focus_after_rebind' acs/version2_application.py
+          grep -q 'type(position) is not str' acs/version2_application.py
+          grep -q '_MAX_CANONICAL_BOARD_POSITION_CHARS' acs/version2_application.py
+
+          echo 'HARDENED_APPLICATION_RECONCILE_SCOPE=PASS'
+
+      - name: Compile application surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_application.py
+          tests/test_version2_application.py
+
+      - name: Run full application regression
+        run: python -m unittest -v tests.test_version2_application
+
+      - name: Run persistence, Books and Training adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_v2_book_training_route_rollback
+          tests.test_v2_book_transaction_current_runtime
+          tests.test_version2_book_board_refresh_focus_order_evidence
+          tests.test_version2_training_current_runtime
+          tests.test_training_authority_convergence
+
+      - name: Run release accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_accessibility_contract
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_projection
+
+      - name: Run browser DOM contracts
+        run: |
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest

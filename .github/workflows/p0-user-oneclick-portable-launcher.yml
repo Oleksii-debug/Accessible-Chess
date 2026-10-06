@@ -1,0 +1,744 @@
+name: P0 User One-Click Portable Launcher
+
+on:
+  push:
+    branches:
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
+    paths:
+      - 'packaging/portable_launcher.c'
+      - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/webview_safe_server.py'
+      - 'acs/version2_portable_package.py'
+      - 'tests/test_webview_safe_server.py'
+      - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_localappdata_persistence_binding.py'
+      - 'tests/test_version2_portable_package.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
+  pull_request:
+    paths:
+      - 'packaging/portable_launcher.c'
+      - 'run_accessible_chess.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/webview_safe_server.py'
+      - 'acs/version2_portable_package.py'
+      - 'tests/test_webview_safe_server.py'
+      - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_localappdata_persistence_binding.py'
+      - 'tests/test_version2_portable_package.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-user-oneclick-portable-launcher-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-launcher:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $expected) {
+            throw "Exact candidate mismatch: expected $expected, got $actual"
+          }
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Focused portable packaging regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_portable_localappdata_persistence_binding tests.test_webview_safe_server tests.test_version2_portable_package -v
+          if ($LASTEXITCODE -ne 0) { throw 'Portable package regressions failed' }
+          python -m py_compile acs/version2_portable_package.py tests/test_portable_localappdata_persistence_binding.py
+          if ($LASTEXITCODE -ne 0) { throw 'Portable package module compile failed' }
+
+      - name: Build native x64 launcher without CRT
+        shell: cmd
+        run: |
+          @echo off
+          setlocal EnableExtensions
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%i"
+          if not defined VSROOT exit /b 20
+          call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 21
+          if not exist build mkdir build
+          cl /nologo /utf-8 /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\portable_launcher.c /Fo:build\portable_launcher.obj || exit /b 22
+          link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /NODEFAULTLIB build\portable_launcher.obj kernel32.lib user32.lib /OUT:build\AccessibleChess.exe || exit /b 23
+          dumpbin /headers build\AccessibleChess.exe > build\headers.txt || exit /b 24
+          dumpbin /dependents build\AccessibleChess.exe > build\dependents.txt || exit /b 25
+
+      - name: Verify native launcher architecture and dependency closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = Get-Content -Raw build/headers.txt
+          if ($headers -notmatch 'machine \(x64\)') { throw 'Portable launcher is not x64' }
+          $deps = @(
+            Get-Content build/dependents.txt |
+              ForEach-Object {
+                if ($_ -match '^\s+([A-Za-z0-9_.-]+\.dll)\s*$') { $Matches[1].ToUpperInvariant() }
+              } |
+              Where-Object { $_ } |
+              Sort-Object -Unique
+          )
+          $expected = @('KERNEL32.DLL', 'USER32.DLL')
+          $delta = @(Compare-Object $expected $deps)
+          if ($delta.Count -ne 0) {
+            Write-Host 'Observed launcher dependencies:'
+            $deps | ForEach-Object { Write-Host " - $_" }
+            throw 'Portable launcher gained an unapproved runtime DLL dependency'
+          }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path build/AccessibleChess.exe))
+          if ($bytes.Length -lt 1024 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
+            throw 'Portable launcher PE identity failed'
+          }
+
+      - name: Build package-local environment and real-window smoke child
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          #define CAP 32768
+          static WCHAR env_value[CAP];
+          static WCHAR module_path[CAP];
+          static WCHAR expected[CAP];
+          static LRESULT CALLBACK SmokeWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+              return DefWindowProcW(window, message, wparam, lparam);
+          }
+          static int equal_text(const WCHAR *a, const WCHAR *b) {
+              DWORD i = 0;
+              while (a[i] != L'\0' || b[i] != L'\0') {
+                  if (a[i] != b[i]) return 0;
+                  ++i;
+              }
+              return 1;
+          }
+          static int parent(WCHAR *value) {
+              DWORD size = 0;
+              while (value[size] != L'\0') ++size;
+              while (size > 0) {
+                  --size;
+                  if (value[size] == L'\\') { value[size] = L'\0'; return 1; }
+              }
+              return 0;
+          }
+          static int append(WCHAR *target, const WCHAR *suffix) {
+              DWORD used = 0, index = 0;
+              while (target[used] != L'\0') ++used;
+              while (suffix[index] != L'\0') {
+                  if (used + index + 1 >= CAP) return 0;
+                  target[used + index] = suffix[index];
+                  ++index;
+              }
+              target[used + index] = L'\0';
+              return 1;
+          }
+          void WINAPI SmokeChildEntry(void) {
+              DWORD env_size = GetEnvironmentVariableW(L"LOCALAPPDATA", env_value, CAP);
+              DWORD module_size = GetModuleFileNameW(NULL, module_path, CAP);
+              WCHAR no_window[2];
+              WCHAR flash_window[2];
+              WCHAR hung_window[2];
+              DWORD no_window_size;
+              DWORD flash_window_size;
+              DWORD hung_window_size;
+              DWORD i = 0;
+              if (env_size == 0 || env_size >= CAP || module_size == 0 || module_size >= CAP) ExitProcess(41);
+              while (module_path[i] != L'\0') { expected[i] = module_path[i]; ++i; }
+              expected[i] = L'\0';
+              if (!parent(expected) || !parent(expected) || !append(expected, L"\\data")) ExitProcess(42);
+              if (!equal_text(env_value, expected)) ExitProcess(43);
+
+              no_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_NO_WINDOW", no_window, 2);
+              flash_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_FLASH_WINDOW", flash_window, 2);
+              hung_window_size = GetEnvironmentVariableW(L"ACS_SMOKE_HUNG_WINDOW", hung_window, 2);
+              if (no_window_size == 0) {
+                  WNDCLASSW window_class;
+                  HWND window;
+                  ZeroMemory(&window_class, sizeof(window_class));
+                  window_class.lpfnWndProc = SmokeWindowProc;
+                  window_class.hInstance = GetModuleHandleW(NULL);
+                  window_class.lpszClassName = L"AccessibleChessSmokeWindow";
+                  if (!RegisterClassW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) ExitProcess(44);
+                  window = CreateWindowExW(
+                      0,
+                      L"AccessibleChessSmokeWindow",
+                      L"Accessible Chess",
+                      WS_OVERLAPPEDWINDOW,
+                      CW_USEDEFAULT,
+                      CW_USEDEFAULT,
+                      640,
+                      480,
+                      NULL,
+                      NULL,
+                      GetModuleHandleW(NULL),
+                      NULL
+                  );
+                  if (window == NULL) ExitProcess(45);
+                  ShowWindow(window, SW_SHOW);
+                  UpdateWindow(window);
+                  if (flash_window_size > 0) {
+                      Sleep(150);
+                      DestroyWindow(window);
+                      Sleep(1000);
+                  } else if (hung_window_size > 0) {
+                      Sleep(60000);
+                  } else {
+                      DWORD started = GetTickCount();
+                      MSG message;
+                      while (GetTickCount() - started < 7000) {
+                          while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
+                              if (message.message == WM_QUIT) ExitProcess(0);
+                              TranslateMessage(&message);
+                              DispatchMessageW(&message);
+                          }
+                          Sleep(10);
+                      }
+                  }
+              } else {
+                  Sleep(60000);
+              }
+              ExitProcess(0);
+          }
+          '@ | Set-Content -Encoding ascii build/smoke_child.c
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsroot = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsroot) { throw 'MSVC installation not found' }
+          $command = "call `"$vsroot\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c build\smoke_child.c /Fo:build\smoke_child.obj && link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:SmokeChildEntry /NODEFAULTLIB build\smoke_child.obj kernel32.lib user32.lib /OUT:build\SmokeChild.exe"
+          cmd /d /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Smoke child compilation failed' }
+
+      - name: Build native early-exit reason smoke child
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          #define WIN32_LEAN_AND_MEAN
+          #include <windows.h>
+          void WINAPI EarlyExitEntry(void) {
+              WCHAR value[16];
+              DWORD size = GetEnvironmentVariableW(L"ACS_SMOKE_EXIT_CODE", value, 16);
+              DWORD code = 0;
+              DWORD index;
+              if (size == 0 || size >= 16) ExitProcess(98);
+              for (index = 0; index < size; ++index) {
+                  if (value[index] < L'0' || value[index] > L'9') ExitProcess(97);
+                  code = code * 10 + (DWORD)(value[index] - L'0');
+              }
+              ExitProcess(code);
+          }
+          '@ | Set-Content -Encoding ascii build/early_exit_child.c
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsroot = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsroot) { throw 'MSVC installation not found' }
+          $command = "call `"$vsroot\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c build\early_exit_child.c /Fo:build\early_exit_child.obj && link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:EarlyExitEntry /NODEFAULTLIB build\early_exit_child.obj kernel32.lib /OUT:build\EarlyExitChild.exe"
+          cmd /d /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Early-exit smoke child compilation failed' }
+
+      - name: Execute native early-exit reason smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-failure-smoke'
+          $app = Join-Path $root 'App'
+          $launcher = Join-Path $root 'AccessibleChess.exe'
+          $report = Join-Path $root 'launch-report.txt'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/EarlyExitChild.exe (Join-Path $app 'AccessibleChess.exe')
+
+          $cases = @(
+            @{ Code = 71; Reason = 'ACCESSIBILITY_HOST_INIT_FAILED' },
+            @{ Code = 72; Reason = 'SAFE_LOCAL_SERVER_INIT_FAILED' },
+            @{ Code = 73; Reason = 'RELEASE_UI_STARTUP_FAILED' },
+            @{ Code = 99; Reason = 'UNKNOWN_EARLY_EXIT' }
+          )
+
+          try {
+            foreach ($case in $cases) {
+              Remove-Item -LiteralPath $report -Force -ErrorAction SilentlyContinue
+              $env:ACS_SMOKE_EXIT_CODE = [string]$case.Code
+              $process = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+              $deadline = [DateTime]::UtcNow.AddSeconds(10)
+              $text = $null
+              do {
+                Start-Sleep -Milliseconds 100
+                if (Test-Path -LiteralPath $report -PathType Leaf) {
+                  try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+                }
+              } while (
+                [DateTime]::UtcNow -lt $deadline -and
+                ($null -eq $text -or -not $text.Contains("CHILD_EXIT_REASON: $($case.Reason)"))
+              )
+
+              if (-not $process.HasExited) {
+                $process.Kill()
+                $process.WaitForExit()
+              }
+
+              if ($null -eq $text) {
+                throw "No launch report for synthetic early exit $($case.Code)"
+              }
+              foreach ($required in @(
+                'STATUS: FAILED_EARLY_EXIT',
+                "CHILD_EXIT_CODE: $($case.Code)",
+                "CHILD_EXIT_REASON: $($case.Reason)",
+                'USER_WINDOW_PROVEN: NO',
+                'USER_NVDA_PROVEN: NO'
+              )) {
+                if (-not $text.Contains($required)) {
+                  throw "Synthetic early exit $($case.Code) missing report evidence: $required"
+                }
+              }
+            }
+          }
+          finally {
+            Remove-Item Env:ACS_SMOKE_EXIT_CODE -ErrorAction SilentlyContinue
+          }
+
+      - name: Execute package-local real-window launcher smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+          Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
+          Remove-Item Env:ACS_SMOKE_HUNG_WINDOW -ErrorAction SilentlyContinue
+          $launcher = Join-Path $PWD 'portable-smoke/AccessibleChess.exe'
+          $root = Join-Path $PWD 'portable-smoke'
+          $app = Join-Path $root 'App'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/SmokeChild.exe (Join-Path $app 'AccessibleChess.exe')
+          $first = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          Start-Sleep -Milliseconds 100
+          $second = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+
+          if (-not $first.WaitForExit(10000)) {
+            $first.Kill()
+            throw 'First overlapping portable launcher invocation did not exit within 10 seconds'
+          }
+          if ($first.ExitCode -ne 0) {
+            throw "Overlapping first portable launcher smoke failed with exit code $($first.ExitCode)"
+          }
+          if (-not $second.WaitForExit(10000)) {
+            $second.Kill()
+            throw 'Second overlapping portable launcher invocation did not exit within 10 seconds'
+          }
+          if ($second.ExitCode -ne 0) {
+            throw "Overlapping second portable launcher smoke failed with exit code $($second.ExitCode)"
+          }
+
+          $report = Join-Path $root 'launch-report.txt'
+          if (-not (Test-Path -LiteralPath $report -PathType Leaf)) {
+            throw 'Launch report missing after overlapping launchers'
+          }
+          $text = Get-Content -LiteralPath $report -Raw -Encoding utf8
+          foreach ($required in @(
+            'PREFLIGHT: PASS',
+            'PROCESS_CREATED: YES',
+            'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE',
+            'PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD',
+            'APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD',
+            'PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD',
+            'STATUS: STARTUP_WINDOW_READY',
+            'USER_WINDOW_PROVEN: YES',
+            'USER_NVDA_PROVEN: NO'
+          )) {
+            if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
+          }
+          $pidLines = @(
+            $text -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' }
+          )
+          if ($pidLines.Count -ne 1) { throw 'Launch report child PID cardinality invalid' }
+          [uint32]$reportedChildPid = 0
+          $rawChildPid = $pidLines[0].Substring('CHILD_PROCESS_ID: '.Length)
+          if (-not [uint32]::TryParse($rawChildPid, [ref]$reportedChildPid) -or $reportedChildPid -eq 0) {
+            throw 'Launch report child PID invalid'
+          }
+          $reportedChild = Get-Process -Id $reportedChildPid -ErrorAction Stop
+          $expectedChildPath = (Resolve-Path (Join-Path $app 'AccessibleChess.exe')).Path
+          if (-not ($reportedChild.Path -eq $expectedChildPath)) {
+            throw "Launch report child PID path mismatch: $($reportedChild.Path)"
+          }
+          $ownedChildren = @(
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $expectedChildPath } catch { $false }
+            }
+          )
+          if ($ownedChildren.Count -ne 1) {
+            throw "Expected exactly one package-local child after overlapping launchers; found $($ownedChildren.Count)"
+          }
+          if ([uint32]$ownedChildren[0].Id -ne $reportedChildPid) {
+            throw "Single package-local child PID mismatch: report=$reportedChildPid actual=$($ownedChildren[0].Id)"
+          }
+
+          $exclusive = [IO.File]::Open(
+            $report,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None
+          )
+          $exclusive.Dispose()
+
+          $data = Join-Path $root 'data'
+          if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
+
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class AccessibleChessDirectoryDeleteProbe {
+              private const uint DeleteAccess = 0x00010000;
+              private const uint ShareRead = 0x00000001;
+              private const uint ShareWrite = 0x00000002;
+              private const uint ShareDelete = 0x00000004;
+              private const uint OpenExisting = 3;
+              private const uint BackupSemantics = 0x02000000;
+              private const uint OpenReparsePoint = 0x00200000;
+              private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              private static extern IntPtr CreateFileW(
+                  string fileName,
+                  uint desiredAccess,
+                  uint shareMode,
+                  IntPtr securityAttributes,
+                  uint creationDisposition,
+                  uint flagsAndAttributes,
+                  IntPtr templateFile
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern bool CloseHandle(IntPtr handle);
+
+              public static int Probe(string path) {
+                  IntPtr handle = CreateFileW(
+                      path,
+                      DeleteAccess,
+                      ShareRead | ShareWrite | ShareDelete,
+                      IntPtr.Zero,
+                      OpenExisting,
+                      BackupSemantics | OpenReparsePoint,
+                      IntPtr.Zero
+                  );
+                  if (handle == InvalidHandleValue) {
+                      return Marshal.GetLastWin32Error();
+                  }
+                  CloseHandle(handle);
+                  return 0;
+              }
+          }
+          '@
+
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 32) {
+              throw "Transferred directory guard missing for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
+
+          Start-Sleep -Seconds 7
+
+          $reportedChild.Kill()
+          $reportedChild.WaitForExit()
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 0) {
+              throw "Directory guard leaked after child exit for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
+
+      - name: Execute transient-window false-success regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-flash-window-smoke'
+          $app = Join-Path $root 'App'
+          $launcher = Join-Path $root 'AccessibleChess.exe'
+          $child = Join-Path $app 'AccessibleChess.exe'
+          $report = Join-Path $root 'launch-report.txt'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/SmokeChild.exe $child
+          Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+          $env:ACS_SMOKE_FLASH_WINDOW = '1'
+          try {
+            $process = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            $text = $null
+            do {
+              Start-Sleep -Milliseconds 100
+              if (Test-Path -LiteralPath $report -PathType Leaf) {
+                try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+              }
+            } while (
+              [DateTime]::UtcNow -lt $deadline -and
+              ($null -eq $text -or (
+                -not $text.Contains('STATUS: FAILED_EARLY_EXIT') -and
+                -not $text.Contains('STATUS: STARTUP_WINDOW_READY')
+              ))
+            )
+
+            if ($null -ne $text -and $text.Contains('STATUS: STARTUP_WINDOW_READY')) {
+              throw 'Transient Accessible Chess window was falsely accepted as stable startup readiness'
+            }
+            if ($null -eq $text -or -not $text.Contains('STATUS: FAILED_EARLY_EXIT')) {
+              throw 'Transient-window child did not fail closed through early-exit diagnostics'
+            }
+            if (-not $text.Contains('USER_WINDOW_PROVEN: NO')) {
+              throw 'Transient-window failure did not preserve USER_WINDOW_PROVEN: NO'
+            }
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+          }
+          finally {
+            Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Execute hung-window false-success regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-hung-window-smoke'
+          $app = Join-Path $root 'App'
+          $launcher = Join-Path $root 'AccessibleChess.exe'
+          $child = Join-Path $app 'AccessibleChess.exe'
+          $report = Join-Path $root 'launch-report.txt'
+          $lock = Join-Path $root '.accessible-chess-instance.lock'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/SmokeChild.exe $child
+          Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+          Remove-Item Env:ACS_SMOKE_FLASH_WINDOW -ErrorAction SilentlyContinue
+          $env:ACS_SMOKE_HUNG_WINDOW = '1'
+          try {
+            $process = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(40)
+            $text = $null
+            do {
+              Start-Sleep -Milliseconds 200
+              if (Test-Path -LiteralPath $report -PathType Leaf) {
+                try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+              }
+            } while (
+              [DateTime]::UtcNow -lt $deadline -and
+              ($null -eq $text -or -not $text.Contains('STATUS: FAILED_STARTUP_TIMEOUT'))
+            )
+
+            if ($null -ne $text -and $text.Contains('STATUS: STARTUP_WINDOW_READY')) {
+              throw 'Hung visible Accessible Chess window was falsely accepted as startup readiness'
+            }
+            if ($null -eq $text -or -not $text.Contains('STATUS: FAILED_STARTUP_TIMEOUT')) {
+              throw 'Hung visible Accessible Chess window did not fail closed at the startup deadline'
+            }
+            foreach ($required in @(
+              'STATUS: FAILED_STARTUP_TIMEOUT',
+              'USER_WINDOW_PROVEN: NO',
+              'USER_NVDA_PROVEN: NO',
+              'TIMEOUT_CHILD_CLEANUP: PASS',
+              'CHILD_LEFT_RUNNING: NO'
+            )) {
+              if (-not $text.Contains($required)) { throw "Hung-window report missing: $required" }
+            }
+
+            $childDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+              $ownedChildren = @(
+                Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                  try { $_.Path -eq $child } catch { $false }
+                }
+              )
+              if ($ownedChildren.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $childDeadline)
+            if ($ownedChildren.Count -ne 0) {
+              throw "Hung-window timeout left $($ownedChildren.Count) package-local child process(es) running"
+            }
+
+            $exclusiveLock = [IO.File]::Open(
+              $lock,
+              [IO.FileMode]::Open,
+              [IO.FileAccess]::ReadWrite,
+              [IO.FileShare]::None
+            )
+            $exclusiveLock.Dispose()
+
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+          }
+          finally {
+            Remove-Item Env:ACS_SMOKE_HUNG_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Execute no-window false-success regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'portable-no-window-smoke'
+          $app = Join-Path $root 'App'
+          $launcher = Join-Path $root 'AccessibleChess.exe'
+          $child = Join-Path $app 'AccessibleChess.exe'
+          $report = Join-Path $root 'launch-report.txt'
+          $lock = Join-Path $root '.accessible-chess-instance.lock'
+          New-Item -ItemType Directory -Force $app | Out-Null
+          Copy-Item build/AccessibleChess.exe $launcher
+          Copy-Item build/SmokeChild.exe $child
+          $env:ACS_SMOKE_NO_WINDOW = '1'
+          try {
+            $process = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            $deadline = [DateTime]::UtcNow.AddSeconds(40)
+            $text = $null
+            do {
+              Start-Sleep -Milliseconds 200
+              if (Test-Path -LiteralPath $report -PathType Leaf) {
+                try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+              }
+            } while (
+              [DateTime]::UtcNow -lt $deadline -and
+              ($null -eq $text -or -not $text.Contains('STATUS: FAILED_STARTUP_TIMEOUT'))
+            )
+
+            if ($null -eq $text -or -not $text.Contains('STATUS: FAILED_STARTUP_TIMEOUT')) {
+              if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+              throw 'Long-running child without an Accessible Chess window was falsely accepted or did not time out'
+            }
+            foreach ($required in @(
+              'STATUS: FAILED_STARTUP_TIMEOUT',
+              'USER_WINDOW_PROVEN: NO',
+              'USER_NVDA_PROVEN: NO',
+              'TIMEOUT_CHILD_CLEANUP: PASS',
+              'CHILD_LEFT_RUNNING: NO'
+            )) {
+              if (-not $text.Contains($required)) { throw "No-window report missing: $required" }
+            }
+
+            $childDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+              $ownedChildren = @(
+                Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                  try { $_.Path -eq $child } catch { $false }
+                }
+              )
+              if ($ownedChildren.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $childDeadline)
+            if ($ownedChildren.Count -ne 0) {
+              throw "No-window timeout left $($ownedChildren.Count) package-local child process(es) running"
+            }
+
+            $exclusiveLock = [IO.File]::Open(
+              $lock,
+              [IO.FileMode]::Open,
+              [IO.FileAccess]::ReadWrite,
+              [IO.FileShare]::None
+            )
+            $exclusiveLock.Dispose()
+
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+
+            # Prove the user's next one-click attempt is no longer coalesced behind
+            # the timed-out child: remove fault injection and relaunch the same root EXE.
+            Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+            $retry = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            if (-not $retry.WaitForExit(10000)) {
+              $retry.Kill()
+              $retry.WaitForExit()
+              throw 'Portable launcher retry after timeout did not reach a terminal launcher state'
+            }
+            if ($retry.ExitCode -ne 0) {
+              throw "Portable launcher retry after timeout failed with exit code $($retry.ExitCode)"
+            }
+            $retryText = Get-Content -LiteralPath $report -Raw -Encoding utf8
+            foreach ($required in @(
+              'PREFLIGHT: PASS',
+              'PROCESS_CREATED: YES',
+              'STATUS: STARTUP_WINDOW_READY',
+              'USER_WINDOW_PROVEN: YES',
+              'USER_NVDA_PROVEN: NO'
+            )) {
+              if (-not $retryText.Contains($required)) {
+                throw "Retry launch report missing: $required"
+              }
+            }
+          }
+          finally {
+            Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Diff and source hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_base='${{ github.event.pull_request.base.sha }}'
+          if [ -n "$pr_base" ]; then
+            git diff --check "$pr_base" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('packaging/portable_launcher.c').read_text(encoding='utf-8')
+          assert 'HUMAN_TESTED: NO' in source
+          assert 'NVDA_VERIFIED: NO' in source
+          assert 'CreateProcessW(' in source
+          assert 'EnumWindows(ac_find_ready_window' in source
+          assert '#define AC_STARTUP_READY_STABILITY_MS 500' in source
+          assert '#define AC_WINDOW_RESPONSE_PROBE_MS 100' in source
+          assert 'SendMessageTimeoutW(' in source
+          assert 'SMTO_ABORTIFHUNG | SMTO_BLOCK' in source
+          assert 'startup_started = GetTickCount64();' in source
+          assert 'now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS' in source
+          assert 'STATUS: STARTUP_WINDOW_READY' in source
+          assert 'USER_WINDOW_PROVEN: YES' in source
+          assert 'CHILD_PROCESS_ID: ' in source
+          assert 'g_process.dwProcessId' in source
+          assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
+          assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
+          assert 'L".accessible-chess-instance.lock"' in source
+          assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED' in source
+          assert 'DuplicateHandle(' in source
+          assert 'DUPLICATE_SAME_ACCESS' in source
+          assert 'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE' in source
+          assert '#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000' in source
+          assert 'TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)' in source
+          assert 'WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)' in source
+          assert 'TIMEOUT_CHILD_CLEANUP: PASS' in source
+          assert 'CHILD_LEFT_RUNNING: NO' in source
+          assert 'STARTF_USESTDHANDLES' not in source
+          assert 'bInheritHandle = TRUE' not in source
+          print('PORTABLE_ONECLICK_SOURCE_HYGIENE=PASS')
+          PY

@@ -8,7 +8,7 @@ from typing import Literal
 
 from .acsdb import AcsDatabase
 from .game_identity import IDENTITY_SCHEMA_VERSION, identity_for_game
-from .gametree import parse_games
+from .pgn_roundtrip import parse_pgn_text
 
 DuplicateKind = Literal["exact_source", "record", "tree"]
 
@@ -60,7 +60,7 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
         for row in exact_sources
     )
 
-    incoming_games = parse_games(text)
+    incoming_games = parse_pgn_text(text, strict=False)
     if not incoming_games:
         return DuplicateReport(source_sha256=source_sha256, matches=tuple(matches))
 
@@ -71,7 +71,7 @@ def detect_pgn_duplicates(database: AcsDatabase, text: str) -> DuplicateReport:
 
     for row in stored_rows:
         try:
-            stored_games = parse_games(str(row["pgn_text"]))
+            stored_games = parse_pgn_text(str(row["pgn_text"]), strict=False)
         except Exception:
             continue
         if len(stored_games) != 1:

@@ -1,0 +1,3367 @@
+from __future__ import annotations
+
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from unittest import mock
+from unittest.mock import patch
+
+from acs.acsdb import AcsDatabase
+from acs.library_export_service import LibraryExportRequest, LibraryExportService
+from acs.pgn_document import PgnDocumentSession
+from acs.library_import_service import (
+    LibraryImportCancelledError,
+    LibraryImportProgress,
+    LibraryImportResult,
+)
+from acs.version2_windows_file_workflows import (
+    FileWorkflowEventKind,
+    Version2ImportWorkerServices,
+)
+from acs.pgn_service import open_pgn
+from acs.version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
+from acs.version2_windows_library_export import (
+    LibraryExportHostEventKind,
+    LibraryExportWorkerServices,
+)
+from acs.version2_windows_pgn_export import PgnSelectionExportEventKind
+
+
+_PGN = """[Event "Runtime"]
+[Site "?"]
+[Date "2026.08.28"]
+[Round "1"]
+[White "White"]
+[Black "Black"]
+[Result "*"]
+
+1. e4 e5 *
+"""
+
+
+class _DialogResult:
+    OK = "ok"
+
+
+class _OpenDialog:
+    selected_paths: list[str] = []
+    owners: list[object] = []
+
+    def __init__(self) -> None:
+        self.FileName = ""
+
+    def ShowDialog(self, owner):  # noqa: N802
+        type(self).owners.append(owner)
+        if type(self).selected_paths:
+            self.FileName = type(self).selected_paths.pop(0)
+        return _DialogResult.OK
+
+    def Dispose(self):  # noqa: N802
+        return None
+
+
+class _SaveDialog:
+    owners: list[object] = []
+    selected_paths: list[str] = []
+
+    def __init__(self) -> None:
+        self.FileName = ""
+
+    def ShowDialog(self, owner):  # noqa: N802
+        type(self).owners.append(owner)
+        if type(self).selected_paths:
+            self.FileName = type(self).selected_paths.pop(0)
+        return _DialogResult.OK
+
+    def Dispose(self):  # noqa: N802
+        return None
+
+
+def _forms_loader():
+    return _DialogResult, _OpenDialog, _SaveDialog
+
+
+class _Owner:
+    def __init__(self) -> None:
+        self.IsDisposed = False
+        self.Disposing = False
+        self.InvokeRequired = False
+        self.posted: list[object] = []
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        self.posted.append(delegate)
+        return len(self.posted)
+
+
+class _FlakyOwner(_Owner):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.begin_invoke_calls = 0
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        self.begin_invoke_calls += 1
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("transient BeginInvoke failure")
+        return super().BeginInvoke(delegate)
+
+
+class _OwnerPostAbort(BaseException):
+    pass
+
+
+class _AbortFlakyOwner(_Owner):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+        self.begin_invoke_calls = 0
+
+    def BeginInvoke(self, delegate):  # noqa: N802
+        self.begin_invoke_calls += 1
+        if self.failures:
+            self.failures -= 1
+            raise _OwnerPostAbort("abort-class BeginInvoke failure")
+        return super().BeginInvoke(delegate)
+
+
+class _Library:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def import_games(
+        self,
+        games,
+        *,
+        source_name,
+        source_format,
+        source_sha256,
+        source_warning_count=0,
+        cancel_check=None,
+        progress_callback=None,
+    ) -> LibraryImportResult:
+        self.calls += 1
+        total = len(games)
+        if progress_callback is not None:
+            progress_callback(LibraryImportProgress(1, 0, total))
+            progress_callback(LibraryImportProgress(1, total, total))
+        return LibraryImportResult(1, 1, total, source_warning_count, 1, total)
+
+
+class _FailingLibrary(_Library):
+    def import_games(self, games, **kwargs) -> LibraryImportResult:
+        self.calls += 1
+        raise RuntimeError("synthetic canonical Library import failure")
+
+
+class _CancellableLibrary(_Library):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+
+    def import_games(self, games, **kwargs) -> LibraryImportResult:
+        self.calls += 1
+        cancel_check = kwargs["cancel_check"]
+        self.entered.set()
+        if not self.entered.wait(1.0):
+            raise AssertionError("cancellable import did not enter")
+        for _ in range(10000):
+            if cancel_check():
+                raise LibraryImportCancelledError("cancelled")
+            threading.Event().wait(0.001)
+        raise AssertionError("runtime shutdown did not request cancellation")
+
+
+class _BlockingProgressLibrary(_Library):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def import_games(self, games, **kwargs) -> LibraryImportResult:
+        self.calls += 1
+        progress_callback = kwargs["progress_callback"]
+        cancel_check = kwargs["cancel_check"]
+        total = len(games)
+        progress_callback(LibraryImportProgress(1, 0, total))
+        self.entered.set()
+        if not self.release.wait(2.0):
+            raise AssertionError("blocking import was not released")
+        if cancel_check():
+            raise LibraryImportCancelledError("cancelled by bounded shutdown")
+        progress_callback(LibraryImportProgress(1, total, total))
+        return LibraryImportResult(1, 1, total, 0, 1, total)
+
+
+class _ImportCapableLibrary:
+    def import_games(self, *args, **kwargs):
+        raise AssertionError("import service must not run")
+
+
+class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        _OpenDialog.selected_paths.clear()
+        _OpenDialog.owners.clear()
+        _SaveDialog.selected_paths.clear()
+        _SaveDialog.owners.clear()
+
+    def _runtime(
+        self,
+        owner: _Owner,
+        *,
+        library: object | None = None,
+        imported_events: list[object] | None = None,
+        export_calls: list[tuple[object, Path]] | None = None,
+        export_events: list[object] | None = None,
+        fallback_calls: list[tuple[str, dict[str, object]]] | None = None,
+        closed_services: list[bool] | None = None,
+        library_export_worker_services_factory=None,
+        pgn_session: PgnDocumentSession | None = None,
+        pgn_session_box: dict[str, PgnDocumentSession | None] | None = None,
+        import_ui_ready_override: object | None = None,
+    ) -> Version2WindowsFileWorkflowRuntime:
+        imported_events = imported_events if imported_events is not None else []
+        export_calls = export_calls if export_calls is not None else []
+        export_events = export_events if export_events is not None else []
+        fallback_calls = fallback_calls if fallback_calls is not None else []
+        closed_services = closed_services if closed_services is not None else []
+        library = library or _Library()
+
+        def import_services_factory() -> Version2ImportWorkerServices:
+            return Version2ImportWorkerServices(
+                library,
+                None,
+                lambda: closed_services.append(True),
+            )
+
+        def export_selected(request, destination: Path) -> None:
+            export_calls.append((request, destination))
+
+        def import_ui_ready(mailbox) -> None:
+            imported_events.extend(mailbox.drain())
+
+        import_ui_ready_callback = (
+            import_ui_ready
+            if import_ui_ready_override is None
+            else import_ui_ready_override
+        )
+
+        def fallback(action_id: str, payload) -> object:
+            fallback_calls.append((action_id, dict(payload)))
+            return ("fallback", action_id)
+
+        if pgn_session_box is None:
+            get_pgn_session = lambda: pgn_session
+            set_pgn_session = lambda session: None
+        else:
+            get_pgn_session = lambda: pgn_session_box.get("value")
+            set_pgn_session = lambda session: pgn_session_box.__setitem__("value", session)
+
+        return Version2WindowsFileWorkflowRuntime(
+            owner_control=owner,
+            get_pgn_session=get_pgn_session,
+            set_pgn_session=set_pgn_session,
+            import_services_factory=import_services_factory,
+            export_selected=export_selected,
+            import_ui_ready=import_ui_ready_callback,
+            pgn_export_event_sink=export_events.append,
+            next_delegate=fallback,
+            library_export_worker_services_factory=library_export_worker_services_factory,
+            current_focus_provider=lambda: "stable-focus",
+            ui_delegate_factory=lambda callback: callback,
+            file_forms_loader=_forms_loader,
+            export_forms_loader=_forms_loader,
+        )
+
+    def test_runtime_rejects_active_action_id_before_any_comparison(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+        touched: list[str] = []
+
+        class ActiveActionId(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action-id equality executed")
+
+            def __ne__(self, other):
+                touched.append("ne")
+                raise AssertionError("active action-id inequality executed")
+
+            def __hash__(self):
+                touched.append("hash")
+                raise AssertionError("active action-id hash executed")
+
+        with self.assertRaisesRegex(TypeError, "action id must be text"):
+            runtime(ActiveActionId("library.export"), {})
+
+        self.assertEqual([], touched)
+        self.assertEqual([], fallback_calls)
+        self.assertEqual([], _SaveDialog.owners)
+        self.assertEqual([], owner.posted)
+
+    def test_non_host_action_chains_exactly_once_to_canonical_delegate(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+
+        result = runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(result, ("fallback", "analysis.restart"))
+        self.assertEqual(fallback_calls, [("analysis.restart", {"source": "board"})])
+        self.assertEqual(owner.posted, [])
+        self.assertTrue(runtime.shutdown())
+
+    def test_next_owner_command_recovers_retained_mailbox_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "pending-before-dispatch.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            result = runtime("analysis.restart", {"source": "board"})
+
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls,
+                [("analysis.restart", {"source": "board"})],
+            )
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_failed_retained_mailbox_delivery_blocks_new_dispatch_until_recovered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "retained-terminal-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "UI recovery is still pending",
+                    ):
+                        runtime("analysis.restart", {"source": "board"})
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(fallback_calls, [])
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            result = runtime("analysis.restart", {"source": "board"})
+
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls,
+                [("analysis.restart", {"source": "board"})],
+            )
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertTrue(runtime.shutdown())
+
+    def test_library_cancel_remains_available_when_retained_ui_delivery_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cancel-through-ui-failure.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    cancelling = runtime("library.cancel_import", {})
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(
+                cancelling.kind,
+                FileWorkflowEventKind.IMPORT_CANCELLING,
+            )
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertTrue(runtime.request_pending_import_wakeup())
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_mismatched_cancel_cannot_overtake_retained_mailbox_truth(self) -> None:
+        for action_id in (
+            "pgn.cancel_open",
+            "pgn.cancel_save",
+            "library.cancel_import",
+        ):
+            with self.subTest(action_id=action_id), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "mismatched-cancel-retained.pgn"
+                source.write_text(_PGN, encoding="utf-8")
+                _OpenDialog.selected_paths.append(str(source))
+                owner = _Owner()
+                imported_events: list[object] = []
+                runtime = self._runtime(owner, imported_events=imported_events)
+
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(runtime.wait_for_import(5.0))
+                self.assertFalse(runtime.import_running)
+                self.assertGreater(runtime.import_mailbox.pending_count, 0)
+                self.assertEqual(imported_events, [])
+
+                original_ui_ready = runtime._pump._ui_ready
+
+                class ReadyAbort(BaseException):
+                    pass
+
+                runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+                try:
+                    with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "UI recovery is still pending",
+                        ):
+                            runtime(action_id, {})
+                        retry.assert_called_once()
+                finally:
+                    runtime._pump._ui_ready = original_ui_ready
+
+                self.assertGreater(runtime.import_mailbox.pending_count, 0)
+                self.assertEqual(imported_events, [])
+                self.assertTrue(runtime.request_pending_import_wakeup())
+                self.assertEqual(runtime.import_mailbox.pending_count, 0)
+                self.assertTrue(runtime.shutdown())
+
+    def test_matching_cancel_revalidates_worker_ownership_after_ui_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cancel-owner-race.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(owner, imported_events=imported_events)
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with (
+                    mock.patch.object(
+                        type(runtime._file_delegate),
+                        "import_running",
+                        new_callable=mock.PropertyMock,
+                    ) as running,
+                    mock.patch.object(runtime._pump, "_schedule_retry") as retry,
+                ):
+                    running.side_effect = [True, False]
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "UI recovery is still pending",
+                    ):
+                        runtime("library.cancel_import", {})
+                    self.assertEqual(running.call_count, 2)
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.request_pending_import_wakeup())
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertTrue(runtime.shutdown())
+
+    def test_failed_pending_owner_callback_blocks_dispatch_until_same_callback_succeeds(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+        callback_calls: list[str] = []
+
+        class OwnerAbort(BaseException):
+            pass
+
+        def flaky_owner_callback() -> None:
+            callback_calls.append("call")
+            if len(callback_calls) == 1:
+                raise OwnerAbort()
+
+        runtime._pump.post_owner_callback(flaky_owner_callback)
+        self.assertTrue(runtime._pump.owner_callback_pending)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "owner UI recovery is still pending",
+        ):
+            runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(callback_calls, ["call"])
+        self.assertEqual(fallback_calls, [])
+        self.assertTrue(runtime._pump.owner_callback_pending)
+
+        result = runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(result, ("fallback", "analysis.restart"))
+        self.assertEqual(callback_calls, ["call", "call"])
+        self.assertEqual(
+            fallback_calls,
+            [("analysis.restart", {"source": "board"})],
+        )
+        self.assertFalse(runtime._pump.owner_callback_pending)
+
+        while owner.posted:
+            owner.posted.pop(0)()
+        self.assertEqual(callback_calls, ["call", "call"])
+        self.assertTrue(runtime.shutdown())
+
+    def test_pending_owner_recovery_cannot_dispatch_after_reentrant_close(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+        shutdown_results: list[bool] = []
+
+        runtime._pump.post_owner_callback(
+            lambda: shutdown_results.append(runtime.shutdown())
+        )
+        self.assertTrue(runtime._pump.owner_callback_pending)
+
+        with self.assertRaisesRegex(RuntimeError, "closed during UI recovery"):
+            runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(shutdown_results, [True])
+        self.assertTrue(runtime.closed)
+        self.assertEqual(fallback_calls, [])
+        self.assertFalse(runtime._pump.owner_callback_pending)
+
+        while owner.posted:
+            owner.posted.pop(0)()
+        self.assertEqual(fallback_calls, [])
+
+    def test_pending_import_wakeup_reports_failed_delivery_as_not_recovered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "failed-explicit-wakeup.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    self.assertFalse(runtime.request_pending_import_wakeup())
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.request_pending_import_wakeup())
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertTrue(runtime.shutdown())
+
+    def test_pending_import_wakeup_reports_reentrant_close_as_not_recovered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-import-wakeup.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown())
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+
+            self.assertFalse(runtime.request_pending_import_wakeup())
+            self.assertTrue(runtime.closed)
+            self.assertEqual(reentrant_shutdowns, [True])
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+    def test_pending_import_wakeup_rejects_reentrant_bounded_shutdown_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-bounded-wakeup.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown(0.0))
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+            try:
+                self.assertFalse(runtime.request_pending_import_wakeup())
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(reentrant_shutdowns, [False])
+            self.assertFalse(runtime.closed)
+            fenced = runtime("pgn.save", {})
+            self.assertEqual(fenced.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(fenced.error_code, "file_workflow_closed")
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_rejects_reentrant_bounded_shutdown_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-bounded-resume.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.shutdown(0.0))
+            self.assertFalse(runtime.closed)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown(0.0))
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+            try:
+                self.assertFalse(runtime.resume_after_refused_shutdown())
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(reentrant_shutdowns, [False])
+            self.assertFalse(runtime.closed)
+            fenced = runtime("pgn.save", {})
+            self.assertEqual(fenced.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(fenced.error_code, "file_workflow_closed")
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_delivers_completed_library_export_terminal_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "library-export-recovery.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                database.import_pgn_text(_PGN, source_name="library-export-recovery.pgn")
+                row = database.conn.execute(
+                    "SELECT id FROM games ORDER BY id LIMIT 1"
+                ).fetchone()
+                assert row is not None
+                game_id = int(row["id"])
+            finally:
+                database.close()
+
+            def worker_factory() -> LibraryExportWorkerServices:
+                worker_db = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    LibraryExportService(worker_db),
+                    worker_db.close,
+                )
+
+            destination = Path(directory) / "recovered-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                export_events=export_events,
+                library_export_worker_services_factory=worker_factory,
+            )
+
+            started = runtime(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            self.assertTrue(runtime.export_running)
+            self.assertTrue(owner.posted)
+            self.assertTrue(destination.exists())
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertEqual(
+                [event.kind for event in export_events],
+                [LibraryExportHostEventKind.STARTED],
+            )
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(
+                [event.kind for event in export_events],
+                [
+                    LibraryExportHostEventKind.STARTED,
+                    LibraryExportHostEventKind.EXPORTED,
+                ],
+            )
+            self.assertEqual(export_events[-1].game_count, 1)
+
+            delivered = len(export_events)
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(len(export_events), delivered)
+            self.assertFalse(runtime.export_running)
+            self.assertEqual(len(open_pgn(destination)), 1)
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_restores_real_import_and_ui_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "resume-after-refused-close.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            owner = _Owner()
+            library = _Library()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+
+            _OpenDialog.selected_paths.append(str(source))
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertEqual(library.calls, 1)
+            self.assertTrue(owner.posted)
+
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_delivers_retained_import_terminal_exactly_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "retained-import-on-refused-close.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _Library()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertTrue(owner.posted)
+
+            # Simulate the application retiring this production runtime before a
+            # later progress/database failure refuses the Form close. The already
+            # canonical import terminal must remain recoverable for UI/NVDA.
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            pending_before_resume = runtime.import_mailbox.pending_count
+            self.assertGreater(pending_before_resume, 0)
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            # A WinForms callback posted before shutdown can still arrive later.
+            # It must observe an empty mailbox rather than duplicating terminals.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_fails_closed_until_retained_ui_terminal_delivers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "retained-ui-failure-on-resume.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(owner, imported_events=imported_events)
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    self.assertFalse(runtime.resume_after_refused_shutdown())
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime._file_delegate.shutdown_requested)
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertFalse(runtime._file_delegate.shutdown_requested)
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_bounded_refused_close_ui_failure_refences_live_import_until_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "bounded-resume-ui-failure.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            self.assertFalse(runtime.shutdown(0.0))
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime._file_delegate.shutdown_requested)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    self.assertFalse(runtime.resume_after_refused_shutdown())
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime._file_delegate.shutdown_requested)
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertFalse(runtime._file_delegate.shutdown_requested)
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_reentrant_import_terminal_recovery_reports_closed_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-import-terminal-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown())
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertEqual(reentrant_shutdowns, [True])
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            # The owner callback queued before shutdown is stale and cannot
+            # duplicate a terminal already consumed during recovery.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+    def test_refused_close_resume_delivers_terminal_from_cooperative_shutdown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cooperative-shutdown-terminal.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+
+            # Worker retirement succeeds, but the application may still refuse
+            # the native close later because progress/database publication fails.
+            # The cancellation terminal produced while shutdown() joins must
+            # survive runtime/pump close for that recovery path.
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.import_running)
+            self.assertEqual(imported_events, [])
+            self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.IMPORT_CANCELLED],
+            )
+
+            # A wakeup posted by the worker before pump.close() may still be in
+            # the WinForms queue. After recovery it must see an empty mailbox
+            # and cannot announce the retained terminal a second time.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.IMPORT_CANCELLED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_preserves_completed_import_terminal_truth(self) -> None:
+        class CompletingLibrary(_Library):
+            def __init__(self) -> None:
+                super().__init__()
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def import_games(self, games, **kwargs) -> LibraryImportResult:
+                self.calls += 1
+                progress_callback = kwargs["progress_callback"]
+                progress_callback(LibraryImportProgress(1, 0, len(games)))
+                self.entered.set()
+                if not self.release.wait(2.0):
+                    raise AssertionError("test did not release completing import")
+                # Deliberately ignore the cancellation request: once canonical
+                # storage reports success, shutdown recovery must preserve that
+                # exact terminal truth rather than synthesize cancellation.
+                progress_callback(LibraryImportProgress(1, len(games), len(games)))
+                return LibraryImportResult(1, 1, len(games), 0, 1, len(games))
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "completed-during-shutdown.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = CompletingLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+
+            release = threading.Timer(0.05, library.release.set)
+            release.daemon = True
+            release.start()
+            try:
+                self.assertTrue(runtime.shutdown(5.0))
+            finally:
+                library.release.set()
+                release.cancel()
+
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.import_running)
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            kinds = [event.kind for event in imported_events]
+            self.assertIn(FileWorkflowEventKind.IMPORT_COMPLETED, kinds)
+            self.assertNotIn(FileWorkflowEventKind.IMPORT_CANCELLED, kinds)
+            self.assertEqual(kinds[-1], FileWorkflowEventKind.IMPORT_COMPLETED)
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                kinds,
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_keeps_running_cancelled_import_runtime_usable(self) -> None:
+        class BlockingLibrary(_Library):
+            def __init__(self) -> None:
+                super().__init__()
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def import_games(self, games, **kwargs) -> LibraryImportResult:
+                self.calls += 1
+                progress_callback = kwargs["progress_callback"]
+                cancel_check = kwargs["cancel_check"]
+                progress_callback(LibraryImportProgress(1, 0, len(games)))
+                self.entered.set()
+                if not self.release.wait(2.0):
+                    raise AssertionError("test did not release runtime import")
+                if cancel_check():
+                    raise LibraryImportCancelledError("cancelled by refused close")
+                progress_callback(LibraryImportProgress(1, len(games), len(games)))
+                return LibraryImportResult(1, 1, len(games), 0, 1, len(games))
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-refused-close-running-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = BlockingLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+
+            self.assertFalse(runtime.shutdown(0.0))
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+
+            busy = runtime("pgn.save", {})
+            self.assertEqual(busy.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(busy.error_code, "file_worker_busy")
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertFalse(runtime.import_running)
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            reopened = runtime("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(runtime.shutdown())
+
+    def test_export_routes_through_owned_dialog_then_injected_canonical_exporter(self) -> None:
+        owner = _Owner()
+        export_calls: list[tuple[object, Path]] = []
+        export_events: list[object] = []
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(
+            owner,
+            export_calls=export_calls,
+            export_events=export_events,
+            fallback_calls=fallback_calls,
+        )
+        payload = {
+            "game_index": 0,
+            "line_path": ((0, 0),),
+            "move_index": 0,
+            "expected_record_digest": "a" * 64,
+            "content_revision": 1,
+        }
+
+        result = runtime("pgn.export_selection", payload)
+
+        self.assertEqual(result.kind, PgnSelectionExportEventKind.EXPORTED)
+        self.assertEqual(result.focus_target, "stable-focus")
+        self.assertEqual(len(export_calls), 1)
+        self.assertEqual(export_calls[0][1], Path("selection.pgn"))
+        self.assertEqual(export_calls[0][0].game_index, 0)
+        self.assertEqual(export_calls[0][0].line_path, ((0, 0),))
+        self.assertEqual(_SaveDialog.owners, [owner])
+        self.assertEqual(export_events, [result])
+        self.assertEqual(fallback_calls, [])
+        self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_reconciles_retired_pending_pgn_open_through_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-refused-retired-open.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(2.0))
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertIsNone(session_box["value"])
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+
+            # The BeginInvoke item queued before shutdown survives in the fake
+            # owner queue, but the pump dropped its stale owner callback. Running
+            # it after recovery cannot publish the retired document or duplicate
+            # the cancellation terminal.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertTrue(runtime.shutdown())
+    def test_refused_close_preserves_pending_pgn_open_failure_through_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-refused-failed-open.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "open",
+                side_effect=RuntimeError("fixed preparation failure"),
+            ):
+                started = runtime("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_open(2.0))
+
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertIsNone(session_box["value"])
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(len(imported_events), 1)
+            self.assertEqual(imported_events[0].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(imported_events[0].error_code, "pgn_open_failed")
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(len(imported_events), 1)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_open_retries_transient_owner_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-open-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _FlakyOwner(1)
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            self.assertIsNone(session_box["value"])
+
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertTrue(runtime.pgn_open_running)
+
+            owner.posted.pop(0)()
+
+            opened = session_box["value"]
+            self.assertIsInstance(opened, PgnDocumentSession)
+            self.assertEqual(opened.workspace.current_game().tags["Event"], "Runtime")
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPENED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_uses_worker_and_owner_callback_through_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Runtime worker save")
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            self.assertIn("Runtime worker save", source.read_text(encoding="utf-8"))
+            self.assertTrue(session.dirty)
+            self.assertEqual(len(owner.posted), 1)
+
+            callback = owner.posted.pop(0)
+            callback()
+
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_retries_transient_owner_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Retry owner callback")
+            owner = _FlakyOwner(1)
+            imported_events: list[object] = []
+            runtime = self._runtime(owner, pgn_session=session, imported_events=imported_events)
+            self.assertEqual(
+                runtime("pgn.save", {}).kind, FileWorkflowEventKind.PGN_SAVE_STARTED
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            self.assertIn("Retry owner callback", source.read_text(encoding="utf-8"))
+            self.assertTrue(session.dirty)
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertTrue(runtime.pgn_save_running)
+            owner.posted.pop(0)()
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_next_owner_action_recovers_save_after_retry_post_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-owner-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Recover before next action")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+            )
+            runtime("pgn.save", {})
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(owner.posted, [])
+            self.assertTrue(session.dirty)
+            self.assertTrue(runtime.pgn_save_running)
+            result = runtime("analysis.restart", {"source": "board"})
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls, [("analysis.restart", {"source": "board"})]
+            )
+            self.assertFalse(session.dirty)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_active_action_id_cannot_run_before_cancel_recovery_decision(self) -> None:
+        touched: list[str] = []
+
+        class ActiveAction(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action equality must not execute")
+
+            def __hash__(self):
+                touched.append("hash")
+                raise AssertionError("active action hash must not execute")
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-active-action-boundary.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Pending before hostile action")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            self.assertEqual(
+                runtime("pgn.save", {}).kind,
+                FileWorkflowEventKind.PGN_SAVE_STARTED,
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertEqual(imported_events, [])
+
+            with self.assertRaises(TypeError):
+                runtime(ActiveAction("pgn.cancel_save"), {})
+
+            self.assertEqual(touched, [])
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertEqual(imported_events, [])
+
+            terminal = runtime("pgn.cancel_save", {})
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.shutdown())
+
+    def test_cancel_open_wins_before_retained_owner_callback_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-open-cancel-retained-owner.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(owner.posted, [])
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+
+            terminal = runtime("pgn.cancel_open", {})
+
+            self.assertEqual(
+                terminal.kind,
+                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+            )
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+            # This terminal is returned synchronously to the application
+            # dispatcher; it must not also traverse the owner-async mailbox.
+            self.assertEqual(imported_events, [])
+
+            # The retained callback is now stale. Recovering it on a later
+            # unrelated action must not publish the cancelled document.
+            result = runtime("analysis.restart", {"source": "board"})
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls, [("analysis.restart", {"source": "board"})]
+            )
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.shutdown())
+
+    def test_cancel_save_resolves_fixed_pending_result_before_callback_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-cancel-retained-owner.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Cancel sees fixed durable result")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(owner.posted, [])
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertIn(
+                "Cancel sees fixed durable result",
+                source.read_text(encoding="utf-8"),
+            )
+
+            terminal = runtime("pgn.cancel_save", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            # The fixed save result is returned by this Cancel command and is
+            # caller-owned; owner-async delivery would double-announce it.
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.shutdown())
+
+    def test_cancel_open_wins_after_retry_already_queued_owner_wakeup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-open-cancel-queued-owner.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _FlakyOwner(1)
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            self.assertEqual(
+                runtime("pgn.open", {}).kind,
+                FileWorkflowEventKind.PGN_OPEN_STARTED,
+            )
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+
+            terminal = runtime("pgn.cancel_open", {})
+
+            self.assertEqual(
+                terminal.kind,
+                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+            )
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(imported_events, [])
+
+            # The WinForms wakeup was already queued before Cancel. It must now
+            # execute only a stale callback and cannot resurrect publication or
+            # duplicate the caller-owned terminal.
+            owner.posted.pop(0)()
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.shutdown())
+
+    def test_cancel_save_is_single_delivery_after_retry_queued_owner_wakeup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-cancel-queued-owner.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Queued owner wakeup")
+            owner = _FlakyOwner(1)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            self.assertEqual(
+                runtime("pgn.save", {}).kind,
+                FileWorkflowEventKind.PGN_SAVE_STARTED,
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertIn("Queued owner wakeup", source.read_text(encoding="utf-8"))
+
+            terminal = runtime("pgn.cancel_save", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertEqual(imported_events, [])
+
+            owner.posted.pop(0)()
+            self.assertEqual(imported_events, [])
+            self.assertFalse(session.dirty)
+            self.assertTrue(runtime.shutdown())
+
+    def test_mismatched_cancel_still_recovers_retained_owner_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-mismatched-cancel-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Mismatched cancel recovery")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            self.assertEqual(
+                runtime("pgn.save", {}).kind,
+                FileWorkflowEventKind.PGN_SAVE_STARTED,
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+
+            terminal = runtime("pgn.cancel_open", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "no_pgn_open_running")
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_shutdown_commits_durable_save_after_owner_post_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-shutdown-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Shutdown owner recovery")
+            owner = _FlakyOwner(2)
+            runtime = self._runtime(owner, pgn_session=session)
+            runtime("pgn.save", {})
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(session.dirty)
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertIn("Shutdown owner recovery", source.read_text(encoding="utf-8"))
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+
+    def test_real_pgn_import_posts_one_ui_wakeup_and_owner_drains_on_ui_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _Library()
+            imported_events: list[object] = []
+            closed_services: list[bool] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+                closed_services=closed_services,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertEqual(library.calls, 1)
+            self.assertEqual(closed_services, [True])
+            self.assertEqual(len(owner.posted), 1)
+            self.assertGreaterEqual(runtime.import_mailbox.pending_count, 2)
+
+            callback = owner.posted.pop(0)
+            callback()
+
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertEqual(imported_events[-1].game_count, 1)
+            self.assertEqual(_OpenDialog.owners, [owner])
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_cancel_terminal_retries_without_restarting_import(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-cancelled-import-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            closed_services: list[bool] = []
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                library=library,
+                closed_services=closed_services,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(library.entered.wait(2.0))
+                cancelling = runtime("library.cancel_import", {})
+                self.assertEqual(
+                    cancelling.kind,
+                    FileWorkflowEventKind.IMPORT_CANCELLING,
+                )
+                self.assertTrue(runtime.wait_for_import(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertEqual(library.calls, 1)
+                self.assertEqual(closed_services, [True])
+                self.assertEqual(len(leased_batches), 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(
+                    first_batch[0].kind,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                )
+                self.assertEqual(first_batch[0].action_id, "library.import")
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertEqual(library.calls, 1)
+            self.assertEqual(closed_services, [True])
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.import_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_failure_terminal_retries_without_repeating_import(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-failed-import-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _FailingLibrary()
+            closed_services: list[bool] = []
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                library=library,
+                closed_services=closed_services,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(runtime.wait_for_import(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertEqual(library.calls, 1)
+                self.assertEqual(closed_services, [True])
+                self.assertEqual(len(leased_batches), 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(first_batch[0].action_id, "library.import")
+                self.assertEqual(first_batch[0].error_code, "library_import_failed")
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertEqual(library.calls, 1)
+            self.assertEqual(closed_services, [True])
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.import_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_retries_failed_transactional_terminal_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-presentation-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _Library()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                library=library,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(runtime.wait_for_import(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertEqual(len(leased_batches), 1)
+                self.assertGreater(runtime.import_mailbox.pending_count, 0)
+                first_batch = leased_batches[0]
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(leased_batches[1], first_batch)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.import_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_open_retries_failed_owner_terminal_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-open-presentation-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session_box=session_box,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_open(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                opened = session_box["value"]
+                self.assertIsInstance(opened, PgnDocumentSession)
+                self.assertEqual(len(leased_batches), 1)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.PGN_OPENED)
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertIs(session_box["value"], opened)
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_retries_failed_owner_terminal_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-save-presentation-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Transactional terminal retry")
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertFalse(session.dirty)
+                self.assertIn(
+                    "Transactional terminal retry",
+                    source.read_text(encoding="utf-8"),
+                )
+                self.assertEqual(len(leased_batches), 1)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(
+                    first_batch[0].kind,
+                    FileWorkflowEventKind.PGN_SAVED,
+                )
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_as_terminal_retry_never_republishes_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "save-as-source.pgn"
+            destination = Path(directory) / "save-as-destination.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Save As terminal retry")
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.save_as", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertFalse(session.dirty)
+                self.assertIn(
+                    "Save As terminal retry",
+                    destination.read_text(encoding="utf-8"),
+                )
+                self.assertEqual(len(leased_batches), 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(
+                    first_batch[0].kind,
+                    FileWorkflowEventKind.PGN_SAVED_AS,
+                )
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                external = _PGN.replace("Runtime", "External newer destination")
+                destination.write_text(external, encoding="utf-8")
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), external)
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_double_presentation_abort_requires_explicit_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-save-explicit-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Explicit terminal recovery")
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+            ready_calls = 0
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                nonlocal ready_calls
+                ready_calls += 1
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if ready_calls <= 2:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertFalse(session.dirty)
+                self.assertIn(
+                    "Explicit terminal recovery",
+                    source.read_text(encoding="utf-8"),
+                )
+                self.assertEqual(ready_calls, 1)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+                self.assertEqual(ready_calls, 2)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+                self.assertEqual(owner.posted, [])
+
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.PGN_SAVED)
+                self.assertEqual(
+                    tuple(id(event) for event in leased_batches[1]),
+                    tuple(id(event) for event in first_batch),
+                )
+
+                self.assertTrue(runtime.request_pending_import_wakeup())
+
+            self.assertEqual(ready_calls, 3)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[2]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertIn(
+                "Explicit terminal recovery",
+                source.read_text(encoding="utf-8"),
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_open_failure_terminal_retries_transactionally(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing-transactional-open.pgn"
+            _OpenDialog.selected_paths.append(str(missing))
+            previous = PgnDocumentSession.from_text(_PGN)
+            session_box: dict[str, PgnDocumentSession | None] = {"value": previous}
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session_box=session_box,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_open(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertIs(session_box["value"], previous)
+                self.assertEqual(len(leased_batches), 1)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(first_batch[0].action_id, "pgn.open")
+                self.assertEqual(first_batch[0].error_code, "pgn_open_failed")
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_recovers_after_abort_class_begininvoke_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "abort-post-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _AbortFlakyOwner(1)
+            library = _Library()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertGreaterEqual(owner.begin_invoke_calls, 2)
+            self.assertTrue(owner.posted)
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertFalse(runtime.import_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_pgn_save_owner_commit_recovers_after_abort_class_begininvoke_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "abort-post-save.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Abort post recovery")
+            owner = _AbortFlakyOwner(1)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertGreaterEqual(owner.begin_invoke_calls, 2)
+            self.assertTrue(owner.posted)
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertIn("Abort post recovery", source.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_shutdown_cancels_and_joins_worker_before_runtime_closes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cancel.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            closed_services: list[bool] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                closed_services=closed_services,
+            )
+
+            runtime("library.import", {})
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertTrue(runtime.import_running)
+
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.import_running)
+            self.assertEqual(closed_services, [True])
+            with self.assertRaisesRegex(RuntimeError, "runtime is closed"):
+                runtime("analysis.restart", {})
+
+            # A wakeup posted before close is safe to execute after close; the
+            # closed pump performs no projection callback.
+            for callback in list(owner.posted):
+                callback()
+
+    def test_pump_close_failure_leaves_runtime_closed_and_recovery_restores_both_halves(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+
+        primary = RuntimeError("pump close failed")
+        with mock.patch.object(runtime._pump, "close", side_effect=primary):
+            with self.assertRaises(RuntimeError) as caught:
+                runtime.shutdown()
+
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(runtime.closed)
+        self.assertTrue(runtime._file_delegate.shutdown_requested)
+        self.assertFalse(runtime._pump.closed)
+
+        self.assertTrue(runtime.resume_after_refused_shutdown())
+        self.assertFalse(runtime.closed)
+        self.assertFalse(runtime._pump.closed)
+        self.assertFalse(runtime._file_delegate.shutdown_requested)
+
+        self.assertEqual(
+            runtime("analysis.restart", {"source": "board"}),
+            ("fallback", "analysis.restart"),
+        )
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime._pump.closed)
+
+    def test_recovery_primary_failure_survives_secondary_pump_close_failure(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        primary = RuntimeError("delegate recovery failed")
+        secondary = RuntimeError("pump rollback failed")
+        with mock.patch.object(
+            runtime._file_delegate,
+            "resume_after_refused_shutdown",
+            side_effect=primary,
+        ), mock.patch.object(
+            runtime._pump,
+            "close",
+            side_effect=secondary,
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                runtime.resume_after_refused_shutdown()
+
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(runtime.closed)
+
+    def test_shutdown_is_ui_thread_affine_and_retryable_from_owner_thread(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                runtime.shutdown()
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=worker, name="runtime-shutdown-wrong-thread")
+        thread.start()
+        thread.join(5.0)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertIn("UI thread", str(errors[0]))
+        self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+
+    def test_refused_close_pgn_terminal_observes_reopened_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "refused-close-pgn-terminal-runtime-state.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertTrue(owner.posted)
+            self.assertIsNone(session_box["value"])
+
+            observed_closed: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def observe_ui_ready():
+                observed_closed.append(runtime.closed)
+                return original_ui_ready()
+
+            runtime._pump._ui_ready = observe_ui_ready
+
+            # Retire the prepared-but-unpublished Open, then model a later
+            # application durability failure by reopening this runtime.
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(observed_closed, [False])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertIsNone(session_box["value"])
+
+            # The pre-shutdown WinForms callback is stale and cannot republish
+            # the discarded candidate or duplicate the recovery terminal.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertIsNone(session_box["value"])
+            self.assertTrue(runtime.shutdown())
+
+    def test_failed_pump_recovery_keeps_runtime_closed(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        with mock.patch.object(
+            runtime._pump,
+            "resume_after_refused_shutdown",
+            return_value=False,
+        ):
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+
+        self.assertTrue(runtime.closed)
+        with self.assertRaisesRegex(RuntimeError, "runtime is closed"):
+            runtime("analysis.restart", {})
+
+    def test_refused_shutdown_recovery_is_ui_thread_affine(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                runtime.resume_after_refused_shutdown()
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=worker, name="runtime-recovery-wrong-thread")
+        thread.start()
+        thread.join(5.0)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertIn("UI thread", str(errors[0]))
+        self.assertTrue(runtime.closed)
+
+    def test_export_save_dialog_rejects_reentrant_import_before_open_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "outer-export.pgn"
+            source = Path(directory) / "nested-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            nested_errors: list[BaseException] = []
+            original_show = _SaveDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                try:
+                    runtime("library.import", {})
+                except BaseException as exc:
+                    nested_errors.append(exc)
+                return original_show(dialog, dialog_owner)
+
+            try:
+                with patch.object(_SaveDialog, "ShowDialog", new=reentrant_show):
+                    started = runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertEqual(len(nested_errors), 1)
+                self.assertIsInstance(nested_errors[0], RuntimeError)
+                self.assertIn("export is already active", str(nested_errors[0]))
+                self.assertEqual(_OpenDialog.owners, [])
+                self.assertEqual(_SaveDialog.owners, [owner])
+                self.assertTrue(runtime.wait_for_export(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_import_open_dialog_rejects_reentrant_export_before_save_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "outer-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            destination = Path(directory) / "nested-export.pgn"
+            _OpenDialog.selected_paths.append(str(source))
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            nested_errors: list[BaseException] = []
+            original_show = _OpenDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                try:
+                    runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                except BaseException as exc:
+                    nested_errors.append(exc)
+                return original_show(dialog, dialog_owner)
+
+            try:
+                with patch.object(_OpenDialog, "ShowDialog", new=reentrant_show):
+                    started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertEqual(len(nested_errors), 1)
+                self.assertIsInstance(nested_errors[0], RuntimeError)
+                self.assertIn("import is already active", str(nested_errors[0]))
+                self.assertEqual(_SaveDialog.owners, [])
+                self.assertEqual(_OpenDialog.owners, [owner])
+                self.assertTrue(runtime.wait_for_import(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_reentrant_shutdown_during_import_dialog_is_retryable_not_false_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "modal-shutdown-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            shutdown_results: list[bool] = []
+            closed_during_dialog: list[bool] = []
+            original_show = _OpenDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                shutdown_results.append(runtime.shutdown(timeout=0.1))
+                closed_during_dialog.append(runtime.closed)
+                return original_show(dialog, dialog_owner)
+
+            with patch.object(_OpenDialog, "ShowDialog", new=reentrant_show):
+                started = runtime("library.import", {})
+
+            self.assertEqual(shutdown_results, [False])
+            self.assertEqual(closed_during_dialog, [False])
+            self.assertFalse(runtime.closed)
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+
+
+    def test_reentrant_shutdown_during_export_dialog_is_retryable_not_false_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "modal-shutdown-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            shutdown_results: list[bool] = []
+            closed_during_dialog: list[bool] = []
+            original_show = _SaveDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                shutdown_results.append(runtime.shutdown(timeout=0.1))
+                closed_during_dialog.append(runtime.closed)
+                return original_show(dialog, dialog_owner)
+
+            with patch.object(_SaveDialog, "ShowDialog", new=reentrant_show):
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+
+            self.assertEqual(shutdown_results, [False])
+            self.assertEqual(closed_during_dialog, [False])
+            self.assertFalse(runtime.closed)
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+
+
+    def test_library_export_worker_factory_rejects_active_service_containers_passively(self) -> None:
+        touched: list[str] = []
+
+        class HostileServices(Version2ImportWorkerServices):
+            def __getattribute__(self, name):
+                if name in {"close", "library", "chessbase"}:
+                    touched.append(name)
+                    raise AssertionError("rejected services hook executed")
+                return super().__getattribute__(name)
+
+        hostile = HostileServices.__new__(HostileServices)
+        object.__setattr__(hostile, "library", _ImportCapableLibrary())
+        object.__setattr__(hostile, "chessbase", None)
+        object.__setattr__(hostile, "close", lambda: touched.append("close-call"))
+
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: hostile
+        )
+
+        with self.assertRaisesRegex(TypeError, "invalid bundle"):
+            create()
+        self.assertEqual(touched, [])
+
+
+    def test_library_export_worker_factory_rejects_active_cleanup_before_owner_lookup(self) -> None:
+        touched: list[str] = []
+
+        class ActiveClose:
+            def __call__(self):
+                touched.append("call")
+
+            def __getattribute__(self, name):
+                if name == "__self__":
+                    touched.append("owner")
+                    raise AssertionError("active cleanup owner hook executed")
+                return super().__getattribute__(name)
+
+        services = Version2ImportWorkerServices(
+            _ImportCapableLibrary(),
+            None,
+            ActiveClose(),
+        )
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: services
+        )
+
+        with self.assertRaisesRegex(TypeError, "canonical AcsDatabase owner"):
+            create()
+        self.assertEqual(touched, [])
+
+
+    def test_library_export_worker_factory_preserves_constructor_abort_and_closes_database(self) -> None:
+        class ConstructionAbort(BaseException):
+            pass
+
+        database = AcsDatabase()
+        services = Version2ImportWorkerServices(
+            _ImportCapableLibrary(),
+            None,
+            database.close,
+        )
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: services
+        )
+
+        with patch(
+            "acs.version2_windows_host_runtime.LibraryExportService",
+            side_effect=ConstructionAbort("Library export service construction aborted"),
+        ):
+            with self.assertRaises(ConstructionAbort):
+                create()
+
+        with self.assertRaises(Exception):
+            database.conn.execute("SELECT 1")
+
+
+    def test_next_library_start_recovers_export_terminal_after_both_ui_posts_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                database.import_pgn_text(_PGN, source_name="export-source.pgn")
+                row = database.conn.execute(
+                    "SELECT id FROM games ORDER BY id LIMIT 1"
+                ).fetchone()
+                assert row is not None
+                game_id = int(row["id"])
+            finally:
+                database.close()
+
+            destination = Path(directory) / "recovered-export.pgn"
+            import_source = Path(directory) / "next-import.pgn"
+            import_source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            _OpenDialog.selected_paths.append(str(import_source))
+            owner = _FlakyOwner(2)
+            export_events: list[object] = []
+
+            def export_worker_factory() -> LibraryExportWorkerServices:
+                worker_db = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    LibraryExportService(worker_db),
+                    worker_db.close,
+                )
+
+            runtime = self._runtime(
+                owner,
+                export_events=export_events,
+                library_export_worker_services_factory=export_worker_factory,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+
+                deadline = threading.Event()
+                for _ in range(200):
+                    if owner.begin_invoke_calls >= 2:
+                        break
+                    deadline.wait(0.01)
+                self.assertEqual(owner.begin_invoke_calls, 2)
+                self.assertEqual(owner.posted, [])
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [LibraryExportHostEventKind.STARTED],
+                )
+
+                import_started = runtime("library.import", {})
+
+                self.assertEqual(
+                    import_started.kind,
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                )
+                self.assertFalse(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                self.assertTrue(destination.exists())
+                self.assertTrue(runtime.wait_for_import(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown(5.0))
+
+
+    def test_import_running_rejects_export_before_save_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "busy-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            runtime = self._runtime(owner, library=library)
+            try:
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(library.entered.wait(2.0))
+                self.assertTrue(runtime.import_running)
+
+                with self.assertRaisesRegex(RuntimeError, "import is already active"):
+                    runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(_SaveDialog.owners, [])
+
+                runtime("library.cancel_import", {})
+                self.assertTrue(runtime.wait_for_import(5.0))
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_export_running_rejects_import_before_open_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "busy-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    lambda: None,
+                ),
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                library_export_worker_services_factory=lambda: object(),
+                current_focus_provider=lambda: "library-export-selected",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+                # The worker has selected a terminal event, but until the owner
+                # callback consumes it the operation still owns cancellation.
+                self.assertTrue(runtime.export_running)
+
+                with self.assertRaisesRegex(RuntimeError, "export is already active"):
+                    runtime("library.import", {})
+                self.assertEqual(_OpenDialog.owners, [])
+
+                class HostileCancelPayload(dict):
+                    def __bool__(self):
+                        raise AssertionError("payload truthiness must not run")
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Library cancellation accepts no payload",
+                ):
+                    runtime(
+                        "library.cancel_import",
+                        HostileCancelPayload(unexpected=True),
+                    )
+                self.assertTrue(runtime.export_running)
+
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+                self.assertFalse(runtime.export_running)
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_real_library_export_uses_worker_local_acsdb_and_owner_terminal_post(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                report = database.import_pgn_text(
+                    _PGN,
+                    source_name="runtime-library-export.pgn",
+                )
+                game_id = report.game_ids[0]
+            finally:
+                database.close()
+
+            destination = root / "library-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+
+            def import_services_factory() -> Version2ImportWorkerServices:
+                worker_database = AcsDatabase(database_path)
+                return Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    worker_database.close,
+                )
+
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=import_services_factory,
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-export-selected",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertEqual(started.focus_target, "library-export-selected")
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(_SaveDialog.owners, [owner])
+                self.assertEqual(export_events, [started])
+
+                self.assertTrue(runtime.wait_for_export(5.0))
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(len(owner.posted), 1)
+                self.assertFalse(destination.name in repr(export_events))
+
+                owner.posted.pop(0)()
+
+                self.assertFalse(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                terminal = export_events[-1]
+                self.assertEqual(terminal.focus_target, "library-export-selected")
+                self.assertEqual(terminal.game_count, 1)
+                self.assertNotIn(str(destination), repr(terminal))
+
+                reopened = open_pgn(destination)
+                self.assertEqual(len(reopened.games), 1)
+                self.assertEqual(reopened.games[0].tags["Event"], "Runtime")
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_refused_import_shutdown_does_not_retire_library_export_delegate(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+
+        with patch.object(
+            runtime._file_delegate,
+            "shutdown",
+            return_value=False,
+        ) as import_shutdown, patch.object(
+            runtime._library_export_delegate,
+            "shutdown",
+            wraps=runtime._library_export_delegate.shutdown,
+        ) as export_shutdown:
+            self.assertFalse(runtime.shutdown(0.0))
+            import_shutdown.assert_called_once_with(0.0)
+            export_shutdown.assert_not_called()
+
+        self.assertFalse(runtime.closed)
+        still_live = runtime._library_export_delegate.cancel_export()
+        self.assertEqual(still_live.kind, LibraryExportHostEventKind.FAILED)
+        self.assertEqual(still_live.error_code, "no_library_export_running")
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+
+
+    def test_full_shutdown_resume_restores_library_export_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "post-refused-close-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = self._runtime(owner, export_events=export_events)
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+
+            started = runtime(
+                "library.export",
+                LibraryExportRequest.selected([1]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown())
+
+    def test_failed_library_export_resume_rolls_back_full_runtime_recovery(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        with patch.object(
+            runtime._library_export_delegate,
+            "resume_after_refused_shutdown",
+            return_value=False,
+        ) as export_resume:
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+            export_resume.assert_called_once_with()
+
+        self.assertTrue(runtime.closed)
+        with self.assertRaisesRegex(RuntimeError, "runtime is closed"):
+            runtime("library.import", {})
+
+        # The failed recovery was rolled back to a clean retired state, so a
+        # later retry can reopen the same canonical owners without replacement.
+        self.assertTrue(runtime.resume_after_refused_shutdown())
+        self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.shutdown())
+
+
+    def test_refused_close_recovery_republishes_pending_export_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "refused-close-library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                report = database.import_pgn_text(
+                    _PGN,
+                    source_name="refused-close-library-export.pgn",
+                )
+                game_id = report.game_ids[0]
+            finally:
+                database.close()
+
+            destination = root / "refused-close-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+
+            def import_services_factory() -> Version2ImportWorkerServices:
+                worker_database = AcsDatabase(database_path)
+                return Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    worker_database.close,
+                )
+
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=import_services_factory,
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-search",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+                self.assertEqual(len(owner.posted), 1)
+                stale_finish = owner.posted.pop(0)
+                self.assertEqual([event.kind for event in export_events], [LibraryExportHostEventKind.STARTED])
+
+                self.assertTrue(runtime.shutdown())
+                self.assertTrue(runtime.closed)
+                self.assertTrue(runtime.resume_after_refused_shutdown())
+                self.assertFalse(runtime.closed)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                self.assertEqual(export_events[-1].game_count, 1)
+                self.assertEqual(export_events[-1].focus_target, "library-search")
+
+                delivered = len(export_events)
+                stale_finish()
+                self.assertEqual(len(export_events), delivered)
+                self.assertFalse(runtime.export_running)
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+if __name__ == "__main__":
+    unittest.main()

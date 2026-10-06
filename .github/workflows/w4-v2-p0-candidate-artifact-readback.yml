@@ -1,0 +1,338 @@
+name: W4 V2 P0 Candidate Artifact Readback
+
+on:
+  workflow_run:
+    workflows: ['W4 V2 P0 Fresh Windows Candidate']
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: w4-v2-p0-candidate-readback-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  readback:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      W4_VERIFIER_BLOB_SHA: 50056ca618abc42450512d7cb0dbc3efa9442809
+      W4_CURRENT_VERIFIER_BLOB_SHA: e3722b39f585e54bbc37fcc79ae595ce57d13f8a
+      W4_SOUND_INVENTORY_VERIFIER_BLOB_SHA: 43b018ce6f7954e795b979658044394c7acb3532
+    steps:
+      - name: Checkout exact default-branch workflow authority from completed run
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Re-prove completed workflow-dispatch authority
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EXPECTED_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_EVENT" = 'workflow_dispatch'
+          test "$EXPECTED_BRANCH" = "$EXPECTED_DEFAULT_BRANCH"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA"
+          echo "W4_READBACK_WORKFLOW_AUTHORITY=$actual"
+
+      - name: Materialize immutable verifier bytes from completed workflow authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_sha="$(git rev-parse HEAD)"
+          rm -rf .w4-readback-source
+          git worktree add --detach .w4-readback-source "$workflow_sha"
+          test "$(git -C .w4-readback-source rev-parse HEAD)" = "$workflow_sha"
+          actual_blob="$(git -C .w4-readback-source rev-parse "HEAD:scripts/verify_w4_candidate_artifact.py")"
+          current_blob="$(git -C .w4-readback-source rev-parse "HEAD:scripts/verify_w4_current_candidate_artifact.py")"
+          sound_blob="$(git -C .w4-readback-source rev-parse "HEAD:scripts/verify_w4_sound_inventory.py")"
+          test "$actual_blob" = "$W4_VERIFIER_BLOB_SHA" || {
+            printf 'Completed-run W4 core verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$actual_blob" >&2
+            exit 1
+          }
+          test "$current_blob" = "$W4_CURRENT_VERIFIER_BLOB_SHA" || {
+            printf 'Completed-run W4 current verifier blob mismatch expected=%s actual=%s\n' "$W4_CURRENT_VERIFIER_BLOB_SHA" "$current_blob" >&2
+            exit 1
+          }
+          test "$sound_blob" = "$W4_SOUND_INVENTORY_VERIFIER_BLOB_SHA" || {
+            printf 'Completed-run W4 sound inventory verifier blob mismatch expected=%s actual=%s\n' "$W4_SOUND_INVENTORY_VERIFIER_BLOB_SHA" "$sound_blob" >&2
+            exit 1
+          }
+          test -s .w4-readback-source/scripts/verify_w4_candidate_artifact.py
+          test -s .w4-readback-source/scripts/verify_w4_current_candidate_artifact.py
+          test -s .w4-readback-source/scripts/verify_w4_sound_inventory.py
+          echo "W4_READBACK_VERIFIER_WORKFLOW_SHA=$workflow_sha"
+          echo "W4_READBACK_VERIFIER_BLOB=$actual_blob"
+          echo "W4_READBACK_CURRENT_VERIFIER_BLOB=$current_blob"
+          echo "W4_READBACK_SOUND_INVENTORY_VERIFIER_BLOB=$sound_blob"
+          echo 'W4_READBACK_VERIFIER_AUTHORITY=PASS'
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Resolve exact candidate artifact from completed W4 run
+        id: artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          repo=os.environ['REPO']
+          run=os.environ['RUN_ID']
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/actions/runs/{run}/artifacts?per_page=100',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              payload=json.load(response)
+          matches=[item for item in payload.get('artifacts', []) if item.get('name') == 'Accessible-Chess-V2-NVDA-test-candidate' and not item.get('expired')]
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one non-expired candidate artifact, found {len(matches)}')
+          item=matches[0]
+          digest=item.get('digest')
+          if not isinstance(digest, str) or not digest:
+              raise SystemExit('candidate artifact API digest missing')
+          out=os.environ['GITHUB_OUTPUT']
+          with open(out, 'a', encoding='utf-8') as stream:
+              stream.write(f"artifact_id={item['id']}\n")
+              stream.write(f"artifact_digest={digest}\n")
+          print(f"W4_READBACK_ARTIFACT_ID={item['id']}")
+          print(f"W4_READBACK_ARTIFACT_DIGEST={digest}")
+          PY
+
+      - name: Download raw outer artifact ZIP from exact completed run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, urllib.request
+          repo=os.environ['REPO']
+          artifact=os.environ['ARTIFACT_ID']
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/actions/artifacts/{artifact}/zip',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          max_outer_bytes=300 * 1024 * 1024
+          opener=urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+          total=0
+          with opener.open(req, timeout=60) as response, open('candidate-artifact.zip', 'wb') as output:
+              declared=response.headers.get('Content-Length')
+              if declared is not None:
+                  try:
+                      declared_bytes=int(declared)
+                  except ValueError:
+                      raise SystemExit('candidate artifact Content-Length is invalid')
+                  if declared_bytes > max_outer_bytes:
+                      raise SystemExit('candidate artifact exceeds 300 MiB download bound')
+              while True:
+                  block=response.read(1024 * 1024)
+                  if not block:
+                      break
+                  total += len(block)
+                  if total > max_outer_bytes:
+                      raise SystemExit('candidate artifact exceeds 300 MiB download bound')
+                  output.write(block)
+          if total <= 0 or os.path.getsize('candidate-artifact.zip') != total:
+              raise SystemExit('downloaded candidate artifact is empty or truncated')
+          print(f'W4_RAW_ARTIFACT_DOWNLOAD_BYTES={total}')
+          print('W4_RAW_ARTIFACT_DOWNLOAD=PASS')
+          PY
+
+      - name: Bind Product and sound identity to current completed-run metadata
+        id: product
+        shell: bash
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import zipfile
+
+          expected_workflow = os.environ["EXPECTED_WORKFLOW_SHA"].strip().lower()
+          hex40 = re.compile(r"^[0-9a-f]{40}$")
+          hex64 = re.compile(r"^[0-9a-f]{64}$")
+          if not hex40.fullmatch(expected_workflow):
+              raise SystemExit("completed workflow SHA is not exact 40-hex")
+
+          def no_duplicates(pairs):
+              value = {}
+              for key, item in pairs:
+                  if key in value:
+                      raise ValueError(f"duplicate run metadata key: {key}")
+                  value[key] = item
+              return value
+
+          with zipfile.ZipFile("candidate-artifact.zip", "r") as archive:
+              names = archive.namelist()
+              target = "p0-evidence/w4-run-metadata.json"
+              if names.count(target) != 1:
+                  raise SystemExit("expected exactly one run metadata file")
+              info = archive.getinfo(target)
+              if info.file_size <= 0 or info.file_size > 16384:
+                  raise SystemExit("run metadata size is outside accepted bound")
+              raw = archive.read(info)
+          try:
+              text = raw.decode("utf-8")
+              metadata = json.loads(text, object_pairs_hook=no_duplicates)
+          except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit(f"run metadata is invalid: {exc}")
+          if not isinstance(metadata, dict):
+              raise SystemExit("run metadata root must be an object")
+          required = {
+              "schema_version",
+              "product_sha",
+              "workflow_sha",
+              "pre_upload_product_freshness",
+              "pre_upload_workflow_freshness",
+              "user_sound_pack_zip_sha256",
+              "user_sound_inventory_sha256",
+              "user_sound_wav_count",
+              "human_tested",
+              "nvda_verified",
+          }
+          if set(metadata) != required:
+              raise SystemExit("current run metadata key set mismatch")
+          product = metadata.get("product_sha")
+          workflow = metadata.get("workflow_sha")
+          sound_zip_sha = metadata.get("user_sound_pack_zip_sha256")
+          sound_inventory_sha = metadata.get("user_sound_inventory_sha256")
+          sound_wav_count = metadata.get("user_sound_wav_count")
+          if metadata.get("schema_version") != 1 or type(metadata.get("schema_version")) is not int:
+              raise SystemExit("run metadata schema_version mismatch")
+          if not isinstance(product, str) or not hex40.fullmatch(product):
+              raise SystemExit("run metadata product_sha is invalid")
+          if not isinstance(workflow, str) or not hex40.fullmatch(workflow):
+              raise SystemExit("run metadata workflow_sha is invalid")
+          if workflow != expected_workflow:
+              raise SystemExit("run metadata workflow_sha does not match completed run")
+          if not isinstance(sound_zip_sha, str) or not hex64.fullmatch(sound_zip_sha):
+              raise SystemExit("run metadata user sound archive SHA-256 is invalid")
+          if not isinstance(sound_inventory_sha, str) or not hex64.fullmatch(sound_inventory_sha):
+              raise SystemExit("run metadata user sound inventory SHA-256 is invalid")
+          if type(sound_wav_count) is not int or sound_wav_count != 330:
+              raise SystemExit("run metadata user sound WAV count is invalid")
+          if metadata.get("pre_upload_product_freshness") is not True:
+              raise SystemExit("run metadata lacks pre-upload Product freshness proof")
+          if metadata.get("pre_upload_workflow_freshness") is not True:
+              raise SystemExit("run metadata lacks pre-upload workflow freshness proof")
+          if metadata.get("human_tested") is not False or metadata.get("nvda_verified") is not False:
+              raise SystemExit("run metadata overclaims human or NVDA acceptance")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write(f"product_sha={product}\n")
+          print(f"W4_READBACK_RUN_PRODUCT_SHA={product}")
+          print(f"W4_READBACK_RUN_WORKFLOW_SHA={workflow}")
+          print(f"W4_READBACK_RUN_SOUND_ZIP_SHA256={sound_zip_sha}")
+          print(f"W4_READBACK_RUN_SOUND_INVENTORY_SHA256={sound_inventory_sha}")
+          print(f"W4_READBACK_RUN_SOUND_WAV_COUNT={sound_wav_count}")
+          print("W4_READBACK_RUN_IDENTITY=PASS")
+          PY
+
+      - name: Materialize exact Product semantic dependencies with workflow-authority verifiers
+        shell: bash
+        env:
+          PRODUCT_SHA: ${{ steps.product.outputs.product_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$PRODUCT_SHA"
+          rm -rf .w4-product-source
+          git worktree add --detach .w4-product-source "$PRODUCT_SHA"
+          test "$(git -C .w4-product-source rev-parse HEAD)" = "$PRODUCT_SHA"
+          for dependency in acs/acsdb.py acs/gametree.py acs/pgn_roundtrip.py acs/version2_package_preflight.py packaging/AccessibleChess.exe.config; do
+            test -s ".w4-product-source/$dependency" || {
+              printf 'Exact Product semantic dependency missing: %s\n' "$dependency" >&2
+              exit 1
+            }
+          done
+          actual_config_sha="$(sha256sum .w4-product-source/packaging/AccessibleChess.exe.config | awk '{print $1}')"
+          [[ "$actual_config_sha" =~ ^[0-9a-f]{64}$ ]] || {
+            printf 'Exact Product WinForms config digest is invalid: %s\n' "$actual_config_sha" >&2
+            exit 1
+          }
+          echo "PRODUCT_CONFIG_SHA256=$actual_config_sha" >> "$GITHUB_ENV"
+          echo "W4_READBACK_PRODUCT_CONFIG_SHA256=$actual_config_sha"
+          echo 'W4_READBACK_PRODUCT_CONFIG_AUTHORITY=PASS'
+          if ! (
+            cd .w4-product-source
+            python -c "from pathlib import Path; from acs.version2_package_preflight import validate_winforms_accessibility_app_config; validate_winforms_accessibility_app_config(Path('packaging/AccessibleChess.exe.config')); print('W4_READBACK_PRODUCT_CONFIG_SEMANTICS=PASS')"
+          ); then
+            echo 'W4_READBACK_PRODUCT_CONFIG_SEMANTICS_FAILURE' >&2
+            exit 1
+          fi
+          mkdir -p .w4-product-source/scripts
+          cp .w4-readback-source/scripts/verify_w4_candidate_artifact.py .w4-product-source/scripts/verify_w4_candidate_artifact.py
+          cp .w4-readback-source/scripts/verify_w4_current_candidate_artifact.py .w4-product-source/scripts/verify_w4_current_candidate_artifact.py
+          cp .w4-readback-source/scripts/verify_w4_sound_inventory.py .w4-product-source/scripts/verify_w4_sound_inventory.py
+          copied_blob="$(git hash-object .w4-product-source/scripts/verify_w4_candidate_artifact.py)"
+          copied_current_blob="$(git hash-object .w4-product-source/scripts/verify_w4_current_candidate_artifact.py)"
+          copied_sound_blob="$(git hash-object .w4-product-source/scripts/verify_w4_sound_inventory.py)"
+          test "$copied_blob" = "$W4_VERIFIER_BLOB_SHA" || {
+            printf 'Copied W4 core verifier blob mismatch expected=%s actual=%s\n' "$W4_VERIFIER_BLOB_SHA" "$copied_blob" >&2
+            exit 1
+          }
+          test "$copied_current_blob" = "$W4_CURRENT_VERIFIER_BLOB_SHA" || {
+            printf 'Copied W4 current verifier blob mismatch expected=%s actual=%s\n' "$W4_CURRENT_VERIFIER_BLOB_SHA" "$copied_current_blob" >&2
+            exit 1
+          }
+          test "$copied_sound_blob" = "$W4_SOUND_INVENTORY_VERIFIER_BLOB_SHA" || {
+            printf 'Copied W4 sound inventory verifier blob mismatch expected=%s actual=%s\n' "$W4_SOUND_INVENTORY_VERIFIER_BLOB_SHA" "$copied_sound_blob" >&2
+            exit 1
+          }
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_SHA=$PRODUCT_SHA"
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_VERIFIER_BLOB=$copied_blob"
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_CURRENT_VERIFIER_BLOB=$copied_current_blob"
+          echo "W4_READBACK_PRODUCT_DEPENDENCY_SOUND_INVENTORY_VERIFIER_BLOB=$copied_sound_blob"
+          echo 'W4_READBACK_PRODUCT_DEPENDENCY_GRAPH=PASS'
+
+      - name: Independently verify outer artifact, current sound identity, sound bytes, inner package, checksums, P0-F and P0 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .w4-product-source/scripts/verify_w4_sound_inventory.py \
+            --artifact candidate-artifact.zip \
+            --product-sha '${{ steps.product.outputs.product_sha }}' \
+            --workflow-sha '${{ github.event.workflow_run.head_sha }}'
+          echo 'W4_SOUND_INVENTORY_BYTE_BINDING=PASS'
+          python .w4-product-source/scripts/verify_w4_current_candidate_artifact.py \
+            --artifact candidate-artifact.zip \
+            --product-sha '${{ steps.product.outputs.product_sha }}' \
+            --workflow-sha '${{ github.event.workflow_run.head_sha }}' \
+            --product-config-sha256 "$PRODUCT_CONFIG_SHA256" \
+            --outer-sha256 '${{ steps.artifact.outputs.artifact_digest }}'
+          echo 'W4_EXACT_RUN_ARTIFACT_READBACK=PASS'
+          echo 'HUMAN_TESTED=NO'
+          echo 'NVDA_VERIFIED=NO'

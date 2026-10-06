@@ -1,7 +1,7 @@
 import unittest
 
 from acs.clock_service import ChessClock, ClockSnapshot, ClockState, TimeControl
-from acs.engine_game_session import EngineGameSessionCoordinator
+from acs.engine_game_session import EngineGameSessionCoordinator, TakebackTransaction
 from acs.engine_play_service import EngineGameConfig, EngineGameHandoff, EngineGameIntent, EnginePlayService
 from acs.engine_ports import EngineContractError, EngineContractErrorCode
 
@@ -28,6 +28,16 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
         clock_factory = None
         if now is not None:
             clock_factory = lambda configured: ChessClock(configured, now=now)
+        def prepare_takeback():
+            # Only the Board owner can capture and compensate its own state.
+            prior = dict(state)
+
+            def rollback():
+                state.clear()
+                state.update(prior)
+
+            return TakebackTransaction(undo, rollback, lambda: None)
+
         session = EngineGameSessionCoordinator(
             EnginePlayService(lambda: _MoveEngine()),
             fen_provider=lambda: state["fen"],
@@ -35,6 +45,7 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
             commit_engine_move=lambda move: None,
             history_node_provider=lambda: state["node"],
             undo_committed_move=undo,
+            takeback_transaction=prepare_takeback,
             clock_restore_provider=restore,
             clock_factory=clock_factory,
         )
@@ -68,11 +79,36 @@ class Dev3TakebackAtomicityTests(unittest.TestCase):
         self.assertEqual(state["fen"], "fen-w")
         self.assertEqual(state["node"], "node-2")
 
+    def test_partial_undo_failure_compensates_canonical_owner_state(self):
+        state_ref = {}
+        attempts = []
+
+        def partial_undo():
+            state = state_ref["state"]
+            state.update(side="b", fen="partially-undone", node="invalid")
+            attempts.append("undo")
+            raise RuntimeError("injected partial Board failure")
+
+        session, state = self._session(undo=partial_undo)
+        state_ref["state"] = state
+        before_state = dict(state)
+        before = session.snapshot()
+        with self.assertRaisesRegex(RuntimeError, "injected partial Board failure"):
+            session.handle_handoff(
+                EngineGameHandoff(EngineGameIntent.ACCEPT_TAKEBACK, actor="b")
+            )
+        self.assertEqual(attempts, ["undo"])
+        self.assertEqual(state, before_state)
+        self.assertEqual(session.snapshot(), before)
+        self.assertEqual(session.snapshot().lifecycle.takeback_requested_by, "w")
+
     def test_invalid_clock_provider_cannot_clear_lifecycle_or_mutate_clock(self):
         undo_calls = []
+        now = _Time()
         session, _state = self._session(
             undo=lambda: undo_calls.append("undo"),
             restore=lambda: object(),
+            now=now,
         )
         before = session.snapshot()
 

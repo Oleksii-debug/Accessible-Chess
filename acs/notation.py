@@ -10,6 +10,12 @@ class NotationError(ValueError):
 
 PROFILES = {"san", "uk_literal", "en_literal"}
 
+# SAN is an intrinsically tiny grammar. Bound the raw representation before
+# strip()/regex work so pasted or hostile text cannot amplify allocation cost.
+# The supported grammar below needs at most 9 non-whitespace characters; 64
+# leaves ample compatibility headroom without turning notation into a text sink.
+MAX_SAN_CHARS = 64
+
 _PIECES = {
     "uk": {
         "K": "король",
@@ -63,6 +69,7 @@ _SAN_RE = re.compile(
     r"(?:=(?P<promo>[QRBN]))?"
     r"(?P<suffix>[+#])?$"
 )
+_CASTLING_TOKENS = {"O-O", "O-O+", "O-O#", "O-O-O", "O-O-O+", "O-O-O#"}
 
 
 @dataclass(frozen=True)
@@ -80,16 +87,32 @@ def _square_spoken(square: str) -> str:
 
 
 def _normalise_castling(san: str) -> str:
-    return san.replace("0", "O")
+    # Tolerate the common legacy all-zero spelling, but do not silently repair
+    # mixed glyph forms such as ``0-O`` or ``O-0`` into canonical SAN.
+    for legacy, canonical in (("0-0-0", "O-O-O"), ("0-0", "O-O")):
+        if san.startswith(legacy):
+            suffix = san[len(legacy):]
+            if suffix in {"", "+", "#"}:
+                return canonical + suffix
+    return san
+
+
+def _bounded_san_text(san: str) -> str:
+    if type(san) is not str:
+        raise NotationError("SAN token must be text")
+    if len(san) > MAX_SAN_CHARS:
+        raise NotationError("SAN token is too long")
+    token = san.strip()
+    if not token:
+        raise NotationError("SAN token must not be empty")
+    return token
 
 
 def parse_san(san: str) -> ParsedSan:
-    token = str(san).strip()
-    if not token:
-        raise NotationError("SAN token must not be empty")
+    token = _bounded_san_text(san)
 
     token = _normalise_castling(token)
-    if token in {"O-O", "O-O+", "O-O#", "O-O-O", "O-O-O+", "O-O-O#"}:
+    if token in _CASTLING_TOKENS:
         raise NotationError("castling is handled directly by format_san")
 
     match = _SAN_RE.fullmatch(token)
@@ -103,8 +126,32 @@ def parse_san(san: str) -> ParsedSan:
     promotion = match.group("promo")
     suffix = match.group("suffix")
 
-    if piece == "P" and capture and len(disamb) != 1:
-        raise NotationError(f"invalid pawn capture SAN: {san!r}")
+    if piece == "P":
+        if capture:
+            if len(disamb) != 1 or disamb not in "abcdefgh":
+                raise NotationError(f"invalid pawn capture SAN: {san!r}")
+        elif disamb:
+            # Coordinate/long-algebraic forms such as e2e4 and malformed ee4
+            # are not SAN and must not silently enter the canonical SAN path.
+            raise NotationError(f"invalid pawn move SAN: {san!r}")
+
+        promotion_rank = destination[1] in {"1", "8"}
+        if promotion is not None and not promotion_rank:
+            raise NotationError(f"invalid pawn promotion SAN: {san!r}")
+        if promotion is None and promotion_rank:
+            raise NotationError(f"pawn promotion piece is required: {san!r}")
+    else:
+        # A legal chess position has exactly one king of each colour, so SAN
+        # never needs file/rank/source-square disambiguation for a king.  This
+        # is a notation-grammar invariant, not a move-legality decision.
+        if piece == "K" and disamb:
+            raise NotationError(f"king SAN cannot be disambiguated: {san!r}")
+        if promotion is not None:
+            raise NotationError(f"only pawns can promote in SAN: {san!r}")
+        if len(disamb) == 2 and not (
+            disamb[0] in "abcdefgh" and disamb[1] in "12345678"
+        ):
+            raise NotationError(f"invalid SAN disambiguation: {san!r}")
 
     return ParsedSan(piece, disamb, capture, destination, promotion, suffix)
 
@@ -121,13 +168,13 @@ def format_san(san: str, profile: str = "san") -> str:
     stored chess-data syntax; it formats an already-produced SAN move only.
     """
 
-    if profile not in PROFILES:
-        raise NotationError(f"unknown notation profile: {profile}")
-
-    token = _normalise_castling(str(san).strip())
-    if not token:
-        raise NotationError("SAN token must not be empty")
+    if type(profile) is not str or profile not in PROFILES:
+        raise NotationError("unknown notation profile")
+    token = _normalise_castling(_bounded_san_text(san))
+    is_castling = token in _CASTLING_TOKENS
     if profile == "san":
+        if not is_castling:
+            parse_san(token)
         return token
 
     lang = "uk" if profile == "uk_literal" else "en"
@@ -183,6 +230,8 @@ def format_accessible_compact_san(san: str, lang: str = "uk") -> str:
     English profiles remain available through :func:`format_san`.
     """
 
+    if type(lang) is not str:
+        raise NotationError("compact SAN language must be text")
     language = "en" if lang == "en" else "uk"
     token = format_san(san, "san")
 
@@ -197,15 +246,27 @@ def format_accessible_compact_san(san: str, lang: str = "uk") -> str:
                 result += f", {_SUFFIX_WORDS[language][suffix]}"
             return result
 
-    suffix = token[-1] if token[-1:] in {"+", "#"} else None
-    if suffix:
-        token = token[:-1]
+    parsed = parse_san(token)
+    parts: list[str] = []
+    if parsed.piece != "P":
+        parts.append(parsed.piece)
 
-    token = re.sub(r"^([KQRBN])(?=[a-h1-8])", r"\1 ", token)
-    token = re.sub(r"([a-h])([1-8])", r"\1 \2", token)
-    token = token.replace("x", " captures " if language == "en" else " б’є ")
-    token = re.sub(r"\s+", " ", token).strip()
+    if parsed.disambiguation:
+        if len(parsed.disambiguation) == 2:
+            parts.extend(parsed.disambiguation)
+        else:
+            parts.append(parsed.disambiguation)
 
-    if suffix:
-        token += f", {_SUFFIX_WORDS[language][suffix]}"
-    return token
+    if parsed.capture:
+        parts.append("captures" if language == "en" else "б’є")
+
+    parts.append(parsed.destination[0])
+    destination_rank = parsed.destination[1]
+    if parsed.promotion:
+        destination_rank += f"={parsed.promotion}"
+    parts.append(destination_rank)
+
+    result = " ".join(parts)
+    if parsed.suffix:
+        result += f", {_SUFFIX_WORDS[language][parsed.suffix]}"
+    return result

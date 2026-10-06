@@ -1,0 +1,113 @@
+name: Current Books Keymap Semantic Convergence
+
+on:
+  pull_request:
+    paths:
+      - 'web/full_product_books_training.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
+      - '.github/workflows/current-books-keymap-semantic-convergence.yml'
+  push:
+    paths:
+      - 'web/full_product_books_training.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/books_training_toolbar_keymap_convergence_test.js'
+      - 'tests/test_current_books_keymap_semantic_convergence_workflow.py'
+      - '.github/workflows/current-books-keymap-semantic-convergence.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-books-keymap-semantic-convergence-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Reject superseded pull-request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          event_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+          live_sha="$(git rev-parse FETCH_HEAD)"
+          test "$live_sha" = "$event_sha" || {
+            printf 'CURRENT_BOOKS_KEYMAP_CONVERGENCE_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
+            exit 1
+          }
+          echo 'CURRENT_BOOKS_KEYMAP_CONVERGENCE_EXACT_HEAD=PASS'
+
+      - name: Prove exact candidate and retained source ancestry
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PRODUCT_BASE: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          KEYMAP_SOURCE: fc4c6c85dbdf4e5d7c3798a6171a696b27f0472b
+          BOOKS_SOURCE: 9b9f923639b27d4f4d674ff3e086298f1acb8491
+          MERGED_RUNTIME_BLOB: a269a5771c87bb39837b0d78247fbe938da794c9
+          SEMANTIC_DOM_BLOB: a1ce64e2ded06518f0e0c9f5e623bf78a8de1855
+          TOOLBAR_DOM_BLOB: fb92d3c0920d353faa5ab3641b80555709fdfe4b
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor "$PRODUCT_BASE" HEAD
+          git merge-base --is-ancestor "$KEYMAP_SOURCE" HEAD
+          git merge-base --is-ancestor "$BOOKS_SOURCE" HEAD
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = "$MERGED_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = "$SEMANTIC_DOM_BLOB"
+          test "$(git rev-parse HEAD:tests/js/books_training_toolbar_keymap_convergence_test.js)" = "$TOOLBAR_DOM_BLOB"
+          git diff --check "$PRODUCT_BASE"...HEAD
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Execute Books and Training DOM convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node --check tests/js/books_training_toolbar_keymap_convergence_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_toolbar_keymap_convergence_test.js
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile retained application authorities
+        shell: bash
+        run: python -m compileall -q acs tests
+
+      - name: Run focused semantic and keymap integration regressions
+        shell: bash
+        run: |
+          python -m unittest \
+            tests.test_current_books_keymap_semantic_convergence_workflow \
+            tests.test_book_semantic_game_metadata \
+            tests.test_book_library_reference_identity \
+            tests.test_book_training_large_reading_journey \
+            tests.test_library_date_filter_journey \
+            tests.test_terminal_keybinding_surface_wiring \
+            tests.test_version2_final_product_composition
+
+      - name: Canonical chess selftest
+        shell: bash
+        run: python -m acs.selftest

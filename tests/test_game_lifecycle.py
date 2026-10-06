@@ -201,6 +201,65 @@ class GameLifecycleTests(unittest.TestCase):
                     LifecycleErrorCode.INVALID_STATE,
                 )
 
+    def test_restore_checkpoint_round_trips_pending_interactions(self):
+        game = GameLifecycle()
+        game.offer_draw("w")
+        game.request_takeback("b")
+        checkpoint = game.snapshot()
+        game.on_move_committed()
+        self.assertNotEqual(game.snapshot(), checkpoint)
+
+        self.assertEqual(game.restore_checkpoint(checkpoint), checkpoint)
+        self.assertEqual(game.restore_checkpoint(checkpoint), checkpoint)
+        self.assertEqual(game.snapshot().draw_offered_by, "w")
+        self.assertEqual(game.snapshot().takeback_requested_by, "b")
+        accepted = game.accept_takeback("w")
+        self.assertIsNone(accepted.takeback_requested_by)
+        self.assertEqual(accepted.draw_offered_by, "w")
+
+    def test_restore_checkpoint_preserves_terminal_outcome(self):
+        game = GameLifecycle()
+        terminal = game.resign("b")
+        game.reset_for_new_game()
+        self.assertEqual(game.restore_checkpoint(terminal), terminal)
+        self.assertEqual(game.snapshot().outcome, terminal.outcome)
+        with self.assertRaises(LifecycleError):
+            game.offer_draw("w")
+
+    def test_restore_checkpoint_rejects_wrong_type_without_mutation(self):
+        game = GameLifecycle()
+        game.request_takeback("w")
+        before = game.snapshot()
+        for invalid in (None, {}, "active", True):
+            with self.subTest(checkpoint=invalid):
+                with self.assertRaises(LifecycleError) as caught:
+                    game.restore_checkpoint(invalid)
+                self.assertEqual(caught.exception.code, LifecycleErrorCode.INVALID_STATE)
+                self.assertEqual(game.snapshot(), before)
+
+    def test_restore_checkpoint_revalidates_corrupt_snapshot_before_mutation(self):
+        game = GameLifecycle()
+        game.offer_draw("b")
+        before = game.snapshot()
+        broken = LifecycleSnapshot(GameStatus.ACTIVE, None, None, None)
+        object.__setattr__(broken, "status", "finished")
+        with self.assertRaises(LifecycleError) as caught:
+            game.restore_checkpoint(broken)
+        self.assertEqual(caught.exception.code, LifecycleErrorCode.INVALID_STATE)
+        self.assertEqual(game.snapshot(), before)
+
+    def test_restore_checkpoint_revalidates_nested_outcome_atomically(self):
+        game = GameLifecycle()
+        game.request_takeback("w")
+        before = game.snapshot()
+        outcome = GameOutcome("1-0", EndReason.RESIGNATION, "w")
+        checkpoint = LifecycleSnapshot(GameStatus.FINISHED, outcome, None, None)
+        object.__setattr__(outcome, "reason", EndReason.STALEMATE)
+        with self.assertRaises(LifecycleError) as caught:
+            game.restore_checkpoint(checkpoint)
+        self.assertEqual(caught.exception.code, LifecycleErrorCode.INVALID_OUTCOME)
+        self.assertEqual(game.snapshot(), before)
+
     def test_finished_state_error_code_is_stable(self):
         game = GameLifecycle()
         game.resign("w")

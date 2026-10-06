@@ -1,0 +1,92 @@
+name: V2 Upgrade Settings Guard Preservation
+
+on:
+  push:
+    branches:
+      - fix/v2-upgrade-settings-guard-preservation-20261003
+  pull_request:
+    branches:
+      - fix/v2-upgrade-library-publish-candidate-identity-20261003
+    paths:
+      - 'acs/version2_upgrade_base.py'
+      - 'tests/test_v2_upgrade_publish_race_audit.py'
+      - '.github/workflows/v2-upgrade-settings-guard-preservation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-upgrade-settings-guard-preservation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact recovery parent and Settings scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='e4c84dbb20a4362eafe34002e934c85a08e3450b'
+          git cat-file -e "$parent^{commit}"
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'fix/v2-upgrade-library-publish-candidate-identity-20261003'
+            test '${{ github.event.pull_request.base.sha }}' = "$parent"
+          fi
+
+          git diff --check "$parent" HEAD
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/v2-upgrade-settings-guard-preservation.yml'             'acs/version2_upgrade_base.py'             'tests/test_v2_upgrade_publish_race_audit.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/version2_upgrade_base.py)" = "297f309e746b8915bf713fae37c36141904fa290"
+          test "$(git rev-parse HEAD:tests/test_v2_upgrade_publish_race_audit.py)" = "2e2c4e532d03494b6f6ebd4e4e1218490411aec7"
+
+          echo 'V2_UPGRADE_SETTINGS_GUARD_PRESERVATION_SCOPE=PASS'
+
+      - name: Compile Settings recovery surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_upgrade_base.py
+          tests/test_v2_upgrade_publish_race_audit.py
+
+      - name: Publication and recovery race regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_upgrade_publish_race_audit
+          tests.test_v2_upgrade_generated_artifact_authentication
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_v2_upgrade_root_writer_artifact_grammar
+
+      - name: Upgrade integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_data_upgrade
+          tests.test_v2_data_upgrade_v6
+
+      - name: Core selftest
+        run: python -m acs.selftest

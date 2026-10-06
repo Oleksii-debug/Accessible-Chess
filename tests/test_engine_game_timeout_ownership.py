@@ -18,6 +18,17 @@ class FakeTime:
         self.value += seconds
 
 
+class SequenceTime:
+    def __init__(self, *values):
+        self.values = list(values)
+        self.last = float(values[-1])
+
+    def __call__(self):
+        if self.values:
+            self.last = float(self.values.pop(0))
+        return self.last
+
+
 class QuietEngine:
     def best_move(self, fen, skill_level=10, movetime_ms=500):
         return 'e2e4'
@@ -97,6 +108,51 @@ class EngineGameTimeoutOwnershipTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_PROVIDER)
         self.assertEqual(session._lifecycle.snapshot().status, GameStatus.ACTIVE)
+
+    def test_post_commit_timeout_fact_uses_precommit_position_evidence(self):
+        session, now, calls = self.make_session(lambda flagged: True)
+        now.advance(2)
+
+        snapshot = session.on_human_move_committed(
+            "w",
+            timeout_opponent_can_mate=False,
+        )
+
+        self.assertEqual(calls, [])
+        self.assertEqual(snapshot.lifecycle.status, GameStatus.FINISHED)
+        self.assertEqual(snapshot.lifecycle.outcome.reason, EndReason.TIMEOUT)
+        self.assertEqual(snapshot.lifecycle.outcome.result, "1/2-1/2")
+        self.assertIsNone(snapshot.lifecycle.outcome.winner)
+
+    def test_timeout_during_clock_switch_uses_precommit_position_evidence(self):
+        session, _now, calls = self.make_session(lambda flagged: True)
+        session._clock._now = SequenceTime(100.0, 102.0)
+
+        snapshot = session.on_human_move_committed(
+            "w",
+            timeout_opponent_can_mate=False,
+        )
+
+        self.assertEqual(calls, [])
+        self.assertEqual(snapshot.lifecycle.status, GameStatus.FINISHED)
+        self.assertEqual(snapshot.lifecycle.outcome.reason, EndReason.TIMEOUT)
+        self.assertEqual(snapshot.lifecycle.outcome.result, "1/2-1/2")
+        self.assertIsNone(snapshot.lifecycle.outcome.winner)
+        self.assertEqual(snapshot.clock.flagged, "w")
+
+    def test_post_commit_timeout_fact_rejects_scalar_coercion_atomically(self):
+        session, _now, calls = self.make_session(lambda flagged: True)
+        before = session.snapshot()
+
+        with self.assertRaises(EngineContractError) as caught:
+            session.on_human_move_committed(
+                "w",
+                timeout_opponent_can_mate=1,
+            )
+
+        self.assertEqual(caught.exception.code, EngineContractErrorCode.INVALID_REQUEST)
+        self.assertEqual(calls, [])
+        self.assertEqual(session.snapshot(), before)
 
     def test_explicit_sync_timeout_accepts_exact_resolved_fact(self):
         session, now, calls = self.make_session(lambda flagged: None)

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import re, copy
+from .input_limits import MAX_FEN_CHARS
 from .squares import FILES, parse_square, square_name
 
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
@@ -7,8 +8,12 @@ PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий 
 
 def sq_name(s): return square_name(s)
 def parse_sq(t):
-    try: return parse_square(t)
-    except ValueError as exc: raise ValueError('Неправильне поле: '+repr(t)) from exc
+    try:
+        return parse_square(t)
+    except ValueError as exc:
+        # Rejected square input is untrusted.  Do not repr()/str() it while
+        # translating the canonical square error into the legacy chesscore API.
+        raise ValueError('Неправильне поле') from exc
 
 def color_of(p): return 'w' if p and p.isupper() else ('b' if p else None)
 
@@ -59,6 +64,8 @@ class Board:
         """
         if type(fen) is not str:
             raise ValueError('FEN має бути текстом')
+        if len(fen) > MAX_FEN_CHARS:
+            raise ValueError('FEN занадто довгий')
         if type(clear_history) is not bool:
             raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
@@ -305,7 +312,28 @@ class Board:
         before=self.fen(); san=self.san(m)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
-    def push_text(self,t): return self.push(self.parse_move(t))
+    def push_null(self):
+        """Apply the canonical null/pseudo-move transition used by format adapters.
+
+        A null move changes no pieces or castling rights. It clears en-passant,
+        advances the halfmove/fullmove counters exactly like a quiet ply, flips
+        the side to move, and participates in the same undo/redo history as
+        ordinary canonical moves.
+        """
+        before=self.fen()
+        self.undo_stack.append((before,'--')); self.redo_stack.clear()
+        self.ep=None
+        self.halfmove+=1
+        if self.turn=='b': self.fullmove+=1
+        self.turn='b' if self.turn=='w' else 'w'
+        self.last_move=None
+        return '--'
+    def push_text(self,t):
+        if type(t) is not str:
+            raise ValueError('Хід має бути текстом')
+        if self.norm_san(t)=='--':
+            return self.push_null()
+        return self.push(self.parse_move(t))
     def undo(self):
         if not self.undo_stack: return None
         current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False); return san

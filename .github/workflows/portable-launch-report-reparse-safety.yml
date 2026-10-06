@@ -1,0 +1,215 @@
+name: Portable Launcher Report Reparse Safety
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'packaging/portable_launcher.c'
+      - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_launcher_core_guard.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
+      - '.github/workflows/current-launcher-report-data-identity.yml'
+      - '.github/workflows/portable-launch-report-reparse-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  LAUNCHER_BLOB: 1a1365c7c5bab6f6463414c9ff9c2aa2f1037e06
+  CONTRACT_TEST_BLOB: 3cdd10f060e2713639210ce246524c0c2b448a19
+  P0_LAUNCHER_WORKFLOW_BLOB: 00b8dfb79dcd5e9457bef6934303a2a8e145600f
+  WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
+  CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
+
+concurrency:
+  group: portable-launch-report-reparse-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact serial candidate and owned scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "refs/heads/$PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$PRODUCT_REF"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
+          fi
+          product_base="$live_product_base"
+          test -n "$product_base"
+          git merge-base --is-ancestor "$product_base" HEAD
+          test "$(git merge-base "$product_base" HEAD)" = "$product_base"
+          test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object .github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
+          actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            'packaging/portable_launcher.c' \
+            'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          git diff --check "$product_base" HEAD
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Run canonical launcher contracts
+        run: >-
+          python -m unittest
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_core_guard
+          tests.test_portable_launcher_window_readiness
+          -v
+
+  windows-native-build:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact serial candidate and owned scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "refs/heads/$PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$EVENT_BASE_REF" = "$PRODUCT_REF"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
+          fi
+          product_base="$live_product_base"
+          test -n "$product_base"
+          git merge-base --is-ancestor "$product_base" HEAD
+          test "$(git merge-base "$product_base" HEAD)" = "$product_base"
+          test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object .github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
+          actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
+            'packaging/portable_launcher.c' \
+            'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          git diff --check "$product_base" HEAD
+      - name: Build native x64 launcher with warnings as errors
+        shell: cmd
+        run: |
+          @echo off
+          setlocal EnableExtensions
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%i"
+          if not defined VSROOT exit /b 20
+          call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 21
+          if not exist build mkdir build
+          cl /nologo /utf-8 /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\portable_launcher.c /Fo:build\portable_launcher.obj || exit /b 22
+          link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /NODEFAULTLIB build\portable_launcher.obj kernel32.lib user32.lib /OUT:build\AccessibleChess.exe || exit /b 23
+          dumpbin /dependents build\AccessibleChess.exe > build\dependents.txt || exit /b 24
+      - name: Keep launcher dependency closure minimal
+        shell: pwsh
+        run: |
+          $deps = @(
+            Get-Content build/dependents.txt |
+              ForEach-Object {
+                if ($_ -match '^\s+([A-Za-z0-9_.-]+\.dll)\s*$') { $Matches[1].ToUpperInvariant() }
+              } |
+              Where-Object { $_ } |
+              Sort-Object -Unique
+          )
+          $expected = @('KERNEL32.DLL', 'USER32.DLL')
+          if (@(Compare-Object $expected $deps).Count -ne 0) {
+            throw "Portable launcher dependency drift: $($deps -join ', ')"
+          }
+      - name: Reject hard-linked core before process creation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $PWD 'build/hardlink-package'
+          $app = Join-Path $package 'App'
+          New-Item -ItemType Directory -Path $app -Force | Out-Null
+          Copy-Item build/AccessibleChess.exe (Join-Path $package 'AccessibleChess.exe')
+          $foreign = Join-Path $package 'foreign-core.bin'
+          [IO.File]::WriteAllBytes($foreign, [byte[]](1,2,3,4,5,6,7,8))
+          $core = Join-Path $app 'AccessibleChess.exe'
+          New-Item -ItemType HardLink -Path $core -Target $foreign | Out-Null
+          $launcher = Join-Path $package 'AccessibleChess.exe'
+          $report = Join-Path $package 'launch-report.txt'
+          $process = Start-Process -FilePath $launcher -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(8)
+            $observed = $false
+            while ([DateTime]::UtcNow -lt $deadline) {
+              if (Test-Path $report) {
+                $text = Get-Content -Raw -Encoding UTF8 $report
+                if ($text -match 'STAGE: core process creation') {
+                  throw 'Hard-linked core reached CreateProcessW instead of failing the authenticated core guard'
+                }
+                if ($text -match 'STAGE: core executable validation') {
+                  $observed = $true
+                  break
+                }
+              }
+              Start-Sleep -Milliseconds 100
+            }
+            if (-not $observed) {
+              throw 'Authenticated core guard rejection was not observed in launch-report.txt'
+            }
+            $links = (Get-Item $core).LinkType
+            if ($links -ne 'HardLink') {
+              throw "Expected hard-link fixture, got LinkType=$links"
+            }
+            $foreignBytes = [IO.File]::ReadAllBytes($foreign)
+            if ($foreignBytes.Length -ne 8) {
+              throw 'Hard-link target bytes were unexpectedly changed'
+            }
+          }
+          finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+          }

@@ -47,7 +47,7 @@ class NativeMenuItemSpec:
             if not self.action_id or self.host_command:
                 raise ValueError("native action item requires exactly one action id")
         elif self.kind is NativeMenuItemKind.HOST:
-            if self.action_id or self.host_command != "app.exit":
+            if self.action_id or self.host_command not in {"app.exit", "pgn.convert_utf8"}:
                 raise ValueError("unsupported native host command")
 
 
@@ -88,12 +88,13 @@ _TOP_ORDER = (
 _TEXT = {
     UILanguage.EN: {
         "top.file": "&File", "top.game": "&Game", "top.position": "&Position",
-        "top.pgn": "&PGN", "top.library": "&Library", "top.import": "&Import",
-        "top.export": "&Export", "top.engine": "&Engine", "top.analysis": "&Analysis",
+        "top.pgn": "PG&N", "top.library": "Librar&y", "top.import": "&Import",
+        "top.export": "E&xport", "top.engine": "&Engine", "top.analysis": "&Analysis",
         "top.books": "&Books", "top.training": "&Training",
-        "top.teacher": "&Teacher/Classroom", "top.settings": "&Settings", "top.help": "&Help",
-        "open_pgn": "Open PGN", "import_library": "Import into Library",
-        "export_pgn": "Export selected PGN", "exit": "Exit",
+        "top.teacher": "Teacher/&Classroom", "top.settings": "&Settings", "top.help": "&Help",
+        "open_pgn": "Open PGN", "cancel_pgn_open": "Cancel PGN Open", "save_pgn": "Save PGN", "save_pgn_as": "Save PGN As", "cancel_pgn_save": "Cancel PGN Save",
+        "import_library": "Import into Library", "export_pgn": "Export selected PGN", "exit": "Exit",
+        "convert_pgn": "Convert PGN to UTF-8 (new copy)",
         "board_game": "Board and game", "standard": "New standard position",
         "empty": "Empty position", "undo": "Undo", "redo": "Redo",
         "position_tools": "Board and position tools", "move_input": "Move input",
@@ -108,9 +109,12 @@ _TEXT = {
         "previous_pv": "Previous variation", "next_pv": "Next variation",
         "explore_pv": "Temporarily explore variation", "insert_move": "Insert selected move",
         "insert_line": "Insert selected variation", "books_screen": "Book Library",
+        "book_previous_block": "Previous block", "book_next_block": "Next block",
         "book_previous_heading": "Previous heading", "book_next_heading": "Next heading",
-        "book_next_position": "Next position", "book_next_game": "Next book game",
+        "book_previous_position": "Previous position", "book_next_position": "Next position",
+        "book_previous_game": "Previous book game", "book_next_game": "Next book game",
         "book_bookmark": "Save bookmark", "book_open_position": "Open position on board",
+        "book_open_file": "Open book", "book_cancel_open": "Cancel book opening", "book_previous_move": "Previous book move", "book_next_move": "Next book move",
         "book_return": "Return to book", "training_screen": "Training",
         "training_hint": "Hint", "training_reveal": "Reveal solution",
         "training_retry": "Try again", "training_reset": "Restart exercise",
@@ -125,8 +129,9 @@ _TEXT = {
         "top.export": "&Експорт", "top.engine": "&Stockfish", "top.analysis": "&Аналіз",
         "top.books": "&Книги", "top.training": "&Тренування",
         "top.teacher": "&Учитель/Клас", "top.settings": "&Налаштування", "top.help": "&Довідка",
-        "open_pgn": "Відкрити PGN", "import_library": "Імпортувати до бібліотеки",
-        "export_pgn": "Експортувати вибране PGN", "exit": "Вихід",
+        "open_pgn": "Відкрити PGN", "cancel_pgn_open": "Скасувати відкриття PGN", "save_pgn": "Зберегти PGN", "save_pgn_as": "Зберегти PGN як", "cancel_pgn_save": "Скасувати збереження PGN",
+        "import_library": "Імпортувати до бібліотеки", "export_pgn": "Експортувати вибране PGN", "exit": "Вихід",
+        "convert_pgn": "Перекодувати PGN у UTF-8 (нова копія)",
         "board_game": "Дошка і партія", "standard": "Нова стандартна позиція",
         "empty": "Порожня позиція", "undo": "Скасувати", "redo": "Повторити",
         "position_tools": "Дошка та інструменти позиції", "move_input": "Поле введення ходу",
@@ -141,9 +146,12 @@ _TEXT = {
         "previous_pv": "Попередній варіант", "next_pv": "Наступний варіант",
         "explore_pv": "Тимчасово переглянути варіант", "insert_move": "Вставити вибраний хід",
         "insert_line": "Вставити вибраний варіант", "books_screen": "Бібліотека книг",
+        "book_previous_block": "Попередній блок", "book_next_block": "Наступний блок",
         "book_previous_heading": "Попередній заголовок", "book_next_heading": "Наступний заголовок",
-        "book_next_position": "Наступна позиція", "book_next_game": "Наступна партія в книзі",
+        "book_previous_position": "Попередня позиція", "book_next_position": "Наступна позиція",
+        "book_previous_game": "Попередня партія в книзі", "book_next_game": "Наступна партія в книзі",
         "book_bookmark": "Зберегти закладку", "book_open_position": "Відкрити позицію на дошці",
+        "book_open_file": "Відкрити книгу", "book_cancel_open": "Скасувати відкриття книги", "book_previous_move": "Попередній хід із книги", "book_next_move": "Наступний хід із книги",
         "book_return": "Повернутися до книги", "training_screen": "Тренування",
         "training_hint": "Підказка", "training_reveal": "Показати розв’язок",
         "training_retry": "Спробувати ще раз", "training_reset": "Почати вправу спочатку",
@@ -187,16 +195,42 @@ def build_full_product_menu_spec(
     separator = NativeMenuItemSpec(NativeMenuItemKind.SEPARATOR)
     host_exit = NativeMenuItemSpec(NativeMenuItemKind.HOST, text["exit"], host_command="app.exit")
     rows = {
-        "file": (action("open_pgn", "pgn.open"), action("import_library", "library.import"), action("export_pgn", "pgn.export_selection"), separator, host_exit),
+        "file": (
+            action("open_pgn", "pgn.open"),
+            action("cancel_pgn_open", "pgn.cancel_open"),
+            action("save_pgn", "pgn.save"),
+            action("save_pgn_as", "pgn.save_as"),
+            action("cancel_pgn_save", "pgn.cancel_save"),
+            separator,
+            action("import_library", "library.import"),
+            action("export_pgn", "pgn.export_selection"),
+            separator,
+            host_exit,
+        ),
         "game": (action("board_game", "screen.board"), action("standard", "move.standard"), action("empty", "move.empty"), separator, action("undo", "edit.undo"), action("redo", "edit.redo")),
         "position": (action("position_tools", "screen.board"), action("move_input", "board.input"), action("history_go", "history.go_to_move"), action("history_previous", "history.previous"), action("history_next", "history.next")),
-        "pgn": (action("pgn_screen", "screen.pgn"), action("open_pgn", "pgn.open"), action("previous_game", "pgn.previous_game"), action("next_game", "pgn.next_game"), action("copy_pgn", "pgn.copy_selection"), action("export_pgn", "pgn.export_selection")),
+        "pgn": (
+            action("pgn_screen", "screen.pgn"),
+            action("open_pgn", "pgn.open"),
+            action("cancel_pgn_open", "pgn.cancel_open"),
+            action("save_pgn", "pgn.save"),
+            action("save_pgn_as", "pgn.save_as"),
+            action("cancel_pgn_save", "pgn.cancel_save"),
+            action("previous_game", "pgn.previous_game"),
+            action("next_game", "pgn.next_game"),
+            action("copy_pgn", "pgn.copy_selection"),
+            action("export_pgn", "pgn.export_selection"),
+        ),
         "library": (action("library_screen", "screen.library"), action("library_search", "library.search"), action("library_reset", "library.reset_filters"), action("library_open", "library.open_game")),
         "import": (action("import_library", "library.import"),),
-        "export": (action("library_export", "library.export"), action("export_pgn", "pgn.export_selection")),
+        "export": (
+            action("library_export", "library.export"),
+            action("export_pgn", "pgn.export_selection"),
+            NativeMenuItemSpec(NativeMenuItemKind.HOST, text["convert_pgn"], host_command="pgn.convert_utf8"),
+        ),
         "engine": (action("analysis_screen", "screen.analysis"), action("analysis_restart", "analysis.restart"), action("analysis_lock", "analysis.lock_target"), action("analysis_return", "analysis.return")),
         "analysis": (action("previous_pv", "analysis.previous_pv"), action("next_pv", "analysis.next_pv"), action("explore_pv", "analysis.explore_pv"), separator, action("insert_move", "analysis.insert_move"), action("insert_line", "analysis.insert_line")),
-        "books": (action("books_screen", "screen.books"), action("book_previous_heading", "book.previous_heading"), action("book_next_heading", "book.next_heading"), action("book_next_position", "book.next_position"), action("book_next_game", "book.next_game"), action("book_bookmark", "book.bookmark"), action("book_open_position", "book.open_position"), action("book_return", "book.return")),
+        "books": (action("books_screen", "screen.books"), action("book_open_file", "book.open"), action("book_cancel_open", "book.cancel_open"), action("book_previous_block", "book.previous_block"), action("book_next_block", "book.next_block"), action("book_previous_heading", "book.previous_heading"), action("book_next_heading", "book.next_heading"), action("book_previous_position", "book.previous_position"), action("book_next_position", "book.next_position"), action("book_previous_game", "book.previous_game"), action("book_next_game", "book.next_game"), action("book_bookmark", "book.bookmark"), action("book_open_position", "book.open_position"), action("book_previous_move", "book.board_previous_move"), action("book_next_move", "book.board_next_move"), action("book_return", "book.return")),
         "training": (action("training_screen", "screen.training"), action("training_hint", "training.hint"), action("training_reveal", "training.reveal_solution"), action("training_retry", "training.retry"), action("training_reset", "training.reset")),
         "teacher": (action("teacher_screen", "screen.teacher"), action("teacher_pointer_clear", "teacher.pointer_clear"), action("teacher_coordinates", "teacher.coordinates_toggle"), action("teacher_orientation", "teacher.orientation_toggle"), action("teacher_event", "teacher.read_student_event"), action("classes_screen", "screen.classes")),
         "settings": (action("settings_screen", "screen.settings"),),
@@ -216,6 +250,8 @@ class FullProductNativeMenuController:
         *,
         exit_callback: Callable[[], Any],
         current_focus_provider: Callable[[], str] | None = None,
+        focus_restore: Callable[[str], Any] | None = None,
+        conversion_callback: Callable[[str], Any] | None = None,
     ) -> None:
         if not isinstance(adapter, FullProductWebViewAdapter):
             raise TypeError("native menu adapter must be FullProductWebViewAdapter")
@@ -223,10 +259,17 @@ class FullProductNativeMenuController:
             raise TypeError("native menu callbacks must be callable")
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("native menu focus provider must be callable")
+        if focus_restore is not None and not callable(focus_restore):
+            raise TypeError("native menu focus restore must be callable")
+        if conversion_callback is not None and not callable(conversion_callback):
+            raise TypeError("native conversion callback must be callable")
         self._adapter = adapter
         self._command_sink = command_sink
         self._exit_callback = exit_callback
         self._focus_provider = current_focus_provider or (lambda: "")
+        self._focus_restore = focus_restore
+        self._conversion_callback = conversion_callback
+        self._conversion_owner = None
 
     def spec(self) -> tuple[NativeTopMenuSpec, ...]:
         return build_full_product_menu_spec(
@@ -240,16 +283,34 @@ class FullProductNativeMenuController:
         if item.kind is NativeMenuItemKind.SEPARATOR:
             raise ValueError("native menu separator cannot be activated")
         if item.kind is NativeMenuItemKind.HOST:
-            self._exit_callback()
+            if item.host_command == "app.exit":
+                self._exit_callback()
+            elif self._conversion_callback is not None:
+                self._conversion_callback(self._adapter.shell.language.value)
+            else:
+                from .pgn_conversion_windows import show_pgn_conversion_dialog
+                show_pgn_conversion_dialog(language=self._adapter.shell.language.value, owner=self._conversion_owner)
             return None
         focus = self._focus_provider()
-        if not isinstance(focus, str):
+        if type(focus) is not str:
             raise TypeError("native menu focus provider must return text")
+        previous_shell = self._adapter.shell._capture_presentation_state()
         command = self._adapter.activate_action(
             item.action_id,
             current_focus_id=focus,
         )
-        self._command_sink(command)
+        try:
+            self._command_sink(command)
+        except Exception:
+            # The production sink publishes only after its fallible route/focus
+            # preparation succeeds. If delivery raises, the native host did not
+            # receive the command; restore both shell presentation state and the
+            # native application's external focus token captured at ingress.
+            # Domain effects remain intentionally outside this rollback.
+            self._adapter.shell._restore_presentation_state(previous_shell)
+            if self._focus_restore is not None:
+                self._focus_restore(focus)
+            raise
         return command
 
 
@@ -278,6 +339,7 @@ def install_full_product_windows_native_menu(
     form = _resolve_windows_host_form(window)
     if form is None:
         return False
+    controller._conversion_owner = form
     handlers: list[Any] = []
 
     def item(spec: NativeMenuItemSpec) -> Any:
@@ -304,6 +366,23 @@ def install_full_product_windows_native_menu(
         top = ToolStripMenuItem(top_spec.label)
         for child in top_spec.items:
             top.DropDownItems.Add(item(child))
+
+        def refresh_live_captions(sender, event, menu_id=top_spec.menu_id, menu_item=top):
+            live = next(
+                (candidate for candidate in controller.spec() if candidate.menu_id == menu_id),
+                None,
+            )
+            if live is None:
+                return
+            controls = list(menu_item.DropDownItems)
+            if len(controls) != len(live.items):
+                return
+            for control, live_spec in zip(controls, live.items):
+                if live_spec.kind is not NativeMenuItemKind.SEPARATOR:
+                    control.Text = live_spec.label
+
+        handlers.append(refresh_live_captions)
+        top.DropDownOpening += refresh_live_captions
         menu.Items.Add(top)
 
     setattr(window, "_accessible_chess_native_menu", menu)

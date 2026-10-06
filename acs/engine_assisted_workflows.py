@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .analysis_service import AnalysisLine, AnalysisResult, AnalysisService
-from .bookdocument import Exercise as BookExercise
-from .bookdocument import Position, VariationTree
+from .bookdocument import Diagram, Exercise as BookExercise, Position, VariationTree
 from .engine_ports import EngineContractError, EngineContractErrorCode
+from .input_limits import MAX_FEN_CHARS
 from .training import ExerciseSession
 
 
@@ -46,12 +46,20 @@ def _visibility(value: EngineVisibility | str) -> EngineVisibility:
 
 
 def _request_fen(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
+    # Reuse the canonical raw FEN representation budget. Exact built-in text is
+    # required before len/strip so provider-defined string hooks cannot execute.
+    if type(value) is not str or len(value) > MAX_FEN_CHARS:
         raise EngineContractError(
             "assisted analysis FEN must be non-empty text",
             code=EngineContractErrorCode.INVALID_REQUEST,
         )
-    return value.strip()
+    normalized = value.strip()
+    if not normalized:
+        raise EngineContractError(
+            "assisted analysis FEN must be non-empty text",
+            code=EngineContractErrorCode.INVALID_REQUEST,
+        )
+    return normalized
 
 
 def _context_revision(value: object, *, name: str) -> str | int:
@@ -94,7 +102,13 @@ class AudienceAnalysisResult:
     error: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "audience analysis FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_RESULT,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "audience analysis FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_RESULT,
@@ -157,7 +171,7 @@ class AudienceAnalysisResult:
                 "teacher-only engine analysis cannot expose student lines",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
 
     @property
     def available_to_teacher(self) -> bool:
@@ -179,7 +193,10 @@ class EngineAssistedWorkflowService:
     SAFE_ERROR = "engine analysis unavailable"
 
     def __init__(self, analysis_service: AnalysisService) -> None:
-        if not isinstance(analysis_service, AnalysisService):
+        # AnalysisService is the single canonical analysis coordinator. Engine
+        # providers are injected through its factory; subclasses here would create
+        # a second overridable analysis authority above that provider seam.
+        if type(analysis_service) is not AnalysisService:
             raise EngineContractError(
                 "analysis_service must be AnalysisService",
                 code=EngineContractErrorCode.INVALID_PROVIDER,
@@ -239,15 +256,20 @@ class EngineAssistedWorkflowService:
     ) -> AudienceAnalysisResult:
         """Analyze the canonical current FEN without mutating training progress."""
 
-        if not isinstance(session, ExerciseSession):
+        # ExerciseSession owns mutable Training progress. Reject subclasses
+        # before snapshot() can resolve provider-defined state hooks.
+        if type(session) is not ExerciseSession:
             raise EngineContractError(
                 "training session must be ExerciseSession",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
+        # Reject malformed/oversized FEN before sampling mutable Training state.
+        # A rejected request must not execute session/provider work.
+        normalized_fen = _request_fen(fen)
         policy = _visibility(visibility)
         before = session.snapshot()
         result = self._analysis.analyze(
-            _request_fen(fen), multipv=multipv, depth=depth
+            normalized_fen, multipv=multipv, depth=depth
         )
         after = session.snapshot()
         return self._project(result, policy, force_stale=after != before)
@@ -256,11 +278,14 @@ class EngineAssistedWorkflowService:
     def book_block_fen(block: object) -> str:
         """Return only an explicit semantic FEN; never derive chess state."""
 
-        if isinstance(block, Position):
+        # Keep analysis input on the closed canonical Book semantic roots. Reject
+        # subclasses before attribute access so provider-defined Book DTO hooks
+        # cannot become an alternate FEN authority above BookDocument/BookReader.
+        if type(block) in (Position, Diagram):
             return _request_fen(block.fen)
-        if isinstance(block, VariationTree):
+        if type(block) is VariationTree:
             return _request_fen(block.root_fen)
-        if isinstance(block, BookExercise):
+        if type(block) is BookExercise:
             return _request_fen(block.fen)
         raise EngineContractError(
             "book block does not carry an explicit analyzable FEN",

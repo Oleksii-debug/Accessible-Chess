@@ -1,5 +1,6 @@
 import unittest
 
+from acs.chesscore import Board
 from acs.teacher_presentation import (
     BoardOrientation,
     TeacherPresentationState,
@@ -8,7 +9,7 @@ from acs.teacher_webview_projection import TeacherWebViewProjection
 
 
 class TeacherWebViewProjectionTests(unittest.TestCase):
-    def make_projection(self, state=None):
+    def make_projection(self, state=None, *, position_fen_provider=None):
         calls = []
         canonical = dict(
             state
@@ -35,7 +36,15 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
             return {"ok": True}
 
         teacher = TeacherPresentationState(dispatch, lambda: canonical)
-        return TeacherWebViewProjection(teacher), teacher, canonical, calls
+        return (
+            TeacherWebViewProjection(
+                teacher,
+                position_fen_provider=position_fen_provider,
+            ),
+            teacher,
+            canonical,
+            calls,
+        )
 
     def test_snapshot_projects_visual_and_accessible_state(self):
         projection, _, _, _ = self.make_projection()
@@ -44,6 +53,69 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
         self.assertEqual(snapshot["highlights"][0]["square"], "c7")
         self.assertEqual(snapshot["arrows"][0]["start_square"], "a1")
         self.assertIn("Вказівник f3", snapshot["accessible_summary"])
+        self.assertEqual((), snapshot["pieces"])
+
+    def test_canonical_position_projects_real_pieces_without_raw_fen(self):
+        reads = []
+
+        def position_provider():
+            reads.append("read")
+            return Board.START
+
+        projection, _, _, _ = self.make_projection(
+            position_fen_provider=position_provider
+        )
+        snapshot = projection.snapshot(language="en")
+        pieces = {item["square"]: item for item in snapshot["pieces"]}
+        self.assertEqual(["read"], reads)
+        self.assertEqual(32, len(pieces))
+        self.assertEqual(
+            {"symbol": "K", "glyph": "♔", "name": "white king"},
+            {key: pieces["e1"][key] for key in ("symbol", "glyph", "name")},
+        )
+        self.assertEqual(
+            {"symbol": "k", "glyph": "♚", "name": "black king"},
+            {key: pieces["e8"][key] for key in ("symbol", "glyph", "name")},
+        )
+        self.assertNotIn("rnbqkbnr", repr(snapshot).lower())
+        self.assertNotIn(" KQkq ", repr(snapshot))
+
+    def test_canonical_piece_names_are_localized_without_chess_rule_duplication(self):
+        projection, _, _, _ = self.make_projection(
+            position_fen_provider=lambda: Board.START
+        )
+        pieces = {item["square"]: item for item in projection.snapshot()["pieces"]}
+        self.assertEqual("білий пішак", pieces["e2"]["name"])
+        self.assertEqual("чорний ферзь", pieces["d8"]["name"])
+
+    def test_piece_cells_follow_visual_orientation(self):
+        projection, teacher, _, _ = self.make_projection(
+            position_fen_provider=lambda: Board.START
+        )
+        white = {item["square"]: item for item in projection.snapshot()["pieces"]}
+        self.assertEqual({"row": 8, "column": 1}, white["a1"]["cell"])
+        teacher.set_orientation(BoardOrientation.BLACK)
+        black = {item["square"]: item for item in projection.snapshot()["pieces"]}
+        self.assertEqual({"row": 1, "column": 8}, black["a1"]["cell"])
+
+    def test_invalid_canonical_position_fails_closed(self):
+        projection, _, _, _ = self.make_projection(
+            position_fen_provider=lambda: "not-a-fen"
+        )
+        with self.assertRaises(ValueError):
+            projection.snapshot()
+
+    def test_position_provider_must_return_text(self):
+        projection, _, _, _ = self.make_projection(
+            position_fen_provider=lambda: {"fen": Board.START}
+        )
+        with self.assertRaises(TypeError):
+            projection.snapshot()
+
+    def test_position_provider_must_be_callable(self):
+        projection, teacher, _, _ = self.make_projection()
+        with self.assertRaises(TypeError):
+            TeacherWebViewProjection(teacher, position_fen_provider=Board.START)
 
     def test_white_orientation_maps_a1_to_bottom_left(self):
         projection, _, canonical, _ = self.make_projection()
@@ -164,14 +236,19 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
             projection.record_student_event("move", "e4")
 
     def test_visual_projection_does_not_dispatch(self):
-        projection, _, _, calls = self.make_projection()
+        projection, _, _, calls = self.make_projection(
+            position_fen_provider=lambda: Board.START
+        )
         projection.snapshot()
         self.assertEqual(calls, [])
 
     def test_snapshot_is_json_friendly_primitives(self):
-        projection, _, _, _ = self.make_projection()
+        projection, _, _, _ = self.make_projection(
+            position_fen_provider=lambda: Board.START
+        )
         snapshot = projection.snapshot()
         self.assertIsInstance(snapshot["board"], dict)
+        self.assertIsInstance(snapshot["pieces"], tuple)
         self.assertIsInstance(snapshot["highlights"], tuple)
         self.assertIsInstance(snapshot["arrows"], tuple)
 
@@ -187,9 +264,19 @@ class TeacherWebViewProjectionTests(unittest.TestCase):
             return next(states)
 
         teacher = TeacherPresentationState(lambda action_id, payload: None, provider)
-        projection = TeacherWebViewProjection(teacher)
+        position_reads = []
+
+        def position_provider():
+            position_reads.append("read")
+            return Board.START
+
+        projection = TeacherWebViewProjection(
+            teacher,
+            position_fen_provider=position_provider,
+        )
         snapshot = projection.snapshot()
         self.assertEqual(calls, ["read"])
+        self.assertEqual(position_reads, ["read"])
         self.assertEqual(snapshot["pointer"]["square"], "f3")
         self.assertIn("f3", snapshot["accessible_summary"])
         self.assertNotIn("c7", snapshot["accessible_summary"])

@@ -13,6 +13,7 @@ from typing import Callable
 
 from .analysis_service import AnalysisResult, AnalysisService
 from .engine_ports import EngineContractError, EngineContractErrorCode
+from .input_limits import MAX_FEN_CHARS
 
 
 @dataclass(frozen=True)
@@ -30,13 +31,19 @@ class ContinuousAnalysisState:
                 "continuous-analysis running flag must be boolean",
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
-        if self.fen is not None and (
-            not isinstance(self.fen, str) or not self.fen.strip()
-        ):
-            raise EngineContractError(
-                "continuous-analysis FEN must be non-empty text or None",
-                code=EngineContractErrorCode.INVALID_SESSION,
-            )
+        normalized_fen: str | None = None
+        if self.fen is not None:
+            if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+                raise EngineContractError(
+                    "continuous-analysis FEN must be non-empty text or None",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
+            normalized_fen = self.fen.strip()
+            if not normalized_fen:
+                raise EngineContractError(
+                    "continuous-analysis FEN must be non-empty text or None",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                )
         if self.running and self.fen is None:
             raise EngineContractError(
                 "running continuous analysis requires a FEN",
@@ -77,8 +84,8 @@ class ContinuousAnalysisState:
                 "continuous-analysis last_result must be AnalysisResult or None",
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
-        if self.fen is not None:
-            object.__setattr__(self, "fen", self.fen.strip())
+        if normalized_fen is not None:
+            object.__setattr__(self, "fen", normalized_fen)
 
 
 class ContinuousAnalysisService:
@@ -126,12 +133,18 @@ class ContinuousAnalysisService:
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
-        if not isinstance(fen, str) or not fen.strip():
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
             raise EngineContractError(
                 "continuous-analysis FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if not normalized:
+            raise EngineContractError(
+                "continuous-analysis FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return normalized
 
     def state(self) -> ContinuousAnalysisState:
         with self._condition:

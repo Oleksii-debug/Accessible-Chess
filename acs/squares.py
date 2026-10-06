@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from .input_limits import MAX_SQUARE_TEXT_CHARS
+
 
 FILES = "abcdefgh"
 RANKS = "12345678"
@@ -11,7 +13,7 @@ SQUARE_COUNT = 64
 def square_name(index: int) -> str:
     """Return the canonical algebraic name for a zero-based square index."""
 
-    if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < SQUARE_COUNT:
+    if type(index) is not int or not 0 <= index < SQUARE_COUNT:
         raise ValueError("square index must be an integer in 0..63")
     return FILES[index % 8] + RANKS[index // 8]
 
@@ -24,13 +26,15 @@ def parse_square(value: str | int) -> int:
     same square identity without sharing behavior.
     """
 
-    if isinstance(value, int) and not isinstance(value, bool):
+    if type(value) is int:
         if 0 <= value < SQUARE_COUNT:
             return value
         raise ValueError("square index must be in 0..63")
 
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise ValueError("square must be canonical text or an integer in 0..63")
+    if len(value) > MAX_SQUARE_TEXT_CHARS:
+        raise ValueError("square text is too long")
     text = value.strip().lower()
     if len(text) != 2 or text[0] not in FILES or text[1] not in RANKS:
         raise ValueError(f"invalid square: {value!r}")

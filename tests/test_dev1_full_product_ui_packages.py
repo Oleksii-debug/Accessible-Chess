@@ -144,6 +144,35 @@ class PgnPresenterTests(unittest.TestCase):
         self.assertTrue(any(item.kind == "variation" and item.label == "Variation 1" for item in view.items))
         self.assertGreaterEqual(max(item.depth for item in view.items), 3)
 
+    def test_readonly_semantic_projection_preserves_comment_slots_and_variation_tail(self):
+        games = tuple(
+            parse_games(
+                """[Result "*"]
+
+{Intro} 1. {Before main} e4 {After main} (1. d4 d5 * {Variation tail}) e5 * {Outro}
+"""
+            )
+        )
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
+        items = presenter.view().items
+
+        first_move = items[0]
+        self.assertEqual(first_move.kind, "move")
+        self.assertEqual(("Before main",), first_move.comments_before)
+        self.assertEqual(("After main",), first_move.comments_after)
+        self.assertEqual(
+            first_move.comments_before + first_move.comments_after,
+            first_move.comments,
+        )
+        self.assertIsNone(first_move.result)
+        self.assertEqual((), first_move.trailing_comments)
+
+        variation = next(item for item in items if item.kind == "variation")
+        self.assertEqual("*", variation.result)
+        self.assertEqual(("Variation tail",), variation.trailing_comments)
+        self.assertEqual((), variation.comments_before)
+        self.assertEqual((), variation.comments_after)
+
     def test_keyboard_selection_parent_and_boundaries_are_explicit(self):
         presenter = PgnTreePresenter(self.games, language=UILanguage.EN)
         first = presenter.selected()

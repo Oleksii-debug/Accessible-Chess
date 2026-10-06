@@ -1,0 +1,86 @@
+name: Version 2 Windows PGN Open Worker
+
+on:
+  pull_request:
+    paths:
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_pgn_streaming_host.py'
+      - 'tests/test_v2_windows_pgn_open_worker.py'
+      - 'tests/test_v2_windows_pgn_open_invalid_session.py'
+      - 'tests/test_v2_windows_file_worker_preflight.py'
+      - 'tests/test_v2_windows_file_worker_shutdown_fence.py'
+      - 'tests/test_v2_windows_nvda_file_workflows.py'
+      - 'tests/test_v2_windows_host_runtime.py'
+      - '.github/workflows/v2-windows-pgn-open-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-windows-pgn-open-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pgn-open-worker:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git diff --check HEAD^ HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile touched host and tests
+        run: >-
+          python -m compileall -q
+          acs/version2_windows_file_workflows.py
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_pgn_streaming_host.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_open_invalid_session.py
+          tests/test_v2_windows_file_worker_preflight.py
+          tests/test_v2_windows_file_worker_shutdown_fence.py
+          tests/test_v2_windows_nvda_file_workflows.py
+          tests/test_v2_windows_host_runtime.py
+
+      - name: Focused PGN Open worker and host qualification
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_open_invalid_session
+          tests.test_v2_windows_file_worker_preflight
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_import_ui_pump
+
+      - name: Pytest focused PGN Open worker
+        run: >-
+          pytest -q
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_open_invalid_session.py
+          tests/test_v2_windows_file_worker_preflight.py
+          tests/test_v2_windows_file_worker_shutdown_fence.py

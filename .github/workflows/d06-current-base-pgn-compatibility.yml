@@ -5,6 +5,8 @@ on:
     branches:
       - work/d06-current-base-compatibility-repair-20260827
   pull_request:
+    branches:
+      - work/pgn-webview-single-action-path-repair-20260827
     paths:
       - 'acs/gametree.py'
       - 'acs/pgn_document.py'

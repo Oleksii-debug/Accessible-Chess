@@ -1,0 +1,124 @@
+name: PGN Conversion Pre-Publish Cancellation
+
+on:
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+    paths:
+      - 'acs/pgn_service.py'
+      - 'acs/pgn_conversion.py'
+      - 'acs/pgn_conversion_windows.py'
+      - 'tests/test_pgn_service.py'
+      - 'tests/test_pgn_conversion.py'
+      - 'tests/test_pgn_conversion_windows.py'
+      - '.github/workflows/pgn-conversion-prepublish-cancel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-conversion-prepublish-cancel-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact live Product successor and bounded scope
+        if: github.head_ref != 'work/windows-pgn-save-bg-20261005-k7m4q2' && github.ref_name != 'work/windows-pgn-save-bg-20261005-k7m4q2'
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+          PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152
+          PREDECESSOR_PGN_HEAD: 8ac3756564b4a2331df5af1062ebf5adc12e4499
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test "${EVENT_BASE_REF:-$PRODUCT_REF}" = "$PRODUCT_REF"
+
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+            test "$(git rev-parse FETCH_HEAD)" = "$expected_head" || {
+              echo "PGN_PUBLICATION_CAS_SUPERSEDED" >&2
+              exit 1
+            }
+          fi
+
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/$PRODUCT_REF"
+          live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_REF")"
+          test "$live_product" = "$PINNED_PRODUCT_SHA" || {
+            echo "PGN_PUBLICATION_CAS_PRODUCT_MOVED pinned=$PINNED_PRODUCT_SHA live=$live_product" >&2
+            exit 1
+          }
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_product"
+          fi
+
+          git cat-file -e "$PREDECESSOR_PGN_HEAD^{commit}"
+          git merge-base --is-ancestor "$PREDECESSOR_PGN_HEAD" "$live_product"
+          git merge-base --is-ancestor "$live_product" HEAD
+          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+
+          git diff --check "$live_product"...HEAD
+          changed="$(git diff --name-only "$live_product"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/pgn-conversion-prepublish-cancel.yml' \
+            'acs/pgn_service.py' \
+            'tests/test_pgn_service.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected PGN publication CAS successor scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion.py")"
+          test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion_windows.py")"
+          test "$(git rev-parse HEAD:tests/test_pgn_conversion.py)" = "$(git rev-parse "$live_product:tests/test_pgn_conversion.py")"
+          test "$(git rev-parse HEAD:tests/test_pgn_conversion_windows.py)" = "$(git rev-parse "$live_product:tests/test_pgn_conversion_windows.py")"
+
+          echo "PGN_PUBLICATION_CAS_PRODUCT=$live_product"
+          echo 'PGN_PUBLICATION_CAS_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile publication boundary
+        run: >-
+          python -m compileall -q
+          acs/pgn_service.py
+          acs/pgn_conversion.py
+          acs/pgn_conversion_windows.py
+          tests/test_pgn_service.py
+          tests/test_pgn_conversion.py
+          tests/test_pgn_conversion_windows.py
+
+      - name: Execute conversion and writer atomicity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_service
+          tests.test_pgn_conversion
+          tests.test_pgn_conversion_windows
+          tests.test_pgn_conversion_native_windows
+          tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_failure_recovery
+          tests.test_dev4_pgn_postcommit_cleanup_atomicity
+
+      - name: Core selftest
+        run: python -m acs.selftest

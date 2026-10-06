@@ -1,0 +1,84 @@
+name: Integration Book Progress Successors
+
+on:
+  push:
+    branches:
+      - fix/integration-book-progress-successors-20261004
+  pull_request:
+    branches:
+      - fix/integration-books-reverse-actions-d01-20261004
+    paths:
+      - 'acs/book_progress_store.py'
+      - 'tests/test_v2_book_progress_store.py'
+      - '.github/workflows/integration-book-progress-successors.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-book-progress-successors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent, scope and source-qualified blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='f90ac6edee4a8947592762bb0ff668cb81ed2efe'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git cat-file -e '069c233d1d7703f0755aa17b42482e736c4cea6a^{commit}'
+          git cat-file -e '6e6e517dfea56ecd45e7793d7eba0b6b8ba5833f^{commit}'
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-book-progress-successors.yml' \
+            'acs/book_progress_store.py' \
+            'tests/test_v2_book_progress_store.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = 'ce56aacd3f83346f72a64a03b2be9323b4aa617b'
+          test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = '05bbe93e8c8d3b855868fb879745ab707f05ce30'
+
+          echo 'INTEGRATION_BOOK_PROGRESS_SUCCESSORS_SCOPE=PASS'
+
+      - name: Compile persistence surfaces
+        run: >-
+          python -m compileall -q
+          acs/book_progress_store.py
+          tests/test_v2_book_progress_store.py
+
+      - name: Book progress persistence and production regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+
+      - name: Adjacent application regression
+        run: python -m unittest -v tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest

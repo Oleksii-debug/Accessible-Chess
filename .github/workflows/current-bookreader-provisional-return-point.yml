@@ -1,0 +1,93 @@
+name: Current BookReader Provisional Return Point
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'acs/bookreader.py'
+      - 'tests/test_bookreader_revision_barriers_current.py'
+      - '.github/workflows/current-bookreader-provisional-return-point.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-bookreader-provisional-return-point-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  BOOKREADER_BLOB: 7afb17856686683c5cce5fd8f80ed00383d255a3
+  REVISION_TEST_BLOB: ba87b9627097aa53a169e159168286e6faffdcda
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove live shipping base, bounded scope and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin "refs/heads/$BASE_REF"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test -n "$live_base"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            event_base="${{ github.event.pull_request.base.sha }}"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            test "$event_base" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          mapfile -t actual < <(git diff --name-only "$live_base"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-bookreader-provisional-return-point.yml"
+            "acs/bookreader.py"
+            "tests/test_bookreader_revision_barriers_current.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:acs/bookreader.py)" = "$BOOKREADER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_bookreader_revision_barriers_current.py)" = "$REVISION_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile BookReader revision surfaces
+        run: >-
+          python -m compileall -q
+          acs/bookreader.py
+          tests/test_bookreader_revision_barriers_current.py
+
+      - name: Execute BookReader transactional navigation regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader_revision_barriers_current
+          tests.test_bookreader
+          tests.test_bookreader_snapshot_bounds
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_board_workflow
+
+      - name: Core selftest
+        run: python -m acs.selftest

@@ -1,7 +1,10 @@
 import json
+from types import SimpleNamespace
 
 from acs.keybindings import ActionRegistry
 from acs.ui_keymap_service import KeymapService
+from acs.version2_final_product_profile import build_final_product_action_registry
+from acs.version2_release_app import _share_v2_action_registry
 
 
 def test_service_persists_shortcut_and_alias(tmp_path):
@@ -16,6 +19,129 @@ def test_service_persists_shortcut_and_alias(tmp_path):
     by_id = {item["id"]: item for item in snap["actions"]}
     assert by_id["history.go_to_move"]["binding"] == "Alt+J"
     assert by_id["move.undo"]["alias"] == "z"
+
+
+def test_v2_registry_share_migrates_legacy_profile_before_wider_adoption(tmp_path):
+    path = tmp_path / "keymap.json"
+    path.write_text(
+        json.dumps({
+            "keys": {
+                "history.go_to_move": "Alt+J",
+                "pgn.next_item": "J",
+            },
+            "commands": {
+                "move.undo": "back",
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    service = KeymapService(path)
+    narrow_ids = {item["id"] for item in service.snapshot()["actions"]}
+    assert "pgn.next_item" not in narrow_ids
+    assert service.editor.registry.get_binding("history.go_to_move") == "Alt+J"
+    assert service.editor.registry.get_alias("move.undo") == "back"
+
+    wider = build_final_product_action_registry()
+    shared = _share_v2_action_registry(
+        SimpleNamespace(keymap_service=service),
+        SimpleNamespace(adapter=SimpleNamespace(registry=wider)),
+    )
+
+    assert shared.get_binding("history.go_to_move") == "Alt+J"
+    assert shared.get_alias("move.undo") == "back"
+    assert shared.get_binding("pgn.next_item") == "J"
+
+
+def test_v2_registry_share_restores_full_product_remaps_and_valid_swaps(tmp_path):
+    path = tmp_path / "keymap.json"
+    full = build_final_product_action_registry()
+    profile = full.to_profile()
+    # A simultaneous swap is globally valid but cannot be replayed one binding
+    # at a time onto the old defaults without a transient duplicate.
+    profile["bindings"]["pgn.previous_item"] = "Down"
+    profile["bindings"]["pgn.next_item"] = "Up"
+    profile["bindings"]["library.open_game"] = "Ctrl+Enter"
+    profile["bindings"]["history.go_to_move"] = "Alt+J"
+    path.write_text(json.dumps(profile), encoding="utf-8")
+
+    # The Stage1 boot service does not know Product-only action IDs and therefore
+    # drops them from its in-memory projection while leaving the file untouched.
+    service = KeymapService(path)
+    narrow_ids = {item["id"] for item in service.snapshot()["actions"]}
+    assert "pgn.next_item" not in narrow_ids
+    assert service.editor.registry.get_binding("history.go_to_move") == "Alt+J"
+
+    application_registry = build_final_product_action_registry()
+    api = SimpleNamespace(keymap_service=service)
+    application = SimpleNamespace(
+        adapter=SimpleNamespace(registry=application_registry)
+    )
+
+    shared = _share_v2_action_registry(api, application)
+
+    assert shared is application_registry
+    assert service.editor.registry is application_registry
+    assert shared.get_binding("history.go_to_move") == "Alt+J"
+    assert shared.get_binding("pgn.previous_item") == "Down"
+    assert shared.get_binding("pgn.next_item") == "Up"
+    assert shared.get_binding("library.open_game") == "Ctrl+Enter"
+
+    # A later Product mutation must persist the entire widened profile rather
+    # than overwriting the restored Product actions with defaults.
+    saved = service.save("library.open_game", "F8")
+    assert saved["ok"] is True
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["bindings"]["pgn.previous_item"] == "Down"
+    assert persisted["bindings"]["pgn.next_item"] == "Up"
+    assert persisted["bindings"]["library.open_game"] == "F8"
+
+
+def test_v2_registry_adoption_preserves_newer_schema_write_block(tmp_path):
+    path = tmp_path / "keymap.json"
+    future = {
+        "schema_version": 99,
+        "bindings": {
+            "history.go_to_move": "Alt+J",
+            "pgn.next_item": "J",
+        },
+        "aliases": {},
+    }
+    path.write_text(json.dumps(future), encoding="utf-8")
+    original = path.read_text(encoding="utf-8")
+
+    service = KeymapService(path, lang="en")
+    before = service.snapshot()
+    assert before["writeBlocked"] is True
+    assert before["recoveryMessage"] == "newer keymap profile"
+
+    wider = build_final_product_action_registry()
+    shared = _share_v2_action_registry(
+        SimpleNamespace(keymap_service=service),
+        SimpleNamespace(adapter=SimpleNamespace(registry=wider)),
+    )
+
+    assert shared is wider
+    after = service.snapshot()
+    assert after["writeBlocked"] is True
+    assert after["recoveryMessage"] == "newer keymap profile"
+    # Unsupported future values are never interpreted or replayed.
+    assert shared.get_binding("history.go_to_move") == "Ctrl+G"
+    assert shared.get_binding("pgn.next_item") == "Down"
+
+    blocked = service.save("history.go_to_move", "Alt+K")
+    assert blocked["ok"] is False
+    assert "newer" in blocked["message"].lower()
+    assert path.read_text(encoding="utf-8") == original
+
+    # The documented explicit replacement escape hatch remains available.
+    reset = service.reset_all()
+    assert reset["ok"] is True
+    replaced = json.loads(path.read_text(encoding="utf-8"))
+    assert replaced["schema_version"] == 1
+    assert replaced["bindings"]["history.go_to_move"] == "Ctrl+G"
+    assert replaced["bindings"]["pgn.next_item"] == "Down"
+    assert service.snapshot()["writeBlocked"] is False
 
 
 def test_service_rejects_same_context_duplicate_without_overwrite(tmp_path):
@@ -132,6 +258,28 @@ def test_capture_shortcut_preserves_literal_space_from_keyboard_event(tmp_path):
     assert service.editor.registry.get_binding("board.current") == "O"
 
 
+def test_capture_shortcut_canonicalizes_plus_and_minus_keys(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json", lang="en")
+
+    plus = service.capture_shortcut(
+        "history.go_to_move",
+        "+",
+        shift=True,
+    )
+    minus = service.capture_shortcut(
+        "history.go_to_move",
+        "-",
+        ctrl=True,
+    )
+
+    assert plus["captured"] is True
+    assert plus["binding"] == "Shift+Plus"
+    assert plus["canSave"] is True
+    assert minus["captured"] is True
+    assert minus["binding"] == "Ctrl+Minus"
+    assert minus["canSave"] is True
+
+
 def test_capture_shortcut_normalizes_legacy_spacebar_key_name(tmp_path):
     service = KeymapService(tmp_path / "keymap.json", lang="uk")
 
@@ -173,6 +321,47 @@ def test_capture_shortcut_rejects_modifier_only_event(tmp_path):
     assert result["status"] == "pending"
     assert result["canSave"] is False
     assert "non-modifier" in result["message"]
+
+
+def test_successful_mutations_return_post_mutation_snapshot_atomically(tmp_path):
+    path = tmp_path / "keymap.json"
+    service = KeymapService(path)
+
+    saved = service.save("history.go_to_move", "Alt+J")
+    assert saved["ok"] is True
+    saved_by_id = {item["id"]: item for item in saved["snapshot"]["actions"]}
+    assert saved_by_id["history.go_to_move"]["binding"] == "Alt+J"
+
+    reset = service.reset_action("history.go_to_move")
+    assert reset["ok"] is True
+    reset_by_id = {item["id"]: item for item in reset["snapshot"]["actions"]}
+    assert reset_by_id["history.go_to_move"]["binding"] == "Ctrl+G"
+
+    payload = json.loads(service.export_profile())
+    payload["bindings"]["history.go_to_move"] = "Alt+J"
+    imported = service.import_profile(json.dumps(payload))
+    assert imported["ok"] is False
+    assert imported["requiresConfirmation"] is True
+    assert "snapshot" not in imported
+    assert service.editor.registry.get_binding("history.go_to_move") == "Ctrl+G"
+    imported = service.import_profile(json.dumps(payload), allow_warnings=True)
+    assert imported["ok"] is True
+    imported_by_id = {item["id"]: item for item in imported["snapshot"]["actions"]}
+    assert imported_by_id["history.go_to_move"]["binding"] == "Alt+J"
+
+    all_reset = service.reset_all()
+    assert all_reset["ok"] is True
+    all_reset_by_id = {item["id"]: item for item in all_reset["snapshot"]["actions"]}
+    assert all_reset_by_id["history.go_to_move"]["binding"] == "Ctrl+G"
+
+
+def test_failed_mutation_never_returns_authority_snapshot(tmp_path):
+    service = KeymapService(tmp_path / "keymap.json")
+
+    rejected = service.save("history.previous", "Shift+D")
+
+    assert rejected["ok"] is False
+    assert "snapshot" not in rejected
 
 
 def test_live_binding_resolution_tracks_remap_immediately(tmp_path):

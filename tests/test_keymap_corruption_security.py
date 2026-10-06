@@ -80,6 +80,10 @@ class KeymapCorruptionSecurityTests(unittest.TestCase):
             service = KeymapService(Path(td) / "keymap.json")
             payload = {"keys": {"history.go_to_move": "Alt+J"}, "commands": {}}
             result = service.import_profile(json.dumps(payload))
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["requiresConfirmation"])
+            self.assertFalse(service.path.exists())
+            result = service.import_profile(json.dumps(payload), allow_warnings=True)
             self.assertTrue(result["ok"], result)
             self.assertEqual(service.editor.registry.get_binding("history.go_to_move"), "Alt+J")
 

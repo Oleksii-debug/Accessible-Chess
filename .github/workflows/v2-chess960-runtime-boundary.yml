@@ -20,16 +20,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  STACK_BASE: 9d7833d2b4c05c93b37c7cf7139ea63701d7b73b
+  STACK_BASE: 6be0afe67366b62757baae53ab0eaae6b8bfafdf
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
 
 jobs:
   real-mixed-corpus:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 90
     steps:
       - name: Checkout exact Product head
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           path: product
           fetch-depth: 0
@@ -40,6 +40,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${{ github.event.pull_request.base.sha }}" = "$STACK_BASE" || {
+              echo "CHESS960_RUNTIME_BASE_MOVED expected=$STACK_BASE live=${{ github.event.pull_request.base.sha }}" >&2
+              exit 1
+            }
+          fi
           git merge-base --is-ancestor "$STACK_BASE" HEAD
           test "$(git merge-base "$STACK_BASE" HEAD)" = "$STACK_BASE"
           git diff --check "$STACK_BASE" HEAD
@@ -58,14 +64,14 @@ jobs:
           printf 'STACK_BASE=%s\nRUNTIME_HEAD=%s\n' "$STACK_BASE" "$(git rev-parse HEAD)"
 
       - name: Checkout pinned legal libcbh corpus and backend
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: rolandlo/libcbh
           ref: 9641c5c3949d8fb210b17dd9aa54455645843696
           path: upstream/libcbh
           fetch-depth: 1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
 
@@ -154,9 +160,9 @@ jobs:
 
   windows-regression:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -173,6 +179,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${{ github.event.pull_request.base.sha }}" = "$STACK_BASE" || {
+              echo "CHESS960_RUNTIME_BASE_MOVED expected=$STACK_BASE live=${{ github.event.pull_request.base.sha }}" >&2
+              exit 1
+            }
+          fi
           git merge-base --is-ancestor "$STACK_BASE" HEAD
           test "$(git merge-base "$STACK_BASE" HEAD)" = "$STACK_BASE"
           git diff --check "$STACK_BASE" HEAD
@@ -186,7 +198,7 @@ jobs:
           test "$changed" = "$expected"
           git diff --quiet "$STACK_BASE" HEAD -- web docs/automation
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
 

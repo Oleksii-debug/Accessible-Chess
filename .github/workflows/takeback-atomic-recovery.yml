@@ -1,0 +1,78 @@
+name: Takeback Atomic Recovery Acceptance
+on:
+  push:
+    branches: [repair/takeback-atomic-successor-20261002]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: takeback-atomic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Verify integration successor ancestry and disjoint scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=2d92d58acb5be7fd64d67a3dbdb1596dbaa2030e
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+          actual="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/takeback-atomic-recovery.yml' \
+            'acs/engine_game_session.py' \
+            'acs/stage1_release_ui_core.py' \
+            'tests/test_engine_game_session.py' \
+            'tests/test_engine_takeback_atomic_acceptance.py' \
+            'tests/test_dev3_takeback_atomicity.py' \
+            'tests/test_stage1_saturation_refactor_contract.py' | sort)"
+          test "$actual" = "$expected" || {
+            printf 'Unexpected takeback ownership scope:\n%s\n' "$actual" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
+          test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+      - name: Compile current source
+        run: python -m compileall -q acs tests run_accessible_chess_v2.py
+      - name: Ordinary takeback recovery and retry acceptance tests
+        run: python -m unittest -v tests.test_engine_takeback_atomic_acceptance
+      - name: Adjacent clock, lifecycle, engine and Stage1 tests
+        run: >-
+          python -m unittest -v
+          tests.test_clock_service
+          tests.test_game_lifecycle
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_stage1_engine_play_ui
+          tests.test_clock_engine_serial_acceptance
+          tests.test_dev3_takeback_atomicity
+          tests.test_stage1_saturation_refactor_contract
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests

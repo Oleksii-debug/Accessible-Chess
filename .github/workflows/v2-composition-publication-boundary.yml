@@ -1,0 +1,102 @@
+name: V2 Composition Publication Boundary
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_release_app.py'
+      - 'tests/test_composition_publication_boundary_workflow.py'
+      - 'tests/test_version2_composition_publication_boundary.py'
+      - '.github/workflows/v2-composition-publication-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-composition-publication-boundary-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publication-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove current Product ancestry and retained publication authority
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+          product_branch='work/full-product-teacher-education-reachability-20260911'
+          git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+          product="$(git rev-parse "refs/remotes/origin/$product_branch")"
+
+          git merge-base --is-ancestor "$product" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
+
+          # The release composition root is shared Product code and may evolve in
+          # a legitimate descendant. The accepted publication-safety regression is
+          # the immutable authority for this inherited gate; changing that oracle
+          # requires a dedicated reviewed successor rather than weakening it here.
+          protected_paths=(
+            'tests/test_version2_composition_publication_boundary.py'
+          )
+          for path in "${protected_paths[@]}"; do
+            product_blob="$(git rev-parse "$product:$path")"
+            candidate_blob="$(git rev-parse "HEAD:$path")"
+            test "$candidate_blob" = "$product_blob" || {
+              printf 'Publication-boundary oracle drift requires a dedicated successor: %s product=%s candidate=%s\n' \
+                "$path" "$product_blob" "$candidate_blob" >&2
+              exit 1
+            }
+          done
+
+          test -f acs/version2_release_app.py
+          test -f tests/test_composition_publication_boundary_workflow.py
+          echo "V2_PUBLICATION_SCOPE_MODE=CURRENT_FULL_PRODUCT_DESCENDANT"
+          echo "V2_PUBLICATION_UPSTREAM=$product"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile publication-boundary scope
+        run: >-
+          python -m py_compile
+          acs/version2_release_app.py
+          tests/test_composition_publication_boundary_workflow.py
+          tests/test_version2_composition_publication_boundary.py
+
+      - name: Prove failed composition is never published
+        run: >-
+          python -m unittest -v
+          tests.test_composition_publication_boundary_workflow
+          tests.test_version2_composition_publication_boundary
+          tests.test_version2_release_app
+
+      - name: Full repository unittest on Ubuntu
+        if: matrix.os == 'ubuntu-22.04'
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+      - name: Current V2 production-composition diagnostic
+        run: python run_accessible_chess_v2.py --diagnostic

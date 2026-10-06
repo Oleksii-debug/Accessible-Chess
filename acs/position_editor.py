@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import islice
+import re
 from typing import Iterable
 
+from .input_limits import MAX_FEN_CHARS
 from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
+MAX_COORDINATE_POSITION_TOKENS = 64 * 2
+MAX_COORDINATE_POSITION_CHARS = 4096
+_MAX_SQUARE_DIAGNOSTIC_CHARS = 16
+_POSITION_SECTIONS_RE = re.compile(
+    r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
+)
+_COORDINATE_TOKEN_RE = re.compile(r"[^,\s]+")
 
 
 class PositionValidationError(ValueError):
@@ -63,7 +73,8 @@ class PositionState:
         if piece is not None and (
             type(piece) is not str or piece not in VALID_PIECES
         ):
-            raise PositionValidationError(f"invalid piece symbol: {piece!r}")
+            # Do not format an untrusted value here: its __repr__ may execute.
+            raise PositionValidationError("invalid piece symbol")
         values = list(self.pieces)
         values[_square_index(square)] = piece
         return replace(self, pieces=tuple(values))
@@ -75,15 +86,26 @@ class PositionState:
         return replace(self, turn=turn, en_passant="-")
 
     def with_castling(self, rights: Iterable[str] | str) -> "PositionState":
-        if isinstance(rights, str):
+        if type(rights) is str:
             normalized = _normalize_castling(rights)
+        elif isinstance(rights, str):
+            # A string subclass is scalar input, not a generic iterable. Reject it
+            # before any overridable strip/iteration hooks can execute.
+            raise PositionValidationError(
+                "castling rights must be text or an iterable of text symbols"
+            )
         else:
             try:
-                values = tuple(rights)
+                iterator = iter(rights)
+                values = tuple(islice(iterator, len(VALID_CASTLING) + 1))
             except TypeError as exc:
                 raise PositionValidationError(
                     "castling rights must be text or an iterable of text symbols"
                 ) from exc
+            if len(values) > len(VALID_CASTLING):
+                raise PositionValidationError(
+                    "castling rights iterable contains too many symbols"
+                )
             if any(type(value) is not str for value in values):
                 raise PositionValidationError(
                     "castling rights iterable must contain text symbols"
@@ -139,8 +161,12 @@ class PositionState:
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
-        if not isinstance(fen, str):
+        if type(fen) is not str:
+            # Keep FEN ingress passive: no user-defined text subclass may run
+            # strip/split/equality hooks before this boundary rejects it.
             raise PositionValidationError("FEN must be text")
+        if len(fen) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
         text = fen.strip()
         fields = text.split()
         if len(fields) != 6:
@@ -155,11 +181,18 @@ class PositionState:
             board_rank = 7 - fen_rank
             file_index = 0
             for token in rank_text:
-                if token.isdigit():
-                    count = int(token)
-                    if not 1 <= count <= 8:
-                        raise PositionValidationError("FEN empty-square count must be 1..8")
-                    file_index += count
+                # FEN piece-placement counts are ASCII grammar, not a generic
+                # Unicode numeral channel. Keep this lexical boundary aligned
+                # with canonical Board.set_fen without importing chess legality
+                # into the editable PositionState representation.
+                if token in "12345678":
+                    file_index += ord(token) - ord("0")
+                    if file_index > 8:
+                        raise PositionValidationError("FEN rank contains more than 8 squares")
+                elif token.isdigit():
+                    raise PositionValidationError(
+                        "FEN empty-square count must use ASCII digits 1..8"
+                    )
                 elif token in VALID_PIECES:
                     if file_index >= 8:
                         raise PositionValidationError("FEN rank contains more than 8 squares")
@@ -170,11 +203,20 @@ class PositionState:
             if file_index != 8:
                 raise PositionValidationError("each FEN rank must expand to exactly 8 squares")
 
-        try:
-            halfmove = int(halfmove_text)
-            fullmove = int(fullmove_text)
-        except ValueError as exc:
-            raise PositionValidationError("FEN move counters must be integers") from exc
+        # Python int() accepts signs and many Unicode decimal digits. FEN does
+        # not: canonical Board.set_fen already requires unsigned ASCII decimal
+        # counters. Enforce the same lexical contract here while leaving chess
+        # legality (kings, checks, move provenance) outside the editor parser.
+        for counter, label in (
+            (halfmove_text, "halfmove"),
+            (fullmove_text, "fullmove"),
+        ):
+            if not counter.isascii() or not counter.isdecimal():
+                raise PositionValidationError(
+                    f"FEN {label} counter must be an unsigned ASCII decimal integer"
+                )
+        halfmove = int(halfmove_text)
+        fullmove = int(fullmove_text)
 
         return cls(
             tuple(pieces),
@@ -194,11 +236,102 @@ def empty_position(*, turn: str = "w") -> PositionState:
     return PositionState((None,) * 64, turn=turn)
 
 
+
+def parse_piece_coordinate_position(text: str, *, turn: str = "w") -> PositionState:
+    """Parse canonical W:/B: piece-coordinate text into PositionState.
+
+    This presentation-neutral parser is the sole authority for the compact
+    coordinate-position grammar used by move entry and legacy text-to-FEN
+    adapters. It validates representation only; chess legality remains owned
+    by the canonical chess-rules layer.
+    """
+
+    if type(text) is not str:
+        raise ValueError("position text must be text")
+    if len(text) > MAX_COORDINATE_POSITION_CHARS:
+        raise ValueError("position text is too long")
+    if type(turn) is not str or turn not in {"w", "b"}:
+        raise ValueError("turn must be 'w' or 'b'")
+
+    match = _POSITION_SECTIONS_RE.match(text)
+    if match is None:
+        raise ValueError("position text must contain W: and B: sections")
+
+    position = empty_position(turn=turn)
+    used: set[str] = set()
+    token_budget = [0]
+    position = _fill_coordinate_section(
+        position,
+        match.group("white"),
+        white=True,
+        used=used,
+        token_budget=token_budget,
+    )
+    position = _fill_coordinate_section(
+        position,
+        match.group("black"),
+        white=False,
+        used=used,
+        token_budget=token_budget,
+    )
+
+    white_kings = sum(piece == "K" for piece in position.pieces)
+    black_kings = sum(piece == "k" for piece in position.pieces)
+    if white_kings != 1 or black_kings != 1:
+        raise ValueError("position text requires exactly one white and one black king")
+    return position
+
+
+def _fill_coordinate_section(
+    position: PositionState,
+    chunk: str,
+    *,
+    white: bool,
+    used: set[str],
+    token_budget: list[int],
+) -> PositionState:
+    # The compact grammar can describe at most 64 occupied squares: one piece
+    # token and one square token per square. Scan incrementally and stop at the
+    # first impossible token instead of allocating an unbounded split() result
+    # from pasted/untrusted text.
+    tokens: list[str] = []
+    for match in _COORDINATE_TOKEN_RE.finditer(chunk):
+        token_budget[0] += 1
+        if token_budget[0] > MAX_COORDINATE_POSITION_TOKENS:
+            raise ValueError("position text contains too many piece-square tokens")
+        tokens.append(match.group(0))
+    if len(tokens) % 2:
+        raise ValueError("each piece must be followed by a square, for example N f3")
+
+    result = position
+    for index in range(0, len(tokens), 2):
+        piece = tokens[index].upper()
+        square = tokens[index + 1].lower()
+        if piece not in "KQRBNP":
+            raise ValueError(f"unknown piece symbol: {tokens[index]}")
+        if square in used:
+            raise ValueError(f"square {square} is specified more than once")
+        try:
+            result = result.with_piece(square, piece if white else piece.lower())
+        except PositionValidationError as exc:
+            # Public PositionState square ingress deliberately keeps malformed
+            # values generic so hostile objects cannot trigger repr()/coercion.
+            # Here square is already a bounded built-in token materialized by
+            # this parser. Preserve useful detail only for short tokens; never
+            # echo an arbitrarily long paste into an accessible error.
+            if str(exc) == "invalid square" and len(square) <= _MAX_SQUARE_DIAGNOSTIC_CHARS:
+                raise PositionValidationError(f"invalid square: {square!r}") from exc
+            raise
+        used.add(square)
+    return result
+
 def _square_index(square: str) -> int:
     try:
         return parse_square(square)
     except ValueError as exc:
-        raise PositionValidationError(f"invalid square: {square!r}") from exc
+        # The rejected value may be an active object or an enormous integer.
+        # Keep the domain error stable without invoking __repr__/integer text conversion.
+        raise PositionValidationError("invalid square") from exc
 
 
 def _normalize_castling(value: str) -> str:

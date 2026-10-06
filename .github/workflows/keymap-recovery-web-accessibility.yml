@@ -1,0 +1,66 @@
+name: Keymap Recovery Web Accessibility
+
+on:
+  pull_request:
+    paths:
+      - 'web/index.html'
+      - 'tests/js/keymap_recovery_accessibility_test.js'
+      - '.github/workflows/keymap-recovery-web-accessibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-web:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify exact PR-head ancestry and bounded scope
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RECOVERY_BASE_SHA: 61cffeec4d14e97746148de787e7990ef58639f8
+          RECOVERY_SOURCE_SHA: 4707e3cbbd2bb33405320162481198ad4ce06293
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-$GITHUB_SHA}"
+          if [ -n "$EVENT_BASE_SHA" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+            git diff --check "$EVENT_BASE_SHA" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+          # Freeze the reviewed three-path recovery source, not every future PR
+          # that edits the shared document. Descendants must retain that source
+          # in ancestry and execute the recovery tests on their exact current head.
+          git merge-base --is-ancestor "$RECOVERY_BASE_SHA" "$RECOVERY_SOURCE_SHA"
+          git merge-base --is-ancestor "$RECOVERY_SOURCE_SHA" HEAD
+          git diff --check "$RECOVERY_BASE_SHA" "$RECOVERY_SOURCE_SHA"
+          changed="$(git diff --name-only "$RECOVERY_BASE_SHA" "$RECOVERY_SOURCE_SHA" | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/keymap-recovery-web-accessibility.yml' \
+            'tests/js/keymap_recovery_accessibility_test.js' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected recovery-source paths:\n%s\n' "$changed" >&2
+            exit 1
+          }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse recovery accessibility regression
+        run: node --check tests/js/keymap_recovery_accessibility_test.js
+      - name: Run recovery accessibility regression
+        run: node tests/js/keymap_recovery_accessibility_test.js
+      - name: Run existing terminal keymap DOM regression
+        run: node tests/js/stage1_terminal_keymap_dom_test.js
