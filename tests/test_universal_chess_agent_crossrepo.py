@@ -16,6 +16,7 @@ from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolExecutor
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
+from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.universal_chess_agent import AgentRunPolicy, UniversalChessAgentRuntime
 
 
@@ -57,9 +58,15 @@ def _runtime(provider, *, budget=None, max_steps=5):
     gateway = ModelGateway()
     gateway.register(provider)
     tools = ToolExecutor()
+    board = Board()
+    commands = BoardCommandService(BoardSnapshot(
+        tuple(board.board), board.turn,
+        tuple(MoveView(move.frm, move.to, board.san(move)) for move in board.legal_moves()),
+    ))
     ChessAgentToolRegistry(
         executor=tools,
-        board_provider=lambda: Board(),
+        board_provider=lambda: board,
+        board_commands_provider=lambda: commands,
     ).register_all()
     return UniversalChessAgentRuntime(
         gateway=gateway,
