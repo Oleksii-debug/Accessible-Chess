@@ -117,6 +117,42 @@ def _fake_curation_evidence(starter_pgn: str) -> dict[str, object]:
     }
 
 
+def _semantic_curation_fixture(count: int) -> tuple[str, dict[str, object]]:
+    source_records = list(_iter_complete_game_records(io.StringIO(build_starter_pgn(count))))
+    results = ("1-0", "0-1", "1/2-1/2")
+    finished_records: list[str] = []
+    selected: list[dict[str, object]] = []
+    for index, record in enumerate(source_records, start=1):
+        finished = _finished_record(record, results[(index - 1) % len(results)])
+        evidence, reason = _candidate_evidence(finished, index)
+        assert reason is None
+        assert evidence is not None
+        finished_records.append(finished)
+        selected.append(evidence)
+
+    starter_pgn = "\n\n".join(finished_records) + "\n"
+    aggregate = _selected_aggregate_evidence(selected)
+    return starter_pgn, {
+        "policy_id": CURATION_POLICY_ID,
+        "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+        "criteria": {
+            "minimum_plies": CURATION_MIN_PLIES,
+            "valid_results": sorted(CURATION_VALID_RESULTS),
+            "required_metadata": ["Event", "White", "Black"],
+            "result_minimums": CURATION_RESULT_MINIMUMS,
+            "length_band_minimums": lawful_bundle.CURATION_LENGTH_MINIMUMS,
+            "minimum_distinct_opening_prefixes": CURATION_MIN_OPENING_PREFIXES,
+            "opening_prefix_plies": 4,
+            "maximum_scanned_games": CURATION_MAX_SCANNED_GAMES,
+        },
+        "scanned_records": len(selected),
+        "eligible_records": len(selected),
+        "rejected_records": {},
+        "selected_games": selected,
+        **aggregate,
+    }
+
+
 def test_verified_compressed_payload_binds_exact_consumed_bytes(tmp_path):
     source = tmp_path / "pinned-corpus.pgn.zst"
     original = b"0123456789abcdef"
@@ -307,19 +343,19 @@ def test_release_bundle_requires_binding_minimum_real_game_count(tmp_path):
 
 def test_release_bundle_binds_curation_evidence_to_exact_selected_bytes(tmp_path):
     starter_count = MINIMUM_REAL_GAME_COUNT
-    starter_pgn = build_starter_pgn(starter_count)
-    subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
-    curation = _fake_curation_evidence(starter_pgn)
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
 
-    manifest = build_release_bundle_from_curated_pgn(
-        tmp_path,
-        starter_pgn=starter_pgn,
-        starter_count=starter_count,
-        source_subset_sha256=subset_sha,
-        source_compressed_bytes=12345,
-        curation_evidence=curation,
-        stress_count=starter_count + 16,
-    )
+        manifest = build_release_bundle_from_curated_pgn(
+            tmp_path,
+            starter_pgn=starter_pgn,
+            starter_count=starter_count,
+            source_subset_sha256=subset_sha,
+            source_compressed_bytes=12345,
+            curation_evidence=curation,
+            stress_count=starter_count + 16,
+        )
 
     assert manifest["schema_version"] == 3
     assert manifest["bundle_kind"] == "lawful-curated-real-game-starter"
@@ -359,20 +395,94 @@ def test_release_bundle_binds_curation_evidence_to_exact_selected_bytes(tmp_path
 
 def test_release_bundle_rejects_curation_evidence_for_different_bytes(tmp_path):
     starter_count = MINIMUM_REAL_GAME_COUNT
-    starter_pgn = build_starter_pgn(starter_count)
-    curation = _fake_curation_evidence(starter_pgn)
-    curation["selected_games"][0]["record_sha256"] = "0" * 64
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        curation["selected_games"][0]["record_sha256"] = "0" * 64
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
 
-    with _raises(ValueError, match="does not match selected starter PGN records"):
-        build_release_bundle_from_curated_pgn(
-            tmp_path,
-            starter_pgn=starter_pgn,
-            starter_count=starter_count,
-            source_subset_sha256="b" * 64,
-            source_compressed_bytes=1,
-            curation_evidence=curation,
-            stress_count=starter_count + 2,
-        )
+        with _raises(ValueError, match="does not match selected starter PGN records"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_falsified_semantic_curation_metadata(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        curation["selected_games"][0]["plies"] += 1
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+
+        with _raises(ValueError, match="does not match selected starter PGN records"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_subset_digest_not_bound_to_starter_bytes(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+
+        with _raises(ValueError, match="does not match starter PGN bytes"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256="0" * 64,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_inconsistent_scan_accounting(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        curation["rejected_records"] = {"strict_parse_failure": 1}
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+
+        with _raises(ValueError, match="scan accounting is inconsistent"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_unqualified_compressed_source_size(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+
+        with _raises(ValueError, match="compressed-size range"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=lawful_bundle.DOWNLOAD_LIMIT_BYTES + 1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
 
 
 def test_release_bundle_rejects_record_count_mismatch(tmp_path):
