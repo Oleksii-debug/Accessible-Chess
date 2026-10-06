@@ -1278,6 +1278,51 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.pgn_open_running)
 
 
+    def test_recovery_pgn_terminal_reentrant_shutdown_does_not_report_live(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "reentrant-recovery-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            reentrant_shutdown = []
+            holder = {}
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.PGN_OPEN_CANCELLED:
+                    reentrant_shutdown.append(holder["delegate"].shutdown())
+
+            delegate = self._delegate(
+                source,
+                event_sink=sink,
+                post_to_ui=posted.append,
+            )
+            holder["delegate"] = delegate
+
+            started = delegate("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(delegate.wait_for_pgn_open(2.0))
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.shutdown())
+
+            self.assertFalse(delegate.resume_after_refused_shutdown())
+            self.assertEqual(reentrant_shutdown, [True])
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+
+            closed = delegate("pgn.save", {})
+            self.assertEqual(closed.error_code, "file_workflow_closed")
+            posted.pop(0)()
+
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(delegate.shutdown())
     def test_refused_close_reconciles_retired_pending_pgn_open_terminal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "refused-close-retired-open.pgn"
