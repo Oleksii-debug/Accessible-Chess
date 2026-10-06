@@ -38,6 +38,9 @@ from acs.version2_release_app import create_version2_release_application
 from acs import version2_release_app as release_app_module
 from acs.version2_education_mutation_release import _final_product_mutation_bindings
 from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
+from acs.version2_upgrade_status_release import (
+    create_version2_release_application as create_shipping_release_application,
+)
 
 
 class Version2GroupRotationBindingTests(unittest.TestCase):
@@ -52,6 +55,45 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             )
 
         self.assertIs(release_app_module.Version2Application, default_owner)
+
+    def test_shipping_wrapper_instantiates_packaged_final_owner_with_rotation_store(self) -> None:
+        class Runtime:
+            def __init__(self, _config) -> None:
+                self.closed = False
+
+            @staticmethod
+            def provider():
+                return object()
+
+            def close(self) -> None:
+                self.closed = True
+
+        class Playback:
+            def play(self, _event, *, volume: int) -> None:
+                self.last_volume = volume
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "shipping-release-data"
+            api, application, runtime, _native_factory = create_shipping_release_application(
+                data_root=root,
+                runtime_factory=Runtime,
+                sound_playback=Playback(),
+                copy_text=lambda _text: None,
+            )
+            try:
+                self.assertIsInstance(application, Version2PackagedStarterApplication)
+                self.assertIsInstance(application, Version2FinalProductApplication)
+                self.assertIs(api._version2(), application)
+                self.assertIsNotNone(application._rotation_store)
+                assert application._rotation_store is not None
+                self.assertEqual(
+                    root / "child-coaching-rotation.json",
+                    application._rotation_store.path,
+                )
+            finally:
+                application.shutdown()
+                api.close_analysis()
+                runtime.close()
 
     def test_release_composition_reaches_final_product_rotation_persistence(self) -> None:
         class Runtime:
