@@ -3473,6 +3473,50 @@ class Version2ApplicationTests(unittest.TestCase):
             [{"kind": "route", "payload": {"route_id": "books"}}],
         )
 
+    def test_browser_command_rejects_active_payload_key_before_lookup_hooks(self):
+        class ActiveKey(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                return super().__hash__()
+
+            def __eq__(self, other):
+                type(self).touched = True
+                return super().__eq__(other)
+
+        key = ActiveKey("publication_protocol")
+        payload = {key: "ack-v1", "request_id": 1}
+        ActiveKey.touched = False
+        route_before = self.app.shell.current_route.route_id
+
+        result = self.app.browser_command("shell", "screen.library", payload)
+
+        self.assertEqual(result["kind"], "error")
+        self.assertFalse(ActiveKey.touched)
+        self.assertEqual(self.app.shell.current_route.route_id, route_before)
+
+    def test_book_payload_authorization_rejects_active_key_before_lookup_hooks(self):
+        class ActiveKey(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                return super().__hash__()
+
+            def __eq__(self, other):
+                type(self).touched = True
+                return super().__eq__(other)
+
+        key = ActiveKey("presentation_token")
+        payload = {key: "0" * 64}
+        ActiveKey.touched = False
+
+        with self.assertRaisesRegex(ValueError, "payload keys must be exact text"):
+            self.app._authorize_book_browser_payload(payload)
+
+        self.assertFalse(ActiveKey.touched)
+
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")
         result = self.app.browser_command("shell", "pgn.open", {"path": str(self.source)})
