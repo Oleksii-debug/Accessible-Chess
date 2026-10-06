@@ -76,6 +76,51 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
 
+    def test_read_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
+        fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
+        calls = []
+
+        def board_dispatch(action, payload):
+            calls.append((action, payload))
+            return {"ok": True, "fen": fen, "announcement": "untrusted board presentation"}
+
+        self.app._board_dispatch = board_dispatch
+        result = self.app._delegate("position.read_fen", {})
+
+        self.assertEqual({"ok": True, "fen": fen}, result)
+        self.assertEqual([("board.read_fen", {})], calls)
+        self.assertEqual([], self.copied)
+        events = self.app.drain_events()
+        self.assertTrue(
+            any(
+                event.get("kind") == "status"
+                and event.get("payload", {}).get("announcement") == "FEN позиції: " + fen
+                for event in events
+            )
+        )
+
+        self.app.shell.set_language(UILanguage.EN)
+        self.app._board_dispatch = lambda *_args: {"ok": True, "fen": fen}
+        self.app._delegate("position.read_fen", {})
+        events = self.app.drain_events()
+        self.assertTrue(
+            any(
+                event.get("kind") == "status"
+                and event.get("payload", {}).get("announcement") == "Position FEN: " + fen
+                for event in events
+            )
+        )
+
+    def test_read_fen_rejects_payload_before_board_readback(self):
+        calls = []
+        self.app._board_dispatch = lambda *_args: calls.append(True)
+
+        with self.assertRaises(ValueError):
+            self.app._delegate("position.read_fen", {"unexpected": True})
+
+        self.assertEqual([], calls)
+        self.assertEqual([], self.copied)
+
     def test_copy_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
         fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
         calls = []
