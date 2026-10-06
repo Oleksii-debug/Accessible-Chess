@@ -10,7 +10,11 @@ from acs.chessbase_library_import import (
     ChessBaseLibraryImportReport,
     ChessBaseLibraryImportStatus,
 )
-from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.library_import_service import (
+    LibraryImportCancelledError,
+    LibraryImportProgress,
+    LibraryImportResult,
+)
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
@@ -1325,6 +1329,75 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(reopened.error_code, "no_pgn_document")
             self.assertTrue(delegate.shutdown())
+    def test_refused_close_reopens_draining_cancelled_import_without_freeing_busy_slot(self) -> None:
+        class BlockingLibrary:
+            def __init__(self) -> None:
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def import_games(self, *args, **kwargs):
+                progress = kwargs["progress_callback"]
+                cancelled = kwargs["cancel_check"]
+                progress(LibraryImportProgress(1, 0, 1))
+                self.entered.set()
+                if not self.release.wait(2.0):
+                    raise AssertionError("test did not release import worker")
+                if cancelled():
+                    raise LibraryImportCancelledError("cancelled by refused close")
+                progress(LibraryImportProgress(1, 1, 1))
+                return LibraryImportResult(
+                    attempt_id=1,
+                    source_id=1,
+                    game_count=1,
+                    warning_count=0,
+                    first_game_id=1,
+                    last_game_id=1,
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-draining-import.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            library = BlockingLibrary()
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda _session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    library,
+                    None,
+                    lambda: None,
+                ),
+                event_sink=events.append,
+                next_delegate=lambda _action_id, _payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertTrue(delegate.import_running)
+
+            self.assertFalse(delegate.shutdown(0.0))
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+
+            busy = delegate("pgn.save", {})
+            self.assertEqual(busy.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(busy.error_code, "file_worker_busy")
+            self.assertTrue(delegate.import_running)
+
+            library.release.set()
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertFalse(delegate.import_running)
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in events],
+            )
+
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+
     def test_refused_close_can_reopen_idle_file_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "refused-close.pgn"
