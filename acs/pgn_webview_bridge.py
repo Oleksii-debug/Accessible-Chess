@@ -142,6 +142,30 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.next_game()
+            if command_id == "pgn.tag_edit":
+                self._exact_fields(data, {"name", "value"})
+                name = self._text(data["name"], name="tag name", limit=80)
+                value = self._text(data["value"], name="tag value", limit=360)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_tag(name, value)
+            if command_id == "pgn.tag_delete":
+                self._exact_fields(data, {"name"})
+                name = self._text(data["name"], name="tag name", limit=80)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.delete_tag(name)
+            if command_id == "pgn.result_set":
+                self._exact_fields(data, {"result"})
+                result = self._text(data["result"], name="result", limit=16)
+                if result not in {"1-0", "0-1", "1/2-1/2", "*"}:
+                    raise ValueError("PGN result is invalid")
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.set_result(result)
             if command_id == "pgn.comment_edit":
                 self._exact_fields(data, {"text"})
                 text = self._text(data["text"], name="comment text", limit=8000)
