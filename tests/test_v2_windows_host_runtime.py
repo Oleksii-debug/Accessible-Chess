@@ -157,6 +157,27 @@ class _CancellableLibrary(_Library):
         raise AssertionError("runtime shutdown did not request cancellation")
 
 
+class _BlockingProgressLibrary(_Library):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def import_games(self, games, **kwargs) -> LibraryImportResult:
+        self.calls += 1
+        progress_callback = kwargs["progress_callback"]
+        cancel_check = kwargs["cancel_check"]
+        total = len(games)
+        progress_callback(LibraryImportProgress(1, 0, total))
+        self.entered.set()
+        if not self.release.wait(2.0):
+            raise AssertionError("blocking import was not released")
+        if cancel_check():
+            raise LibraryImportCancelledError("cancelled by bounded shutdown")
+        progress_callback(LibraryImportProgress(1, total, total))
+        return LibraryImportResult(1, 1, total, 0, 1, total)
+
+
 class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         _OpenDialog.selected_paths.clear()
@@ -284,6 +305,108 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                     FileWorkflowEventKind.IMPORT_COMPLETED,
                 ],
             )
+
+    def test_pending_import_wakeup_rejects_reentrant_bounded_shutdown_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-bounded-wakeup.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown(0.0))
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+            try:
+                self.assertFalse(runtime.request_pending_import_wakeup())
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(reentrant_shutdowns, [False])
+            self.assertFalse(runtime.closed)
+            fenced = runtime("pgn.save", {})
+            self.assertEqual(fenced.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(fenced.error_code, "file_workflow_closed")
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_refused_close_resume_rejects_reentrant_bounded_shutdown_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-bounded-resume.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.shutdown(0.0))
+            self.assertFalse(runtime.closed)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown(0.0))
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+            try:
+                self.assertFalse(runtime.resume_after_refused_shutdown())
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(reentrant_shutdowns, [False])
+            self.assertFalse(runtime.closed)
+            fenced = runtime("pgn.save", {})
+            self.assertEqual(fenced.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(fenced.error_code, "file_workflow_closed")
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            self.assertTrue(runtime.shutdown())
 
     def test_refused_close_resume_restores_real_import_and_ui_delivery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
