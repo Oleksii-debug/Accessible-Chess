@@ -532,6 +532,30 @@ class Version2WindowsLibraryExportDelegate:
         thread.join(timeout=timeout)
         return not thread.is_alive()
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Reopen a clean retired owner after the application refused to close.
+
+        Shutdown increments the generation before retiring pending UI work.
+        Keep that generation fence intact so callbacks queued before the refused
+        close stay stale after recovery. Only a fully quiescent retired owner may
+        become live again; any residual worker/terminal/retry authority fails
+        closed instead of advertising a partially recovered export boundary.
+        """
+
+        self._assert_ui_thread()
+        with self._lock:
+            if not self._closed:
+                return True
+            if (
+                self._thread is not None
+                or self._cancel is not None
+                or self._terminal_pending is not None
+                or self._retry_timer is not None
+            ):
+                return False
+            self._closed = False
+        return True
+
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join worker; queued owner callbacks become stale after success."""
 
