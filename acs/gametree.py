@@ -718,13 +718,20 @@ def _serialize_comment(c: Comment) -> str:
     return ";" + c.text + "\n"
 
 
-def _require_comment_list(value: object, *, field_name: str) -> list[Comment]:
+def _require_comment_list(
+    value: object,
+    *,
+    field_name: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[Comment]:
     if type(value) is not list:
         raise GameTreeSerializationError(
             f"{field_name} must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    for comment in value:
+    for comment_index, comment in enumerate(value, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
         _serialize_comment(comment)
     return value
 
@@ -752,13 +759,18 @@ def _validate_san(san: object) -> None:
         )
 
 
-def _validate_nags(nags: object) -> None:
+def _validate_nags(
+    nags: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     if type(nags) is not list:
         raise GameTreeSerializationError(
             "move nags must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    for nag in nags:
+    for nag_index, nag in enumerate(nags, start=1):
+        if control_checkpoint is not None and nag_index % 128 == 1:
+            control_checkpoint()
         if not isinstance(nag, str) or not (
             _numeric_nag_is_in_range(nag) or nag in NAG_SYMBOLS
         ):
@@ -783,7 +795,10 @@ def _validate_line_for_serialization(
     *,
     depth: int,
     state: dict[str, object],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if not isinstance(line, VariationLine):
         raise GameTreeSerializationError(
             "game line must be a VariationLine",
@@ -818,8 +833,16 @@ def _validate_line_for_serialization(
             "variation moves must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    _require_comment_list(line.leading_comments, field_name="leading_comments")
-    _require_comment_list(line.trailing_comments, field_name="trailing_comments")
+    _require_comment_list(
+        line.leading_comments,
+        field_name="leading_comments",
+        control_checkpoint=control_checkpoint,
+    )
+    _require_comment_list(
+        line.trailing_comments,
+        field_name="trailing_comments",
+        control_checkpoint=control_checkpoint,
+    )
     if line.result is not None and (
         not isinstance(line.result, str) or line.result not in RESULTS
     ):
@@ -828,7 +851,9 @@ def _validate_line_for_serialization(
             code=GameTreeErrorCode.INVALID_LINE,
         )
 
-    for node in line.moves:
+    for node_index, node in enumerate(line.moves, start=1):
+        if control_checkpoint is not None and node_index % 128 == 1:
+            control_checkpoint()
         if not isinstance(node, MoveNode):
             raise GameTreeSerializationError(
                 "variation moves must contain MoveNode values",
@@ -851,9 +876,17 @@ def _validate_line_for_serialization(
                 "move_number must be a representable PGN import move-number token",
                 code=GameTreeErrorCode.INVALID_MOVE,
             )
-        _validate_nags(node.nags)
-        _require_comment_list(node.comments_before, field_name="comments_before")
-        _require_comment_list(node.comments_after, field_name="comments_after")
+        _validate_nags(node.nags, control_checkpoint)
+        _require_comment_list(
+            node.comments_before,
+            field_name="comments_before",
+            control_checkpoint=control_checkpoint,
+        )
+        _require_comment_list(
+            node.comments_after,
+            field_name="comments_after",
+            control_checkpoint=control_checkpoint,
+        )
         if type(node.variations) is not list:
             raise GameTreeSerializationError(
                 "move variations must be a list",
@@ -864,12 +897,18 @@ def _validate_line_for_serialization(
                 variation,
                 depth=depth + 1,
                 state=state,
+                control_checkpoint=control_checkpoint,
             )
 
     active.remove(identity)
 
 
-def _validate_game_for_serialization(game: object) -> None:
+def _validate_game_for_serialization(
+    game: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if not isinstance(game, PgnGame):
         raise GameTreeSerializationError(
             "serialize_game requires a PgnGame",
@@ -880,7 +919,9 @@ def _validate_game_for_serialization(game: object) -> None:
             "game tags must be a dictionary",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    for key, value in game.tags.items():
+    for tag_index, (key, value) in enumerate(game.tags.items(), start=1):
+        if control_checkpoint is not None and tag_index % 128 == 1:
+            control_checkpoint()
         if not isinstance(key, str) or not TAG_NAME_RE.fullmatch(key):
             raise GameTreeSerializationError(
                 "tag names must match the PGN tag-name grammar",
@@ -908,7 +949,12 @@ def _validate_game_for_serialization(game: object) -> None:
         )
 
     state: dict[str, object] = {"seen": set(), "active": set(), "count": 0}
-    _validate_line_for_serialization(game.line, depth=0, state=state)
+    _validate_line_for_serialization(
+        game.line,
+        depth=0,
+        state=state,
+        control_checkpoint=control_checkpoint,
+    )
     if game.result not in RESULTS:
         raise GameTreeSerializationError(
             "effective game result must be a canonical PGN result",
@@ -916,30 +962,81 @@ def _validate_game_for_serialization(game: object) -> None:
         )
 
 
-def _serialize_line(line: VariationLine, *, include_result: bool = True) -> str:
+def _serialize_line(
+    line: VariationLine,
+    *,
+    include_result: bool = True,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None:
+        control_checkpoint()
     parts: list[str] = []
-    parts.extend(_serialize_comment(c) for c in line.leading_comments)
-    for node in line.moves:
+    for comment_index, comment in enumerate(line.leading_comments, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
+        parts.append(_serialize_comment(comment))
+    for node_index, node in enumerate(line.moves, start=1):
+        if control_checkpoint is not None and node_index % 128 == 1:
+            control_checkpoint()
         if node.move_number:
             parts.append(node.move_number)
-        parts.extend(_serialize_comment(c) for c in node.comments_before)
+        for comment_index, comment in enumerate(node.comments_before, start=1):
+            if control_checkpoint is not None and comment_index % 128 == 1:
+                control_checkpoint()
+            parts.append(_serialize_comment(comment))
         parts.append(node.san)
         parts.extend(node.nags)
-        parts.extend(_serialize_comment(c) for c in node.comments_after)
+        if control_checkpoint is not None:
+            control_checkpoint()
+        for comment_index, comment in enumerate(node.comments_after, start=1):
+            if control_checkpoint is not None and comment_index % 128 == 1:
+                control_checkpoint()
+            parts.append(_serialize_comment(comment))
         for variation in node.variations:
-            parts.append("(" + _serialize_line(variation, include_result=True) + ")")
+            parts.append(
+                "("
+                + _serialize_line(
+                    variation,
+                    include_result=True,
+                    control_checkpoint=control_checkpoint,
+                )
+                + ")"
+            )
     if include_result and line.result:
         parts.append(line.result)
-    parts.extend(_serialize_comment(c) for c in line.trailing_comments)
+    for comment_index, comment in enumerate(line.trailing_comments, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
+        parts.append(_serialize_comment(comment))
+    if control_checkpoint is not None:
+        control_checkpoint()
     return " ".join(p for p in parts if p)
 
 
-def serialize_game(game: PgnGame) -> str:
-    _validate_game_for_serialization(game)
+def serialize_game(
+    game: PgnGame,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None and not callable(control_checkpoint):
+        raise TypeError("control_checkpoint must be callable or None")
+    if control_checkpoint is not None:
+        control_checkpoint()
+    _validate_game_for_serialization(game, control_checkpoint)
     tags = dict(game.tags)
     tags.setdefault("Result", game.result)
-    headers = [f'[{k} "{_escape_tag(v)}"]' for k, v in tags.items()]
-    return "\n".join(headers) + "\n\n" + _serialize_line(game.line, include_result=True).strip() + "\n"
+    headers: list[str] = []
+    for tag_index, (key, value) in enumerate(tags.items(), start=1):
+        if control_checkpoint is not None and tag_index % 128 == 1:
+            control_checkpoint()
+        headers.append(f'[{key} "{_escape_tag(value)}"]')
+    movetext = _serialize_line(
+        game.line,
+        include_result=True,
+        control_checkpoint=control_checkpoint,
+    ).strip()
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return "\n".join(headers) + "\n\n" + movetext + "\n"
 
 
 def serialize_games(games: Iterable[PgnGame]) -> str:

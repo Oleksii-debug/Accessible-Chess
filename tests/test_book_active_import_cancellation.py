@@ -725,6 +725,52 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
         self.assertIs(caught.exception, failure)
 
+    def test_canonical_pgn_serializer_control_preserves_exact_output(self):
+        from acs.gametree import serialize_game
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        game = parse_pgn_text(
+            '[Event "Study"]\n[Result "*"]\n\n1. e4 {note} (1. d4 d5) e5 *\n',
+            strict=False,
+        )[0]
+        plain = serialize_game(game)
+        calls = []
+        controlled = serialize_game(game, control_checkpoint=lambda: calls.append(1))
+        self.assertEqual(controlled, plain)
+        self.assertGreater(len(calls), 3)
+
+    def test_html_pgn_collection_threads_control_into_canonical_serializer(self):
+        import acs.gametree as gametree
+
+        failure = ValueError('trusted cancellation-shaped serializer failure')
+        armed = False
+        calls = 0
+        real_serialize = gametree.serialize_game
+
+        def control():
+            nonlocal calls
+            calls += 1
+            if armed:
+                raise failure
+
+        def controlled_serialize(game, *args, **kwargs):
+            nonlocal armed
+            forwarded_control = kwargs.get('control_checkpoint')
+            self.assertTrue(callable(forwarded_control))
+            armed = True
+            return real_serialize(game, *args, **kwargs)
+
+        with patch('acs.book_html_import.serialize_game', side_effect=controlled_serialize):
+            with self.assertRaises(ValueError) as caught:
+                import_html_book(
+                    HTML,
+                    source_name='study.html',
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+        self.assertGreater(calls, 1)
+
     def test_canonical_pgn_normalization_observes_control_inside_large_comment_collection(self):
         import acs.pgn_roundtrip as roundtrip
         from acs.gametree import Comment, VariationLine

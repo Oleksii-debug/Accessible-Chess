@@ -1855,7 +1855,12 @@ def _canonical_pgn_games(
                 for parsed_game in parsed:
                     if effective_control is not None:
                         effective_control()
-                    sources.append(serialize_game(parsed_game))
+                    sources.append(
+                        serialize_game(
+                            parsed_game,
+                            control_checkpoint=effective_control,
+                        )
+                    )
         except (GameTreeSerializationError, RecursionError, ValueError) as exc:
             if control_failure is exc:
                 raise
