@@ -44,7 +44,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_PARENT_BRANCH: feat/youtube-iframe-playback-20261006-sol56v8
-          EXPECTED_PARENT: aba91b50370764af7220a1ae9cdf96b555081abb
+          EXPECTED_PARENT: 7c8540f8800d6a63bac1c81777ebbf1c3a6d9945
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"

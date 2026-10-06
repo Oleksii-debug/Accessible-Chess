@@ -238,6 +238,27 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
         self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
 
+    def test_books_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        cancel_item = next(
+            item for item in books_menu.items
+            if item.action_id == "book.cancel_open"
+        )
+        self.assertEqual("Cancel book opening", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("book.cancel_open", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_cancel = next(item for item in ua_books.items if item.action_id == "book.cancel_open")
+        self.assertEqual("Скасувати відкриття книги", ua_cancel.label)
+
     def test_shipping_version2_menu_inherits_reverse_book_navigation(self) -> None:
         registry = build_version2_action_registry()
         menus = build_version2_menu_spec(registry, language=UILanguage.EN)
@@ -279,6 +300,95 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         self.assertIsNone(controller.activate(exit_item))
         self.assertEqual([True], exits)
+
+    def test_native_sink_failure_restores_route_but_preserves_observed_focus(self) -> None:
+        controller, _calls, commands, _exits = make_controller()
+        shell = controller._adapter.shell
+        library = next(
+            item
+            for item in controller.spec()[4].items
+            if item.action_id == "screen.library"
+        )
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("move-input", shell.restore_focus_target())
+
+        def rejecting_sink(_command):
+            raise RuntimeError("native host rejected command before publication")
+
+        controller._command_sink = rejecting_sink
+        with self.assertRaisesRegex(RuntimeError, "native host rejected"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-square-e4", shell.restore_focus_target())
+        self.assertEqual([], commands)
+
+        controller._command_sink = commands.append
+        committed = controller.activate(library)
+        self.assertEqual("route", committed.kind)
+        self.assertEqual("library", shell.current_route.route_id)
+        self.assertEqual([committed], commands)
+        shell.open_route("board")
+        self.assertEqual("board-square-e4", shell.restore_focus_target())
+
+    def test_active_native_focus_subclass_is_rejected_before_adapter_dispatch(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active native focus hook must not execute")
+
+        controller._focus_provider = lambda: HostileText("board-square-e4")
+        library = next(
+            item
+            for item in controller.spec()[4].items
+            if item.action_id == "screen.library"
+        )
+
+        with self.assertRaisesRegex(TypeError, "focus provider"):
+            controller.activate(library)
+
+        self.assertFalse(HostileText.touched)
+        self.assertEqual("board", controller._adapter.shell.current_route.route_id)
+        self.assertEqual([], calls)
+        self.assertEqual([], commands)
+
+    def test_native_sink_failure_restores_external_focus_token_when_callback_is_bound(self) -> None:
+        shell = AccessibleShellState(language=UILanguage.EN)
+        registry = build_full_product_action_registry()
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, lambda _action, _payload: {"ok": True}, registry=registry),
+        )
+        host_focus = {"value": "board-launcher"}
+        library = next(
+            item
+            for menu in build_full_product_menu_spec(registry, language=UILanguage.EN)
+            for item in menu.items
+            if item.action_id == "screen.library"
+        )
+
+        def rejecting_sink(_command):
+            host_focus["value"] = "library-search-player"
+            raise RuntimeError("native publication failed")
+
+        controller = FullProductNativeMenuController(
+            adapter,
+            rejecting_sink,
+            exit_callback=lambda: None,
+            current_focus_provider=lambda: host_focus["value"],
+            focus_restore=lambda token: host_focus.__setitem__("value", token),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "native publication failed"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", shell.restore_focus_target())
+        self.assertEqual("board-launcher", host_focus["value"])
 
     def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
         controller, _calls, _commands, _exits = make_controller()

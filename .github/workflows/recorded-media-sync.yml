@@ -52,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_parent='2fab0518976ad3938f56b9c9cf129f3a368e1f04'
+          expected_parent='50c27fe9ff0f8899438d8aba4ee455119b01fe13'
           parent_ref='refs/heads/work/accessible-chess-20261005-media-core-sol56n4q8'
           live_parent="$(git ls-remote origin "$parent_ref" | awk '{print $1}')"
           if [ "$live_parent" != "$expected_parent" ]; then
