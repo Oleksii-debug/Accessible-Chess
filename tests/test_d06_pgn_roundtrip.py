@@ -2,6 +2,7 @@ import codecs
 import unittest
 from unittest.mock import patch
 
+import acs.pgn_roundtrip as rt
 from acs.gametree import Comment, CommentStyle, MoveNode, PgnGame, VariationLine
 from acs.pgn_roundtrip import (
     PgnRoundTripError,
@@ -679,6 +680,94 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertTrue(encoded)
         self.assertEqual(len(games), 1)
         self.assertEqual(len(observed), 2)
+
+
+    def test_source_budget_subclasses_fail_before_overrideable_claim_hooks(self):
+        calls = []
+
+        class ActiveBudget(rt.PgnSourceBudget):
+            def claim_text_chars(self, amount):
+                calls.append(("text", amount))
+                raise AssertionError("active budget hook must not execute")
+
+        budget = ActiveBudget(rt.WHOLE_DOCUMENT_PGN_LIMITS)
+        with self.assertRaisesRegex(TypeError, "source_budget must be PgnSourceBudget"):
+            parse_pgn_text(
+                '[Result "*"]\n\n1. e4 *',
+                source_budget=budget,
+            )
+        self.assertEqual(calls, [])
+
+        class DerivedLimits(rt.PgnSourceLimits):
+            pass
+
+        with self.assertRaisesRegex(TypeError, "limits must be PgnSourceLimits"):
+            rt.PgnSourceBudget(
+                DerivedLimits(
+                    max_source_bytes=1024,
+                    max_text_chars=1024,
+                    max_lexical_tokens=128,
+                    max_games=4,
+                )
+            )
+
+    def test_preflight_counts_recovery_tokenizer_expansion_before_materialization(self):
+        sources = (
+            '[Result "*"]\n\n1.e4 *',
+            '[Result "*"]\n\n{{x}} *',
+            '[Result "*"]\n\n$x *',
+            '[Result "*"]\n\n}} *',
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                with (
+                    patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 3),
+                    patch(
+                        "acs.pgn_roundtrip.parse_games",
+                        side_effect=AssertionError(
+                            "parser token materialization must not run"
+                        ),
+                    ) as parser,
+                ):
+                    self.assert_code(
+                        PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                        parse_pgn_text,
+                        source,
+                        strict=False,
+                    )
+                    parser.assert_not_called()
+
+    def test_tag_field_limit_runs_before_game_framer_allocation(self):
+        source = '[Event "abcdef"]\n[Result "*"]\n\n1. e4 *'
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TAG_VALUE_CHARS", 5),
+            patch(
+                "acs.pgn_roundtrip.CanonicalPgnGameFramer.feed_line",
+                side_effect=AssertionError("framer must not receive oversized tag"),
+            ) as feed_line,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            feed_line.assert_not_called()
+
+    def test_recovery_warning_provenance_does_not_override_canonical_serialization(self):
+        recovered = parse_pgn_text(
+            '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
+            strict=False,
+        )
+        warnings_before = list(recovered[0].warnings)
+        self.assertTrue(warnings_before)
+
+        canonical = serialize_pgn_text(recovered)
+
+        self.assertEqual(recovered[0].warnings, warnings_before)
+        reparsed = parse_pgn_text(canonical, strict=True)
+        self.assertEqual([move.san for move in reparsed[0].line.moves], ["e4", "e5"])
+        self.assertEqual(reparsed[0].line.result, "*")
+        self.assertEqual(reparsed[0].warnings, [])
 
 
 if __name__ == "__main__":
