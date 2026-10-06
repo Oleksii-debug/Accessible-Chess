@@ -1555,9 +1555,10 @@ def _validate_stockfish_source_archive(
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
 
-def validate_winforms_accessibility_app_config(path: Path) -> None:
+def validate_winforms_accessibility_app_config(path: str | Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
+    path = _passive_path(path, label="WinForms accessibility app-config")
     try:
         payload = _read_stable_bytes_file(
             path,
