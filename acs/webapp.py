@@ -690,6 +690,8 @@ class AccessibleChessAPI:
     def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         try:
             if len(state.to_fen()) > MAX_FEN_CHARS:
                 return self._error(self._t("fen_text_too_long"))

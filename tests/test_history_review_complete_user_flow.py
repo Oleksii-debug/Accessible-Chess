@@ -161,6 +161,27 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
                 self.assertFalse(state["canHistoryPrevious"])
                 self.assertFalse(state["canHistoryNext"])
 
+    def test_malformed_history_blocks_position_mutation_but_fen_recovery_remains_available(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        live_fen = api.board.fen()
+        api.move_sides = []
+
+        turn = api.set_turn("w")
+        self.assertFalse(turn["ok"])
+        self.assertEqual(turn["announcement"], "Could not read move history.")
+        self.assertEqual(api.board.fen(), live_fen)
+
+        piece = api.edit_position_piece("e4", "-")
+        self.assertFalse(piece["ok"])
+        self.assertEqual(piece["announcement"], "Could not read move history.")
+        self.assertEqual(api.board.fen(), live_fen)
+
+        recovered = api.set_fen(api.start_fen)
+        self.assertTrue(recovered["ok"])
+        self.assertTrue(recovered["historyProjectionValid"])
+        self.assertTrue(recovered["positionEditor"]["editable"])
+
     def test_malformed_history_cannot_be_extended_by_move_or_board_activation(self) -> None:
         api = AccessibleChessAPI("en")
         play(api, "e4")
