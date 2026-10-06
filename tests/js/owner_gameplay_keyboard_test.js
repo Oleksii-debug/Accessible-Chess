@@ -138,6 +138,28 @@ function event(key, mods = {}, tag = 'INPUT') {
   assert.equal(engineNodes['engine-game-start'].disabled,false);
   assert.equal(engineNodes['engine-game-cancel'].disabled,false);
 
+  // Closing keyboard settings must retire shortcut-capture state. Otherwise
+  // the capture-phase document handler would continue consuming keys while
+  // the dialog is already hidden.
+  assert(
+    html.includes("el('keymap-dialog').addEventListener('close',()=>{stopCapture(false);el('open-keymap').focus()})"),
+    'keymap close must retire capture before restoring opener focus'
+  );
+  let captureClassRemoved=0, capturePressed='', captureText='';
+  const captureButton={
+    classList:{remove:name=>{assert.equal(name,'capture-active');captureClassRemoved+=1;}},
+    setAttribute:(name,value)=>{if(name==='aria-pressed')capturePressed=value;},
+    set textContent(value){captureText=value;},
+    get textContent(){return captureText;},
+  };
+  shell.capture={button:captureButton};
+  vm.runInContext(html.split('\n').find(line=>line.startsWith('function stopCapture(')),shell);
+  shell.stopCapture(false);
+  assert.equal(shell.capture,null,'closing capture must clear the hidden capture authority');
+  assert.equal(captureClassRemoved,1);
+  assert.equal(capturePressed,'false');
+  assert.equal(captureText,'Нова комбінація');
+
   const sound=fs.readFileSync('web/stage1_release_bootstrap.js','utf8');
   assert(!sound.includes('sound-preview'));
   assert(!sound.includes('preview_sound'));
