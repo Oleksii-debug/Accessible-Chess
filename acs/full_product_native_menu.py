@@ -93,6 +93,7 @@ _TEXT = {
         "top.books": "&Books", "top.training": "&Training",
         "top.teacher": "Teacher/&Classroom", "top.settings": "&Settings", "top.help": "&Help",
         "open_pgn": "Open PGN", "cancel_pgn_open": "Cancel PGN Open", "save_pgn": "Save PGN", "save_pgn_as": "Save PGN As", "cancel_pgn_save": "Cancel PGN Save",
+        "new_pgn": "New PGN",
         "import_library": "Import into Library", "export_pgn": "Export selected PGN", "exit": "Exit",
         "convert_pgn": "Convert PGN to UTF-8 (new copy)",
         "board_game": "Board and game", "standard": "New standard position",
@@ -132,6 +133,7 @@ _TEXT = {
         "top.books": "&Книги", "top.training": "&Тренування",
         "top.teacher": "&Учитель/Клас", "top.settings": "&Налаштування", "top.help": "&Довідка",
         "open_pgn": "Відкрити PGN", "cancel_pgn_open": "Скасувати відкриття PGN", "save_pgn": "Зберегти PGN", "save_pgn_as": "Зберегти PGN як", "cancel_pgn_save": "Скасувати збереження PGN",
+        "new_pgn": "Новий PGN",
         "import_library": "Імпортувати до бібліотеки", "export_pgn": "Експортувати вибране PGN", "exit": "Вихід",
         "convert_pgn": "Перекодувати PGN у UTF-8 (нова копія)",
         "board_game": "Дошка і партія", "standard": "Нова стандартна позиція",
@@ -200,6 +202,7 @@ def build_full_product_menu_spec(
     host_exit = NativeMenuItemSpec(NativeMenuItemKind.HOST, text["exit"], host_command="app.exit")
     rows = {
         "file": (
+            action("new_pgn", "pgn.new"),
             action("open_pgn", "pgn.open"),
             action("cancel_pgn_open", "pgn.cancel_open"),
             action("save_pgn", "pgn.save"),
@@ -215,6 +218,7 @@ def build_full_product_menu_spec(
         "position": (action("position_tools", "screen.board"), action("move_input", "board.input"), action("copy_fen", "position.copy_fen"), action("new_pgn_from_position", "pgn.new_from_position"), action("history_go", "history.go_to_move"), action("history_previous", "history.previous"), action("history_next", "history.next")),
         "pgn": (
             action("pgn_screen", "screen.pgn"),
+            action("new_pgn", "pgn.new"),
             action("open_pgn", "pgn.open"),
             action("cancel_pgn_open", "pgn.cancel_open"),
             action("save_pgn", "pgn.save"),
