@@ -285,13 +285,13 @@ def _stable_change_metadata(st: os.stat_result) -> tuple[int, ...] | None:
     """
 
     mtime_ns = getattr(st, "st_mtime_ns", None)
-    if type(mtime_ns) is not int:
+    if type(mtime_ns) is not int or mtime_ns < 0:
         return None
     if os.name == "nt":
         return (mtime_ns,)
 
     ctime_ns = getattr(st, "st_ctime_ns", None)
-    if type(ctime_ns) is not int:
+    if type(ctime_ns) is not int or ctime_ns < 0:
         return None
     return mtime_ns, ctime_ns
 
@@ -299,7 +299,15 @@ def _stable_change_metadata(st: os.stat_result) -> tuple[int, ...] | None:
 def _same_file_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
     if not _complete_file_identity(first, second):
         return False
-    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+    first_size = getattr(first, "st_size", None)
+    second_size = getattr(second, "st_size", None)
+    if (
+        type(first_size) is not int
+        or type(second_size) is not int
+        or first_size < 0
+        or second_size < 0
+        or first_size != second_size
+    ):
         return False
     first_change = _stable_change_metadata(first)
     second_change = _stable_change_metadata(second)
@@ -357,13 +365,23 @@ def _same_publication_snapshot(first: os.stat_result, second: os.stat_result) ->
 
     if not _complete_file_identity(first, second):
         return False
-    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+    first_size = getattr(first, "st_size", None)
+    second_size = getattr(second, "st_size", None)
+    if (
+        type(first_size) is not int
+        or type(second_size) is not int
+        or first_size < 0
+        or second_size < 0
+        or first_size != second_size
+    ):
         return False
     first_mtime = getattr(first, "st_mtime_ns", None)
     second_mtime = getattr(second, "st_mtime_ns", None)
     return (
         type(first_mtime) is int
         and type(second_mtime) is int
+        and first_mtime >= 0
+        and second_mtime >= 0
         and first_mtime == second_mtime
     )
 
