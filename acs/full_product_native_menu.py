@@ -88,7 +88,7 @@ _TOP_ORDER = (
 _TEXT = {
     UILanguage.EN: {
         "top.file": "&File", "top.game": "&Game", "top.position": "&Position",
-        "top.pgn": "PG&N", "top.library": "&Library", "top.import": "&Import",
+        "top.pgn": "PG&N", "top.library": "Librar&y", "top.import": "&Import",
         "top.export": "E&xport", "top.engine": "&Engine", "top.analysis": "&Analysis",
         "top.books": "&Books", "top.training": "&Training",
         "top.teacher": "Teacher/&Classroom", "top.settings": "&Settings", "top.help": "&Help",
