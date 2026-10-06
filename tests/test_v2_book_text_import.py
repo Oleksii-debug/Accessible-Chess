@@ -744,6 +744,32 @@ Starting board
             any("non-positive start" in warning for warning in result.warnings)
         )
 
+    def test_markdown_nonpositive_ordered_fallback_keeps_image_alt_only(self) -> None:
+        result = import_text_book(
+            "0. Before ![Board](secret/position.png) after\n"
+            "1. Valid list item\n",
+            source_name="nonpositive-image-list.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(paragraphs, ["0. Before Board after"])
+        self.assertNotIn("secret/position.png", " ".join(paragraphs))
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].start, 1)
+        self.assertEqual(lists[0].items, ["Valid list item"])
+        self.assertTrue(
+            any(
+                "unrepresentable list item" in warning
+                for warning in result.warnings
+            )
+        )
     def test_markdown_ordered_list_reimport_keeps_stable_semantic_target(self) -> None:
         source = "4. Alpha\n40. Beta\n2. Gamma\n"
         first = import_text_book(
