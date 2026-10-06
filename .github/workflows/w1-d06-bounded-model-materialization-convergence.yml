@@ -53,8 +53,8 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           W1_WORKSPACE_BLOB: 680349f68480df43e23b094df4709deed275f01d
           W1_TEST_BLOB: a5de2d703f61cc599717e9ae5325ad1652e854e0
-          D06_SOURCE_BLOB: e4b76af7a33b939b9e56cd3605781fe3077608cb
-          D06_TEST_BLOB: 0a96a3db33ba607ab337008369061cf31492fcdd
+          D06_SOURCE_BLOB: 242f625ede1be9bfed6a4fedf7bbaa8d8abe66f2
+          D06_TEST_BLOB: 8dcb65a262251356a4f5bc923c71d86d491913ab
         run: |
           set -euo pipefail
           base="${EVENT_BASE_SHA:-}"

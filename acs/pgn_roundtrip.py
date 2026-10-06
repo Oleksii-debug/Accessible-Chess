@@ -859,6 +859,11 @@ def _measure_line(
                 "PGN model exceeds the node safety limit",
                 PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
             )
+        if type(node.san) is not str:
+            raise PgnRoundTripError(
+                "PGN model contains invalid SAN text",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
         _validate_san(node.san)
         _claim_model_chars(budget, len(node.san) + 32)
         _claim_model_tokens(token_count)
@@ -950,11 +955,9 @@ def _measure_game(
     # Recovery diagnostics prove that the source required repair. Strict
     # serialization must not erase that provenance; the higher-level workflow
     # owns any explicit normalization decision before this boundary is called.
-    if type(game.warnings) is not list or any(
-        type(warning) is not str for warning in game.warnings
-    ):
+    if type(game.warnings) is not list:
         raise PgnRoundTripError(
-            "PGN recovery warnings must be a built-in list of text diagnostics",
+            "PGN recovery warnings must be a built-in list",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     if game.warnings:

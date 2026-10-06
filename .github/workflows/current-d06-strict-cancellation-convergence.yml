@@ -3,7 +3,7 @@ name: Current D06 Strict Cancellation Convergence
 on:
   pull_request:
     branches:
-      - fix/d06-current-safety-convergence-20261006-zftrkmo119
+      - converge/d06-strict-write-current-20261006-sol56z3
     paths:
       - '.github/workflows/current-d06-strict-cancellation-convergence.yml'
       - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_SOURCE_BLOB: e4b76af7a33b939b9e56cd3605781fe3077608cb
-  D06_TEST_BLOB: 0a96a3db33ba607ab337008369061cf31492fcdd
+  D06_SOURCE_BLOB: 242f625ede1be9bfed6a4fedf7bbaa8d8abe66f2
+  D06_TEST_BLOB: 8dcb65a262251356a4f5bc923c71d86d491913ab
 
 jobs:
   exact-head:
@@ -67,4 +67,4 @@ jobs:
         run: python -m py_compile acs/pgn_roundtrip.py tests/test_d06_pgn_roundtrip.py
 
       - name: Run strict D06 and retained cancellation regressions
-        run: python -m unittest -v tests.test_d06_pgn_roundtrip tests.test_book_active_import_cancellation tests.test_gametree tests.test_book_html_pgn_loss_accounting
+        run: python -m unittest -v tests.test_d06_pgn_roundtrip tests.test_pgn_document tests.test_book_active_import_cancellation tests.test_gametree tests.test_book_html_pgn_loss_accounting
