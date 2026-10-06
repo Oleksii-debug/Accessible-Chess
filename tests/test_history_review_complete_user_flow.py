@@ -282,7 +282,7 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             "e.key==='End'",
             "e.key==='Enter'",
             "apiAction('go_to_move',String(ply))",
-            "setHistoryBrowsePly(Number(options[next].dataset.ply),true)",
+            "const ply=historyOptionPly(options[next])",
             "aria-current",
             "current review position",
             "live current position",
