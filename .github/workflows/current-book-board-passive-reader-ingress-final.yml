@@ -1,6 +1,9 @@
 name: Current Book Board Passive Reader Ingress
 
 on:
+  push:
+    branches:
+      - fix/book-board-passive-reader-authority-20261006-r8k3v
   pull_request:
     branches:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
