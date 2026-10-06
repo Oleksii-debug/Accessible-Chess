@@ -530,5 +530,74 @@ class D06PgnRoundTripTests(unittest.TestCase):
             )
 
 
+    def test_serialization_preflight_matches_strict_lexical_token_budget(self):
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.", nags=["!"])],
+                result="*",
+            ),
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 5):
+            text = serialize_pgn_text((game,))
+            self.assertEqual(parse_pgn_text(text), (game,))
+        with patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 4):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+
+    def test_invalid_first_yielded_game_stops_generator_before_read_ahead(self):
+        observed = []
+        valid_second = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+
+        def source():
+            observed.append("invalid")
+            yield object()
+            observed.append("second")
+            yield valid_second
+
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            source(),
+        )
+        self.assertEqual(observed, ["invalid"])
+
+    def test_invalid_canonical_model_stops_generator_before_read_ahead(self):
+        valid_second = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        invalid = PgnGame(
+            tags={"Bad Tag": "x", "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        observed = []
+
+        def source():
+            observed.append("invalid")
+            yield invalid
+            observed.append("second")
+            yield valid_second
+
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            source(),
+        )
+        self.assertEqual(observed, ["invalid"])
+
+
 if __name__ == "__main__":
     unittest.main()
