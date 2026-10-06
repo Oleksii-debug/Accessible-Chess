@@ -195,16 +195,20 @@ class Version2WindowsFileWorkflowRuntime:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
         delegate_was_fenced = self._file_delegate.shutdown_requested
+
+        def cancellation_owns_live_worker() -> bool:
+            if action_id == "pgn.cancel_open":
+                return self._file_delegate.pgn_open_running
+            if action_id == "pgn.cancel_save":
+                return self._file_delegate.pgn_save_running
+            if action_id == "library.cancel_import":
+                return self._file_delegate.import_running
+            return False
+
         # Cancellation owns only the matching live worker's pre-publication
         # decision. An unrelated Cancel must not overtake retained accessibility
         # truth merely because its action id is cancellation-shaped.
-        cancel_owns_pending = (
-            action_id == "pgn.cancel_open" and self._file_delegate.pgn_open_running
-        ) or (
-            action_id == "pgn.cancel_save" and self._file_delegate.pgn_save_running
-        ) or (
-            action_id == "library.cancel_import" and self._file_delegate.import_running
-        )
+        cancel_owns_pending = cancellation_owns_live_worker()
         # If an owner callback is retained after UI-post failures, running it
         # before a matching Cancel could publish/commit the pending result first
         # and make that cancellation observe only "no ... running". Skip owner
@@ -225,7 +229,11 @@ class Version2WindowsFileWorkflowRuntime:
         # event after this owner-thread attempt means presentation did not commit.
         if self._mailbox.pending_count:
             self._pump.request_pending_wakeup()
-            if self._mailbox.pending_count and not cancel_owns_pending:
+            # The worker can finish concurrently while the UI recovery attempt
+            # runs. Revalidate ownership here instead of trusting the pre-recovery
+            # snapshot; otherwise a stale matching-Cancel decision could emit a
+            # newer no-worker result ahead of the retained terminal.
+            if self._mailbox.pending_count and not cancellation_owns_live_worker():
                 raise RuntimeError(
                     "Version 2 Windows file workflow UI recovery is still pending"
                 )
