@@ -1649,5 +1649,107 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertGreaterEqual(len(calls), 2)
 
 
+    def test_html_markup_names_are_bounded_before_case_normalization(self):
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_MARKUP_NAME_CHARS", 8):
+            parser = html._SemanticHtmlParser(available_assets=None)
+            with self.assertRaises(html.BookHtmlImportError) as start_caught:
+                parser.handle_starttag("x" * 9, [])
+            self.assertEqual(
+                start_caught.exception.code,
+                html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+
+            parser = html._SemanticHtmlParser(available_assets=None)
+            with self.assertRaises(html.BookHtmlImportError) as attr_caught:
+                parser.handle_starttag("div", [("x" * 9, "value")])
+            self.assertEqual(
+                attr_caught.exception.code,
+                html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+
+            parser = html._SemanticHtmlParser(available_assets=None)
+            with self.assertRaises(html.BookHtmlImportError) as end_caught:
+                parser.handle_endtag("x" * 9)
+            self.assertEqual(
+                end_caught.exception.code,
+                html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+
+    def test_html_aria_hidden_trim_observes_control_inside_one_attribute(self):
+        failure = SourceReadCancelledError(
+            "cancelled during aria-hidden normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag(
+                "section",
+                [("aria-hidden", (" " * 20_000) + "true")],
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(parser.blocks, [])
+
+    def test_html_image_src_trim_observes_control_inside_one_attribute(self):
+        failure = SourceReadCancelledError(
+            "cancelled during image src normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag(
+                "img",
+                [("src", (" " * 20_000) + "images/board.png")],
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(parser.image_references, [])
+
+    def test_html_asset_name_controlled_segmentation_preserves_relative_semantics(self):
+        import acs.book_html_import as html
+
+        calls = []
+        self.assertEqual(
+            html._asset_name(
+                " images\\boards/./main.png?size=2#diagram ",
+                lambda: calls.append(1),
+            ),
+            "images/boards/main.png",
+        )
+        self.assertEqual(
+            html._asset_name("../secret.png", lambda: None),
+            "",
+        )
+        self.assertEqual(
+            html._asset_name("https://example.test/board.png", lambda: None),
+            "",
+        )
+        self.assertGreaterEqual(len(calls), 4)
+
+
 if __name__ == '__main__':
     unittest.main()
