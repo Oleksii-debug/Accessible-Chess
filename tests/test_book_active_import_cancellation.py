@@ -1507,5 +1507,101 @@ class BookActiveImportCancellationTests(unittest.TestCase):
                     )
 
 
+    def test_html_explicit_pgn_long_first_line_strip_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled while trimming one long explicit-PGN line"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        raw = (" " * 20_000) + "{PGN 1}\n[Event \"Study\"]\n"
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._explicit_pgn_pre(raw, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_html_pgn_line_rstrip_observes_control_inside_one_long_line(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled while trimming one long PGN candidate line"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._controlled_rstrip("move" + (" " * 20_000), cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_visible_part_join_observes_control_across_large_part_collection(self):
+        import acs.book_html_import as html
+
+        values = [f"part-{index}" for index in range(400)]
+        failure = SourceReadCancelledError(
+            "cancelled during visible-text assembly"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._controlled_join_strings(values, "", cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            html._controlled_join_strings(["a", "b", "c"], "-", lambda: None),
+            "a-b-c",
+        )
+
+    def test_html_explicit_pgn_region_count_is_resource_bounded(self):
+        import acs.book_html_import as html
+
+        visible = """{PGN 1}
+[Event "One"]
+[Result "*"]
+
+1. e4 *
+{PGN 2}
+[Event "Two"]
+[Result "*"]
+
+1. d4 *
+{PGN 3}
+[Event "Three"]
+[Result "*"]
+
+1. Nf3 *
+"""
+        with patch.object(html, "MAX_HTML_PGN_CANDIDATES", 2):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                html._pgn_candidates(visible, lambda: None)
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("too many explicitly marked PGN regions", str(caught.exception))
+
+
 if __name__ == '__main__':
     unittest.main()
