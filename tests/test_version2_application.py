@@ -242,6 +242,92 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
         self.assertEqual(self.app._focus, before_focus)
 
+    def test_shell_publication_rollback_failure_keeps_exact_retry_authority(self):
+        token = 73
+        prior_shell = self.app.shell._capture_presentation_state()
+        prior_focus = "native-before-publication"
+        prior_training_workspace = object()
+        prior_training = object()
+
+        self.app.shell.open_route("library")
+        self.app._focus = "candidate-focus"
+        self.app.training_workspace = object()
+        self.app.training = object()
+        self.app.shell._begin_publication_hold()
+        self.app._pending_shell_publication = (
+            token,
+            "shell.open_library",
+            11,
+            {"kind": "route"},
+            prior_shell,
+            prior_focus,
+            prior_training_workspace,
+            prior_training,
+        )
+
+        class RollbackAbort(BaseException):
+            pass
+
+        with patch.object(
+            self.app.shell,
+            "_restore_presentation_state",
+            side_effect=RollbackAbort("rollback aborted"),
+        ):
+            with self.assertRaises(RollbackAbort):
+                self.app._finish_shell_publication(token, commit=False)
+
+        self.assertIsNotNone(self.app._pending_shell_publication)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        result = self.app._finish_shell_publication(token, commit=False)
+
+        self.assertEqual(result["kind"], "presentation-rollback")
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertEqual(
+            self.app.shell.current_route.route_id,
+            prior_shell.route_id,
+        )
+        self.assertEqual(self.app._focus, prior_focus)
+        self.assertIs(self.app.training_workspace, prior_training_workspace)
+        self.assertIs(self.app.training, prior_training)
+
+    def test_shell_publication_commit_failure_keeps_exact_retry_authority(self):
+        token = 74
+        prior_shell = self.app.shell._capture_presentation_state()
+        self.app.shell.open_route("library")
+        self.app.shell._begin_publication_hold()
+        self.app._pending_shell_publication = (
+            token,
+            "shell.open_library",
+            12,
+            {"kind": "route"},
+            prior_shell,
+            "prior-focus",
+            None,
+            None,
+        )
+
+        class CommitAbort(BaseException):
+            pass
+
+        with patch.object(
+            self.app.shell,
+            "_end_publication_hold",
+            side_effect=CommitAbort("commit aborted"),
+        ):
+            with self.assertRaises(CommitAbort):
+                self.app._finish_shell_publication(token, commit=True)
+
+        self.assertIsNotNone(self.app._pending_shell_publication)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        result = self.app._finish_shell_publication(token, commit=True)
+
+        self.assertEqual(result["kind"], "presentation-commit")
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
+
     def test_set_document_rejects_active_session_subclass_before_hooks(self):
         touched = []
 
