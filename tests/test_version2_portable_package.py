@@ -335,6 +335,32 @@ class PortableTreeTests(unittest.TestCase):
                     portable_module._same_file_snapshot(first, second),
                 )
 
+    def test_windows_snapshot_rejects_mtime_change_even_when_creation_time_is_stable(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        second = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            with mock.patch.object(
+                portable_module,
+                "_complete_file_identity",
+                return_value=True,
+            ):
+                self.assertFalse(
+                    portable_module._same_file_snapshot(first, second),
+                )
+
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(
             lambda path: portable_module._stable_bytes(
