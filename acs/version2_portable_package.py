@@ -838,7 +838,9 @@ def assemble_portable_oneclick_tree(
     canonical = Path(canonical_package_root)
     launcher = Path(launcher_exe)
     output = Path(output_root)
-    if not isinstance(word_documents, tuple) or len(word_documents) != 2:
+    # Reject tuple subclasses before len()/iteration: an active container can
+    # override those hooks and execute caller code inside package assembly.
+    if type(word_documents) is not tuple or len(word_documents) != 2:
         raise TypeError("word_documents must be an exact two-item tuple")
     documents = tuple(Path(item) for item in word_documents)
 
