@@ -259,13 +259,32 @@ class EpdFormatTests(unittest.TestCase):
             html,
         )
         self.assertIn(
-            'id="position-format-hint">Підтримується формат W:/B: або EPD. Для FEN використовуйте поле FEN вище.</div>',
+            'id="position-format-hint">Підтримується формат W:/B: або EPD. Для EPD колір ходу береться із самого EPD; селектор «Хід» застосовується до W:/B:. Для FEN використовуйте поле FEN вище.</div>',
             html,
         )
         self.assertIn(
-            "Supports W:/B: or EPD. Use the FEN field above for FEN.",
+            "Supports W:/B: or EPD. For EPD, the side to move comes from the EPD itself; the Side to move selector applies to W:/B:. Use the FEN field above for FEN.",
             html,
         )
+
+    def test_epd_embedded_turn_overrides_external_position_selector(self):
+        white_epd = START_EPD + " hmvc 0; fmvn 1;"
+        black_epd = f"{START_BOARD} b KQkq - hmvc 0; fmvn 1;"
+
+        self.assertEqual(
+            parse_position_text(white_epd, turn="b", language="en").split()[1],
+            "w",
+        )
+        self.assertEqual(
+            parse_position_text(black_epd, turn="w", language="en").split()[1],
+            "b",
+        )
+
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.set_position_text(white_epd, "b")["ok"])
+        self.assertEqual(api.board.turn, "w")
+        self.assertTrue(api.set_position_text(black_epd, "w")["ok"])
+        self.assertEqual(api.board.turn, "b")
 
     def test_position_text_adapter_makes_epd_reachable_in_accessible_flow(self):
         epd = START_EPD + ' hmvc 3; fmvn 8; id "lesson 1";'
