@@ -228,11 +228,19 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
             {"name": "😀" * 41, "value": "safe"},
             {"name": "Event", "value": "line\nbreak"},
             {"name": "Event", "value": "carriage\rreturn"},
+            {"name": "Event", "value": "\ud800"},
+            {"name": "\udfff", "value": "safe"},
         )
         for payload in invalid_payloads:
             with self.subTest(payload=repr(payload)):
                 event = self.bridge.dispatch("pgn.tag_edit", payload)
                 self.assertEqual("error", event.kind)
+
+    def test_bridge_rejects_surrogate_search_before_projection(self) -> None:
+        before = list(self.calls)
+        event = self.bridge.dispatch("pgn.search", {"text": "\ud800"})
+        self.assertEqual("error", event.kind)
+        self.assertEqual(before, self.calls)
 
     def test_direct_projection_tag_edit_uses_canonical_bounds_and_rejects_line_breaks(self) -> None:
         before = len(self.calls)
@@ -242,6 +250,8 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
             ("nul-value", "Event", "bad\x00value"),
             ("lf-value", "Event", "line\nbreak"),
             ("cr-value", "Event", "carriage\rreturn"),
+            ("surrogate-value", "Event", "\ud800"),
+            ("surrogate-name", "\udfff", "safe"),
         )
         for label, name, value in invalid:
             with self.subTest(label=label):
