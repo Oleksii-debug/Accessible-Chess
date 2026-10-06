@@ -1,0 +1,118 @@
+name: Current Books Content Bounds and PGN Cancellation Apex
+
+on:
+  pull_request:
+    branches:
+      - converge/book-reader-active-import-cancellation-apex-20261006-c2mbezb111
+    paths:
+      - 'acs/book_html_import.py'
+      - 'acs/book_epub_import.py'
+      - 'acs/gametree.py'
+      - 'acs/pgn_roundtrip.py'
+      - 'tests/test_book_active_import_cancellation.py'
+      - 'tests/test_v2_book_html_import.py'
+      - '.github/workflows/current-books-content-bounds-pgn-cancellation-apex.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-books-content-bounds-pgn-cancellation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: 75cb07c5dc383bc641a5e34857d892553991d81b
+  EPUB_IMPORT_BLOB: aaa0e766a5ed40d3a8c49389d401fa0cf22c97d5
+  GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
+  PGN_ROUNDTRIP_BLOB: 1de1c0f542da86b7832e69919a0aeaf0094395fc
+  ACTIVE_CANCEL_TEST_BLOB: 0a4d7f6eb369aca5640fbffa7319baf02307eaac
+  HTML_IMPORT_TEST_BLOB: 86630b52ee7cf5a8cd919c3ef9be09dbbea38095
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          base_ref="${EVENT_BASE_REF:-converge/book-reader-active-import-cancellation-apex-20261006-c2mbezb111}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-books-content-bounds-pgn-cancellation-apex.yml' \
+            'acs/book_epub_import.py' \
+            'acs/book_html_import.py' \
+            'acs/gametree.py' \
+            'acs/pgn_roundtrip.py' \
+            'tests/test_book_active_import_cancellation.py' \
+            'tests/test_v2_book_html_import.py' | sort)"
+          test "$changed" = "$expected_paths"
+
+          test "$(git hash-object acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git hash-object acs/book_epub_import.py)" = "$EPUB_IMPORT_BLOB"
+          test "$(git hash-object acs/gametree.py)" = "$GAMETREE_BLOB"
+          test "$(git hash-object acs/pgn_roundtrip.py)" = "$PGN_ROUNDTRIP_BLOB"
+          test "$(git hash-object tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+          test "$(git hash-object tests/test_v2_book_html_import.py)" = "$HTML_IMPORT_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile converged content boundary
+        run: >-
+          python -m py_compile
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          acs/gametree.py
+          acs/pgn_roundtrip.py
+          tests/test_book_active_import_cancellation.py
+          tests/test_v2_book_html_import.py
+
+      - name: Run importer and canonical PGN regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_active_import_cancellation
+          tests.test_v2_book_html_import
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_book_html_pgn_loss_accounting
+
+      - name: Run converged reader and malformed-content contracts
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_book_index
+          tests.test_v2_book_library_game_lookup
+          tests.test_book_presenter_passive_ingress
+
+      - name: Core selftest
+        run: python -m acs.selftest
