@@ -94,6 +94,7 @@ jobs:
       PASSIVE_MAPPING_STORE_BLOB: 44458ddcb6975e18421bc471f25db92a9214e1cc
       PASSIVE_MAPPING_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
       PASSIVE_MAPPING_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      PASSIVE_MAPPING_INGRESS_TEST_BLOB: 98ca32b7d3158ebecf083ec23986903587b1d84a
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -308,6 +309,7 @@ jobs:
             echo "BOOK_PROGRESS_UPSTREAM_SHA=$upstream"
             echo "BOOK_PROGRESS_CURRENT_PRODUCT_SHA=$current_product"
             echo "BOOK_PROGRESS_BOUNDED_FEATURE=$bounded_feature"
+            echo "BOOK_PROGRESS_PASSIVE_MAPPING_FEATURE=$passive_mapping_feature"
             echo "BOOK_PROGRESS_WORKFLOW_REPAIR=$workflow_repair"
             echo "BOOK_PROGRESS_RECOVERY_SUCCESSOR=$recovery_successor"
             echo "BOOK_PROGRESS_WINDOWS_DURABILITY_SUCCESSOR=$windows_durability_successor"
@@ -327,6 +329,7 @@ jobs:
           upstream="$BOOK_PROGRESS_UPSTREAM_SHA"
           current_product="$BOOK_PROGRESS_CURRENT_PRODUCT_SHA"
           bounded_feature="$BOOK_PROGRESS_BOUNDED_FEATURE"
+          passive_mapping_feature="$BOOK_PROGRESS_PASSIVE_MAPPING_FEATURE"
           workflow_repair="$BOOK_PROGRESS_WORKFLOW_REPAIR"
           recovery_successor="$BOOK_PROGRESS_RECOVERY_SUCCESSOR"
           windows_durability_successor="$BOOK_PROGRESS_WINDOWS_DURABILITY_SUCCESSOR"
@@ -340,6 +343,8 @@ jobs:
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
 
           if [ "$passive_mapping_feature" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$PASSIVE_MAPPING_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_book_progress_passive_ingress_current.py)" = "$PASSIVE_MAPPING_INGRESS_TEST_BLOB"
             git diff --check "$upstream" HEAD -- \
               .github/workflows/current-book-progress-passive-ingress.yml \
               .github/workflows/v2-book-progress-production-repair.yml \
