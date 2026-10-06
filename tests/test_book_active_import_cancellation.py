@@ -1751,5 +1751,82 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertGreaterEqual(len(calls), 4)
 
 
+    def test_html_block_identity_hash_observes_control_inside_large_payload(self):
+        failure = SourceReadCancelledError(
+            "cancelled during HTML block identity hashing"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._block_id("Paragraph", "x" * 20_000)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser._ids, {})
+
+    def test_html_controlled_block_identity_preserves_exact_digest_and_occurrence(self):
+        plain = _SemanticHtmlParser(available_assets=None)
+        controlled = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=lambda: None,
+        )
+        payload = ("Chess text " * 1_000) + "♟"
+
+        self.assertEqual(
+            controlled._block_id("Paragraph", payload),
+            plain._block_id("Paragraph", payload),
+        )
+        self.assertEqual(
+            controlled._block_id("Paragraph", payload),
+            plain._block_id("Paragraph", payload),
+        )
+
+    def test_html_ordered_start_trim_observes_control_inside_one_attribute(self):
+        failure = SourceReadCancelledError(
+            "cancelled during ordered-list start normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._ordered_start({"start": (" " * 20_000) + "7"})
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_ordered_start_digit_token_is_bounded_before_regex_and_int(self):
+        import acs.book_html_import as html
+
+        parser = _SemanticHtmlParser(available_assets=None)
+        with patch.object(html, "MAX_HTML_LIST_START_CHARS", 8):
+            self.assertEqual(
+                parser._ordered_start({"start": "9" * 9}),
+                (None, False),
+            )
+            self.assertEqual(
+                parser._ordered_start({"start": "12345678"}),
+                (12345678, True),
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
