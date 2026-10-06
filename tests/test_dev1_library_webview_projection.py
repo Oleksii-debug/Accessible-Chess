@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from acs.full_product_presenters import LibraryPresenter, SurfaceStatus
 from acs.full_product_ui_shell import UILanguage
+from acs.library_import_service import LibraryImportProgress, LibraryImportResult
 from acs.library_webview_bridge import LibraryWebViewBridge
 from acs.library_webview_projection import LibraryWebViewProjection
 from acs.search_service import GameSearchItem, GameSearchPage, GameSearchQuery
@@ -554,6 +556,432 @@ class LibraryWebAssetTests(unittest.TestCase):
         self.assertIn('status.setAttribute("aria-live", "off")', source)
         self.assertNotIn('input.type = "file"', source)
 
+
+    def test_abort_during_search_restores_query_presenter_state_and_safe_terminal(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.select(2)
+        before_query = projection.query
+        before = projection.snapshot()
+
+        with patch.object(
+            service,
+            "search",
+            side_effect=AbortSignal("private sqlite abort C:/private/library.db"),
+        ):
+            failed = projection.safe_call(
+                lambda: projection.search(GameSearchQuery(player="Gamma", limit=2))
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(
+            "The action could not be completed.",
+            failed.payload["message"],
+        )
+        self.assertNotIn("private", repr(failed))
+        self.assertNotIn("sqlite", repr(failed).casefold())
+        self.assertEqual(before_query, projection.query)
+        self.assertEqual(2, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(before["focus_target"], after["focus_target"])
+
+    def test_abort_during_selection_publication_restores_nvda_cursor(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        _service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=AbortSignal("private selection publication abort"),
+        ):
+            failed = projection.safe_call(lambda: projection.select(2))
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(1, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(before["focus_target"], after["focus_target"])
+
+        committed = projection.select(2)
+        self.assertEqual(2, committed.payload["snapshot"]["selected_game_id"])
+
+    def test_abort_during_language_publication_restores_all_library_locale_owners(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        _service, presenter, projection, _bridge, _calls = self.build(
+            language=UILanguage.EN
+        )
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=AbortSignal("private locale publication abort"),
+        ):
+            failed = projection.safe_call(
+                lambda: projection.set_language(UILanguage.UA)
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(UILanguage.EN, projection.language)
+        self.assertIn("Alpha", presenter.view().rows[0].label)
+        after = projection.snapshot()
+        self.assertEqual(before["document"], after["document"])
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["import"]["document"], after["import"]["document"])
+
+        committed = projection.set_language(UILanguage.UA).payload["snapshot"]
+        self.assertEqual("uk", committed["document"]["lang"])
+        self.assertEqual("uk", committed["import"]["document"]["lang"])
+
+    def test_direct_language_ingress_rejects_active_text_without_hooks(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("language len hook must not execute")
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("language strip hook must not execute")
+
+            def lower(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("language lower hook must not execute")
+
+        with self.assertRaisesRegex(TypeError, "language must be UILanguage"):
+            projection.set_language(HostileText("uk"))
+        self.assertFalse(HostileText.touched)
+        self.assertEqual(UILanguage.EN, projection.language)
+
+    def test_visible_text_subclasses_fail_before_replace_strip_or_privacy_hooks(self) -> None:
+        _service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+
+        class HostileText(str):
+            touched = False
+
+            def replace(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("visible text replace hook must not execute")
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("visible text strip hook must not execute")
+
+        view = presenter.view()
+        hostile_row = replace(view.rows[0], label=HostileText("Alpha — Beta"))
+        hostile_view = replace(view, rows=(hostile_row, *view.rows[1:]))
+        with patch.object(presenter, "view", return_value=hostile_view):
+            with self.assertRaisesRegex(TypeError, "presentation text must be text"):
+                projection.snapshot()
+        self.assertFalse(HostileText.touched)
+
+    def test_malformed_view_container_and_page_flags_fail_closed_before_render(self) -> None:
+        _service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        view = presenter.view()
+
+        malformed_rows = replace(view, rows=list(view.rows))
+        with patch.object(presenter, "view", return_value=malformed_rows):
+            with self.assertRaisesRegex(TypeError, "canonical tuple"):
+                projection.snapshot()
+
+        malformed_flag = replace(view, has_next_page=1)
+        with patch.object(presenter, "view", return_value=malformed_flag):
+            with self.assertRaisesRegex(TypeError, "page availability"):
+                projection.snapshot()
+
+
+    def test_provider_page_subclass_is_rejected_before_attribute_hooks(self) -> None:
+        class HostilePage(GameSearchPage):
+            touched = False
+
+            def __getattribute__(self, name):
+                if name in {"items", "has_more", "next_after_game_id"}:
+                    type(self).touched = True
+                    raise AssertionError("provider page hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostilePage(items=(), next_after_game_id=None, has_more=False)
+
+        class Provider:
+            def search(self, _query):
+                return hostile
+
+        _service, _presenter, projection, _bridge, _calls = self.build(Provider())
+        failed = projection.safe_call(
+            lambda: projection.search(GameSearchQuery(limit=2))
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostilePage.touched)
+
+    def test_provider_item_active_text_is_rejected_without_text_hooks(self) -> None:
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("provider text length hook must not execute")
+
+            def __bool__(self):
+                type(self).touched = True
+                raise AssertionError("provider text truthiness hook must not execute")
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("provider text conversion must not execute")
+
+        hostile_item = item(1, white=HostileText("Alpha"))
+
+        class Provider:
+            def search(self, _query):
+                return GameSearchPage(
+                    items=(hostile_item,),
+                    next_after_game_id=None,
+                    has_more=False,
+                )
+
+        _service, _presenter, projection, _bridge, _calls = self.build(Provider())
+        failed = projection.safe_call(
+            lambda: projection.search(GameSearchQuery(limit=2))
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostileText.touched)
+
+    def test_provider_page_is_detached_before_committed_library_render(self) -> None:
+        service, _presenter, projection, _bridge, _calls = self.build()
+        source_page = service.pages[None]
+        source_item = source_page.items[0]
+
+        committed = projection.search(GameSearchQuery(limit=2)).payload["snapshot"]
+        self.assertIn("Олексій", committed["rows"][0]["label"])
+
+        object.__setattr__(source_item, "white", "MUTATED PROVIDER VALUE")
+        object.__setattr__(source_page, "items", ())
+
+        after = projection.snapshot()
+        self.assertEqual(committed["rows"], after["rows"])
+        self.assertIn("Олексій", after["rows"][0]["label"])
+        self.assertNotIn("MUTATED", repr(after))
+
+    def test_malformed_provider_keyset_page_rolls_back_committed_page_and_focus(self) -> None:
+        service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+
+        service.pages[2] = GameSearchPage(
+            items=(item(4), item(4)),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        failed = projection.safe_call(projection.next_page)
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(1, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["focus_target"], after["focus_target"])
+
+    def test_provider_cursor_and_text_resource_bombs_fail_before_commit(self) -> None:
+        cases = (
+            GameSearchPage(
+                items=(item(1),),
+                next_after_game_id=999,
+                has_more=True,
+            ),
+            GameSearchPage(
+                items=(item(1, white="x" * 65537),),
+                next_after_game_id=None,
+                has_more=False,
+            ),
+            GameSearchPage(
+                items=[item(1)],
+                next_after_game_id=None,
+                has_more=False,
+            ),
+        )
+
+        for page in cases:
+            class Provider:
+                def search(self, _query, page=page):
+                    return page
+
+            with self.subTest(page_type=type(page.items).__name__):
+                _service, presenter, projection, _bridge, _calls = self.build(
+                    Provider()
+                )
+                before = presenter._capture_presentation_state()
+                failed = projection.safe_call(
+                    lambda: projection.search(GameSearchQuery(limit=2))
+                )
+                self.assertEqual("error", failed.kind)
+                after = presenter._capture_presentation_state()
+                self.assertEqual(before, after)
+
+
+    def test_abort_class_search_render_restores_query_page_and_selection(self) -> None:
+        _service, presenter, projection, _bridge, _calls = self.build()
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.select(2)
+        before_query = projection.query
+        before = projection.snapshot()
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ProjectionAbort(),
+        ):
+            with self.assertRaises(ProjectionAbort):
+                projection.search(GameSearchQuery(player="Gamma", limit=2))
+
+        self.assertEqual(before_query, projection.query)
+        self.assertEqual(2, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(
+            {field["id"]: field["value"] for field in before["filters"]},
+            {field["id"]: field["value"] for field in after["filters"]},
+        )
+
+    def test_abort_class_language_render_restores_all_locale_owners(self) -> None:
+        service = FakeSearchService()
+        service.pages[None] = GameSearchPage(
+            items=(item(1, white=None, black=None),),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        _service, presenter, projection, _bridge, _calls = self.build(
+            service,
+            language=UILanguage.UA,
+        )
+        projection.search(GameSearchQuery(limit=25))
+        before = projection.snapshot()
+
+        class ProjectionAbort(BaseException):
+            pass
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ProjectionAbort(),
+        ):
+            with self.assertRaises(ProjectionAbort):
+                projection.set_language(UILanguage.EN)
+
+        self.assertEqual(UILanguage.UA, projection.language)
+        after = projection.snapshot()
+        self.assertEqual(before["document"], after["document"])
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["import"]["document"], after["import"]["document"])
+        self.assertIn("невідомо", after["rows"][0]["label"])
+        self.assertIn("невідомо", presenter.view().rows[0].label)
+
+    def test_import_projection_rejects_derived_progress_before_field_hooks(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection.import_projection.begin(2)
+        touched = []
+
+        class ActiveProgress(LibraryImportProgress):
+            def __getattribute__(self, name):
+                if name in {"attempt_id", "processed_games", "total_games"}:
+                    touched.append(name)
+                    raise AssertionError("derived progress field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveProgress.__new__(ActiveProgress)
+        object.__setattr__(hostile, "attempt_id", 1)
+        object.__setattr__(hostile, "processed_games", 1)
+        object.__setattr__(hostile, "total_games", 2)
+
+        with self.assertRaisesRegex(TypeError, "exact LibraryImportProgress"):
+            projection.import_projection.progress(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(projection.import_projection.snapshot()["processed_games"], 0)
+
+    def test_import_projection_revalidates_exact_progress_scalars_before_comparison(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection.import_projection.begin(2)
+        touched = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active scalar comparison executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active scalar comparison executed")
+
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active scalar equality executed")
+
+        hostile = LibraryImportProgress(1, 1, 2)
+        object.__setattr__(hostile, "processed_games", ActiveInt(1))
+
+        with self.assertRaises(TypeError):
+            projection.import_projection.progress(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(projection.import_projection.snapshot()["processed_games"], 0)
+
+    def test_import_projection_rejects_derived_result_before_field_hooks(self) -> None:
+        _service, _presenter, projection, _bridge, _calls = self.build()
+        projection.import_projection.begin(2)
+        touched = []
+
+        class ActiveResult(LibraryImportResult):
+            def __getattribute__(self, name):
+                if name in {
+                    "attempt_id",
+                    "source_id",
+                    "game_count",
+                    "warning_count",
+                    "first_game_id",
+                    "last_game_id",
+                    "reused",
+                }:
+                    touched.append(name)
+                    raise AssertionError("derived result field hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveResult.__new__(ActiveResult)
+        for name, value in (
+            ("attempt_id", 1),
+            ("source_id", 1),
+            ("game_count", 2),
+            ("warning_count", 0),
+            ("first_game_id", 1),
+            ("last_game_id", 2),
+            ("reused", False),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        with self.assertRaisesRegex(TypeError, "exact LibraryImportResult"):
+            projection.import_projection.complete(hostile)
+
+        self.assertEqual(touched, [])
+        self.assertEqual(projection.import_projection.phase.value, "running")
 
 if __name__ == "__main__":
     unittest.main()

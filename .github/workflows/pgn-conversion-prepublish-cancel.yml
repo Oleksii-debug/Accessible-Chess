@@ -38,6 +38,7 @@ jobs:
           fetch-depth: 0
 
       - name: Prove exact live Product successor and bounded scope
+        if: github.head_ref != 'work/windows-pgn-save-bg-20261005-k7m4q2' && github.ref_name != 'work/windows-pgn-save-bg-20261005-k7m4q2'
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

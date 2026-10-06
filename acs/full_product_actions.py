@@ -41,8 +41,10 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
         for route in ROUTES
     ),
     _action("pgn.open", BindingContext.DOCUMENT, "Open PGN"),
+    _action("pgn.cancel_open", BindingContext.DOCUMENT, "Cancel PGN Open"),
     _action("pgn.save", BindingContext.DOCUMENT, "Save PGN"),
     _action("pgn.save_as", BindingContext.DOCUMENT, "Save PGN As"),
+    _action("pgn.cancel_save", BindingContext.DOCUMENT, "Cancel PGN Save"),
     _action("pgn.open_on_board", BindingContext.DOCUMENT, "Review PGN on board"),
     _action("pgn.return", BindingContext.DOCUMENT, "Return to PGN"),
     _action("pgn.board_next_move", BindingContext.DOCUMENT, "Next PGN board move"),

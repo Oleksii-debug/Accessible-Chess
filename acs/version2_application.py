@@ -23,8 +23,9 @@ from .book_progress_store import (
     BookProgressStore,
     BookProgressStoreError,
     BookProgressStoreErrorCode,
+    _book_key as _validate_book_progress_key,
 )
-from .bookdocument import BookDocument
+from .bookdocument import BookDocument, MAX_BOOK_DOCUMENT_WARNINGS
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
@@ -72,11 +73,14 @@ class PreparedBookOpen:
 
 
 class Version2Application:
-    # Some canonical shutdown/recovery tests deliberately construct a minimal
-    # application via __new__ instead of __init__. Keep optional Training state
-    # absent-safe on those valid pre-Training construction paths.
+    # Some canonical shutdown/recovery paths deliberately construct a minimal
+    # application via __new__ instead of __init__. Keep optional native owners and
+    # Training state absent-safe on those valid pre-composition construction paths.
     training_workspace = None
     training = None
+    _files = None
+    _book_open_worker = None
+    _pending_shell_publication = None
     _pgn_browser_lease_required = False
     _book_browser_lease_required = False
     _book_browser_dispatch_token = None
@@ -137,6 +141,11 @@ class Version2Application:
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
         self._events = deque(maxlen=64)
+        # Refused-close diagnostics are presentation-independent. Keep them
+        # separate from route/domain events so a failure of the pending shell
+        # publication transaction cannot suppress the accessible explanation
+        # for why the native Form stayed open.
+        self._urgent_events = deque(maxlen=8)
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
@@ -184,12 +193,26 @@ class Version2Application:
             raise ValueError("invalid shell publication acknowledgement")
         return token
 
+    @staticmethod
+    def _passive_browser_payload_keys(payload):
+        """Return exact text keys without executing caller-controlled key hooks."""
+        if type(payload) is not dict:
+            return None
+        keys = tuple(payload)
+        if any(type(key) is not str for key in keys):
+            raise ValueError("browser payload keys must be exact text")
+        return keys
+
     def _finish_shell_publication(self, token: int, *, commit: bool):
         """Commit or roll back one browser route only after DOM publication."""
         pending = self._pending_shell_publication
         if pending is None:
             last = self._last_shell_publication_resolution
-            if last is not None and last == (token, commit):
+            if (
+                last is not None
+                and last[0] == token
+                and last[1] is commit
+            ):
                 if commit:
                     return {
                         "kind": "presentation-commit",
@@ -199,17 +222,21 @@ class Version2Application:
                     "kind": "presentation-rollback",
                     "payload": {
                         "token": token,
-                        "route_id": self.shell.current_route.route_id,
-                        "focus_target": self._focus,
+                        "route_id": last[2],
+                        "focus_target": last[3],
                     },
                 }
             raise ValueError("stale shell publication acknowledgement")
         if pending[0] != token:
             raise ValueError("stale shell publication acknowledgement")
-        self._pending_shell_publication = None
         if commit:
+            # Retain the pending token until the shell has actually released its
+            # publication hold. If that boundary aborts, the exact same
+            # acknowledgement remains retryable instead of leaving a stuck hold
+            # with no recovery token.
             self.shell._end_publication_hold()
-            self._last_shell_publication_resolution = (token, True)
+            self._pending_shell_publication = None
+            self._last_shell_publication_resolution = (token, True, "", "")
             return {
                 "kind": "presentation-commit",
                 "payload": {"token": token},
@@ -225,18 +252,28 @@ class Version2Application:
             prior_training_workspace,
             prior_training,
         ) = pending
+        # Rollback is a transaction too: do not consume its authority until the
+        # exact shell/application checkpoint and publication hold are restored.
         self.shell._restore_presentation_state(shell_state)
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
         self.shell._end_publication_hold()
-        self._last_shell_publication_resolution = (token, False)
+        self._pending_shell_publication = None
+        rollback_route = self.shell.current_route.route_id
+        rollback_focus = self._focus
+        self._last_shell_publication_resolution = (
+            token,
+            False,
+            rollback_route,
+            rollback_focus,
+        )
         return {
             "kind": "presentation-rollback",
             "payload": {
                 "token": token,
-                "route_id": self.shell.current_route.route_id,
-                "focus_target": self._focus,
+                "route_id": rollback_route,
+                "focus_target": rollback_focus,
             },
         }
 
@@ -309,8 +346,11 @@ class Version2Application:
         return projected
 
     def _authorize_book_browser_payload(self, payload):
-        token_present = type(payload) is dict and "presentation_token" in payload
-        if type(payload) is dict:
+        payload_keys = self._passive_browser_payload_keys(payload)
+        token_present = (
+            payload_keys is not None and "presentation_token" in payload_keys
+        )
+        if payload_keys is not None:
             forwarded = dict(payload)
             token = forwarded.pop("presentation_token", None)
         else:
@@ -382,9 +422,19 @@ class Version2Application:
             raise RuntimeError("Book Open worker is already bound")
         self._book_open_worker = worker
 
+    def unbind_book_open_worker(self, worker: Version2BookOpenWorker) -> bool:
+        """Release only the exact unpublished Book worker owned by startup."""
+        self._assert_thread()
+        if not isinstance(worker, Version2BookOpenWorker):
+            raise TypeError("Book Open worker must be Version2BookOpenWorker")
+        if self._book_open_worker is not worker:
+            return False
+        self._book_open_worker = None
+        return True
+
     def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
         self._assert_thread()
-        if not isinstance(event, BookOpenWorkerEvent):
+        if type(event) is not BookOpenWorkerEvent:
             raise TypeError("invalid Book Open worker event")
         english = self.shell.language is UILanguage.EN
         messages = {
@@ -423,12 +473,30 @@ class Version2Application:
         return event
 
     def observe_progress(self, value: LibraryImportProgress):
-        if not isinstance(value, LibraryImportProgress): raise TypeError("invalid import progress")
-        with self._observation_lock: self._progress = value
+        if type(value) is not LibraryImportProgress:
+            raise TypeError("invalid import progress")
+        canonical = LibraryImportProgress(
+            value.attempt_id,
+            value.processed_games,
+            value.total_games,
+        )
+        with self._observation_lock:
+            self._progress = canonical
 
     def observe_result(self, value: LibraryImportResult):
-        if not isinstance(value, LibraryImportResult): raise TypeError("invalid import result")
-        with self._observation_lock: self._result = value
+        if type(value) is not LibraryImportResult:
+            raise TypeError("invalid import result")
+        canonical = LibraryImportResult(
+            value.attempt_id,
+            value.source_id,
+            value.game_count,
+            value.warning_count,
+            value.first_game_id,
+            value.last_game_id,
+            value.reused,
+        )
+        with self._observation_lock:
+            self._result = canonical
 
     def worker_factory(self, database_path, *, chessbase_factory=None):
         def create():
@@ -436,14 +504,20 @@ class Version2Application:
             try:
                 chessbase = chessbase_factory(database) if chessbase_factory else None
                 return Version2ImportWorkerServices(LibraryImportService(database), chessbase, database.close)
-            except Exception:
-                database.close()
+            except BaseException:
+                # A provider/factory abort must not leak the per-worker DB handle,
+                # and a secondary close failure must not replace the original
+                # factory failure that the host will classify path-free.
+                try:
+                    database.close()
+                except BaseException:
+                    pass
                 raise
         return Version2ObservedImportServicesFactory(create, progress_sink=self.observe_progress, result_sink=self.observe_result)
 
     def set_document(self, session):
         self._assert_thread()
-        if not isinstance(session, PgnDocumentSession): raise TypeError("invalid PGN document")
+        if type(session) is not PgnDocumentSession: raise TypeError("invalid PGN document")
         # Library/native domain actions can reach this seam without a shell route
         # action. Reject before publishing a new PGN session while modal focus is
         # owned elsewhere, matching AccessibleShellState.open_route().
@@ -453,10 +527,12 @@ class Version2Application:
             raise ValueError("return to the book before replacing the PGN document")
         if self.session is not None and self.session.dirty and not self.confirm_document_replace():
             raise ValueError("PGN replacement cancelled")
+        document_view = session.view()
         projection = PgnWorkspaceWebViewProjection(
             session.workspace,
             self.router,
             language=self.shell.language,
+            document_warnings=document_view.global_warnings,
         )
         bridge = PgnWebViewBridge(projection)
         # Route acquisition is part of accepting a replacement owner. Do not
@@ -464,12 +540,19 @@ class Version2Application:
         # until the shell has accepted the PGN route. open_route() can partially
         # write its route before a focus-restore tail fails, so recover from the
         # actual shell state.
-        origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
+        focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("pgn")
-        except Exception:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+        except BaseException:
+            # Restore both presentation authorities exactly. Rollback is
+            # best-effort so a secondary rollback abort cannot replace the
+            # primary route/publication failure.
+            self._focus = focus_checkpoint
+            try:
+                self.shell._restore_presentation_state(shell_checkpoint)
+            except BaseException:
+                pass
             raise
         self.session, self.pgn = session, bridge
         self.pgn_board_active = False
@@ -566,13 +649,44 @@ class Version2Application:
         self._assert_book_open_allowed()
         if type(prepared) is not PreparedBookOpen:
             raise TypeError("prepared Book Open result is invalid")
+        # PreparedBookOpen crosses a worker/UI ownership boundary. Its frozen
+        # dataclass shell does not make referenced values canonical: callers can
+        # construct it directly, and object.__setattr__ can mutate frozen fields.
+        # Snapshot and validate warnings before any persistence/route publication
+        # so an active container or element cannot run a hook after the Book has
+        # already become visible and turn a successful open into FAILED.
+        book_key = prepared.book_key
+        document = prepared.document
+        warnings = prepared.warnings
+        if type(book_key) is not str:
+            raise TypeError("prepared Book Open book key is invalid")
+        if type(document) is not BookDocument:
+            raise TypeError("prepared Book Open document is invalid")
+        book_key = _validate_book_progress_key(book_key)
+        if (
+            type(warnings) is not tuple
+            or len(warnings) > MAX_BOOK_DOCUMENT_WARNINGS
+            or any(type(warning) is not str for warning in warnings)
+        ):
+            raise TypeError("prepared Book Open warnings are invalid")
+        # Validate and detach the mutable BookDocument before saving any current
+        # owner state. BookReader.document_snapshot() rechecks the live revision
+        # before and after cloning; bind the candidate reader to that detached
+        # canonical snapshot so later authoring mutation cannot change this Open.
+        validating_reader = BookReader(document)
+        document = validating_reader.document_snapshot()
+        fresh_reader = BookReader(document)
+        canonical_warnings = fresh_reader.document_warnings_snapshot()
+        if warnings != canonical_warnings:
+            raise TypeError("prepared Book Open warnings do not match the document")
+        warning_count = len(canonical_warnings)
 
         self.save_training_progress()
         self.save_book_progress()
         reader = (
-            self.progress_store.restore(prepared.book_key, prepared.document)
-            if self.progress_store.has(prepared.book_key)
-            else BookReader(prepared.document)
+            self.progress_store.restore(book_key, document)
+            if self.progress_store.has(book_key)
+            else fresh_reader
         )
         workflow = BookBoardWorkflow(
             reader,
@@ -593,39 +707,68 @@ class Version2Application:
         bridge.projection.snapshot()
 
         origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
+        focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("books")
+            # Focus derived from the Book route is part of candidate publication,
+            # not a post-commit observer. Accept only passive exact text before
+            # inspecting or persisting it: an active str subclass or non-text
+            # host result must not become application/NVDA focus authority.
+            if type(route_focus) is not str:
+                raise TypeError("Book route focus is invalid")
+            # Resolve reader-container/stale-block focus while the candidate owners
+            # are still staged so a host/focus failure rolls the route back and
+            # cannot produce a FAILED terminal after the Book already opened.
+            if (
+                route_focus == "book-reader"
+                or route_focus.startswith("book-block-")
+            ):
+                canonical_focus = f"book-block-{reader.index}"
+                if route_focus != canonical_focus:
+                    self.shell.record_focus(canonical_focus)
+                    route_focus = canonical_focus
             try:
-                self._persist_book_progress(prepared.book_key, reader)
+                self._persist_book_progress(book_key, reader)
             except BookProgressStoreError as error:
                 if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
                     raise
                 try:
                     canonical = self.progress_store.restore_primary(
-                        prepared.book_key,
-                        prepared.document,
+                        book_key,
+                        document,
                     )
                     canonical_matches = canonical.snapshot() == reader.snapshot()
                 except Exception:
                     canonical_matches = False
                 if not canonical_matches:
                     raise error
-        except Exception:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+        except BaseException:
+            # Candidate Book owners are still staged here. Restore the exact
+            # shell/focus presentation rather than routing back through a second
+            # command that could replace the primary persistence/publication
+            # failure. If exact restoration itself aborts, one best-effort route
+            # recovery may repair the visible shell but never becomes authority.
+            self._focus = focus_checkpoint
+            try:
+                self.shell._restore_presentation_state(shell_checkpoint)
+            except BaseException:
+                try:
+                    self.shell.open_route(origin_route)
+                except BaseException:
+                    pass
+                self._focus = focus_checkpoint
             raise
 
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (
             reader,
-            prepared.book_key,
+            book_key,
             workflow,
             delegate,
             bridge,
         )
         self.training_workspace = self.training = None
         self._focus = route_focus
-        self._repair_book_block_focus_after_rebind()
-        warning_count = len(prepared.warnings)
         if warning_count:
             announcement = (
                 f"Книгу відкрито з попередженнями імпорту: {warning_count}."
@@ -1203,6 +1346,20 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
+    def announce_shutdown_failure(self) -> None:
+        """Explain a refused native close without exposing internal failure detail."""
+
+        self._assert_thread()
+        message = (
+            "Не вдалося безпечно завершити роботу. Вікно залишено відкритим; "
+            "спробуйте вийти ще раз."
+            if self.shell.language is UILanguage.UA
+            else
+            "Accessible Chess could not close safely. The window remains open; "
+            "try exiting again."
+        )
+        self._urgent_events.append({"kind": "error", "payload": {"message": message}})
+
     def _project_board_position(self, position):
         projector = self._board_position_projector
         if projector is None:
@@ -1383,7 +1540,7 @@ class Version2Application:
                     self.pgn_board_active = False
                 raise
             return None
-        if action.startswith("pgn.") and action not in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection"}:
+        if action.startswith("pgn.") and action not in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.cancel_save", "pgn.export_selection"}:
             # All Board-owned PGN actions returned above. The remaining PGN
             # document/navigation commands belong to the visible PGN workspace;
             # central native/menu dispatch must not bypass the same route/modal
@@ -1607,10 +1764,30 @@ class Version2Application:
                     message = ""
                 raise ValueError(message) from None
             return result
-        if self._files is not None and action in {"pgn.open", "pgn.save", "pgn.save_as", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
+        if self._files is not None and action in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.cancel_save", "pgn.export_selection", "library.import", "library.cancel_import", "library.export"}:
+            ui = self.library.projection.import_projection
+            if (
+                action == "library.import"
+                and ui.phase
+                in {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}
+            ):
+                # The canonical worker may already have committed and exited
+                # while its terminal batch is still leased/pending for native
+                # presentation. Starting a second attempt here could overwrite
+                # the one-slot D07 observer state before that first terminal is
+                # projected. Presentation ownership therefore remains exclusive
+                # until the prior terminal has been delivered successfully.
+                result = FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "library.import",
+                    focus_target="library-import-file",
+                    error_code="import_already_running",
+                )
+                self._file_event(result)
+                return result
+
             result = self._files(action, payload)
             if isinstance(result, FileWorkflowEvent):
-                ui = self.library.projection.import_projection
                 if result.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     self._events.append(asdict(ui.prepare()))
                 elif result.kind is FileWorkflowEventKind.IMPORT_CANCELLING:
@@ -1635,8 +1812,9 @@ class Version2Application:
             if type(area) is not str or len(area) > 16:
                 raise ValueError("invalid browser surface")
             area_id = area
+            payload_keys = self._passive_browser_payload_keys(payload)
             empty_authority_payload = payload is None or (
-                type(payload) is dict and len(payload) == 0
+                payload_keys is not None and len(payload_keys) == 0
             )
             if (
                 self._pending_shell_publication is not None
@@ -1685,12 +1863,13 @@ class Version2Application:
 
                 publication_protocol = False
                 publication_request_id = None
-                if type(payload) is dict and "publication_protocol" in payload:
-                    keys = tuple(payload)
+                if (
+                    payload_keys is not None
+                    and "publication_protocol" in payload_keys
+                ):
                     if (
-                        len(keys) != 2
-                        or any(type(key) is not str for key in keys)
-                        or "request_id" not in payload
+                        len(payload_keys) != 2
+                        or "request_id" not in payload_keys
                     ):
                         raise ValueError("invalid shell publication request")
                     value = payload["publication_protocol"]
@@ -1866,8 +2045,8 @@ class Version2Application:
                 and not pgn_refresh
                 and self._pgn_browser_lease_required
                 and (
-                    type(payload) is not dict
-                    or "presentation_token" not in payload
+                    payload_keys is None
+                    or "presentation_token" not in payload_keys
                 )
             ):
                 # A rendered PGN surface has an opaque lease. Missing it is
@@ -1878,8 +2057,8 @@ class Version2Application:
             if area_id == "pgn" and (
                 pgn_refresh
                 or (
-                    type(payload) is dict
-                    and "presentation_token" in payload
+                    payload_keys is not None
+                    and "presentation_token" in payload_keys
                 )
             ):
                 self._pgn_browser_lease_required = True
@@ -1916,15 +2095,26 @@ class Version2Application:
 
     def drain_events(self):
         self._assert_thread()
+        # Book Open completion posting can fail transiently after background
+        # preparation finishes. Recover its retained terminal only here, on the
+        # canonical owner/UI thread, so NVDA/browser state cannot remain stuck at
+        # STARTED and no worker thread ever calls presentation code directly.
+        if self._book_open_worker is not None:
+            self._book_open_worker.flush_pending_terminal()
+        urgent = tuple(self._urgent_events)
+        self._urgent_events.clear()
         if self._pending_shell_publication is not None:
             # The browser is rendering a candidate route. Preserve every prior
             # native/domain presentation event in order until that route is
             # either committed or rolled back; applying an event to the
             # unpublished DOM would create a second presentation authority.
-            return ()
+            # Refused-close diagnostics are the exception: they describe the
+            # still-live native owner itself and must reach NVDA even when the
+            # publication transaction is the reason shutdown was refused.
+            return urgent
         events = tuple(self._events)
         self._events.clear()
-        return events
+        return events + urgent
 
     def native_command(self, value):
         self._assert_thread()
@@ -2021,49 +2211,168 @@ class Version2Application:
 
     def import_ui_ready(self, mailbox):
         self._assert_thread()
+        delivery_batch = getattr(mailbox, "delivery_batch", None)
+        if not callable(delivery_batch):
+            raise TypeError("Windows import UI mailbox must support transactional delivery")
+
         ui = self.library.projection.import_projection
         active = {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}
-        events = mailbox.drain()
-        with self._observation_lock:
-            progress, result = self._progress, self._result
-            self._progress = self._result = None
-        for event in events:
-            if event.action_id not in {"library.import", "library.cancel_import"}:
-                self._file_event(event)
-                continue
-            rendered = None
-            if (event.kind in {FileWorkflowEventKind.IMPORT_COMPLETED, FileWorkflowEventKind.IMPORT_EMPTY}
-                    and event.source_format and ui.phase in active):
-                ui.book_source_report(event.source_format, event.retained_book_blocks)
-            if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
-                if ui.phase not in active: rendered = ui.prepare()
-                if event.total_games and ui.snapshot()["total_games"] == 0: ui.begin(event.total_games)
-                if event.source_format:
-                    ui.book_source_report(event.source_format, event.retained_book_blocks)
-            elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING and ui.phase in active:
-                rendered = ui.host_cancelling()
-            elif (event.kind is FileWorkflowEventKind.IMPORT_PROGRESS and event.source_parsing
-                  and ui.phase is LibraryImportPhase.RUNNING and ui.snapshot()["total_games"] == 0):
-                rendered = ui.source_reading(event.source_bytes_read, event.source_total_bytes, event.processed_games)
-            elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
-                rendered = ui.empty(warning_count=event.warning_count)
-            elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLED and ui.phase in active:
-                rendered = ui.cancelled()
-            elif event.kind is FileWorkflowEventKind.FAILED:
-                if ui.phase not in active: ui.prepare()
-                rendered = ui.fail(self._native_file_error_message(event))
-            if rendered: self._events.append(asdict(rendered))
-        if progress is not None and ui.phase in active:
-            if ui.snapshot()["total_games"] == 0: ui.begin(progress.total_games)
-            self._events.append(asdict(ui.progress(progress)))
-        if result is not None and ui.phase in active:
-            if ui.snapshot()["total_games"] == 0: ui.begin(result.game_count)
-            self._events.append(asdict(ui.complete(result)))
-            # Update rows without moving focus from another surface.
-            self.library.projection.search(self.library.projection.query)
+        ui_checkpoint = ui._capture_presentation_state()
+        application_events_checkpoint = tuple(self._events)
+
+        with delivery_batch() as events:
+            with self._observation_lock:
+                progress, result = self._progress, self._result
+
+            # Observer DTOs are published immediately before their corresponding
+            # worker callback/terminal. A worker can therefore update the
+            # observer slot and then block on the mailbox lease. Consume a DTO
+            # only when this exact leased batch already contains the matching
+            # path-free event; otherwise leave the newer observation pending.
+            progress_ready = (
+                progress is not None
+                and any(
+                    event.action_id == "library.import"
+                    and event.kind is FileWorkflowEventKind.IMPORT_PROGRESS
+                    and not event.source_parsing
+                    and event.processed_games == progress.processed_games
+                    and event.total_games == progress.total_games
+                    for event in events
+                )
+            )
+            result_ready = (
+                result is not None
+                and any(
+                    event.action_id == "library.import"
+                    and event.kind is FileWorkflowEventKind.IMPORT_COMPLETED
+                    and event.game_count == result.game_count
+                    and event.warning_count == result.warning_count
+                    for event in events
+                )
+            )
+            retire_observers = any(
+                event.action_id in {"library.import", "library.cancel_import"}
+                and event.kind
+                in {
+                    FileWorkflowEventKind.IMPORT_EMPTY,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                    FileWorkflowEventKind.FAILED,
+                }
+                for event in events
+            )
+
+            try:
+                for event in events:
+                    if event.action_id not in {"library.import", "library.cancel_import"}:
+                        # Deferred PGN Open completion already committed the canonical
+                        # document and shell route on the owner thread. Publish one
+                        # route refresh so a retained WebView/NVDA presentation cannot
+                        # remain on the document that was visible before the worker.
+                        if event.kind is FileWorkflowEventKind.PGN_OPENED:
+                            self._events.append(
+                                {
+                                    "kind": "route",
+                                    "payload": {
+                                        "route_id": "pgn",
+                                        "focus_target": event.focus_target,
+                                    },
+                                }
+                            )
+                        self._file_event(event)
+                        continue
+                    rendered = None
+                    if (
+                        event.kind
+                        in {
+                            FileWorkflowEventKind.IMPORT_COMPLETED,
+                            FileWorkflowEventKind.IMPORT_EMPTY,
+                        }
+                        and event.source_format
+                        and ui.phase in active
+                    ):
+                        ui.book_source_report(
+                            event.source_format,
+                            event.retained_book_blocks,
+                        )
+                    if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
+                        if ui.phase not in active:
+                            rendered = ui.prepare()
+                        if (
+                            event.total_games
+                            and ui.snapshot()["total_games"] == 0
+                        ):
+                            ui.begin(event.total_games)
+                        if event.source_format:
+                            ui.book_source_report(
+                                event.source_format,
+                                event.retained_book_blocks,
+                            )
+                    elif (
+                        event.kind is FileWorkflowEventKind.IMPORT_CANCELLING
+                        and ui.phase in active
+                    ):
+                        rendered = ui.host_cancelling()
+                    elif (
+                        event.kind is FileWorkflowEventKind.IMPORT_PROGRESS
+                        and event.source_parsing
+                        and ui.phase is LibraryImportPhase.RUNNING
+                        and ui.snapshot()["total_games"] == 0
+                    ):
+                        rendered = ui.source_reading(
+                            event.source_bytes_read,
+                            event.source_total_bytes,
+                            event.processed_games,
+                        )
+                    elif event.kind is FileWorkflowEventKind.IMPORT_EMPTY:
+                        rendered = ui.empty(warning_count=event.warning_count)
+                    elif (
+                        event.kind is FileWorkflowEventKind.IMPORT_CANCELLED
+                        and ui.phase in active
+                    ):
+                        rendered = ui.cancelled()
+                    elif event.kind is FileWorkflowEventKind.FAILED:
+                        if ui.phase not in active:
+                            ui.prepare()
+                        rendered = ui.fail(
+                            self._native_file_error_message(event)
+                        )
+                    if rendered:
+                        self._events.append(asdict(rendered))
+
+                if progress_ready and progress is not None and ui.phase in active:
+                    if ui.snapshot()["total_games"] == 0:
+                        ui.begin(progress.total_games)
+                    self._events.append(asdict(ui.progress(progress)))
+
+                if result_ready and result is not None and ui.phase in active:
+                    if ui.snapshot()["total_games"] == 0:
+                        ui.begin(result.game_count)
+                    self._events.append(asdict(ui.complete(result)))
+                    # Update rows without moving focus from another surface.
+                    self.library.projection.search(self.library.projection.query)
+            except BaseException:
+                ui._restore_presentation_state(ui_checkpoint)
+                self._events.clear()
+                self._events.extend(application_events_checkpoint)
+                raise
+            else:
+                # A newer worker observation may have arrived while this owner
+                # batch was rendering. Clear only the exact DTOs actually
+                # consumed by this successful transaction.
+                with self._observation_lock:
+                    if (
+                        (progress_ready or retire_observers)
+                        and self._progress is progress
+                    ):
+                        self._progress = None
+                    if (
+                        (result_ready or retire_observers)
+                        and self._result is result
+                    ):
+                        self._result = None
 
     def _native_file_error_message(self, event):
-        if not isinstance(event, FileWorkflowEvent):
+        if type(event) is not FileWorkflowEvent:
             return concise_user_error("", language=self.shell.language)
         language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
         messages = {
@@ -2091,9 +2400,117 @@ class Version2Application:
                 "Попередній імпорт ще завершується. Повторіть дію після завершення.",
                 "The previous import is still finishing. Retry after it completes.",
             ),
+            "import_worker_unavailable": (
+                "Не вдалося запустити фоновий імпорт. Бібліотеку не змінено. Повторіть імпорт.",
+                "Background import could not be started. The Library was not changed. Retry the import.",
+            ),
             "no_import_running": (
                 "Імпорт уже завершився або не був розпочатий.",
                 "The import has finished or has not started.",
+            ),
+            "file_worker_busy": (
+                "Інша файлова операція ще виконується. Завершіть або скасуйте її та повторіть дію.",
+                "Another file operation is still running. Finish or cancel it, then retry.",
+            ),
+            "ui_event_queue_overflow": (
+                "Черга повідомлень файлової операції переповнилася. Остаточний результат міг бути виконаний, але не відображений. Не повторюйте дію навмання: оновіть відповідний екран і перевірте документ або бібліотеку.",
+                "The file-operation message queue overflowed. The final result may have completed without being shown. Do not retry blindly: refresh the relevant screen and verify the document or Library.",
+            ),
+            "file_dialog_failed": (
+                "Не вдалося відкрити системне вікно вибору файла. Файлова операція не розпочалася. Повторіть дію.",
+                "The system file picker could not be opened. The file operation was not started. Retry the action.",
+            ),
+            "file_workflow_closed": (
+                "Файлові операції вже завершуються.",
+                "File operations are already shutting down.",
+            ),
+            "pgn_session_invalid": (
+                "Поточний PGN-документ має некоректний внутрішній стан. Файлову операцію зупинено без зміни документа або файла. Перезапустіть програму, відкрийте PGN заново та повторіть дію.",
+                "The current PGN document has an invalid internal state. The file operation was stopped without changing the document or file. Restart the application, reopen the PGN, and retry.",
+            ),
+            "pgn_session_unavailable": (
+                "Не вдалося безпечно отримати поточний PGN. Файлову операцію зупинено без зміни документа або файла. Перезапустіть програму та повторіть дію.",
+                "The current PGN could not be accessed safely. The file operation was stopped without changing the document or file. Restart the application and retry.",
+            ),
+            "no_pgn_document": (
+                "Немає відкритого PGN для збереження. Відкрийте або створіть PGN і повторіть дію.",
+                "There is no open PGN to save. Open or create a PGN and retry.",
+            ),
+            "no_pgn_open_running": (
+                "Фонове відкриття PGN уже завершилося або не було розпочате.",
+                "Background PGN opening has finished or has not started.",
+            ),
+            "pgn_open_stale": (
+                "PGN не замінено, бо поточний документ змінився під час відкриття. Повторіть дію за потреби.",
+                "The PGN was not replaced because the current document changed while opening. Retry if needed.",
+            ),
+            "pgn_open_failed": (
+                "Не вдалося відкрити вибраний PGN. Поточний документ не змінено. Перевірте файл і повторіть дію.",
+                "The selected PGN could not be opened. The current document was not changed. Check the file and retry.",
+            ),
+            "unsaved_confirmation_unavailable": (
+                "Не вдалося показати підтвердження для незбережених змін. Інший PGN не відкрито, поточний документ не змінено. Збережіть його та повторіть відкриття.",
+                "The unsaved-changes confirmation could not be shown. No other PGN was opened and the current document was not changed. Save it, then retry opening.",
+            ),
+            "unsaved_confirmation_failed": (
+                "Не вдалося завершити підтвердження для незбережених змін. Інший PGN не відкрито, поточний документ не змінено. Збережіть його та повторіть відкриття.",
+                "The unsaved-changes confirmation could not be completed. No other PGN was opened and the current document was not changed. Save it, then retry opening.",
+            ),
+            "pgn_open_worker_unavailable": (
+                "Не вдалося запустити фонове відкриття PGN.",
+                "Background PGN opening could not be started.",
+            ),
+            "pgn_open_publish_failed": (
+                "PGN підготовлено, але безпечно показати його не вдалося. Поточний документ не змінено.",
+                "The PGN was prepared but could not be published safely. The current document was not changed.",
+            ),
+            "pgn_open_ui_post_failed": (
+                "PGN підготовлено, але передати результат у вікно програми не вдалося. Поточний документ не змінено.",
+                "The PGN was prepared but its result could not be delivered to the application window. The current document was not changed.",
+            ),
+            "no_pgn_save_running": (
+                "Фонове збереження PGN уже завершилося або не було розпочате.",
+                "Background PGN saving has finished or has not started.",
+            ),
+            "pgn_save_preflight_stale": (
+                "Збереження не розпочато, бо документ змінився, поки було відкрито вікно вибору файла.",
+                "Saving was not started because the document changed while the file dialog was open.",
+            ),
+            "pgn_save_stale": (
+                "Файл уже записано, але його не прив’язано до поточного документа, бо активний документ змінився під час збереження.",
+                "The file was written, but it was not committed to the current document because the active document changed while saving.",
+            ),
+            "pgn_save_worker_unavailable": (
+                "Не вдалося запустити фонове збереження PGN.",
+                "Background PGN saving could not be started.",
+            ),
+            "pgn_save_commit_failed": (
+                "Файл уже записано, але стан документа не вдалося безпечно оновити. Не повторюйте збереження навмання. Якщо після початку збереження ви вносили нові зміни, не закривайте і не перевідкривайте документ, доки не зафіксуєте ці зміни окремо, наприклад копіюванням або експортом вибраного PGN. Після цього перевідкрийте записаний PGN і перевірте його перед наступним збереженням.",
+                "The file was written, but document state could not be updated safely. Do not retry saving blindly. If you made newer edits after the save started, do not close or reopen the document until you preserve those edits separately, for example by copying or exporting the selected PGN. Then reopen the written PGN and verify it before saving again.",
+            ),
+            "pgn_save_publication_unverified": (
+                "Збереження PGN уже перейшло межу публікації, але остаточно перевірити опублікований файл не вдалося. Не повторюйте збереження навмання: перевідкрийте вибраний PGN і перевірте його вміст перед наступним збереженням.",
+                "The PGN save crossed the publication boundary, but the published file could not be verified safely. Do not retry blindly: reopen the selected PGN and verify its contents before saving again.",
+            ),
+            "pgn_save_conflict": (
+                "PGN змінився на диску під час збереження. Файл не перезаписано; перевірте актуальну версію та повторіть дію.",
+                "The PGN changed on disk while saving. The file was not overwritten; review the current version and retry.",
+            ),
+            "pgn_save_failed": (
+                "Не вдалося зберегти PGN. Поточні незбережені зміни залишилися в документі.",
+                "PGN could not be saved. The current unsaved edits remain in the document.",
+            ),
+            "pgn_save_as_preserve_original": (
+                "Цей PGN відкрито з відновленням. У «Зберегти як» виберіть інше ім’я або папку, щоб не перезаписати оригінальний файл.",
+                "This PGN was opened with recovery. In Save As, choose a different filename or folder so the original file is not overwritten.",
+            ),
+            "pgn_save_as_failed": (
+                "Не вдалося зберегти PGN у вибраний файл. Поточні незбережені зміни залишилися в документі.",
+                "PGN could not be saved to the selected file. The current unsaved edits remain in the document.",
+            ),
+            "pgn_save_ui_post_failed": (
+                "Не вдалося передати результат фонового збереження у вікно програми.",
+                "The background save result could not be delivered to the application window.",
             ),
         }
         code = event.error_code
@@ -2104,13 +2521,65 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _file_event(self, event):
+        if type(event) is not FileWorkflowEvent:
+            self._events.append(
+                {
+                    "kind": "error",
+                    "payload": {
+                        "message": concise_user_error(
+                            "", language=self.shell.language
+                        )
+                    },
+                }
+            )
+            return
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
             self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
             return
         kind = getattr(event.kind, "value", "")
+        if kind == "pgn_opened" and type(event.warning_count) is int and event.warning_count > 0:
+            warning_count = event.warning_count
+            announcement = (
+                f"PGN відкрито з попередженнями відновлення: {warning_count}. "
+                "Оригінальний файл захищено від звичайного перезапису; "
+                "для збереження виправленої версії використовуйте «Зберегти як»."
+                if self.shell.language is UILanguage.UA
+                else
+                f"PGN opened with recovery warnings: {warning_count}. "
+                "The original file is protected from normal overwrite; "
+                "use Save As to save the recovered version."
+            )
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+            return
         messages = {
+            "pgn_open_started": (
+                "PGN відкривається у фоновому режимі. За потреби скористайтеся командою скасування відкриття PGN.",
+                "PGN is opening in the background. Use Cancel PGN Open if needed.",
+            ),
+            "pgn_open_cancelling": (
+                "Скасовую відкриття PGN.",
+                "Cancelling PGN open.",
+            ),
+            "pgn_open_cancelled": (
+                "Відкриття PGN скасовано. Поточний документ не змінено.",
+                "PGN open cancelled. The current document was not changed.",
+            ),
             "pgn_opened": ("PGN відкрито.", "PGN opened."),
+            "pgn_save_started": (
+                "PGN зберігається у фоновому режимі. За потреби скористайтеся командою скасування збереження PGN.",
+                "PGN is saving in the background. Use Cancel PGN Save if needed.",
+            ),
+            "pgn_save_cancelling": (
+                "Запит на скасування збереження PGN надіслано. Якщо файл ще не опубліковано, збереження буде зупинено.",
+                "PGN save cancellation requested. If the file has not been published yet, saving will stop.",
+            ),
+            "pgn_save_cancelled": (
+                "Збереження PGN скасовано до публікації файла.",
+                "PGN save cancelled before file publication.",
+            ),
             "pgn_saved": ("PGN збережено.", "PGN saved."),
             "pgn_saved_as": ("PGN збережено.", "PGN saved."),
             "exported": ("Експорт завершено.", "Export completed."),
@@ -2118,6 +2587,56 @@ class Version2Application:
         }
         message = messages.get(kind)
         if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
+
+    def _resume_native_workers_after_refused_shutdown(self) -> None:
+        """Restore retired native workers atomically or leave all of them fenced."""
+        recovery_error: BaseException | None = None
+        attempted: list[object] = []
+        for owner in (self._book_open_worker, self._files):
+            if owner is None:
+                continue
+            # Every bound native owner participated in retirement, so every one
+            # must also have an explicit recovery contract before a refused close
+            # can be called recovered. Treating a missing resume method as
+            # success can leave the visible application pointing at a silently
+            # retired owner.
+            attempted.append(owner)
+            resume = getattr(type(owner), "resume_after_refused_shutdown", None)
+            if not callable(resume):
+                if recovery_error is None:
+                    recovery_error = RuntimeError(
+                        "native worker has no refused-shutdown recovery contract"
+                    )
+                continue
+            try:
+                restored = resume(owner)
+            except BaseException as error:
+                if recovery_error is None:
+                    recovery_error = error
+            else:
+                if restored is not True and recovery_error is None:
+                    recovery_error = RuntimeError(
+                        "native worker could not recover after refused shutdown"
+                    )
+
+        if recovery_error is None:
+            # A later successful recovery supersedes any diagnostic left by an
+            # earlier refused close.
+            self._native_shutdown_recovery_error = None
+            return
+
+        # Reopening is one recovery transaction. If any owner cannot resume,
+        # best-effort re-retire every owner we attempted so the visible
+        # application never advertises a mixed live/closed native boundary.
+        for owner in reversed(attempted):
+            shutdown = getattr(type(owner), "shutdown", None)
+            if not callable(shutdown):
+                continue
+            try:
+                shutdown(owner, timeout=0.0)
+            except BaseException:
+                pass
+        self._native_shutdown_recovery_error = recovery_error
 
     def shutdown(self, timeout: float | None = None):
         """Cancel and join native import work before closing shared application state.
@@ -2127,17 +2646,35 @@ class Version2Application:
         in-flight SQLite/import transaction on process exit is not an acceptable
         release behaviour.  Tests and recovery callers may supply a bounded
         timeout and retry without closing the database when the worker is still
-        alive. Once worker shutdown succeeds, ACSDB cleanup is attempted even if
-        durable Book progress publication fails, without letting a later close
-        failure replace that first progress failure.
+        alive. Every independent native worker retirement is attempted before a
+        refused/failed close is reported; shared progress and ACSDB remain untouched
+        unless all workers confirm retirement. Once worker shutdown succeeds, both
+        durable progress owners are attempted. Any progress failure keeps ACSDB open
+        so native FormClosing can refuse the close and a later attempt can retry the
+        exact owner state; only successful progress publication permits ACSDB close.
         """
         self._assert_thread()
-        if (
-            self._book_open_worker is not None
-            and not self._book_open_worker.shutdown(timeout=timeout)
-        ):
-            return False
-        if self._files is not None and not self._files.shutdown(timeout=timeout):
+        retirement_complete = True
+        retirement_error: BaseException | None = None
+        retirement_traceback = None
+        for owner in (self._book_open_worker, self._files):
+            if owner is None:
+                continue
+            try:
+                retired = owner.shutdown(timeout=timeout)
+            except BaseException as error:
+                retirement_complete = False
+                if retirement_error is None:
+                    retirement_error = error
+                    retirement_traceback = error.__traceback__
+            else:
+                if retired is not True:
+                    retirement_complete = False
+        if retirement_error is not None:
+            self._resume_native_workers_after_refused_shutdown()
+            raise retirement_error.with_traceback(retirement_traceback)
+        if not retirement_complete:
+            self._resume_native_workers_after_refused_shutdown()
             return False
         if self._pending_shell_publication is not None:
             # Native close/Alt+F4 can race a browser route render. An
@@ -2145,18 +2682,39 @@ class Version2Application:
             # must never become durable merely because shutdown began. Retire
             # workers first so a refused close can keep the pending browser
             # transaction alive; once shutdown may proceed, roll it back before
-            # any Training or Book progress publication.
+            # any Training or Book progress publication. A failed rollback keeps
+            # its exact token retryable and must also keep shared persistence
+            # open because the native close is refused.
             token = self._pending_shell_publication[0]
-            self._finish_shell_publication(token, commit=False)
-        self.save_training_progress()
-        try:
-            self.save_book_progress()
-        except BaseException as progress_error:
-            progress_traceback = progress_error.__traceback__
             try:
-                self.database.close()
+                self._finish_shell_publication(token, commit=False)
             except BaseException:
-                pass
+                self._resume_native_workers_after_refused_shutdown()
+                raise
+        progress_error: BaseException | None = None
+        progress_traceback = None
+        for save_progress in (self.save_training_progress, self.save_book_progress):
+            try:
+                save_progress()
+            except BaseException as error:
+                if progress_error is None:
+                    progress_error = error
+                    progress_traceback = error.__traceback__
+        if progress_error is not None:
+            # Native FormClosing refuses the close when durable progress cannot
+            # be published. Keep ACSDB open and restore only workers that already
+            # proved complete retirement, so the still-visible application does
+            # not become a half-shut-down shell. Recovery errors are diagnostic
+            # and never replace the primary durability failure.
+            self._resume_native_workers_after_refused_shutdown()
             raise progress_error.with_traceback(progress_traceback)
-        self.database.close()
+        try:
+            self.database.close()
+        except BaseException:
+            # A failed ACSDB close leaves native FormClosing in its refused-close
+            # path just like a worker/progress failure. Restore only fully retired
+            # native owners before propagating so a transient database-close error
+            # cannot strand the still-visible application in a half-closed state.
+            self._resume_native_workers_after_refused_shutdown()
+            raise
         return True

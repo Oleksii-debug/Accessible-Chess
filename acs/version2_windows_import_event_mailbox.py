@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Thread-safe host handoff for asynchronous Version 2 Library import events.
+"""Thread-safe host handoff for asynchronous Version 2 file-workflow events.
 
 ``Version2WindowsFileActionDelegate`` returns user-invoked file-action status on
 the UI thread, but long Library imports also emit progress/terminal events from a
@@ -15,6 +15,7 @@ here.
 """
 
 from collections import deque
+from contextlib import contextmanager
 import threading
 
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind
@@ -32,10 +33,83 @@ _ASYNC_IMPORT_KINDS = frozenset(
     }
 )
 _IMPORT_ACTION_IDS = frozenset({"library.import", "library.cancel_import"})
+_ASYNC_PGN_OPEN_KINDS = frozenset(
+    {
+        FileWorkflowEventKind.PGN_OPENED,
+        FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+        FileWorkflowEventKind.FAILED,
+    }
+)
+_ASYNC_PGN_SAVE_KINDS = frozenset(
+    {
+        FileWorkflowEventKind.PGN_SAVED,
+        FileWorkflowEventKind.PGN_SAVED_AS,
+        FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+        FileWorkflowEventKind.FAILED,
+    }
+)
+_PGN_SAVE_ACTION_IDS = frozenset({"pgn.save", "pgn.save_as"})
+
+
+def _snapshot_file_event(event: FileWorkflowEvent) -> FileWorkflowEvent:
+    if type(event) is not FileWorkflowEvent:
+        raise TypeError("UI event mailbox accepts exact FileWorkflowEvent only")
+    return FileWorkflowEvent(
+        kind=event.kind,
+        action_id=event.action_id,
+        focus_target=event.focus_target,
+        processed_games=event.processed_games,
+        total_games=event.total_games,
+        game_count=event.game_count,
+        warning_count=event.warning_count,
+        error_code=event.error_code,
+        source_bytes_read=event.source_bytes_read,
+        source_total_bytes=event.source_total_bytes,
+        source_parsing=event.source_parsing,
+        source_format=event.source_format,
+        retained_book_blocks=event.retained_book_blocks,
+    )
+
+
+def _validate_async_file_event(event: FileWorkflowEvent) -> None:
+    if type(event) is not FileWorkflowEvent:
+        raise TypeError("UI event mailbox accepts exact FileWorkflowEvent only")
+
+    # A terminal event is part of the accessibility truth boundary, not merely
+    # a transport envelope.  Keep error semantics internally consistent before
+    # the UI/NVDA presentation owner can announce them.
+    if event.kind is FileWorkflowEventKind.FAILED:
+        if not event.error_code:
+            raise ValueError("failed worker UI event requires an error code")
+    elif event.error_code:
+        raise ValueError("successful worker UI event must not carry an error code")
+
+    if event.action_id in _IMPORT_ACTION_IDS:
+        if event.kind not in _ASYNC_IMPORT_KINDS:
+            raise ValueError("worker UI mailbox received an invalid Library import event")
+        return
+    if event.action_id == "pgn.open":
+        if event.kind not in _ASYNC_PGN_OPEN_KINDS:
+            raise ValueError("worker UI mailbox received an invalid PGN Open event")
+        return
+    if event.action_id in _PGN_SAVE_ACTION_IDS:
+        expected_success = (
+            FileWorkflowEventKind.PGN_SAVED
+            if event.action_id == "pgn.save"
+            else FileWorkflowEventKind.PGN_SAVED_AS
+        )
+        if event.kind not in {
+            expected_success,
+            FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+            FileWorkflowEventKind.FAILED,
+        }:
+            raise ValueError("worker UI mailbox received an invalid PGN Save event")
+        return
+    raise ValueError("worker UI mailbox received an invalid file action")
 
 
 class Version2ImportUiEventMailbox:
-    """Bounded worker->UI mailbox for path-free Library import host events.
+    """Bounded asynchronous file-workflow mailbox for path-free host events.
 
     Construct this object on the Windows UI thread and use it as the file-action
     delegate's ``event_sink``.  Events emitted on that same UI thread are not
@@ -80,33 +154,33 @@ class Version2ImportUiEventMailbox:
         with self._lock:
             return self._coalesced_progress
 
-    @staticmethod
-    def _validate_async_import_event(event: FileWorkflowEvent) -> None:
-        if not isinstance(event, FileWorkflowEvent):
-            raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
-        if event.kind not in _ASYNC_IMPORT_KINDS:
-            raise ValueError("worker UI mailbox accepts Library import events only")
-        if event.action_id not in _IMPORT_ACTION_IDS:
-            raise ValueError("worker UI mailbox received an invalid import action")
-
     def __call__(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
         return self.put(event)
 
     def put(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
-        if not isinstance(event, FileWorkflowEvent):
-            raise TypeError("UI event mailbox accepts FileWorkflowEvent only")
-
-        # User-invoked actions already return this event synchronously to the UI
-        # caller.  Re-queueing it would create duplicate announcements/focus work.
+        # Even synchronous events cross a presentation boundary. Rebuild through
+        # the canonical DTO contract before accepting the object, but do not
+        # enqueue a duplicate of the command result on the owner thread.
+        _snapshot_file_event(event)
         if threading.get_ident() == self._ui_thread_id:
             return event
+        return self._put_async(event)
 
-        self._validate_async_import_event(event)
+    def put_async_owner(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        """Queue one asynchronous completion that already reached the UI thread."""
+
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("owner asynchronous file events require the UI thread")
+        return self._put_async(event)
+
+    def _put_async(self, event: FileWorkflowEvent) -> FileWorkflowEvent:
+        canonical = _snapshot_file_event(event)
+        _validate_async_file_event(canonical)
         with self._lock:
             if self._overflowed:
                 return event
 
-            if event.kind is FileWorkflowEventKind.IMPORT_PROGRESS:
+            if canonical.kind is FileWorkflowEventKind.IMPORT_PROGRESS:
                 for index in range(len(self._events) - 1, -1, -1):
                     if self._events[index].kind is FileWorkflowEventKind.IMPORT_PROGRESS:
                         del self._events[index]
@@ -115,25 +189,48 @@ class Version2ImportUiEventMailbox:
 
             if len(self._events) >= self._max_events:
                 self._events.clear()
+                if canonical.action_id == "pgn.open":
+                    overflow_action = "pgn.open"
+                    overflow_focus = canonical.focus_target or "pgn-game-list"
+                elif canonical.action_id in _PGN_SAVE_ACTION_IDS:
+                    overflow_action = canonical.action_id
+                    overflow_focus = canonical.focus_target or "pgn-game-list"
+                else:
+                    overflow_action = "library.import"
+                    overflow_focus = "library-import-file"
                 self._events.append(
                     FileWorkflowEvent(
                         FileWorkflowEventKind.FAILED,
-                        "library.import",
-                        focus_target="library-import-file",
+                        overflow_action,
+                        focus_target=overflow_focus,
                         error_code="ui_event_queue_overflow",
                     )
                 )
                 self._overflowed = True
                 return event
 
-            self._events.append(event)
+            # The queue owns a detached canonical snapshot. A caller retaining
+            # the object supplied to put()/put_async_owner() cannot mutate the
+            # future NVDA/UI delivery with object.__setattr__.
+            self._events.append(canonical)
         return event
 
-    def drain(self, *, max_events: int | None = None) -> tuple[FileWorkflowEvent, ...]:
-        """Remove queued worker events; callable only from the captured UI thread."""
+    @contextmanager
+    def delivery_batch(
+        self,
+        *,
+        max_events: int | None = None,
+    ):
+        """Lease one exact UI-thread batch and remove it only after success.
+
+        The mailbox lock remains held while the owner processes the leased
+        immutable DTOs. Worker producers may continue their canonical work but
+        cannot reorder/coalesce the leased queue prefix until the owner either
+        commits by returning normally or rolls back by raising.
+        """
 
         if threading.get_ident() != self._ui_thread_id:
-            raise RuntimeError("Library import UI events must be drained on the UI thread")
+            raise RuntimeError("Library import UI events must be delivered on the UI thread")
         if max_events is not None:
             if type(max_events) is not int:
                 raise TypeError("max_events must be an integer or None")
@@ -141,11 +238,30 @@ class Version2ImportUiEventMailbox:
                 raise ValueError("max_events must be positive")
 
         with self._lock:
-            count = len(self._events) if max_events is None else min(max_events, len(self._events))
-            drained = tuple(self._events.popleft() for _ in range(count))
-            if not self._events:
-                self._overflowed = False
-            return drained
+            count = (
+                len(self._events)
+                if max_events is None
+                else min(max_events, len(self._events))
+            )
+            leased = tuple(self._events[index] for index in range(count))
+            try:
+                yield leased
+            except BaseException:
+                # Rollback is implicit: the queue was never mutated.
+                raise
+            else:
+                for expected in leased:
+                    if not self._events or self._events[0] is not expected:
+                        raise RuntimeError("UI event delivery queue prefix changed")
+                    self._events.popleft()
+                if not self._events:
+                    self._overflowed = False
+
+    def drain(self, *, max_events: int | None = None) -> tuple[FileWorkflowEvent, ...]:
+        """Remove queued worker events; callable only from the captured UI thread."""
+
+        with self.delivery_batch(max_events=max_events) as events:
+            return events
 
 
 __all__ = ["Version2ImportUiEventMailbox"]

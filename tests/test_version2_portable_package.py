@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import acs.version2_portable_package as portable_module
@@ -275,6 +276,385 @@ class PortableTreeTests(unittest.TestCase):
             )
             self.assertEqual(original_stat.st_size, rewritten_stat.st_size)
             self.assertEqual(path.read_bytes(), replacement)
+
+    def test_file_identity_fallback_rejects_unknown_or_zero_identity(self):
+        valid = SimpleNamespace(st_dev=11, st_ino=22)
+        same = SimpleNamespace(st_dev=11, st_ino=22)
+        invalid_pairs = (
+            (
+                SimpleNamespace(st_dev=0, st_ino=0),
+                SimpleNamespace(st_dev=0, st_ino=0),
+            ),
+            (
+                SimpleNamespace(st_dev=11, st_ino=0),
+                SimpleNamespace(st_dev=11, st_ino=0),
+            ),
+            (
+                SimpleNamespace(st_dev=None, st_ino=None),
+                SimpleNamespace(st_dev=None, st_ino=None),
+            ),
+            (
+                SimpleNamespace(st_dev=True, st_ino=22),
+                SimpleNamespace(st_dev=True, st_ino=22),
+            ),
+        )
+
+        with mock.patch.object(
+            portable_module.os.path,
+            "samestat",
+            side_effect=OSError("identity unavailable"),
+        ):
+            self.assertTrue(
+                portable_module._complete_file_identity(valid, same)
+            )
+            for left, right in invalid_pairs:
+                with self.subTest(left=left, right=right):
+                    self.assertFalse(
+                        portable_module._complete_file_identity(left, right)
+                    )
+
+    def test_stable_change_metadata_uses_platform_reliable_fields(self):
+        sample = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=456)
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(sample),
+                (123,),
+            )
+
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(sample),
+                (123, 456),
+            )
+
+        incomplete = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=None)
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertIsNone(
+                portable_module._stable_change_metadata(incomplete),
+            )
+
+    def test_snapshot_metadata_rejects_invalid_stat_scalars(self):
+        stable = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        invalid = (
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=-1,
+                st_mtime_ns=123,
+                st_ctime_ns=456,
+            ),
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=True,
+                st_mtime_ns=123,
+                st_ctime_ns=456,
+            ),
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=4096,
+                st_mtime_ns=-1,
+                st_ctime_ns=456,
+            ),
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=4096,
+                st_mtime_ns=True,
+                st_ctime_ns=456,
+            ),
+        )
+        with mock.patch.object(
+            portable_module,
+            "_complete_file_identity",
+            return_value=True,
+        ):
+            for candidate in invalid:
+                with self.subTest(candidate=candidate):
+                    self.assertFalse(
+                        portable_module._same_file_snapshot(stable, candidate),
+                    )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=-1),
+                )
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=True),
+                )
+            )
+
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123, st_ctime_ns=-1),
+                )
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123, st_ctime_ns=True),
+                )
+            )
+
+    def test_windows_snapshot_uses_mtime_without_ctime_and_fails_closed_without_mtime(self):
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123),
+                ),
+                (123,),
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=None, st_ctime_ns=456),
+                ),
+            )
+
+    def test_windows_snapshot_ignores_creation_time_when_mtime_is_stable(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        second = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            with mock.patch.object(
+                portable_module,
+                "_complete_file_identity",
+                return_value=True,
+            ):
+                self.assertTrue(
+                    portable_module._same_file_snapshot(first, second),
+                )
+
+    def test_stable_bytes_accepts_windows_creation_time_drift(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def drifted_fstat(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                    st_ctime_ns=actual.st_ctime_ns + 1,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=drifted_fstat,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_bytes(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        payload,
+                    )
+
+    def test_stable_digest_accepts_windows_creation_time_drift(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def drifted_fstat(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                    st_ctime_ns=actual.st_ctime_ns + 1,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=drifted_fstat,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_digest(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
+
+    def test_windows_stable_reads_accept_fstat_without_creation_time(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def without_ctime(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=without_ctime,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_bytes(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        payload,
+                    )
+                    self.assertEqual(
+                        portable_module._stable_digest(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
+
+    def test_windows_snapshot_rejects_mtime_change_even_when_creation_time_is_stable(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        second = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            with mock.patch.object(
+                portable_module,
+                "_complete_file_identity",
+                return_value=True,
+            ):
+                self.assertFalse(
+                    portable_module._same_file_snapshot(first, second),
+                )
+
+    def test_publication_snapshot_ignores_namespace_ctime_but_requires_mtime(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+        negative_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=-1,
+            st_ctime_ns=456,
+        )
+        bool_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=True,
+            st_ctime_ns=456,
+        )
+        negative_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=-1,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+
+        self.assertTrue(
+            portable_module._same_publication_snapshot(first, ctime_drift),
+        )
+        self.assertFalse(
+            portable_module._same_publication_snapshot(first, mtime_drift),
+        )
+        self.assertFalse(
+            portable_module._same_publication_snapshot(first, missing_mtime),
+        )
+        for candidate in (
+            negative_mtime,
+            bool_mtime,
+            negative_size,
+            bool_size,
+        ):
+            with self.subTest(candidate=candidate):
+                self.assertFalse(
+                    portable_module._same_publication_snapshot(first, candidate),
+                )
 
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(
@@ -1082,6 +1462,118 @@ class PortableTreeTests(unittest.TestCase):
                 )
             self.assertFalse(target.exists())
 
+    def test_zip_readback_rejects_same_size_mutation_before_snapshot_binding(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_safe_info = portable_module._safe_info
+            readback_mtime_ns = None
+            injected = False
+
+            def safe_info_with_mutation(path, *, label, directory):
+                nonlocal readback_mtime_ns, injected
+                if label == "portable ZIP archive readback":
+                    if readback_mtime_ns is None:
+                        result = real_safe_info(
+                            path,
+                            label=label,
+                            directory=directory,
+                        )
+                        readback_mtime_ns = result.st_mtime_ns
+                        return result
+                    if not injected:
+                        candidate = Path(path)
+                        with candidate.open("r+b") as handle:
+                            first = handle.read(1)
+                            handle.seek(0)
+                            handle.write(b"X" if first != b"X" else b"Y")
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                        current = real_safe_info(
+                            path,
+                            label=label,
+                            directory=directory,
+                        )
+                        os.utime(
+                            candidate,
+                            ns=(
+                                current.st_atime_ns,
+                                readback_mtime_ns + 2_000_000_000,
+                            ),
+                        )
+                        injected = True
+                return real_safe_info(path, label=label, directory=directory)
+
+            with mock.patch.object(
+                portable_module,
+                "_safe_info",
+                side_effect=safe_info_with_mutation,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "changed during readback",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
+    def test_zip_durability_rejects_same_size_mutation_after_readback_snapshot(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_sync = portable_module._fsync_file_snapshot
+            injected = False
+
+            def mutate_then_sync(path, *, expected, label):
+                nonlocal injected
+                if label == "verified portable ZIP archive" and not injected:
+                    candidate = Path(path)
+                    with candidate.open("r+b") as handle:
+                        first = handle.read(1)
+                        handle.seek(0)
+                        handle.write(b"X" if first != b"X" else b"Y")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    current = candidate.stat()
+                    os.utime(
+                        candidate,
+                        ns=(
+                            current.st_atime_ns,
+                            expected.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                    injected = True
+                return real_sync(path, expected=expected, label=label)
+
+            with mock.patch.object(
+                portable_module,
+                "_fsync_file_snapshot",
+                side_effect=mutate_then_sync,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "changed before durability confirmation",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
     def test_zip_publication_rejects_same_inode_mutation_after_link(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
@@ -1102,6 +1594,14 @@ class PortableTreeTests(unittest.TestCase):
                         handle.write(b"X" if first != b"X" else b"Y")
                         handle.flush()
                         os.fsync(handle.fileno())
+                    current = target.stat()
+                    os.utime(
+                        target,
+                        ns=(
+                            current.st_atime_ns,
+                            current.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
                     injected = True
 
             with mock.patch.object(
@@ -1111,7 +1611,7 @@ class PortableTreeTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2PortablePackageError,
-                    "published portable ZIP bytes differ from the verified archive",
+                    "portable ZIP publication is not the verified archive snapshot",
                 ):
                     write_portable_oneclick_zip(
                         root,
@@ -1148,7 +1648,7 @@ class PortableTreeTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2PortablePackageError,
-                    "not the verified archive inode",
+                    "not the verified archive snapshot",
                 ):
                     write_portable_oneclick_zip(
                         root,
@@ -1160,6 +1660,56 @@ class PortableTreeTests(unittest.TestCase):
             # The raced-in foreign inode is deliberately preserved; cleanup is
             # allowed to remove only the exact inode published by this writer.
             self.assertTrue(target.exists())
+
+    def test_zip_publication_rejects_mutation_after_durability_before_final_digest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_sync = portable_module._sync_published_zip_namespace
+            injected = False
+
+            def sync_then_mutate(path, *, expected):
+                nonlocal injected
+                snapshot = real_sync(path, expected=expected)
+                if not injected:
+                    candidate = Path(path)
+                    with candidate.open("r+b") as handle:
+                        first = handle.read(1)
+                        handle.seek(0)
+                        handle.write(b"X" if first != b"X" else b"Y")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    current = candidate.stat()
+                    os.utime(
+                        candidate,
+                        ns=(
+                            current.st_atime_ns,
+                            current.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                    injected = True
+                return snapshot
+
+            with mock.patch.object(
+                portable_module,
+                "_sync_published_zip_namespace",
+                side_effect=sync_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "published portable ZIP bytes differ from the verified archive",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
 
     def test_zip_publication_uses_durability_barrier_before_return(self):
         with tempfile.TemporaryDirectory() as raw:

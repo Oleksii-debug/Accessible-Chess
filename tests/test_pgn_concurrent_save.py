@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from acs.gametree import parse_games
+import acs.pgn_service as pgn_service_module
 from acs.pgn_service import PgnConcurrentWriteError, open_pgn, save_pgn_atomic
 
 
@@ -43,13 +44,13 @@ class PgnConcurrentSaveTests(unittest.TestCase):
             self.assert_no_transaction_debris(folder, path.name)
 
     def test_external_write_at_publish_boundary_is_restored(self):
-        """The writer that reaches the old inode at ``os.replace`` must win."""
+        """The writer that reaches the canonical replace primitive must win."""
 
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "game.pgn"
             path.write_text(PGN_A, encoding="utf-8")
             opened = open_pgn(path)
-            real_replace = os.replace
+            real_replace = pgn_service_module._replace_published_path
             replace_calls = 0
 
             def replace_with_race(src, dst):
@@ -61,7 +62,7 @@ class PgnConcurrentSaveTests(unittest.TestCase):
                     path.write_text(PGN_EXTERNAL, encoding="utf-8")
                 return real_replace(src, dst)
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=replace_with_race):
+            with mock.patch("acs.pgn_service._replace_published_path", side_effect=replace_with_race):
                 with self.assertRaises(PgnConcurrentWriteError):
                     save_pgn_atomic(
                         path,
@@ -77,13 +78,13 @@ class PgnConcurrentSaveTests(unittest.TestCase):
     def test_no_overwrite_race_uses_actual_link_commit_primitive(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "new-game.pgn"
-            real_link = os.link
+            real_link = pgn_service_module._publish_no_clobber
 
             def link_with_race(src, dst, *args, **kwargs):
                 path.write_text(PGN_EXTERNAL, encoding="utf-8")
                 return real_link(src, dst, *args, **kwargs)
 
-            with mock.patch("acs.pgn_service.os.link", side_effect=link_with_race):
+            with mock.patch("acs.pgn_service._publish_no_clobber", side_effect=link_with_race):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(path, (self.game(),), overwrite=False)
 

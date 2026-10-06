@@ -10,6 +10,7 @@ on:
       - 'tests/test_version2_package_preflight.py'
       - 'tests/test_version2_package_preflight_hardening.py'
       - 'tests/test_v2_package_required_resources.py'
+      - 'tests/test_version2_package_pe_identity.py'
       - 'tests/test_version2_package_zip_topology_preflight.py'
       - 'tests/test_version2_stockfish_source_archive_preflight.py'
       - 'tests/test_current_launcher_resource_contract.py'
@@ -35,9 +36,19 @@ env:
   CURRENT_TEST_BLOB: f3b46bf598b8402cc82efdddb84681a1bb786f81
   RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
   RESOURCE_PREFLIGHT_TEST_BLOB: 82ea17bd50c3e1680e95422715454e35ee67ec5e
+  RUNTIME_PREFLIGHT_BLOB: 81a0af758b980eccb12278625e7b50ac87af6834
+  RUNTIME_PREFLIGHT_TEST_BLOB: 01b7c32311bd231684cf9ece9481609a20267610
+  PE_IDENTITY_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
+  PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
+  SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: 70affbc28caa05389e0473e392ebf602838d2836
+  STABLE_READS_TEST_BLOB: 9ba25b7299dc7bec3187cfc1072be562dd4e30ec
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 182033428b115a3c073dace700ec9c67d7a1db7a
   CURRENT_HARDENING_BLOB: 967764ce30024d9c4649f2c84b14af9207bb923f
   CURRENT_REQUIRED_RESOURCES_BLOB: 6bfa7920a9aedb4fde7cb52ca305330ab5fdb084
   RESOURCE_REQUIRED_RESOURCES_BLOB: f90081232c9d2ea75ce456b0bd097da123e99e34
+  RUNTIME_REQUIRED_RESOURCES_BLOB: 9ea7b3b07a9df59092fad8679b6ec9e38eed144a
   CURRENT_ZIP_TOPOLOGY_BLOB: 2a849e00e192d8d91118d7f2edd5274ff576c5ed
   CURRENT_STOCKFISH_SOURCE_BLOB: 7b772885f8bdb68bbf2c8a65a1e776d0da0f630e
 
@@ -77,7 +88,7 @@ jobs:
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$LEGACY_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
-              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB") ;;
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
               *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
             esac
             test "$(git rev-parse "$LEGACY_OWNER_565_CURRENT_HEAD":acs/version2_package_preflight.py)" = "$LEGACY_PREFLIGHT_BLOB"
@@ -86,18 +97,23 @@ jobs:
             test "$(git rev-parse "$LEGACY_OWNER_511_HEAD":tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             echo 'W6_PREFLIGHT_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
           else
-            # Current Full Product composition intentionally contains many
-            # accepted descendants of the historical preflight owner. Keep the
-            # gate fail-closed on the exact canonical security-sensitive files.
             git merge-base --is-ancestor "$CURRENT_PREFLIGHT_OWNER" HEAD
-            preflight_pair="$(git rev-parse HEAD:acs/version2_package_preflight.py):$(git rev-parse HEAD:tests/test_version2_package_preflight.py)"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            preflight_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_preflight.py)"
             case "$preflight_pair" in
-              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$STABLE_READS_TEST_BLOB") ;;
               *) echo 'Unqualified canonical preflight/test pair' >&2; exit 1 ;;
             esac
+            if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
+            fi
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
-              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB") ;;
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
               *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
             esac
             test "$(git rev-parse HEAD:tests/test_version2_package_zip_topology_preflight.py)" = "$CURRENT_ZIP_TOPOLOGY_BLOB"
@@ -138,6 +154,7 @@ jobs:
           tests/test_version2_package_preflight.py
           tests/test_version2_package_preflight_hardening.py
           tests/test_v2_package_required_resources.py
+          tests/test_version2_package_pe_identity.py
           tests/test_version2_package_zip_topology_preflight.py
           tests/test_version2_stockfish_source_archive_preflight.py
 
@@ -176,6 +193,7 @@ jobs:
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
           tests.test_version2_package_zip_topology_preflight
           tests.test_version2_stockfish_source_archive_preflight
 

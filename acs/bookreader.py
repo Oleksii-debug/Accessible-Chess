@@ -17,6 +17,7 @@ from typing import Iterator, Mapping
 from .book_index import BookIndex
 from .bookdocument import (
     BookDocument,
+    MAX_BOOK_TEXT_FIELD_CHARS,
     Diagram,
     Exercise,
     Game,
@@ -87,15 +88,43 @@ class BookReader:
         self._require_indexed_revision()
         return len(self._indexed_document.warnings)
 
+    def _reading_metadata_after_verified(self) -> tuple[str, str | None, str | None]:
+        """Detach canonical indexed metadata without active-root/scalar hooks."""
+
+        document = self._indexed_document
+        if type(document) is not BookDocument:
+            raise TypeError("indexed BookDocument metadata root is invalid")
+        title = document.title
+        author = document.author
+        language = document.language
+
+        def canonical_text(value: object, *, optional: bool) -> str | None:
+            if value is None:
+                if optional:
+                    return None
+                raise TypeError("indexed Book reading metadata is invalid")
+            if type(value) is not str or len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+                raise TypeError("indexed Book reading metadata is invalid")
+            if not value.strip():
+                raise TypeError("indexed Book reading metadata is invalid")
+            return value
+
+        return (
+            canonical_text(title, optional=False),
+            canonical_text(author, optional=True),
+            canonical_text(language, optional=True),
+        )
+
     def document_language_snapshot(self) -> str | None:
         """Source language from the same detached revision as readable blocks."""
         self._require_indexed_revision()
-        return self._indexed_document.language
+        return self._reading_metadata_after_verified()[2]
 
     def document_title_author_snapshot(self) -> tuple[str, str | None]:
         """Reading metadata from the immutable indexed document revision."""
         self._require_indexed_revision()
-        return self._indexed_document.title, self._indexed_document.author
+        title, author, _language = self._reading_metadata_after_verified()
+        return title, author
 
     def block_reading_snapshot(self, index: int):
         """One validated block plus its detached document reading metadata.
@@ -105,8 +134,8 @@ class BookReader:
         mutable indexed block is returned.
         """
         block = self.block_snapshot(index)
-        return (block, self._indexed_document.title, self._indexed_document.author,
-                self._indexed_document.language)
+        title, author, language = self._reading_metadata_after_verified()
+        return (block, title, author, language)
 
     def document_warnings_snapshot(
         self,
@@ -315,7 +344,10 @@ class BookReader:
             # recursively re-hash the whole document through location()/go_to().
             self._require_indexed_revision()
             return location
-        except Exception:
+        except BaseException:
+            # Navigation is one publication transaction. Host/test abort signals
+            # are caught at the browser boundary, so an abort-class failure here
+            # must not strand the canonical reader on an unrendered location.
             self._index = previous_index
             raise
 
@@ -422,7 +454,7 @@ class BookReader:
             location = self._location_after_verified()
             self._require_indexed_revision()
             return location
-        except Exception:
+        except BaseException:
             # Preserve the original final live-revision barrier without paying
             # for additional whole-document hashes through nested helper calls.
             if had_previous:

@@ -10,6 +10,7 @@ on:
       - 'acs/version2_package_assembler.py'
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_package_assembler.py'
+      - 'tests/test_version2_package_pe_identity.py'
       - '.github/workflows/w6-v2-package-assembler.yml'
   workflow_dispatch:
 
@@ -27,6 +28,14 @@ env:
   CURRENT_ASSEMBLER_TEST_BLOB: 8b7703128af25397d6c992c01e0910eb29f0766a
   RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
   RESOURCE_ASSEMBLER_TEST_BLOB: 80dcfb53f59e3ba01aff2b1bb13a21afe609378c
+  RUNTIME_PREFLIGHT_BLOB: 81a0af758b980eccb12278625e7b50ac87af6834
+  RUNTIME_ASSEMBLER_TEST_BLOB: a946d2da1742177d3caa0b07cbc7508eeb98afbe
+  PE_IDENTITY_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
+  PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
+  SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: 70affbc28caa05389e0473e392ebf602838d2836
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 182033428b115a3c073dace700ec9c67d7a1db7a
 
 jobs:
   focused:
@@ -61,16 +70,20 @@ jobs:
           if [ "$changed" = "$expected" ]; then
             echo 'W6_ASSEMBLER_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
           else
-            # After this assembler lineage is composed into the Full Product,
-            # later accepted runtime/preflight/content changes are expected.
-            # Fail closed on the release components this gate actually owns
-            # instead of requiring the whole Product to equal an old ancestor.
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
-            resource_pair="$(git rev-parse HEAD:acs/version2_package_preflight.py):$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            resource_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
             case "$resource_pair" in
-              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB") ;;
               *) echo 'Unqualified preflight/assembler-test pair' >&2; exit 1 ;;
             esac
+            if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
+            fi
             echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
           fi
 
@@ -83,6 +96,7 @@ jobs:
           tests/test_version2_package_preflight.py
           tests/test_version2_package_preflight_hardening.py
           tests/test_v2_package_required_resources.py
+          tests/test_version2_package_pe_identity.py
 
       - name: Direct fresh temp sibling oracle
         shell: bash
@@ -122,3 +136,4 @@ jobs:
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity

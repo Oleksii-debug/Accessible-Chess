@@ -7,6 +7,7 @@ from typing import Any
 from .local_profile import (
     LocalProfile,
     LocalProfileConflict,
+    LocalProfileDurabilityUnknownError,
     LocalProfileError,
     LocalProfileStore,
 )
@@ -100,6 +101,42 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
     def profile_snapshot(self) -> dict[str, object]:
         return self._invoke_ui(self._profile_snapshot_ui)
 
+    def _profile_durability_unknown_payload(
+        self,
+        store: LocalProfileStore,
+    ) -> dict[str, object]:
+        try:
+            profile, recovery_required = self._load_profile_state(store)
+        except LocalProfileError:
+            return {
+                "ok": False,
+                "exists": False,
+                "displayName": "",
+                "generatedAlias": False,
+                "recoveryRequired": False,
+                "durabilityUncertain": True,
+                "stateChanged": True,
+                "announcement": (
+                    "Profile storage may have changed, but durable state could not be confirmed."
+                    if self.lang == "en"
+                    else "Стан профілю міг змінитися, але підтвердити надійне збереження не вдалося."
+                ),
+            }
+
+        payload = self._profile_payload(
+            profile,
+            recovery_required=recovery_required,
+            announcement=(
+                "Profile storage may have changed, but durable state could not be confirmed. The current visible profile was reloaded."
+                if self.lang == "en"
+                else "Стан профілю міг змінитися, але підтвердити надійне збереження не вдалося. Поточний видимий профіль перечитано."
+            ),
+        )
+        payload["ok"] = False
+        payload["durabilityUncertain"] = True
+        payload["stateChanged"] = True
+        return payload
+
     def _profile_create_ui(self, display_name: object, skip: object) -> dict[str, object]:
         if (
             type(skip) is not bool
@@ -118,6 +155,8 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
         try:
             store = self._profile_store()
             profile = store.create(None if skip else display_name)
+        except LocalProfileDurabilityUnknownError:
+            return self._profile_durability_unknown_payload(store)
         except LocalProfileConflict:
             try:
                 profile, recovery_required = self._load_profile_state(store)
@@ -161,7 +200,10 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
 
     def _profile_repair_ui(self) -> dict[str, object]:
         try:
-            profile = self._profile_store().repair_from_backup()
+            store = self._profile_store()
+            profile = store.repair_from_backup()
+        except LocalProfileDurabilityUnknownError:
+            return self._profile_durability_unknown_payload(store)
         except LocalProfileError:
             return {
                 "ok": False,
@@ -215,6 +257,8 @@ class Version2ProfileAccessibleChessAPI(Version2ReleaseAccessibleChessAPI):
                 blocked["ok"] = False
                 return blocked
             profile = store.rename(current, display_name)
+        except LocalProfileDurabilityUnknownError:
+            return self._profile_durability_unknown_payload(store)
         except LocalProfileConflict:
             try:
                 current, recovery_required = self._load_profile_state(store)

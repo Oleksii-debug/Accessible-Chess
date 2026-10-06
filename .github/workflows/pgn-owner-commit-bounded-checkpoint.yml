@@ -1,0 +1,111 @@
+name: PGN Owner Commit Bounded Checkpoint
+
+on:
+  push:
+    branches:
+      - fix/pgn-owner-commit-lightweight-checkpoint-20261006-c2mbezb
+  pull_request:
+    branches:
+      - converge/current-windows-pgn-generation-import-apex-20261006-zftrkmo
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-owner-commit-bounded-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  bounded-owner-commit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      BASE_BRANCH: converge/current-windows-pgn-generation-import-apex-20261006-zftrkmo
+      BASE_SHA: 0a15bf52a7f5cab98edae8d04e12eca93c6701d6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove exact live parent and bounded delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+          git fetch --no-tags origin             "+refs/heads/$BASE_BRANCH:refs/remotes/origin/bounded-owner-parent"
+          live_base="$(git rev-parse refs/remotes/origin/bounded-owner-parent)"
+          test "$live_base" = "$BASE_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+
+          mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          printf '%s\n' "${paths[@]}"
+          expected=(
+            ".github/workflows/pgn-owner-commit-bounded-checkpoint.yml"
+            "acs/pgn_save_snapshot.py"
+            "acs/pgn_workspace.py"
+            "tests/test_pgn_save_snapshot.py"
+            "tests/test_pgn_workspace.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+
+      - name: Compile owner-commit boundary
+        run: >-
+          python -m py_compile
+          acs/pgn_workspace.py
+          acs/pgn_save_snapshot.py
+          tests/test_pgn_workspace.py
+          tests/test_pgn_save_snapshot.py
+          tests/test_v2_windows_pgn_save_worker.py
+
+      - name: Execute persistence and Windows owner-commit regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_workspace
+          tests.test_pgn_save_snapshot
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_host_runtime
+          tests.test_version2_application
+
+      - name: Pytest focused owner-commit suite
+        run: >-
+          pytest -q
+          tests/test_pgn_workspace.py
+          tests/test_pgn_save_snapshot.py
+          tests/test_v2_windows_pgn_save_worker.py
+
+      - name: Core selftest
+        run: python -m acs.selftest

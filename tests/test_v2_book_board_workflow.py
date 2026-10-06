@@ -574,6 +574,91 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertFalse(successor.stale)
         self.assertIsNone(successor.error)
 
+    def test_return_invalidation_failure_keeps_session_and_revision_recoverable(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[
+                    Position(fen=Board.START, block_id="invalidate-failure-origin"),
+                    Position(fen=Board.START, block_id="invalidate-failure-moved"),
+                ],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+        workflow.open_current()
+        before_revision = workflow.revision
+        before_view = workflow.view()
+        reader.next_block()
+        before_reader = reader.location()
+        real_invalidate = workflow._engine.invalidate
+
+        with patch.object(
+            workflow._engine,
+            "invalidate",
+            side_effect=RuntimeError("analysis invalidation unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "invalidation unavailable"):
+                workflow.return_to_book()
+
+        self.assertTrue(workflow.active)
+        self.assertEqual(workflow.revision, before_revision)
+        self.assertEqual(workflow.view(), before_view)
+        self.assertEqual(
+            reader.location(),
+            before_reader,
+            "failed Return must roll back the hidden BookReader cursor",
+        )
+
+        workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
+        restored = workflow.return_to_book()
+        self.assertEqual(restored, before_view.origin)
+        self.assertEqual(reader.location(), before_view.origin)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, before_revision + 1)
+
+    def test_return_invalidation_abort_keeps_session_and_revision_recoverable(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        reader = BookReader(
+            BookDocument(
+                title="Book",
+                blocks=[
+                    Position(fen=Board.START, block_id="invalidate-abort-origin"),
+                    Position(fen=Board.START, block_id="invalidate-abort-moved"),
+                ],
+            )
+        )
+        workflow, _engine, _analysis = self._workflow(reader)
+        workflow.open_current()
+        before_revision = workflow.revision
+        before_view = workflow.view()
+        reader.next_block()
+        before_reader = reader.location()
+
+        with patch.object(
+            workflow._engine,
+            "invalidate",
+            side_effect=AbortSignal("analysis invalidation aborted"),
+        ):
+            with self.assertRaises(AbortSignal):
+                workflow.return_to_book()
+
+        self.assertTrue(workflow.active)
+        self.assertEqual(workflow.revision, before_revision)
+        self.assertEqual(workflow.view(), before_view)
+        self.assertEqual(
+            reader.location(),
+            before_reader,
+            "aborted Return must roll back the hidden BookReader cursor",
+        )
+
+        restored = workflow.return_to_book()
+        self.assertEqual(restored, before_view.origin)
+        self.assertEqual(reader.location(), before_view.origin)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, before_revision + 1)
+
     def test_failed_return_keeps_session_recoverable(self) -> None:
         document = BookDocument(
             title="Book",

@@ -776,6 +776,27 @@ async function clickRoute(routeId) {
     "raw native event focus_target overrode canonical snapshot focus"
   );
 
+  const shutdownFailureMessage =
+    "Accessible Chess could not close safely. The window remains open; try exiting again.";
+  const beforeShutdownErrorSnapshots = snapshotCalls;
+  const beforeShutdownErrorRefreshes = stage1RefreshCalls;
+  eventQueue = [{ kind: "error", payload: { message: shutdownFailureMessage } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    live.textContent === shutdownFailureMessage,
+    "native refused-close error did not reach the NVDA live region"
+  );
+  check(
+    snapshotCalls === beforeShutdownErrorSnapshots,
+    "refused-close error triggered an unrelated V2 snapshot refresh"
+  );
+  check(
+    stage1RefreshCalls === beforeShutdownErrorRefreshes,
+    "refused-close error triggered an unrelated Stage 1 repaint"
+  );
+
   const beforeSerializedDrainCalls = drainCalls;
   holdNextDrain = true;
   eventQueue = [{ kind: "status", payload: { announcement: "First serialized event." } }];

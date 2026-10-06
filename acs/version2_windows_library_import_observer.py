@@ -9,16 +9,18 @@ and ``LibraryImportResult`` carry the stable attempt identity needed by the
 existing Library projection to reject stale/mixed attempts.
 
 This module decorates the per-worker service factory used by
-``Version2WindowsFileActionDelegate``.  It observes the exact canonical DTO
-objects without changing the import transaction, parser/decoder, database, or
-browser event contract.  Observer failures are non-authoritative: they are
-logged and never turn an otherwise valid canonical import into a rollback.
+``Version2WindowsFileActionDelegate``. It snapshots exact canonical DTO
+values into detached, revalidated observer objects without changing the import
+transaction, parser/decoder, database, or browser event contract. Observer
+failures and mutations are non-authoritative: they are contained and cannot
+alter the worker-visible DTO or turn a valid canonical import into a rollback.
 """
 
 from collections.abc import Callable
 import logging
 from typing import Any
 
+from .chessbase_library_import import ChessBaseLibraryImportReport
 from .library_import_service import LibraryImportProgress, LibraryImportResult
 from .version2_windows_file_workflows import Version2ImportWorkerServices
 
@@ -30,13 +32,48 @@ ResultSink = Callable[[LibraryImportResult], Any]
 ServicesFactory = Callable[[], Version2ImportWorkerServices]
 
 
+def _safe_warning(message: str, *args: object) -> None:
+    """Best-effort observer diagnostics with no transaction authority."""
+
+    try:
+        _LOG.warning(message, *args)
+    except BaseException:
+        pass
+
+
+def _snapshot_progress(value: LibraryImportProgress) -> LibraryImportProgress:
+    if type(value) is not LibraryImportProgress:
+        raise TypeError("canonical Library progress object is invalid")
+    return LibraryImportProgress(
+        value.attempt_id,
+        value.processed_games,
+        value.total_games,
+    )
+
+
+def _snapshot_result(value: LibraryImportResult) -> LibraryImportResult:
+    if type(value) is not LibraryImportResult:
+        raise TypeError("canonical Library import result is invalid")
+    return LibraryImportResult(
+        value.attempt_id,
+        value.source_id,
+        value.game_count,
+        value.warning_count,
+        value.first_game_id,
+        value.last_game_id,
+        value.reused,
+    )
+
+
 def _safe_observe(callback: Callable[[Any], Any], value: Any, *, kind: str) -> None:
     try:
         callback(value)
-    except Exception:
-        # Accessibility projection is an observer boundary.  A failed UI sink
-        # must not alter the canonical D07 transaction or its returned result.
-        _LOG.warning("Version 2 Library %s observer failed", kind, exc_info=True)
+    except BaseException:
+        # Accessibility projection is an observer boundary. A failed or aborted
+        # UI sink is never canonical transaction authority. Do not attach the
+        # observer exception to logging: formatting arbitrary exception objects
+        # may execute active __str__ hooks after the failure has been contained.
+        _safe_warning("Version 2 Library %s observer failed", kind)
 
 
 class _ObservedLibraryService:
@@ -54,19 +91,22 @@ class _ObservedLibraryService:
             raise TypeError("progress_callback must be callable")
 
         def progress(value: LibraryImportProgress) -> None:
-            if not isinstance(value, LibraryImportProgress):
-                raise TypeError("canonical Library progress object is invalid")
-            _safe_observe(self._progress_sink, value, kind="progress")
+            canonical = _snapshot_progress(value)
+            observer_value = _snapshot_progress(canonical)
+            _safe_observe(self._progress_sink, observer_value, kind="progress")
             if original_progress is not None:
-                original_progress(value)
+                original_progress(canonical)
 
         call_kwargs = dict(kwargs)
         call_kwargs["progress_callback"] = progress
         result = self._service.import_games(*args, **call_kwargs)
-        if not isinstance(result, LibraryImportResult):
-            raise TypeError("canonical Library import result is invalid")
-        _safe_observe(self._result_sink, result, kind="result")
-        return result
+        canonical = _snapshot_result(result)
+        _safe_observe(
+            self._result_sink,
+            _snapshot_result(canonical),
+            kind="result",
+        )
+        return canonical
 
 
 class _ObservedChessBaseService:
@@ -84,20 +124,25 @@ class _ObservedChessBaseService:
             raise TypeError("progress_callback must be callable")
 
         def progress(value: LibraryImportProgress) -> None:
-            if not isinstance(value, LibraryImportProgress):
-                raise TypeError("canonical ChessBase Library progress object is invalid")
-            _safe_observe(self._progress_sink, value, kind="progress")
+            canonical = _snapshot_progress(value)
+            observer_value = _snapshot_progress(canonical)
+            _safe_observe(self._progress_sink, observer_value, kind="progress")
             if original_progress is not None:
-                original_progress(value)
+                original_progress(canonical)
 
         call_kwargs = dict(kwargs)
         call_kwargs["progress_callback"] = progress
         report = self._service.import_database(*args, **call_kwargs)
-        result = getattr(report, "library_result", None)
+        if type(report) is not ChessBaseLibraryImportReport:
+            raise TypeError("canonical ChessBase import report is invalid")
+        result = report.library_result
         if result is not None:
-            if not isinstance(result, LibraryImportResult):
-                raise TypeError("canonical ChessBase Library result is invalid")
-            _safe_observe(self._result_sink, result, kind="result")
+            canonical = _snapshot_result(result)
+            _safe_observe(
+                self._result_sink,
+                _snapshot_result(canonical),
+                kind="result",
+            )
         return report
 
 
@@ -123,7 +168,7 @@ class Version2ObservedImportServicesFactory:
 
     def __call__(self) -> Version2ImportWorkerServices:
         services = self._factory()
-        if not isinstance(services, Version2ImportWorkerServices):
+        if type(services) is not Version2ImportWorkerServices:
             raise TypeError("base import services factory returned an invalid bundle")
         observed_library = _ObservedLibraryService(
             services.library,

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 
+from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
@@ -115,6 +116,33 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
                 self.assertEqual(resolved["actionId"], expected_action)
                 self.assertEqual(resolved["context"], "analysis")
 
+
+    def test_analysis_shortcut_matrix_is_exhaustive_for_canonical_registry(self) -> None:
+        snapshot = build_web_keymap()
+        self.assertIs(type(snapshot), dict)
+        actions = snapshot.get("actions")
+        self.assertIs(type(actions), list)
+
+        actual: dict[str, str] = {}
+        for action in actions:
+            self.assertIs(type(action), dict)
+            if action.get("context") != "analysis":
+                continue
+            binding = action.get("binding")
+            action_id = action.get("id")
+            if binding is None:
+                continue
+            self.assertIs(type(binding), str)
+            self.assertIs(type(action_id), str)
+            self.assertNotIn(binding, actual)
+            actual[binding] = action_id
+
+        self.assertEqual(
+            actual,
+            _ANALYSIS_SHORTCUTS,
+            "P0-G shortcut coverage must track the canonical live analysis keymap",
+        )
+
     def test_alt_pv_shortcuts_resolve_from_board_and_expose_result(self) -> None:
         api, engine = self.make_api()
         self.assertTrue(api.toggle_engine()["ok"])
@@ -146,20 +174,62 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
         self.assertEqual(resolved["actionId"], "board.evaluation")
         self.assertEqual(resolved["context"], "board")
 
-    def test_disabled_analysis_hotkey_is_not_silent(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            api = Version2ReleaseAccessibleChessAPI(
-                keymap_path=Path(temp) / "keymap.json"
-            )
-            resolved = api.keymap_resolve_binding("board", "Alt+1")
-            self.assertIsNotNone(resolved)
+    def test_every_analysis_shortcut_has_explicit_disabled_feedback(self) -> None:
+        expected_by_language = {
+            "uk": {
+                "analysis.pv1": (True, "Аналіз Stockfish вимкнено."),
+                "analysis.pv2": (True, "Аналіз Stockfish вимкнено."),
+                "analysis.pv3": (True, "Аналіз Stockfish вимкнено."),
+                "analysis.pv4": (True, "Аналіз Stockfish вимкнено."),
+                "analysis.pv5": (True, "Аналіз Stockfish вимкнено."),
+                "analysis.previous_pv": (False, "Варіант недоступний."),
+                "analysis.next_pv": (False, "Варіант недоступний."),
+                "analysis.lock_target": (False, "Ціль аналізу недоступна."),
+                "analysis.explore_pv": (False, "Варіант недоступний."),
+                "analysis.return": (False, "Не вдалося відновити вихідну позицію аналізу."),
+                "analysis.insert_move": (False, "Варіант недоступний."),
+                "analysis.insert_line": (False, "Варіант недоступний."),
+                "analysis.restart": (False, "Stockfish недоступний."),
+            },
+            "en": {
+                "analysis.pv1": (True, "Stockfish analysis is disabled."),
+                "analysis.pv2": (True, "Stockfish analysis is disabled."),
+                "analysis.pv3": (True, "Stockfish analysis is disabled."),
+                "analysis.pv4": (True, "Stockfish analysis is disabled."),
+                "analysis.pv5": (True, "Stockfish analysis is disabled."),
+                "analysis.previous_pv": (False, "Variation unavailable."),
+                "analysis.next_pv": (False, "Variation unavailable."),
+                "analysis.lock_target": (False, "Analysis target is unavailable."),
+                "analysis.explore_pv": (False, "Variation unavailable."),
+                "analysis.return": (False, "The analysis source position could not be restored."),
+                "analysis.insert_move": (False, "Variation unavailable."),
+                "analysis.insert_line": (False, "Variation unavailable."),
+                "analysis.restart": (False, "Stockfish unavailable."),
+            },
+        }
 
-            result = api.dispatch_action(resolved["actionId"])
+        for language, expected in expected_by_language.items():
+            with self.subTest(language=language):
+                with tempfile.TemporaryDirectory() as temp:
+                    api = Version2ReleaseAccessibleChessAPI(
+                        language,
+                        keymap_path=Path(temp) / "keymap.json",
+                    )
 
-            self.assertTrue(result["ok"])
-            announcement = str(result.get("announcement") or "").strip()
-            self.assertTrue(announcement)
-            self.assertIn("вимкнено", announcement.lower())
+                    for binding, expected_action in _ANALYSIS_SHORTCUTS.items():
+                        with self.subTest(binding=binding):
+                            resolved = api.keymap_resolve_binding("board", binding)
+                            self.assertIsNotNone(resolved)
+                            self.assertEqual(resolved["actionId"], expected_action)
+
+                            result = api.dispatch_action(expected_action)
+
+                            expected_ok, expected_announcement = expected[expected_action]
+                            self.assertIs(type(result.get("ok")), bool)
+                            self.assertEqual(result["ok"], expected_ok)
+                            announcement = str(result.get("announcement") or "").strip()
+                            self.assertEqual(announcement, expected_announcement)
+
 
 
 if __name__ == "__main__":

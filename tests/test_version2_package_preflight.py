@@ -72,20 +72,55 @@ def _write_checksums(root: Path) -> None:
     (root / CHECKSUMS_NAME).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def _minimal_windows_pe() -> bytes:
-    """Return a structurally valid minimal PE32+ image for package fixtures."""
-    data = bytearray(512)
+def _minimal_windows_pe(
+    *,
+    machine: int = 0x8664,
+    managed: bool = False,
+    subsystem: int = 0x0002,
+) -> bytes:
+    """Return a structurally valid minimal PE image for package fixtures."""
+    data = bytearray(1024)
     data[0:2] = b"MZ"
     pe_offset = 0x80
     data[0x3C:0x40] = pe_offset.to_bytes(4, "little")
     data[pe_offset:pe_offset + 4] = b"PE\x00\x00"
     coff = pe_offset + 4
-    data[coff:coff + 2] = (0x8664).to_bytes(2, "little")
+    data[coff:coff + 2] = machine.to_bytes(2, "little")
     data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
-    data[coff + 16:coff + 18] = (0xF0).to_bytes(2, "little")
+    optional_size = 0xF0 if machine == 0x8664 else 0xE0
+    data[coff + 16:coff + 18] = optional_size.to_bytes(2, "little")
     data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
     optional = coff + 20
-    data[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    pe32_plus = machine == 0x8664
+    data[optional:optional + 2] = (
+        (0x20B if pe32_plus else 0x10B).to_bytes(2, "little")
+    )
+    data[optional + 68:optional + 70] = subsystem.to_bytes(2, "little")
+
+    section = optional + optional_size
+    data[section:section + 8] = b".text\x00\x00\x00"
+    data[section + 8:section + 12] = (0x1000).to_bytes(4, "little")
+    data[section + 12:section + 16] = (0x2000).to_bytes(4, "little")
+    data[section + 16:section + 20] = (0x200).to_bytes(4, "little")
+    data[section + 20:section + 24] = (0x200).to_bytes(4, "little")
+
+    if managed:
+        directory_count_offset = 108 if pe32_plus else 92
+        directory_table_offset = 112 if pe32_plus else 96
+        data[
+            optional + directory_count_offset:optional + directory_count_offset + 4
+        ] = (16).to_bytes(4, "little")
+        clr_directory = optional + directory_table_offset + (14 * 8)
+        data[clr_directory:clr_directory + 4] = (0x2000).to_bytes(4, "little")
+        data[clr_directory + 4:clr_directory + 8] = (0x48).to_bytes(4, "little")
+
+        clr_header = 0x200
+        data[clr_header:clr_header + 4] = (0x48).to_bytes(4, "little")
+        data[clr_header + 4:clr_header + 6] = (2).to_bytes(2, "little")
+        data[clr_header + 6:clr_header + 8] = (5).to_bytes(2, "little")
+        data[clr_header + 8:clr_header + 12] = (0x2080).to_bytes(4, "little")
+        data[clr_header + 12:clr_header + 16] = (0x40).to_bytes(4, "little")
+        data[0x280:0x284] = b"BSJB"
     return bytes(data)
 
 
@@ -96,6 +131,19 @@ def _make_tree(root: Path) -> None:
     (product / "AccessibleChess.exe.config").write_text(
         _VALID_WINFORMS_CONFIG, encoding="utf-8"
     )
+    for relative in preflight._REQUIRED_DESKTOP_RUNTIME_FILES:
+        runtime = root.joinpath(*relative.split("/"))
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_bytes(
+            _minimal_windows_pe(
+                machine=(
+                    0x014C
+                    if relative in preflight._REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                    else 0x8664
+                ),
+                managed=relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
+            )
+        )
 
     web = product / "web"
     web.mkdir()
@@ -380,6 +428,59 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         label="package path",
                     )
 
+    def test_read_stable_bytes_file_uses_one_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            payload = b"stable-metadata"
+            path.write_bytes(payload)
+
+            self.assertEqual(
+                preflight._read_stable_bytes_file(
+                    path,
+                    label="metadata",
+                    max_bytes=1024,
+                ),
+                payload,
+            )
+
+    def test_read_stable_bytes_file_fails_closed_on_open_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            path.write_bytes(b"stable-metadata")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "metadata changed while being opened",
+                ):
+                    preflight._read_stable_bytes_file(
+                        path,
+                        label="metadata",
+                        max_bytes=1024,
+                    )
+
+    def test_winforms_accessibility_config_reads_from_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                return_value=_VALID_WINFORMS_CONFIG.encode("utf-8"),
+            ) as reader:
+                validate_winforms_accessibility_app_config(path)
+
+            reader.assert_called_once_with(
+                path,
+                label="WinForms accessibility app-config",
+                max_bytes=64 * 1024,
+            )
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
@@ -427,6 +528,20 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.inventory, tree.inventory)
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
+
+    def test_product_executable_requires_windows_gui_subsystem(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            product = root / "AccessibleChess" / "AccessibleChess.exe"
+            product.write_bytes(_minimal_windows_pe(subsystem=0x0003))
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "unexpected Windows PE subsystem 0x0003; expected 0x0002",
+            ):
+                _validate_tree(root)
 
     def test_package_preflight_accepts_8bit_pcm_sound_asset(self):
         with tempfile.TemporaryDirectory() as td:
@@ -554,6 +669,43 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ),
             ):
                 _validate_tree(root)
+
+    def test_sound_validation_parses_wav_semantics_from_snapshot_handles(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            _write_checksums(root)
+
+            real_wave_open = preflight.wave.open
+            observed = []
+
+            def record_wave_source(source, *args, **kwargs):
+                observed.append(source)
+                return real_wave_open(source, *args, **kwargs)
+
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                patch.object(
+                    preflight.wave,
+                    "open",
+                    side_effect=record_wave_source,
+                ),
+            ):
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            self.assertTrue(observed)
+            self.assertTrue(
+                all(not isinstance(source, (str, Path)) for source in observed),
+                "sound semantic validation must not reopen mutable pathnames",
+            )
 
     def test_inventory_bound_runtime_variant_rejects_24bit_pcm(self):
         with tempfile.TemporaryDirectory() as td:
@@ -807,6 +959,123 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_zip(archive)
 
+    def test_file_snapshot_metadata_is_platform_specific_and_fail_closed(self):
+        stable = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        size_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4097,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        negative_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=-1,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=None,
+            st_ctime_ns=456,
+        )
+        negative_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=-1,
+            st_ctime_ns=456,
+        )
+        bool_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=True,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=None,
+        )
+        negative_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=-1,
+        )
+        bool_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=True,
+        )
+
+        with patch.object(preflight.os, "name", "nt"):
+            self.assertEqual(preflight._stable_change_metadata(stable), (123,))
+            self.assertTrue(preflight._same_file_snapshot(stable, ctime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
+            self.assertTrue(preflight._same_file_snapshot(stable, missing_ctime))
+            self.assertTrue(preflight._same_file_snapshot(stable, negative_ctime))
+            self.assertTrue(preflight._same_file_snapshot(stable, bool_ctime))
+
+        with patch.object(preflight.os, "name", "posix"):
+            self.assertEqual(
+                preflight._stable_change_metadata(stable),
+                (123, 456),
+            )
+            self.assertFalse(preflight._same_file_snapshot(stable, ctime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_ctime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_ctime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_ctime))
+
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -825,6 +1094,84 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertGreaterEqual(len(wrapped.call_args_list), 2)
             for call in wrapped.call_args_list:
                 self.assertFalse(isinstance(call.args[0], (str, Path)))
+
+    def test_release_metadata_uses_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=preflight._read_stable_bytes_file,
+            ) as reader:
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            labels = {
+                call.kwargs["label"]
+                for call in reader.call_args_list
+                if "label" in call.kwargs
+            }
+            self.assertTrue(
+                {
+                    "sound provenance notice",
+                    "packaged sound inventory",
+                    "sound inventory audit notice",
+                    "WinForms accessibility app-config",
+                    "packaged sound manifest",
+                    "Stockfish GPL notice",
+                    "checksum inventory",
+                }.issubset(labels)
+            )
+
+    def test_terminal_revalidation_rejects_file_mutation_after_hygiene(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "web" / "index.html"
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_mutate(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                target.write_bytes(target.read_bytes() + b"\npost-scan-mutation")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed during validation",
+                ):
+                    _validate_tree(root)
+
+    def test_terminal_revalidation_rejects_checksum_authority_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            checksum_path = root / CHECKSUMS_NAME
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_mutate(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                with checksum_path.open("ab") as handle:
+                    handle.write(b"\n")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed during package validation",
+                ):
+                    _validate_tree(root)
 
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -951,6 +1298,56 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 report.inventory,
             )
 
+    def test_pe_hygiene_classification_and_scan_share_one_path_handle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dll = root / "helper.dll"
+            dll.write_bytes(
+                _minimal_windows_pe()
+                + b"\x00compiler=C:\\Users\\Builder\\source\\helper.pdb\x00"
+            )
+            real_open = Path.open
+            read_opens = 0
+
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == dll and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counting_open):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("helper.dll",),
+                    PackageLimits(),
+                )
+
+            self.assertEqual(read_opens, 1)
+
+    def test_text_hygiene_rejects_identity_change_during_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = root / "payload.txt"
+            payload.write_bytes(b"safe diagnostic text")
+
+            with (
+                patch.object(
+                    preflight,
+                    "_same_file_snapshot",
+                    side_effect=(True, False),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being scanned",
+                ),
+            ):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("payload.txt",),
+                    PackageLimits(),
+                )
+
     def test_text_disguised_as_dll_does_not_bypass_private_path_gate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
@@ -1021,6 +1418,26 @@ class Version2PackagePreflightTests(unittest.TestCase):
             archive.writestr(info, "target")
 
         builders.append((symlink, "symbolic links"))
+
+        def directory_mode_file_name(archive):
+            info = zipfile.ZipInfo("AccessibleChess/conflict.txt")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFDIR | 0o755) << 16
+            archive.writestr(info, b"")
+
+        builders.append(
+            (directory_mode_file_name, "conflicting directory mode")
+        )
+
+        def regular_mode_directory_name(archive):
+            info = zipfile.ZipInfo("AccessibleChess/conflict/")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o644) << 16
+            archive.writestr(info, b"")
+
+        builders.append(
+            (regular_mode_directory_name, "conflicting regular-file mode")
+        )
 
         for builder, expected in builders:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:

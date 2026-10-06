@@ -21,12 +21,14 @@ from typing import Mapping
 
 from .chesscore import Board
 from .gametree import PgnGame, RESULTS, VariationLine
-from .gametree_navigation import GameTreeCursor
+from .gametree_navigation import GameTreeCursor, MAX_VARIATION_DEPTH, VariationStep
 from .import_contract import SourceFingerprint, fingerprint
 from .position_editor import PositionState
 from .pgn_service import (
     PgnConcurrentWriteError,
     PgnOpenResult,
+    _same_direct_path,
+    _validated_expected_sha256,
     export_game_atomic,
     open_pgn,
     save_pgn_atomic,
@@ -37,7 +39,11 @@ from .pgn_workspace import PgnWorkspace, PgnWorkspaceError, PgnWorkspaceView
 class PgnDocumentErrorCode(str, Enum):
     NO_SOURCE = "no_source"
     SOURCE_REQUIRES_SAVE_AS = "source_requires_save_as"
+    RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION = (
+        "recovery_source_requires_different_destination"
+    )
     DESTINATION_VERSION_REQUIRED = "destination_version_required"
+    SAVE_COMMIT_FAILED = "save_commit_failed"
     INVALID_TAG = "invalid_tag"
     INVALID_RESULT = "invalid_result"
     INVALID_POSITION = "invalid_position"
@@ -93,16 +99,138 @@ def _error(message: str, code: PgnDocumentErrorCode) -> PgnDocumentError:
     return PgnDocumentError(message, code=code)
 
 
-def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
-    values = dict(_STANDARD_TAGS)
-    if tags is not None:
-        supplied_tags = dict(tags)
-        if _POSITION_TAGS.intersection(supplied_tags):
+def _passive_context_cursor(cursor: object) -> GameTreeCursor:
+    """Detach one saved cursor without executing caller-controlled nested hooks."""
+
+    if type(cursor) is not GameTreeCursor:
+        raise _error(
+            "saved PGN context cursor is not canonical",
+            PgnDocumentErrorCode.CONTEXT_STALE,
+        )
+    line_path = cursor.line_path
+    next_move_index = cursor.next_move_index
+    if (
+        type(line_path) is not tuple
+        or len(line_path) > MAX_VARIATION_DEPTH
+        or type(next_move_index) is not int
+        or next_move_index < 0
+    ):
+        raise _error(
+            "saved PGN context cursor is not canonical",
+            PgnDocumentErrorCode.CONTEXT_STALE,
+        )
+
+    detached_steps: list[VariationStep] = []
+    for step in line_path:
+        if type(step) is not VariationStep:
             raise _error(
-                "PGN start position must be created through the position workflow",
+                "saved PGN context cursor is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        parent_move_index = step.parent_move_index
+        variation_index = step.variation_index
+        if (
+            type(parent_move_index) is not int
+            or parent_move_index < 0
+            or type(variation_index) is not int
+            or variation_index < 0
+        ):
+            raise _error(
+                "saved PGN context cursor is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        detached_steps.append(
+            VariationStep(
+                parent_move_index=parent_move_index,
+                variation_index=variation_index,
+            )
+        )
+    return GameTreeCursor(
+        line_path=tuple(detached_steps),
+        next_move_index=next_move_index,
+    )
+
+
+def _passive_position_state(position: object) -> PositionState:
+    """Re-detach a canonical position without executing tampered nested hooks."""
+
+    if type(position) is not PositionState:
+        raise _error(
+            "PGN start position must be canonical PositionState",
+            PgnDocumentErrorCode.INVALID_POSITION,
+        )
+    pieces = position.pieces
+    turn = position.turn
+    castling = position.castling
+    en_passant = position.en_passant
+    halfmove = position.halfmove
+    fullmove = position.fullmove
+    if (
+        type(pieces) is not tuple
+        or len(pieces) != 64
+        or any(piece is not None and type(piece) is not str for piece in pieces)
+        or type(turn) is not str
+        or type(castling) is not str
+        or type(en_passant) is not str
+        or type(halfmove) is not int
+        or type(fullmove) is not int
+    ):
+        raise _error(
+            "PGN start position is not canonical",
+            PgnDocumentErrorCode.INVALID_POSITION,
+        )
+    try:
+        return PositionState(
+            pieces=tuple(pieces),
+            turn=turn,
+            castling=castling,
+            en_passant=en_passant,
+            halfmove=halfmove,
+            fullmove=fullmove,
+        )
+    except ValueError as exc:
+        raise _error(
+            "PGN start position is not valid",
+            PgnDocumentErrorCode.INVALID_POSITION,
+        ) from exc
+
+
+def _passive_new_game_tags(tags: Mapping[str, str] | None) -> dict[str, str]:
+    """Detach plain metadata without executing caller-defined mapping/text hooks."""
+
+    if tags is None:
+        return {}
+    if type(tags) is not dict:
+        raise _error(
+            "PGN new-game tags must be a built-in dictionary of text",
+            PgnDocumentErrorCode.INVALID_TAG,
+        )
+
+    supplied: dict[str, str] = {}
+    for name, value in tags.items():
+        if type(name) is not str or not name:
+            raise _error(
+                "PGN tag name must be non-empty text",
                 PgnDocumentErrorCode.INVALID_TAG,
             )
-        values.update(supplied_tags)
+        if type(value) is not str:
+            raise _error(
+                "PGN tag value must be text",
+                PgnDocumentErrorCode.INVALID_TAG,
+            )
+        supplied[name] = value
+    return supplied
+
+
+def _new_game(tags: Mapping[str, str] | None = None) -> PgnGame:
+    values = dict(_STANDARD_TAGS)
+    supplied_tags = _passive_new_game_tags(tags)
+    if _POSITION_TAGS.intersection(supplied_tags):
+        raise _error(
+            "PGN start position must be created through the position workflow",
+            PgnDocumentErrorCode.INVALID_TAG,
+        )
+    values.update(supplied_tags)
     result = values.get("Result", "*")
     if result not in RESULTS:
         raise _error("game result is not a valid PGN result", PgnDocumentErrorCode.INVALID_RESULT)
@@ -178,6 +306,38 @@ def _recover_malformed_result_placeholder(game: PgnGame) -> str | None:
     return f"recovered malformed result token {header_result} as *"
 
 
+def _passive_source_snapshot(source: object) -> SourceFingerprint | None:
+    """Detach one live source fingerprint without executing active scalar hooks."""
+
+    if source is None:
+        return None
+    if type(source) is not SourceFingerprint:
+        raise TypeError("PGN source fingerprint is invalid")
+    path = source.path
+    size = source.size
+    sha256 = source.sha256
+    suffix = source.suffix
+    if (
+        type(path) is not str
+        or not path
+        or type(size) is not int
+        or size < 0
+        or type(sha256) is not str
+        or len(sha256) != 64
+        or any(character not in "0123456789abcdef" for character in sha256)
+        or type(suffix) is not str
+        or suffix != suffix.lower()
+        or suffix != Path(path).suffix.lower()
+    ):
+        raise TypeError("PGN source fingerprint fields are invalid")
+    return SourceFingerprint(
+        path=path,
+        size=size,
+        sha256=sha256,
+        suffix=suffix,
+    )
+
+
 class PgnDocumentSession:
     """One user-facing PGN document session over the canonical workspace."""
 
@@ -190,18 +350,68 @@ class PgnDocumentSession:
         source_overwrite_safe: bool = True,
         saved_digest: str | None = None,
     ) -> None:
-        if not isinstance(workspace, PgnWorkspace):
-            raise TypeError("workspace must be PgnWorkspace")
-        if source is not None and not isinstance(source, SourceFingerprint):
-            raise TypeError("source must be SourceFingerprint or None")
-        if not isinstance(global_warnings, tuple) or any(
-            not isinstance(item, str) for item in global_warnings
+        if type(workspace) is not PgnWorkspace:
+            raise TypeError("workspace must be the canonical PgnWorkspace")
+        if source is not None:
+            if type(source) is not SourceFingerprint:
+                raise TypeError("source must be SourceFingerprint or None")
+            # Snapshot caller-owned fields once. Frozen dataclasses can still be
+            # mutated through low-level object APIs; validation and detachment
+            # must therefore consume the same passive values rather than
+            # re-reading a possibly changed object after validation.
+            source_path = source.path
+            source_size = source.size
+            source_sha256 = source.sha256
+            source_suffix = source.suffix
+            if (
+                type(source_path) is not str
+                or type(source_size) is not int
+                or type(source_sha256) is not str
+                or type(source_suffix) is not str
+            ):
+                raise TypeError("source fingerprint fields must be passive built-in scalars")
+            if not source_path:
+                raise ValueError("source fingerprint path must not be empty")
+            if source_size < 0:
+                raise ValueError("source fingerprint size must not be negative")
+            if (
+                len(source_sha256) != 64
+                or any(character not in "0123456789abcdef" for character in source_sha256)
+            ):
+                raise ValueError("source fingerprint digest must be lowercase SHA-256 hex")
+            canonical_suffix = Path(source_path).suffix.lower()
+            if source_suffix != source_suffix.lower() or source_suffix != canonical_suffix:
+                raise ValueError("source fingerprint suffix must match its source path")
+            source = SourceFingerprint(
+                path=source_path,
+                size=source_size,
+                sha256=source_sha256,
+                suffix=source_suffix,
+            )
+        if type(global_warnings) is not tuple or any(
+            type(item) is not str for item in global_warnings
         ):
-            raise TypeError("global_warnings must be a tuple of text")
+            raise TypeError("global_warnings must be a built-in tuple of plain text")
+        if type(source_overwrite_safe) is not bool:
+            raise TypeError("source_overwrite_safe must be a boolean")
+        if saved_digest is not None:
+            if type(saved_digest) is not str:
+                raise TypeError("saved_digest must be plain text or None")
+            if (
+                len(saved_digest) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in saved_digest
+                )
+            ):
+                raise ValueError("saved_digest must be lowercase SHA-256 hex")
+        # Workspace edit views are a public dirty-state surface too. Align
+        # them to the same persisted generation used by PgnDocumentSession.
+        workspace._rebase_saved_digest(saved_digest)
         self._workspace = workspace
         self._source = source
         self._global_warnings = global_warnings
-        self._source_overwrite_safe = bool(source_overwrite_safe)
+        self._source_overwrite_safe = source_overwrite_safe
         self._saved_digest = saved_digest
         self._document_revision = 0
 
@@ -231,11 +441,7 @@ class PgnDocumentSession:
         # canonical PositionState values. Reject the position before touching
         # caller-supplied metadata so invalid-position classification remains
         # deterministic and no unrelated mapping code executes first.
-        if type(position) is not PositionState:
-            raise _error(
-                "PGN start position must be canonical PositionState",
-                PgnDocumentErrorCode.INVALID_POSITION,
-            )
+        position = _passive_position_state(position)
         game, _metadata_workspace = _validated_new_game(tags)
 
         try:
@@ -296,63 +502,136 @@ class PgnDocumentSession:
 
     @property
     def source(self) -> SourceFingerprint | None:
-        return self._source
+        # Never expose the internal provenance object itself. Frozen dataclass
+        # protection prevents ordinary assignment but not low-level mutation
+        # through a caller-retained reference. Revalidate exact passive scalar
+        # shape on every outward read so a corrupted source cannot execute hooks
+        # or leak malformed provenance into the UI.
+        return _passive_source_snapshot(self._source)
 
     @property
     def dirty(self) -> bool:
-        return self._saved_digest is None or self._workspace.content_digest != self._saved_digest
+        saved_digest = self._saved_digest
+        content_digest = self._workspace.content_digest
+        if saved_digest is not None and (
+            type(saved_digest) is not str
+            or len(saved_digest) != 64
+            or any(character not in "0123456789abcdef" for character in saved_digest)
+        ):
+            raise TypeError("PGN saved digest is invalid")
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(character not in "0123456789abcdef" for character in content_digest)
+        ):
+            raise TypeError("PGN workspace digest is invalid")
+        return saved_digest is None or content_digest != saved_digest
 
     @property
     def document_revision(self) -> int:
-        return self._document_revision
+        revision = self._document_revision
+        if type(revision) is not int or revision < 0:
+            raise TypeError("PGN document revision is invalid")
+        return revision
 
     def view(self) -> PgnDocumentView:
+        source = _passive_source_snapshot(self._source)
+        source_overwrite_safe = self._source_overwrite_safe
+        global_warnings = self._global_warnings
+        revision = self.document_revision
+        if type(source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety flag is invalid")
+        if type(global_warnings) is not tuple or any(
+            type(item) is not str for item in global_warnings
+        ):
+            raise TypeError("PGN global warnings are invalid")
         workspace_view = self._workspace.view()
         return PgnDocumentView(
-            source_path=None if self._source is None else self._source.path,
-            source_sha256=None if self._source is None else self._source.sha256,
+            source_path=None if source is None else source.path,
+            source_sha256=None if source is None else source.sha256,
             game_count=workspace_view.game_count,
             selected_game_index=workspace_view.selected_game_index,
-            cursor=workspace_view.cursor,
+            cursor=_passive_context_cursor(workspace_view.cursor),
             dirty=self.dirty,
-            document_revision=self._document_revision,
-            source_overwrite_safe=self._source_overwrite_safe,
-            global_warnings=self._global_warnings,
+            document_revision=revision,
+            source_overwrite_safe=source_overwrite_safe,
+            global_warnings=global_warnings,
         )
 
     def bookmark(self) -> PgnDocumentContext:
         view = self._workspace.view()
+        content_digest = view.content_digest
+        selected_game_index = view.selected_game_index
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(character not in "0123456789abcdef" for character in content_digest)
+            or type(selected_game_index) is not int
+            or selected_game_index < 0
+        ):
+            raise TypeError("PGN workspace bookmark state is invalid")
         return PgnDocumentContext(
-            content_digest=view.content_digest,
-            selected_game_index=view.selected_game_index,
-            cursor=view.cursor,
+            content_digest=content_digest,
+            selected_game_index=selected_game_index,
+            cursor=_passive_context_cursor(view.cursor),
         )
 
     def restore_context(self, context: PgnDocumentContext) -> PgnWorkspaceView:
-        if not isinstance(context, PgnDocumentContext):
-            raise TypeError("context must be PgnDocumentContext")
-        if self._workspace.content_digest != context.content_digest:
+        if type(context) is not PgnDocumentContext:
+            raise TypeError("context must be the canonical PgnDocumentContext")
+        # Snapshot the exact dataclass once; all later validation/mutation uses
+        # these passive locals so low-level caller mutation cannot change the
+        # restore target between validation and canonical navigation.
+        content_digest = context.content_digest
+        selected_game_index = context.selected_game_index
+        context_cursor = context.cursor
+        if (
+            type(content_digest) is not str
+            or type(selected_game_index) is not int
+            or selected_game_index < 0
+        ):
+            raise _error(
+                "saved PGN context is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        cursor = _passive_context_cursor(context_cursor)
+        live_content_digest = self._workspace.content_digest
+        if (
+            type(live_content_digest) is not str
+            or len(live_content_digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in live_content_digest
+            )
+        ):
+            raise _error(
+                "PGN live content identity is not canonical",
+                PgnDocumentErrorCode.CONTEXT_STALE,
+            )
+        if live_content_digest != content_digest:
             raise _error(
                 "PGN content changed; exact saved context is stale",
                 PgnDocumentErrorCode.CONTEXT_STALE,
             )
 
         # Validate the complete return point against a detached canonical
-        # workspace before mutating the live session.  Calling select_game()
+        # workspace before mutating the live session. Calling select_game()
         # first would otherwise switch games/reset the cursor even when the
         # subsequent cursor validation rejects a forged or damaged context.
+        # Use the passively detached cursor so nested subclasses/tampering never
+        # cross into canonical GameTree navigation.
         probe = PgnWorkspace(self._workspace.games())
         try:
-            probe.select_game(context.selected_game_index)
-            probe.set_cursor(context.cursor)
+            probe.select_game(selected_game_index)
+            probe.set_cursor(cursor)
         except (TypeError, ValueError) as exc:
             raise _error(
                 "saved PGN context is not valid for the current document",
                 PgnDocumentErrorCode.CONTEXT_STALE,
             ) from exc
 
-        self._workspace.select_game(context.selected_game_index)
-        return self._workspace.set_cursor(context.cursor)
+        self._workspace.select_game(selected_game_index)
+        return self._workspace.set_cursor(cursor)
 
     def copy_pgn(self) -> str:
         return self._workspace.to_text()
@@ -364,12 +643,17 @@ class PgnDocumentSession:
         selected_game_index: int,
         cursor: GameTreeCursor,
     ) -> PgnWorkspaceView:
+        revision = self.document_revision
         replacement = PgnWorkspace(games)
         replacement.select_game(selected_game_index)
         replacement.set_cursor(cursor)
+        # Inherit the document's persisted generation rather than treating
+        # newly edited bytes as a clean baseline. Build the complete dirty
+        # projection before publishing the replacement workspace.
+        replacement_view = replacement._rebase_saved_digest(self._saved_digest)
         self._workspace = replacement
-        self._document_revision += 1
-        return replacement.view()
+        self._document_revision = revision + 1
+        return replacement_view
 
     def append_text(self, text: object) -> int:
         """Append all games from pasted/imported PGN without flattening trees."""
@@ -395,9 +679,9 @@ class PgnDocumentSession:
         return len(incoming)
 
     def edit_tag(self, name: object, value: object) -> PgnWorkspaceView:
-        if not isinstance(name, str) or not name:
+        if type(name) is not str or not name:
             raise _error("PGN tag name must be non-empty text", PgnDocumentErrorCode.INVALID_TAG)
-        if not isinstance(value, str):
+        if type(value) is not str:
             raise _error("PGN tag value must be text", PgnDocumentErrorCode.INVALID_TAG)
         if name in _POSITION_TAGS:
             raise _error(
@@ -420,7 +704,7 @@ class PgnDocumentSession:
             raise _error("PGN tag is not representable", PgnDocumentErrorCode.INVALID_TAG) from exc
 
     def delete_tag(self, name: object) -> PgnWorkspaceView:
-        if not isinstance(name, str) or not name or name == "Result":
+        if type(name) is not str or not name or name == "Result":
             raise _error("PGN tag cannot be removed", PgnDocumentErrorCode.INVALID_TAG)
         if name in _POSITION_TAGS:
             raise _error(
@@ -437,7 +721,7 @@ class PgnDocumentSession:
         )
 
     def set_result(self, result: object) -> PgnWorkspaceView:
-        if not isinstance(result, str) or result not in RESULTS:
+        if type(result) is not str or result not in RESULTS:
             raise _error("game result is not a valid PGN result", PgnDocumentErrorCode.INVALID_RESULT)
         old = self._workspace.view()
         games = list(self._workspace.games())
@@ -450,8 +734,81 @@ class PgnDocumentSession:
             cursor=old.cursor,
         )
 
+    def _commit_saved_file(
+        self,
+        saved: SourceFingerprint,
+        *,
+        save_as: bool,
+    ) -> None:
+        """Finalize verified durable bytes without a partially updated session."""
+
+        if type(saved) is not SourceFingerprint:
+            raise _error(
+                "PGN file was written but returned provenance is not canonical",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+        path = saved.path
+        size = saved.size
+        sha256 = saved.sha256
+        suffix = saved.suffix
+        if (
+            type(path) is not str
+            or not path
+            or type(size) is not int
+            or size < 0
+            or type(sha256) is not str
+            or len(sha256) != 64
+            or any(character not in "0123456789abcdef" for character in sha256)
+            or type(suffix) is not str
+            or suffix != suffix.lower()
+            or suffix != Path(path).suffix.lower()
+        ):
+            raise _error(
+                "PGN file was written but returned provenance is invalid",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+        content_digest = self._workspace.content_digest
+        document_revision = self._document_revision
+        if (
+            type(content_digest) is not str
+            or len(content_digest) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in content_digest
+            )
+            or type(document_revision) is not int
+            or document_revision < 0
+        ):
+            raise _error(
+                "PGN file was written but live document state is invalid",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            )
+        next_source = SourceFingerprint(
+            path=path,
+            size=size,
+            sha256=sha256,
+            suffix=suffix,
+        )
+        try:
+            self._workspace.mark_saved()
+        except BaseException as exc:
+            raise _error(
+                "PGN file was written but the document checkpoint could not be finalized",
+                PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            ) from exc
+
+        self._source = next_source
+        if save_as:
+            self._source_overwrite_safe = True
+            self._global_warnings = ()
+        self._saved_digest = content_digest
+        self._document_revision = document_revision + 1
+
     def save(self) -> SourceFingerprint:
-        if self._source is None:
+        if type(self._source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety flag is invalid")
+        source = _passive_source_snapshot(self._source)
+        if source is None:
             raise _error("document has no source; use Save As", PgnDocumentErrorCode.NO_SOURCE)
         if not self._source_overwrite_safe:
             raise _error(
@@ -459,15 +816,12 @@ class PgnDocumentSession:
                 PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS,
             )
         saved = save_pgn_atomic(
-            self._source.path,
+            source.path,
             self._workspace.games(),
             overwrite=True,
-            expected_sha256=self._source.sha256,
+            expected_sha256=source.sha256,
         )
-        self._source = saved
-        self._saved_digest = self._workspace.content_digest
-        self._workspace.mark_saved()
-        self._document_revision += 1
+        self._commit_saved_file(saved, save_as=False)
         return saved
 
     @staticmethod
@@ -477,12 +831,20 @@ class PgnDocumentSession:
         overwrite: bool,
         expected_sha256: str | None,
     ) -> str | None:
-        if destination.exists() and overwrite and expected_sha256 is None:
+        # Overwrite is an authorization request, not a hint inferred from a
+        # potentially stale existence check. Requiring the exact destination
+        # generation for every replacement closes the check/use race where a
+        # previously absent target could appear before atomic publication and be
+        # silently clobbered. New targets must use overwrite=False so the
+        # canonical writer owns the no-clobber create race.
+        if type(overwrite) is not bool:
+            raise TypeError("overwrite must be a boolean")
+        if overwrite and expected_sha256 is None:
             raise _error(
-                "existing destination requires its expected fingerprint before overwrite",
+                "destination overwrite requires its expected fingerprint",
                 PgnDocumentErrorCode.DESTINATION_VERSION_REQUIRED,
             )
-        return expected_sha256
+        return _validated_expected_sha256(expected_sha256)
 
     def save_as(
         self,
@@ -491,24 +853,40 @@ class PgnDocumentSession:
         overwrite: bool = False,
         expected_sha256: str | None = None,
     ) -> SourceFingerprint:
+        if type(self._source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety flag is invalid")
+        source = _passive_source_snapshot(self._source)
         destination = Path(path)
         expected = self._destination_expectation(
             destination,
             overwrite=overwrite,
             expected_sha256=expected_sha256,
         )
+        if (
+            source is not None
+            and not self._source_overwrite_safe
+            and _same_direct_path(destination, source.path)
+        ):
+            raise _error(
+                "recovery source must be preserved; choose a different Save As destination",
+                PgnDocumentErrorCode.RECOVERY_SOURCE_REQUIRES_DIFFERENT_DESTINATION,
+            )
+        # Save As may explicitly select this document's current source. Keep
+        # that overwrite bound to the source generation captured by the session;
+        # a fresh hash obtained after an external edit is not overwrite authority.
+        if (
+            overwrite
+            and source is not None
+            and _same_direct_path(destination, source.path)
+        ):
+            expected = source.sha256
         saved = save_pgn_atomic(
             destination,
             self._workspace.games(),
             overwrite=overwrite,
             expected_sha256=expected,
         )
-        self._source = saved
-        self._source_overwrite_safe = True
-        self._global_warnings = ()
-        self._saved_digest = self._workspace.content_digest
-        self._workspace.mark_saved()
-        self._document_revision += 1
+        self._commit_saved_file(saved, save_as=True)
         return saved
 
     def export_selected(
