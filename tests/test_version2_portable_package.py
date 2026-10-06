@@ -1574,6 +1574,56 @@ class PortableTreeTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertFalse(target.exists())
 
+    def test_zip_digest_binding_rejects_same_size_mutation_after_durability(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_sync = portable_module._fsync_file_snapshot
+            injected = False
+
+            def sync_then_mutate(path, *, expected, label):
+                nonlocal injected
+                result = real_sync(path, expected=expected, label=label)
+                if label == "verified portable ZIP archive" and not injected:
+                    candidate = Path(path)
+                    with candidate.open("r+b") as handle:
+                        first = handle.read(1)
+                        handle.seek(0)
+                        handle.write(b"X" if first != b"X" else b"Y")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    current = candidate.stat()
+                    os.utime(
+                        candidate,
+                        ns=(
+                            current.st_atime_ns,
+                            result.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                    injected = True
+                return result
+
+            with mock.patch.object(
+                portable_module,
+                "_fsync_file_snapshot",
+                side_effect=sync_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "changed after durability confirmation",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
     def test_zip_publication_rejects_same_inode_mutation_after_link(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
