@@ -12,7 +12,7 @@ The model keeps the media cursor and chess cursor independent. Synchronization
 is an explicit operation and never silently resolves ambiguous recognition.
 """
 
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from enum import Enum
 import json
@@ -724,6 +724,11 @@ class MediaChessLink:
     status: MediaLinkStatus = MediaLinkStatus.CANDIDATE
     confidence: float = 0.0
     evidence: str | None = None
+    end_timestamp_ms: int | None = None
+    segment_id: str | None = None
+    position_id: str | None = None
+    qualification: MediaReconciliationState | None = None
+    evidence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _require_text(self.source_id, "source_id"))
@@ -753,6 +758,84 @@ class MediaChessLink:
         object.__setattr__(
             self, "evidence", _require_optional_text(self.evidence, "evidence")
         )
+        if self.end_timestamp_ms is not None:
+            end_timestamp = _require_nonnegative_int(
+                self.end_timestamp_ms,
+                "end_timestamp_ms",
+            )
+            if end_timestamp < self.timestamp_ms:
+                raise MediaContractError(
+                    "link end_timestamp_ms cannot precede timestamp_ms",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
+            object.__setattr__(self, "end_timestamp_ms", end_timestamp)
+        for attribute, field_name, limit in (
+            ("segment_id", "segment_id", 512),
+            ("position_id", "position_id", 2048),
+        ):
+            value = getattr(self, attribute)
+            if value is not None:
+                object.__setattr__(
+                    self,
+                    attribute,
+                    _require_bounded_text(value, field_name, max_chars=limit),
+                )
+        if self.qualification is None:
+            qualification = (
+                MediaReconciliationState.VERIFIED
+                if status is MediaLinkStatus.CONFIRMED
+                else MediaReconciliationState.OBSERVED
+            )
+        elif type(self.qualification) is MediaReconciliationState:
+            qualification = self.qualification
+        elif type(self.qualification) is str:
+            try:
+                qualification = MediaReconciliationState(self.qualification)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media link qualification",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported media link qualification",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if status is MediaLinkStatus.CONFIRMED:
+            if qualification not in (
+                MediaReconciliationState.VERIFIED,
+                MediaReconciliationState.INFERRED,
+            ):
+                raise MediaContractError(
+                    "confirmed link requires VERIFIED or INFERRED qualification",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+        elif qualification is not MediaReconciliationState.OBSERVED:
+            raise MediaContractError(
+                "candidate link must remain OBSERVED until reconciliation",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "qualification", qualification)
+        if type(self.evidence_ids) is not tuple:
+            raise MediaContractError(
+                "link evidence_ids must be an immutable tuple",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if len(self.evidence_ids) > MAX_MEDIA_RECONCILIATION_REFS:
+            raise MediaContractError(
+                "link evidence_ids exceed the safety limit",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        evidence_ids = tuple(
+            _require_bounded_text(item, "evidence_id", max_chars=512)
+            for item in self.evidence_ids
+        )
+        if len(set(evidence_ids)) != len(evidence_ids):
+            raise MediaContractError(
+                "link evidence_ids must be unique",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "evidence_ids", evidence_ids)
 
     @property
     def confirmed(self) -> bool:
@@ -852,6 +935,10 @@ class TimelineResolution:
     ambiguous: bool
     barrier: MediaTimelineBarrier | None = None
     qualification: MediaReconciliationState | None = None
+    end_timestamp_ms: int | None = None
+    segment_id: str | None = None
+    position_id: str | None = None
+    evidence_ids: tuple[str, ...] = ()
 
     @property
     def resolved(self) -> bool:
@@ -1239,6 +1326,53 @@ class MediaPositionTimeline:
         timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
         return self._links_by_timestamp.get(timestamp, ())
 
+    def links_covering(self, timestamp_ms: int) -> tuple[MediaChessLink, ...]:
+        """Return only links that explicitly declare a range covering time."""
+
+        timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
+        return tuple(
+            link
+            for link in self._links
+            if link.end_timestamp_ms is not None
+            and link.timestamp_ms <= timestamp <= link.end_timestamp_ms
+        )
+
+    def next_resolved(
+        self,
+        after_timestamp_ms: int,
+    ) -> TimelineResolution | None:
+        """Return the next unambiguous confirmed media position."""
+
+        timestamp = _require_nonnegative_int(
+            after_timestamp_ms,
+            "after_timestamp_ms",
+        )
+        index = bisect_right(self._timestamps, timestamp)
+        while index < len(self._timestamps):
+            resolution = self.resolve_exact(self._timestamps[index])
+            if resolution.resolved:
+                return resolution
+            index += 1
+        return None
+
+    def previous_resolved(
+        self,
+        before_timestamp_ms: int,
+    ) -> TimelineResolution | None:
+        """Return the previous unambiguous confirmed media position."""
+
+        timestamp = _require_nonnegative_int(
+            before_timestamp_ms,
+            "before_timestamp_ms",
+        )
+        index = bisect_left(self._timestamps, timestamp) - 1
+        while index >= 0:
+            resolution = self.resolve_exact(self._timestamps[index])
+            if resolution.resolved:
+                return resolution
+            index -= 1
+        return None
+
     def resolve_exact(self, timestamp_ms: int) -> TimelineResolution:
         timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
         return self._resolution(
@@ -1280,6 +1414,8 @@ class MediaPositionTimeline:
                 ambiguous=barrier.state is MediaReconciliationState.AMBIGUOUS,
                 barrier=barrier,
                 qualification=barrier.state,
+                segment_id=barrier.segment_id,
+                evidence_ids=barrier.evidence_ids,
             )
         confirmed_refs = tuple(
             sorted({link.chess_ref for link in links if link.confirmed})
@@ -1291,14 +1427,37 @@ class MediaPositionTimeline:
         ambiguous = len(confirmed_refs) > 1 or (
             not confirmed_refs and len(candidate_refs) > 1
         )
-        if len(confirmed_refs) == 1:
-            qualification = MediaReconciliationState.VERIFIED
+        selected_link = next(
+            (
+                link
+                for link in links
+                if chess_ref is not None
+                and link.confirmed
+                and link.chess_ref == chess_ref
+            ),
+            None,
+        )
+        if selected_link is not None:
+            qualification = selected_link.qualification
         elif ambiguous:
             qualification = MediaReconciliationState.AMBIGUOUS
+        elif len(links) == 1:
+            qualification = links[0].qualification
         elif candidate_refs:
             qualification = MediaReconciliationState.OBSERVED
         else:
             qualification = None
+        segment_ids = {link.segment_id for link in links if link.segment_id is not None}
+        common_segment = next(iter(segment_ids)) if len(segment_ids) == 1 else None
+        evidence_ids = tuple(
+            sorted(
+                {
+                    evidence_id
+                    for link in links
+                    for evidence_id in link.evidence_ids
+                }
+            )
+        )
         return TimelineResolution(
             source_id=self.source_id,
             requested_timestamp_ms=requested,
@@ -1307,6 +1466,22 @@ class MediaPositionTimeline:
             chess_ref=chess_ref,
             ambiguous=ambiguous,
             qualification=qualification,
+            end_timestamp_ms=(
+                selected_link.end_timestamp_ms
+                if selected_link is not None
+                else None
+            ),
+            segment_id=(
+                selected_link.segment_id
+                if selected_link is not None
+                else common_segment
+            ),
+            position_id=(
+                selected_link.position_id
+                if selected_link is not None
+                else None
+            ),
+            evidence_ids=evidence_ids,
         )
 
     def confirmed_timestamps_for(self, chess_ref: str) -> tuple[int, ...]:
@@ -1437,6 +1612,11 @@ class MediaPositionTimeline:
                     "status": link.status.value,
                     "confidence": link.confidence,
                     "evidence": link.evidence,
+                    "end_timestamp_ms": link.end_timestamp_ms,
+                    "segment_id": link.segment_id,
+                    "position_id": link.position_id,
+                    "qualification": link.qualification.value,
+                    "evidence_ids": list(link.evidence_ids),
                 }
                 for link in self._links
             ],
@@ -1511,6 +1691,11 @@ class MediaPositionTimeline:
                     status=raw_link.get("status", MediaLinkStatus.CANDIDATE.value),
                     confidence=raw_link.get("confidence", 0.0),
                     evidence=raw_link.get("evidence"),
+                    end_timestamp_ms=raw_link.get("end_timestamp_ms"),
+                    segment_id=raw_link.get("segment_id"),
+                    position_id=raw_link.get("position_id"),
+                    qualification=raw_link.get("qualification"),
+                    evidence_ids=tuple(raw_link.get("evidence_ids", ())),
                 )
             )
         return cls(

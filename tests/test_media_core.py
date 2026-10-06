@@ -766,6 +766,129 @@ class MediaCoreContractTests(unittest.TestCase):
 
 
 
+
+    def test_rich_timeline_link_carries_range_segment_position_and_evidence_identity(self):
+        link = MediaChessLink(
+            source_id="lesson-1",
+            timestamp_ms=10_000,
+            chess_ref="tree:segment-2:path-17",
+            status=MediaLinkStatus.CONFIRMED,
+            confidence=0.95,
+            evidence="canonical application fixture",
+            end_timestamp_ms=14_999,
+            segment_id="segment-2",
+            position_id="position:canonical-hash-17",
+            qualification=MediaReconciliationState.INFERRED,
+            evidence_ids=("ev-board-4", "ev-speech-9"),
+        )
+        timeline = MediaPositionTimeline("lesson-1", (link,))
+        resolution = timeline.resolve_exact(10_000)
+        self.assertTrue(resolution.resolved)
+        self.assertEqual(resolution.end_timestamp_ms, 14_999)
+        self.assertEqual(resolution.segment_id, "segment-2")
+        self.assertEqual(resolution.position_id, "position:canonical-hash-17")
+        self.assertEqual(resolution.qualification, MediaReconciliationState.INFERRED)
+        self.assertEqual(resolution.evidence_ids, ("ev-board-4", "ev-speech-9"))
+        self.assertEqual(timeline.links_covering(12_000), (link,))
+        self.assertEqual(timeline.links_covering(15_000), ())
+
+    def test_rich_timeline_link_round_trip_preserves_mapping_metadata(self):
+        link = MediaChessLink(
+            source_id="lesson-1",
+            timestamp_ms=1000,
+            chess_ref="tree:a",
+            status=MediaLinkStatus.CONFIRMED,
+            confidence=1.0,
+            end_timestamp_ms=1999,
+            segment_id="segment-a",
+            position_id="position-a",
+            qualification=MediaReconciliationState.VERIFIED,
+            evidence_ids=("ev-1",),
+        )
+        timeline = MediaPositionTimeline("lesson-1", (link,))
+        restored = MediaPositionTimeline.from_dict(timeline.to_dict())
+        self.assertEqual(restored.links, (link,))
+        self.assertEqual(restored.resolve_exact(1000).position_id, "position-a")
+
+    def test_timeline_link_rejects_invalid_range_and_qualification(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessLink(
+                source_id="lesson-1",
+                timestamp_ms=1000,
+                chess_ref="tree:a",
+                end_timestamp_ms=999,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessLink(
+                source_id="lesson-1",
+                timestamp_ms=1000,
+                chess_ref="tree:a",
+                status=MediaLinkStatus.CONFIRMED,
+                qualification=MediaReconciliationState.OBSERVED,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessLink(
+                source_id="lesson-1",
+                timestamp_ms=1000,
+                chess_ref="candidate:a",
+                status=MediaLinkStatus.CANDIDATE,
+                qualification=MediaReconciliationState.VERIFIED,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_next_previous_resolved_skip_candidates_ambiguity_and_resync_barriers(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (
+                self.link(1000, "tree:a"),
+                self.link(2000, "candidate:only", confirmed=False),
+                self.link(3000, "tree:x"),
+                self.link(3000, "tree:y"),
+                self.link(5000, "tree:b"),
+            ),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="lesson-1",
+                    timestamp_ms=4000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                ),
+            ),
+        )
+        next_result = timeline.next_resolved(1000)
+        self.assertIsNotNone(next_result)
+        self.assertEqual(next_result.anchor_timestamp_ms, 5000)
+        self.assertEqual(next_result.chess_ref, "tree:b")
+
+        previous_result = timeline.previous_resolved(5000)
+        self.assertIsNotNone(previous_result)
+        self.assertEqual(previous_result.anchor_timestamp_ms, 1000)
+        self.assertEqual(previous_result.chess_ref, "tree:a")
+
+        self.assertIsNone(timeline.next_resolved(5000))
+        self.assertIsNone(timeline.previous_resolved(1000))
+
+    def test_barrier_resolution_exposes_segment_and_evidence_ids(self):
+        barrier = MediaTimelineBarrier(
+            source_id="lesson-1",
+            timestamp_ms=7000,
+            state=MediaReconciliationState.RESYNC_REQUIRED,
+            segment_id="segment-new",
+            evidence_ids=("ev-jump",),
+            reason="unrelated position jump",
+        )
+        timeline = MediaPositionTimeline("lesson-1", (), barriers=(barrier,))
+        result = timeline.resolve_exact(7000)
+        self.assertEqual(result.segment_id, "segment-new")
+        self.assertEqual(result.evidence_ids, ("ev-jump",))
+        self.assertEqual(
+            result.qualification,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
+
     def test_resync_barrier_blocks_stale_confirmed_fallback(self):
         timeline = MediaPositionTimeline(
             "lesson-1",
