@@ -26,12 +26,15 @@ env:
   FILE_WORKFLOWS_BLOB: deaccf51a3f3e4abd8c88ec819841782f9db0d9c
   HOST_RUNTIME_BLOB: 652badafd5ec393e1ee12cf89105cb68326be134
   IMPORT_UI_PUMP_BLOB: 76baad119f244f71b53556549b8ee2119872fd2a
-  IMPORT_UI_PUMP_TEST_BLOB: 967392b32966b5b5f5f0d89e13068e14f93d31f1
+  IMPORT_UI_PUMP_TEST_BLOB: e61a29469060e28a4f1fc801285e7cdcab67479b
   BOOK_OPEN_WORKER_TEST_BLOB: fa209e3db7f4d73cba9c31b3bae425eb2cfb90de
   HOST_RUNTIME_TEST_BLOB: 5b0f27b4c5f5001485e30b32c462bdd0de80aff1
   FILE_SHUTDOWN_TEST_BLOB: d25efb4b26d3f9eee49ef6c86d76a0a038f97cba
   FORMCLOSING_TEST_BLOB: 197661e6fee63d19fcdc86535815389cb1c70868
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
+  PACKAGE_PREFLIGHT_BLOB: 08c4024b063a7c674bada1a712cfdf44e7470c10
+  PACKAGE_PREFLIGHT_TEST_BLOB: b986b679e9bb14e60f7c8297c09ddef914357c15
+  ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
 
 jobs:
   recovery-hardening:
@@ -78,17 +81,20 @@ jobs:
             ".github/workflows/current-shipping-owner-cancel-recovery-order.yml"
             ".github/workflows/current-shipping-recovery-hardening.yml"
             "acs/version2_application.py"
+            "acs/version2_package_preflight.py"
             "acs/version2_release_app.py"
             "acs/version2_release_ui.py"
             "acs/version2_windows_book_open_worker.py"
             "acs/version2_windows_file_workflows.py"
             "acs/version2_windows_host_runtime.py"
             "acs/version2_windows_import_ui_pump.py"
+            "tests/test_v2_board_analysis_hotkey_feedback.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
             "tests/test_v2_windows_import_ui_pump.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
+            "tests/test_version2_package_preflight.py"
             "tests/test_version2_release_cleanup_precedence.py"
             "tests/test_version2_release_ui.py"
             "tests/test_version2_windows_book_open_worker.py"
@@ -117,11 +123,15 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$HOST_RUNTIME_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "$FILE_SHUTDOWN_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "$FORMCLOSING_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
 
       - name: Compile changed and integrated boundaries
         run: >-
           python -m py_compile
           acs/version2_application.py
+          acs/version2_package_preflight.py
           acs/version2_release_app.py
           acs/version2_release_ui.py
           acs/version2_windows_book_open_worker.py
@@ -132,9 +142,11 @@ jobs:
           tests/test_version2_shutdown.py
           tests/test_work_v2_shutdown_progress_failure_cleanup.py
           tests/test_version2_composition_startup_cleanup_current.py
+          tests/test_version2_package_preflight.py
           tests/test_version2_release_ui.py
           tests/test_version2_release_cleanup_precedence.py
           tests/test_version2_windows_book_open_worker.py
+          tests/test_v2_board_analysis_hotkey_feedback.py
           tests/test_v2_windows_file_worker_shutdown_fence.py
           tests/test_v2_windows_host_runtime.py
           tests/test_v2_windows_import_ui_pump.py
@@ -151,6 +163,7 @@ jobs:
           tests.test_version2_release_cleanup_precedence
           tests.test_version2_windows_book_open_worker
           tests.test_w5_native_formclosing_dirty_pgn
+          tests.test_v2_board_analysis_hotkey_feedback
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_pgn_open_worker
