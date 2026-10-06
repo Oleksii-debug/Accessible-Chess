@@ -249,6 +249,32 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_progress_save_failure_can_retry_and_then_close_database(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            progress_failure = OSError("FIRST_PROGRESS_FAILURE")
+            store = mock.Mock()
+            store.path = root / "book-progress.json"
+            store.save.side_effect = [progress_failure, None]
+            try:
+                application = self._application(database, analysis, store)
+
+                with self.assertRaises(OSError) as caught:
+                    application.shutdown()
+
+                self.assertIs(caught.exception, progress_failure)
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+
+                self.assertTrue(application.shutdown())
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    database.conn.execute("SELECT 1")
+                self.assertEqual(store.save.call_count, 2)
+            finally:
+                database.close()
+                analysis.close()
+
     def test_training_progress_failure_still_attempts_book_progress_and_keeps_database_open(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
