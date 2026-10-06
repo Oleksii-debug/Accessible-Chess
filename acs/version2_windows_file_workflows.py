@@ -475,15 +475,34 @@ class Version2WindowsFileActionDelegate:
         )
 
     @staticmethod
-    def _pgn_session_generation(session: PgnDocumentSession) -> tuple[int, int, str]:
+    def _pgn_session_generation(
+        session: PgnDocumentSession,
+    ) -> tuple[
+        PgnWorkspace,
+        int,
+        int,
+        str,
+        SourceFingerprint | None,
+        bool,
+        str | None,
+        tuple[str, ...],
+    ]:
+        """Capture one passive content + persistence generation for modal fencing."""
+
         if type(session) is not PgnDocumentSession:
             raise TypeError("PGN generation requires an exact document session")
         workspace = session.workspace
         if type(workspace) is not PgnWorkspace:
             raise TypeError("PGN generation requires the canonical workspace")
+
         document_revision = session.document_revision
         workspace_revision = workspace.content_revision
         content_digest = workspace.content_digest
+        source = session.source
+        source_overwrite_safe = session._source_overwrite_safe
+        saved_digest = session._saved_digest
+        global_warnings = session._global_warnings
+
         if type(document_revision) is not int or document_revision < 0:
             raise TypeError("PGN document revision is invalid")
         if type(workspace_revision) is not int or workspace_revision < 0:
@@ -494,7 +513,33 @@ class Version2WindowsFileActionDelegate:
             or any(character not in "0123456789abcdef" for character in content_digest)
         ):
             raise TypeError("PGN workspace digest is invalid")
-        return document_revision, workspace_revision, content_digest
+        if source is not None and type(source) is not SourceFingerprint:
+            raise TypeError("PGN source provenance is invalid")
+        if type(source_overwrite_safe) is not bool:
+            raise TypeError("PGN source overwrite safety is invalid")
+        if saved_digest is not None and (
+            type(saved_digest) is not str
+            or len(saved_digest) != 64
+            or any(character not in "0123456789abcdef" for character in saved_digest)
+        ):
+            raise TypeError("PGN saved digest is invalid")
+        if type(global_warnings) is not tuple or any(
+            type(item) is not str for item in global_warnings
+        ):
+            raise TypeError("PGN global warnings are invalid")
+        # Retain the exact canonical workspace object in the generation lease.
+        # The expected tuple keeps it alive across the modal dialog, so a
+        # same-content workspace replacement cannot evade the stale check.
+        return (
+            workspace,
+            document_revision,
+            workspace_revision,
+            content_digest,
+            source,
+            source_overwrite_safe,
+            saved_digest,
+            global_warnings,
+        )
 
     def _prepare_open_path(
         self,
@@ -503,7 +548,7 @@ class Version2WindowsFileActionDelegate:
         FileWorkflowEvent | None,
         str,
         PgnDocumentSession | None,
-        tuple[int, int, str] | None,
+        tuple[PgnWorkspace, int, int, str, SourceFingerprint | None, bool, str | None, tuple[str, ...]] | None,
     ]:
         previous_focus = self._focus()
         try:
@@ -738,7 +783,7 @@ class Version2WindowsFileActionDelegate:
         previous_focus: str,
         cancel_event: threading.Event,
         expected_session: PgnDocumentSession | None,
-        expected_generation: tuple[int, int, str] | None,
+        expected_generation: tuple[PgnWorkspace, int, int, str, SourceFingerprint | None, bool, str | None, tuple[str, ...]] | None,
     ) -> None:
         session: PgnDocumentSession | None = None
         view = None
@@ -804,7 +849,7 @@ class Version2WindowsFileActionDelegate:
         previous_focus: str,
         cancel_event: threading.Event,
         expected_session: PgnDocumentSession | None,
-        expected_generation: tuple[int, int, str] | None,
+        expected_generation: tuple[PgnWorkspace, int, int, str, SourceFingerprint | None, bool, str | None, tuple[str, ...]] | None,
     ) -> None:
         with self._lock:
             current = (
@@ -1129,7 +1174,7 @@ class Version2WindowsFileActionDelegate:
             # Production Windows Save As must not materialize the complete PGN
             # presentation before opening the native picker. The exact detached
             # save snapshot is captured after the dialog returns; here we need
-            # only passive canonical provenance and the pre-dialog revision fence.
+            # passive canonical provenance and the full pre-dialog persistence generation fence.
             try:
                 expected_generation = self._pgn_session_generation(current)
                 source = current.source
