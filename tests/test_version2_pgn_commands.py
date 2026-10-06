@@ -369,6 +369,75 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(first.workspace.selected_game_index, 1)
         self.assertEqual(second.workspace.selected_game_index, 0)
 
+    def test_metadata_commands_edit_current_game_with_cas_and_keep_position_tags_protected(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "Old"]\n[Result "*"]\n\n1. e4 *\n'
+        )
+        commands = Version2PgnCommands(lambda: session)
+
+        def target(**extra):
+            view = session.workspace.view()
+            payload = {
+                "game_index": view.selected_game_index,
+                "line_path": tuple(
+                    (step.parent_move_index, step.variation_index)
+                    for step in view.cursor.line_path
+                ),
+                "move_index": (
+                    view.cursor.next_move_index - 1
+                    if view.cursor.next_move_index
+                    else None
+                ),
+                "expected_record_digest": view.current_record_digest,
+                "expected_content_digest": view.content_digest,
+                "content_revision": view.content_revision,
+            }
+            payload.update(extra)
+            return payload
+
+        commands("pgn.tag_edit", target(name="Event", value="Updated"))
+        self.assertEqual("Updated", session.workspace.current_game().tags["Event"])
+
+        commands("pgn.tag_edit", target(name="Site", value="Bratislava"))
+        self.assertEqual("Bratislava", session.workspace.current_game().tags["Site"])
+
+        commands("pgn.result_set", target(result="1-0"))
+        game = session.workspace.current_game()
+        self.assertEqual("1-0", game.tags["Result"])
+        self.assertEqual("1-0", game.line.result)
+
+        commands("pgn.tag_delete", target(name="Site"))
+        self.assertNotIn("Site", session.workspace.current_game().tags)
+
+        before = session.copy_pgn()
+        with self.assertRaises(Exception):
+            commands("pgn.tag_edit", target(name="FEN", value=Board.START))
+        self.assertEqual(before, session.copy_pgn())
+
+    def test_stale_metadata_target_cannot_mutate_newer_document(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "Stable"]\n[Result "*"]\n\n1. e4 *\n'
+        )
+        view = session.workspace.view()
+        stale = {
+            "game_index": 0,
+            "line_path": (),
+            "move_index": None,
+            "expected_record_digest": view.current_record_digest,
+            "expected_content_digest": view.content_digest,
+            "content_revision": view.content_revision,
+            "name": "Event",
+            "value": "Stale overwrite",
+        }
+        session.edit_tag("Site", "Fresh mutation")
+        before = session.copy_pgn()
+
+        with self.assertRaises(ValueError):
+            Version2PgnCommands(lambda: session)("pgn.tag_edit", stale)
+
+        self.assertEqual(before, session.copy_pgn())
+        self.assertEqual("Stable", session.workspace.current_game().tags["Event"])
+
     def test_illegal_move_never_produces_a_board_position(self):
         session = PgnDocumentSession.from_text('1. e5 *')
         session.workspace.next_move()
