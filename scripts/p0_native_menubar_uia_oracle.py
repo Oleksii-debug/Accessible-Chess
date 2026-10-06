@@ -166,6 +166,40 @@ def _uia_snapshot(
         return value
 
 
+def _uia_menu_handle_binding_checks(
+    uia: dict[str, Any],
+    *,
+    pid: int,
+    menu_handle: int,
+) -> dict[str, bool]:
+    """Bind the WinForms MenuStrip handle to the exact canonical UIA MenuBar.
+
+    A process-scoped search alone can find a different/stale MenuBar and still
+    satisfy name/count assertions.  FromHandle evidence proves that the concrete
+    native handle attached as MainMenuStrip is itself the accessible menu.
+    """
+
+    from_handle = uia.get("menu_from_handle")
+    if not isinstance(from_handle, dict):
+        from_handle = {}
+    return {
+        "uia_handle_element_present": bool(from_handle),
+        "uia_handle_automation_id_canonical": (
+            from_handle.get("automation_id") == "AccessibleChessFullProductMenu"
+        ),
+        "uia_handle_control_type_menubar": (
+            from_handle.get("control_type") == "ControlType.MenuBar"
+        ),
+        "uia_handle_process_matches": from_handle.get("process_id") == pid,
+        "uia_handle_native_handle_matches": (
+            menu_handle != 0 and from_handle.get("native_window_handle") == menu_handle
+        ),
+        "uia_handle_enabled": from_handle.get("enabled") is True,
+        "uia_handle_onscreen": from_handle.get("offscreen") is False,
+        "uia_handle_probe_clean": not bool(uia.get("menu_from_handle_error")),
+    }
+
+
 def main() -> int:
     if sys.platform != "win32":
         raise SystemExit("This oracle requires Windows")
@@ -264,16 +298,22 @@ def main() -> int:
     uia = result.get("uia") or {}
     names = uia.get("top_level_names") or []
     patterns = uia.get("top_level_expand_collapse") or []
+    menu_handle = int(winforms.get("menu_handle") or 0)
     checks = {
         "host_handle_created": bool(winforms.get("host_is_handle_created")),
         "menu_parent_is_host": bool(winforms.get("menu_parent_is_host")),
         "main_menu_strip_is_menu": bool(winforms.get("main_menu_strip_is_menu")),
         "menu_handle_created": bool(winforms.get("menu_is_handle_created")),
-        "menu_handle_nonzero": int(winforms.get("menu_handle") or 0) != 0,
+        "menu_handle_nonzero": menu_handle != 0,
         "winforms_top_level_count_matches_canonical": int(winforms.get("menu_item_count") or 0) == expected_count,
         "uia_exact_menu_bar_count_1": int(uia.get("exact_menu_bar_count") or 0) == 1,
         "uia_top_level_profile_matches_canonical": tuple(names) in (expected_ua, expected_en),
         "uia_expand_collapse_all": len(patterns) == expected_count and all(patterns),
+        **_uia_menu_handle_binding_checks(
+            uia,
+            pid=os.getpid(),
+            menu_handle=menu_handle,
+        ),
     }
     passed = not errors and all(checks.values())
     summary = {
