@@ -128,6 +128,15 @@ function snapshot(selectedId) {
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true },
       { action: "pgn.export_selection", label: "Export selection", enabled: true }
     ],
+    game_manager: {
+      add_label: "Add game",
+      delete_label: "Delete current game",
+      delete_title: "Delete game",
+      delete_message: "Delete the current game from this PGN?",
+      delete_confirm_label: "Delete",
+      cancel_label: "Cancel",
+      can_delete: false
+    },
     metadata_editor: {
       open_label: "Edit tags and result",
       title: "PGN metadata",
@@ -486,6 +495,73 @@ async function run() {
   check(!JSON.stringify(calls).includes("expected_record_digest"), "browser learned record digest");
   check(!JSON.stringify(calls).includes("line_path"), "browser learned canonical GameTree path");
   check(announcements.length === 0, "passive PGN render produced live-region spam");
+
+  const gameCalls = [];
+  const gameRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    gameRoot,
+    snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+    (command, payload) => {
+      gameCalls.push([command, payload || {}]);
+      if (command === "pgn.game_add") {
+        return { kind: "delegated", payload: { action: command } };
+      }
+      throw new Error("unexpected game-management command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const addGame = gameRoot.descendants().find((item) => item.id === "pgn-game-add");
+  const deleteGame = gameRoot.descendants().find((item) => item.id === "pgn-game-delete");
+  check(addGame && deleteGame, "PGN game-management controls missing");
+  check(deleteGame.disabled, "single-game PGN allowed destructive delete");
+  addGame.listeners.click();
+  await flush();
+  check(
+    gameCalls.length === 1 &&
+      gameCalls[0][0] === "pgn.game_add" &&
+      Object.keys(gameCalls[0][1]).length === 0,
+    "PGN add-game browser payload is not empty"
+  );
+
+  const multi = snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa");
+  multi.game.count = 2;
+  multi.game.can_next_game = true;
+  multi.actions[1] = { action: "pgn.next_game", label: "Next game", enabled: true };
+  multi.game_manager.can_delete = true;
+  const deleteCalls = [];
+  const deleteRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    deleteRoot,
+    multi,
+    (command, payload) => {
+      deleteCalls.push([command, payload || {}]);
+      if (command === "pgn.game_delete") {
+        return { kind: "delegated", payload: { action: command } };
+      }
+      throw new Error("unexpected delete command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const deleteButton = deleteRoot.descendants().find((item) => item.id === "pgn-game-delete");
+  check(deleteButton && !deleteButton.disabled, "multi-game PGN delete action stayed disabled");
+  deleteButton.listeners.click();
+  const deleteDialog = deleteRoot.descendants().find((item) => item.id === "pgn-game-delete-dialog");
+  check(deleteDialog && deleteDialog.open, "PGN delete confirmation did not open");
+  const deleteConfirm = deleteDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Delete"
+  );
+  check(deleteConfirm, "PGN delete confirmation action missing");
+  deleteConfirm.listeners.click();
+  await flush();
+  check(
+    deleteCalls.length === 1 &&
+      deleteCalls[0][0] === "pgn.game_delete" &&
+      Object.keys(deleteCalls[0][1]).length === 0,
+    "PGN delete-game browser payload is not empty"
+  );
+  check(!deleteDialog.open, "delegated PGN delete did not close confirmation");
 
   const metadataCalls = [];
   const metadataRoot = new FakeElement("div");
