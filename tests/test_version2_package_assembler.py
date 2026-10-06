@@ -514,6 +514,103 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                         )
                     self.assertFalse(output.exists())
 
+    def test_public_controls_reject_active_mapping_and_paths_before_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        class ActiveDict(dict):
+            def items(self):
+                touched.append("items")
+                raise AssertionError("active mapping hook executed")
+
+        active_path = ActivePath()
+        active_mapping = ActiveDict(
+            {"native-menu-self-diagnostic.json": "diagnostic.json"}
+        )
+
+        with patch(
+            "acs.version2_package_assembler._safe_info",
+            side_effect=AssertionError("assembly filesystem work must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact dict or None"):
+                assemble_version2_package_tree(
+                    "product",
+                    "notices",
+                    "output",
+                    integration_sha=_SHA,
+                    diagnostic_files=active_mapping,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        exact_mapping = {"native-menu-self-diagnostic.json": active_path}
+        with patch(
+            "acs.version2_package_assembler._safe_info",
+            side_effect=AssertionError("assembly filesystem work must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                assemble_version2_package_tree(
+                    "product",
+                    "notices",
+                    "output",
+                    integration_sha=_SHA,
+                    diagnostic_files=exact_mapping,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        path_cases = (
+            (active_path, "notices", "output"),
+            ("product", active_path, "output"),
+            ("product", "notices", active_path),
+        )
+        for product, notices, output in path_cases:
+            with self.subTest(
+                product=type(product).__name__,
+                notices=type(notices).__name__,
+                output=type(output).__name__,
+            ):
+                with patch(
+                    "acs.version2_package_assembler._safe_info",
+                    side_effect=AssertionError("assembly filesystem work must not start"),
+                ) as inspect:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        assemble_version2_package_tree(
+                            product,
+                            notices,
+                            output,
+                            integration_sha=_SHA,
+                        )
+                inspect.assert_not_called()
+                self.assertEqual(touched, [])
+
+        for package_root, zip_path in (
+            (active_path, "candidate.zip"),
+            ("package", active_path),
+        ):
+            with self.subTest(
+                package_root=type(package_root).__name__,
+                zip_path=type(zip_path).__name__,
+            ):
+                with patch(
+                    "acs.version2_package_assembler.validate_version2_package_tree",
+                    side_effect=AssertionError("package validation must not start"),
+                ) as validation:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        write_version2_package_zip(
+                            package_root,
+                            zip_path,
+                            expected_integration_sha=_SHA,
+                        )
+                validation.assert_not_called()
+                self.assertEqual(touched, [])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
