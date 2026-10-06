@@ -14,6 +14,7 @@ on:
       - 'web/full_product_pgn.js'
       - 'tests/test_gametree_accessible_completion.py'
       - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'tests/test_pgn_workspace.py'
       - '.github/workflows/gametree-accessible-completion.yml'
   workflow_dispatch:
 
@@ -60,6 +61,7 @@ jobs:
           acs/version2_pgn_commands.py
           tests/test_gametree_accessible_completion.py
           tests/test_pgn_complete_editing_user_flow.py
+          tests/test_pgn_workspace.py
           web/full_product_pgn.js
           EOF
           sort -o expected-scope.txt expected-scope.txt
@@ -80,6 +82,7 @@ jobs:
           acs/ui_keymap_adapter.py
           tests/test_gametree_accessible_completion.py
           tests/test_pgn_complete_editing_user_flow.py
+          tests/test_pgn_workspace.py
       - name: Parse browser GameTree surface
         run: node --check web/full_product_pgn.js
       - name: PGN browser DOM regression
