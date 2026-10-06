@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HTML_IMPORT_BLOB: 47cff62cd39c2fd09555df182c7b5363c7696236
-  ACTIVE_CANCEL_TEST_BLOB: 79a3eb5b9c163572bd641b595b89df70d7b75c9f
+  HTML_IMPORT_BLOB: ceaec6cda917f780c05d05609fc2d83550f14967
+  ACTIVE_CANCEL_TEST_BLOB: ad2e081c626fe56db0901453dddf8e1ed5b29f6a
 
 jobs:
   exact-head:
