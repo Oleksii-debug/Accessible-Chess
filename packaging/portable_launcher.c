@@ -704,8 +704,24 @@ void WINAPI wWinMainCRTStartup(void) {
     report = ac_open_report();
     if (report == INVALID_HANDLE_VALUE) {
         error = GetLastError();
-        MessageBoxW(NULL, L"Accessible Chess cannot create launch-report.txt beside the program. Extract the ZIP to a writable folder and try again.", L"Accessible Chess — launch report error", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        ExitProcess(error == 0 ? 1 : error);
+        if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
+        ac_copy(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"Accessible Chess cannot create launch-report.txt beside the program.\r\n"
+            L"Extract the ZIP to a writable folder and try again.\r\n\r\n"
+            L"Не вдалося створити launch-report.txt поруч із програмою.\r\n"
+            L"Розпакуйте ZIP у папку з правом запису та повторіть запуск.\r\n\r\n"
+            L"Windows error / Код Windows: "
+        );
+        ac_append_u32(g_message, AC_PATH_CAP + 2048, error);
+        MessageBoxW(
+            NULL,
+            g_message,
+            L"Accessible Chess — launch report error",
+            MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+        );
+        ExitProcess(error);
     }
 
     ac_write_line(report, L"ACCESSIBLE CHESS PORTABLE LAUNCH REPORT");
