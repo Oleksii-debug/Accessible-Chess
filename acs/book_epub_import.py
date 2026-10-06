@@ -1037,18 +1037,31 @@ def _xml_root(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
 
-    if control_checkpoint is not None:
-        control_checkpoint()
+    return _materialize_xml_root(data, label, control_checkpoint)
+
+
+def _materialize_xml_root(
+    data: bytes,
+    label: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> ET.Element:
+    """Materialize already-validated XML without creating a cancellation blind spot."""
+
+    parser = ET.XMLParser(target=ET.TreeBuilder())
+    chunk_size = 64 * 1024
     try:
-        root = ET.fromstring(data)
+        for offset in range(0, len(data), chunk_size):
+            if control_checkpoint is not None:
+                control_checkpoint()
+            parser.feed(data[offset : offset + chunk_size])
+        if control_checkpoint is not None:
+            control_checkpoint()
+        return parser.close()
     except ET.ParseError as exc:
         raise _error(
             f"EPUB {label} is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
-    if control_checkpoint is not None:
-        control_checkpoint()
-    return root
 
 
 def _local_name(tag: object) -> str:
