@@ -2485,6 +2485,28 @@ class Version2Application:
         message = messages.get(kind)
         if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
 
+    def _resume_native_workers_after_refused_shutdown(self) -> None:
+        """Restore only native workers whose retired state is reopenable."""
+        recovery_error: BaseException | None = None
+        for owner in (self._book_open_worker, self._files):
+            if owner is None:
+                continue
+            resume = getattr(type(owner), "resume_after_refused_shutdown", None)
+            if not callable(resume):
+                continue
+            try:
+                restored = resume(owner)
+            except BaseException as error:
+                if recovery_error is None:
+                    recovery_error = error
+            else:
+                if restored is not True and recovery_error is None:
+                    recovery_error = RuntimeError(
+                        "native worker could not recover after refused shutdown"
+                    )
+        if recovery_error is not None:
+            self._native_shutdown_recovery_error = recovery_error
+
     def shutdown(self, timeout: float | None = None):
         """Cancel and join native import work before closing shared application state.
 
@@ -2543,9 +2565,11 @@ class Version2Application:
                     progress_traceback = error.__traceback__
         if progress_error is not None:
             # Native FormClosing refuses the close when durable progress cannot
-            # be published. Keep ACSDB open as part of the same retryable owner
-            # state; closing it here would leave the still-visible application
-            # half shut down and unable to recover on the next close attempt.
+            # be published. Keep ACSDB open and restore only workers that already
+            # proved complete retirement, so the still-visible application does
+            # not become a half-shut-down shell. Recovery errors are diagnostic
+            # and never replace the primary durability failure.
+            self._resume_native_workers_after_refused_shutdown()
             raise progress_error.with_traceback(progress_traceback)
         self.database.close()
         return True

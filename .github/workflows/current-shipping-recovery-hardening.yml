@@ -15,13 +15,17 @@ concurrency:
 
 env:
   PARENT_SHA: 46ce49669c8c16f613c41f256a65c41351ca25c1
-  APP_BLOB: 65a0f0c140db543acfa0afe3e8aad8f4ec499b7d
+  APP_BLOB: 5d10c6760699939944840bc85036291955bb7b96
   RELEASE_APP_BLOB: 23fe749f1359e42277b6d62c7a73c35e5bb04a5c
   RELEASE_UI_BLOB: f94c319db2e29838aa2e50e800d7a59ad78f0f6c
   APP_TEST_BLOB: 44ba5b536005159c018701dbc01fc7127a5f9c53
-  SHUTDOWN_TEST_BLOB: 4023a6b74d3ea27ae7345391f6984d0cedf68ae1
+  SHUTDOWN_TEST_BLOB: d329ea172afc624153d486a01a3d2669f7a80457
   STARTUP_TEST_BLOB: ad1e6e661c3e961e8cf9fd089da03207508ab490
   RELEASE_UI_TEST_BLOB: 5993cc5cb4315fe50adf9b89d0f7583dfb90e065
+  BOOK_OPEN_WORKER_BLOB: 52572484b8a1b03ac116ee3b4c1089a02b00e4df
+  FILE_WORKFLOWS_BLOB: deaccf51a3f3e4abd8c88ec819841782f9db0d9c
+  BOOK_OPEN_WORKER_TEST_BLOB: 4c5fad01d2f71653f64ecbdd4eef3d5dd0281dde
+  FILE_SHUTDOWN_TEST_BLOB: a5c9cf45d84c8eaa13f717b9ae4abf1da2785b57
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
 
 jobs:
@@ -70,10 +74,14 @@ jobs:
             "acs/version2_application.py"
             "acs/version2_release_app.py"
             "acs/version2_release_ui.py"
+            "acs/version2_windows_book_open_worker.py"
+            "acs/version2_windows_file_workflows.py"
+            "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
             "tests/test_version2_release_cleanup_precedence.py"
             "tests/test_version2_release_ui.py"
+            "tests/test_version2_windows_book_open_worker.py"
             "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
@@ -88,6 +96,10 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_work_v2_shutdown_progress_failure_cleanup.py)" = "$SHUTDOWN_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_release_ui.py)" = "$RELEASE_UI_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_release_cleanup_precedence.py)" = "$RELEASE_CLEANUP_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$FILE_WORKFLOWS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "$FILE_SHUTDOWN_TEST_BLOB"
 
       - name: Compile changed and integrated boundaries
         run: >-
@@ -95,6 +107,7 @@ jobs:
           acs/version2_application.py
           acs/version2_release_app.py
           acs/version2_release_ui.py
+          acs/version2_windows_book_open_worker.py
           acs/version2_windows_file_workflows.py
           acs/version2_windows_host_runtime.py
           tests/test_version2_application.py
@@ -103,6 +116,8 @@ jobs:
           tests/test_version2_composition_startup_cleanup_current.py
           tests/test_version2_release_ui.py
           tests/test_version2_release_cleanup_precedence.py
+          tests/test_version2_windows_book_open_worker.py
+          tests/test_v2_windows_file_worker_shutdown_fence.py
 
       - name: Execute recovery, persistence and accessibility contracts
         run: >-
@@ -113,6 +128,7 @@ jobs:
           tests.test_version2_composition_startup_cleanup_current
           tests.test_version2_release_ui
           tests.test_version2_release_cleanup_precedence
+          tests.test_version2_windows_book_open_worker
           tests.test_w5_native_formclosing_dirty_pgn
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_pgn_open_worker

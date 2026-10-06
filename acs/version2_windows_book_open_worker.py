@@ -195,6 +195,22 @@ class Version2BookOpenWorker:
                 self._thread = None
         self._emit(terminal, focus_target)
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Re-open an idle worker after the native close was refused.
+
+        Shutdown raises the generation fence before joining, so callbacks queued
+        by the retired generation remain stale. Reopening is permitted only after
+        that exact worker ownership has been fully cleared.
+        """
+        self._assert_ui_thread()
+        with self._lock:
+            if not self._closed:
+                return True
+            if self._thread is not None or self._cancel is not None:
+                return False
+            self._closed = False
+        return True
+
     def shutdown(self, timeout: float | None = None) -> bool:
         self._assert_ui_thread()
         if timeout is not None and (

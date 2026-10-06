@@ -2241,6 +2241,26 @@ class Version2WindowsFileActionDelegate:
         worker.join(timeout)
         return not worker.is_alive()
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Re-open an idle workflow after the owning Form refused to close.
+
+        Shutdown may have invalidated queued callbacks, so only a fully cleared
+        worker transaction can resume. The generation fence is not rewound.
+        """
+        with self._lock:
+            if not self._shutdown_requested:
+                return True
+            if (
+                self._worker is not None
+                or self._cancel_event is not None
+                or self._terminal_pending is not None
+                or self._pending_open_result is not None
+                or self._pending_save_result is not None
+            ):
+                return False
+            self._shutdown_requested = False
+        return True
+
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join worker and make any queued PGN Open publication stale."""
 
