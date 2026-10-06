@@ -410,6 +410,34 @@ def _iter_semantic_images(line: str):
         index += 1
 
 
+def _accessible_list_item_text(text: str) -> tuple[str, bool]:
+    """Preserve inline image alt text inside a flat canonical list item.
+
+    BookDocument ListBlock has no nested image child kind.  A Markdown image in
+    a list item therefore stays in the list as selectable/readable alt text,
+    while the caller emits an explicit structural-loss warning.  Asset URLs are
+    never fetched or exposed as inferred chess semantics.
+    """
+
+    matches = _iter_semantic_images(text)
+    first = next(matches, None)
+    if first is None:
+        return text.strip(), False
+
+    parts: list[str] = []
+    cursor = 0
+    match = first
+    while match is not None:
+        parts.append(text[cursor:match.start()])
+        alt = match.group(1).strip()
+        if alt:
+            parts.append(alt)
+        cursor = match.end()
+        match = next(matches, None)
+    parts.append(text[cursor:])
+    return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
+
+
 def _is_fence_close(line: str, marker: str) -> bool:
     leading_spaces = len(line) - len(line.lstrip(" "))
     if leading_spaces > 3:
@@ -538,7 +566,7 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
 
         image_matches = _iter_semantic_images(line)
         first_image = next(image_matches, None)
-        if first_image is not None:
+        if first_image is not None and _LIST_RE.match(line) is None:
             flush()
             # Before this source-order repair, all regex-shaped image Notes were
             # appended first and one combined Paragraph containing the remaining
@@ -604,7 +632,10 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 index += 1
                 continue
 
-            items = [list_match.group("text").strip()]
+            first_item, list_image_warning = _accessible_list_item_text(
+                list_match.group("text")
+            )
+            items = [first_item]
             marker_identity = (
                 list_match.group("delimiter")
                 if ordered
@@ -639,7 +670,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                         "Markdown book visible text exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
                     )
-                items.append(candidate_match.group("text").strip())
+                candidate_item, candidate_had_image = _accessible_list_item_text(
+                    candidate_match.group("text")
+                )
+                items.append(candidate_item)
+                list_image_warning = list_image_warning or candidate_had_image
                 next_index += 1
 
             builder.list_block(
@@ -648,6 +683,10 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 ordered=ordered,
                 start=start_value if ordered else None,
             )
+            if list_image_warning:
+                builder.warning(
+                    "Markdown image inside a list item was preserved as accessible list-item text; no asset was fetched and nested image structure is not represented"
+                )
 
             # One to three leading spaces can represent a top-level Markdown
             # list when the whole list uses that indentation.  A deeper list
