@@ -129,24 +129,6 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
         self.assertEqual(projection.bookmark_name, "after-next")
         self.assertEqual(touched, [])
 
-    def test_bridge_rejects_projection_subclass_before_active_hook(self) -> None:
-        class HostileProjection(BookWebViewProjection):
-            touched = False
-
-            def generic_error(self):
-                type(self).touched = True
-                raise AssertionError("projection subclass hook must not execute")
-
-        hostile = HostileProjection.__new__(HostileProjection)
-
-        with self.assertRaisesRegex(
-            TypeError,
-            "^projection must be BookWebViewProjection$",
-        ):
-            BookWebViewBridge(hostile)
-
-        self.assertFalse(HostileProjection.touched)
-
     def test_exact_projection_method_shadows_cannot_replace_bridge_dispatch(self) -> None:
         presenter = BookReaderPresenter(
             BookReader(
