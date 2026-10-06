@@ -15,6 +15,7 @@ from typing import Callable
 from .media_core import (
     MediaChessSession,
     MediaPositionTimeline,
+    MediaReconciliationState,
     MediaSource,
     TimelineResolution,
 )
@@ -25,6 +26,7 @@ class MediaApplicationCode(str, Enum):
     INVALID_STATE = "invalid_state"
     NO_CONFIRMED_POSITION = "no_confirmed_position"
     AMBIGUOUS_POSITION = "ambiguous_position"
+    RESYNC_REQUIRED = "resync_required"
 
 
 class MediaApplicationError(ValueError):
@@ -129,6 +131,8 @@ class MediaApplicationService:
     def _qualification(resolution: TimelineResolution) -> str:
         if resolution.anchor_timestamp_ms is None:
             return "unlinked"
+        if resolution.qualification is MediaReconciliationState.RESYNC_REQUIRED:
+            return "resync_required"
         if resolution.ambiguous:
             return "ambiguous"
         if resolution.chess_ref is not None:
@@ -146,6 +150,11 @@ class MediaApplicationService:
             return (
                 "The media position is ambiguous; no chess position will be "
                 "restored."
+            )
+        if qualification == "resync_required":
+            return (
+                "Media synchronization was interrupted at this time; no chess "
+                "position will be restored until synchronization is rebuilt."
             )
         if qualification == "candidate":
             return (
@@ -243,6 +252,11 @@ class MediaApplicationService:
             raise MediaApplicationError(
                 "media position has conflicting canonical chess references",
                 code=MediaApplicationCode.AMBIGUOUS_POSITION,
+            )
+        if resolution.qualification is MediaReconciliationState.RESYNC_REQUIRED:
+            raise MediaApplicationError(
+                "media synchronization must be rebuilt before restore",
+                code=MediaApplicationCode.RESYNC_REQUIRED,
             )
         if not resolution.resolved or resolution.chess_ref is None:
             raise MediaApplicationError(
