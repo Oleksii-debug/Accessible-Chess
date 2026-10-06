@@ -520,6 +520,100 @@ Starting board
             import_text_book("text", source_name="book.rtf", source_format="rtf")
         self.assertEqual(format_error.exception.code, BookTextImportErrorCode.UNSUPPORTED_FORMAT)
 
+    def test_markdown_ordered_list_uses_first_marker_as_canonical_start(self) -> None:
+        result = import_text_book(
+            "3. Third item\n9. Fourth item\n0. Fifth item\n",
+            source_name="authored-numbering.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertTrue(lists[0].ordered)
+        self.assertEqual(lists[0].start, 3)
+        self.assertEqual(
+            lists[0].items,
+            ["Third item", "Fourth item", "Fifth item"],
+        )
+
+    def test_markdown_ordered_list_parenthesis_delimiter_preserves_one_list(self) -> None:
+        result = import_text_book(
+            "7) Seven\n1) Eight\n99) Nine\n",
+            source_name="parenthesized-numbering.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].start, 7)
+        self.assertEqual(lists[0].items, ["Seven", "Eight", "Nine"])
+
+    def test_markdown_ordered_delimiter_change_starts_new_semantic_list(self) -> None:
+        result = import_text_book(
+            "1. First\n9. Second\n3) Third\n8) Fourth\n",
+            source_name="ordered-delimiter-boundary.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(
+            [(block.start, block.items) for block in lists],
+            [
+                (1, ["First", "Second"]),
+                (3, ["Third", "Fourth"]),
+            ],
+        )
+
+    def test_markdown_unordered_marker_change_starts_new_semantic_list(self) -> None:
+        result = import_text_book(
+            "- Dash one\n- Dash two\n+ Plus one\n+ Plus two\n* Star one\n",
+            source_name="unordered-marker-boundary.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(
+            [block.items for block in lists],
+            [
+                ["Dash one", "Dash two"],
+                ["Plus one", "Plus two"],
+                ["Star one"],
+            ],
+        )
+        self.assertTrue(all(not block.ordered for block in lists))
+
+    def test_markdown_ordered_list_reimport_keeps_stable_semantic_target(self) -> None:
+        source = "4. Alpha\n40. Beta\n2. Gamma\n"
+        first = import_text_book(
+            source,
+            source_name="ordered-progress.md",
+            source_format="markdown",
+        )
+        second = import_text_book(
+            source,
+            source_name="ordered-progress.md",
+            source_format="markdown",
+        )
+        first_list = next(
+            block for block in first.document.blocks
+            if isinstance(block, ListBlock)
+        )
+        second_list = next(
+            block for block in second.document.blocks
+            if isinstance(block, ListBlock)
+        )
+        self.assertEqual(first_list.block_id, second_list.block_id)
+        self.assertEqual(first_list.start, 4)
+        self.assertEqual(first_list.items, ["Alpha", "Beta", "Gamma"])
+
     def test_markdown_lists_keep_semantics_with_up_to_three_leading_spaces(self) -> None:
         cases = (
             (" - First item\n - Second item\n", False, None, ["First item", "Second item"]),
