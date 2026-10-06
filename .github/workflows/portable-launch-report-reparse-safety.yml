@@ -24,9 +24,9 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE: f726f9a82073f10e47dc095a2a10c974be0c1873
-  LAUNCHER_BLOB: 6f0ec228a8ae1ef1f4a831f45f3d89eff3713f0f
-  CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
+  PRODUCT_BASE: 34197e963e9d5091c79b3d2fc396cdecfa229b77
+  LAUNCHER_BLOB: 9ffc6677e33637d89d8834ebb6c135ab6d26f3bb
+  CONTRACT_TEST_BLOB: 4ae48babd7ada71d38148dfb537982b74140da6b
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 concurrency:
@@ -61,10 +61,11 @@ jobs:
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+            'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
       - name: Setup exact Python
@@ -101,10 +102,11 @@ jobs:
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+            'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
       - name: Build native x64 launcher with warnings as errors
