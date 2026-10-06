@@ -413,6 +413,50 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_mismatched_cancel_cannot_overtake_retained_mailbox_truth(self) -> None:
+        for action_id in (
+            "pgn.cancel_open",
+            "pgn.cancel_save",
+            "library.cancel_import",
+        ):
+            with self.subTest(action_id=action_id), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "mismatched-cancel-retained.pgn"
+                source.write_text(_PGN, encoding="utf-8")
+                _OpenDialog.selected_paths.append(str(source))
+                owner = _Owner()
+                imported_events: list[object] = []
+                runtime = self._runtime(owner, imported_events=imported_events)
+
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(runtime.wait_for_import(5.0))
+                self.assertFalse(runtime.import_running)
+                self.assertGreater(runtime.import_mailbox.pending_count, 0)
+                self.assertEqual(imported_events, [])
+
+                original_ui_ready = runtime._pump._ui_ready
+
+                class ReadyAbort(BaseException):
+                    pass
+
+                runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+                try:
+                    with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                        with self.assertRaisesRegex(
+                            RuntimeError,
+                            "UI recovery is still pending",
+                        ):
+                            runtime(action_id, {})
+                        retry.assert_called_once()
+                finally:
+                    runtime._pump._ui_ready = original_ui_ready
+
+                self.assertGreater(runtime.import_mailbox.pending_count, 0)
+                self.assertEqual(imported_events, [])
+                self.assertTrue(runtime.request_pending_import_wakeup())
+                self.assertEqual(runtime.import_mailbox.pending_count, 0)
+                self.assertTrue(runtime.shutdown())
+
     def test_failed_pending_owner_callback_blocks_dispatch_until_same_callback_succeeds(self) -> None:
         owner = _Owner()
         fallback_calls: list[tuple[str, dict[str, object]]] = []
