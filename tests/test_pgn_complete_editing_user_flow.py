@@ -174,6 +174,8 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
             "embedded\x00nul",
             "line\nbreak",
             "carriage\rreturn",
+            "lone-high-surrogate-\ud800",
+            "lone-low-surrogate-\udfff",
         )
         for value in invalid_values:
             with self.subTest(kind="command-value", value=repr(value[:32])):
