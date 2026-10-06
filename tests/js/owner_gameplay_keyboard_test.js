@@ -54,8 +54,9 @@ function event(key, mods = {}, tag = 'INPUT') {
   // Failed move keeps a readable error while speech follows the persisted checkbox.
   const spoken = [], rendered = [];
   let response = {ok:false,announcement:'Перевірте запис і позицію.',announceMoveErrors:false};
+  let throwMove = false;
   Object.assign(shell, {
-    nextAnnouncementEvent:()=>1, api:()=>({make_move:async()=>response}),
+    nextAnnouncementEvent:()=>1, api:()=>({make_move:async()=>{if(throwMove)throw new Error('private bridge failure');return response;}}),
     render:async()=>{}, setText:(id,text)=>rendered.push([id,text]),
     announce:text=>spoken.push(text), localizedUiText:uk=>uk,
     el:id=>id==='h-settings'?{closest:()=>settingsSection}:null,
@@ -67,6 +68,15 @@ function event(key, mods = {}, tag = 'INPUT') {
   response.announceMoveErrors=true;
   await shell.apiAction('make_move','nf9');
   assert.equal(spoken.length,1);
+  throwMove=true;
+  spoken.length=0;
+  await shell.apiAction('make_move','nf9');
+  assert.deepEqual(rendered.pop(),['move-input-error','Не вдалося виконати дію.']);
+  assert.equal(spoken.pop(),'Не вдалося виконати дію.');
+  throwMove=false;
+  response={ok:true,announcement:'Зіграно: кінь f 3',announceMoveErrors:false};
+  await shell.apiAction('make_move','nf3');
+  assert.deepEqual(rendered.pop(),['move-input-error','']);
   vm.runInContext(html.split('\n').find(line=>line.startsWith('function showStage1Route(')), shell);
   shell.showStage1Route('board');assert.equal(settingsSection.hidden,true);
   shell.showStage1Route('settings');assert.equal(settingsSection.hidden,false);
