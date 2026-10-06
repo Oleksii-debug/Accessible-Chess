@@ -113,6 +113,7 @@ jobs:
           tests.test_version2_composition_startup_cleanup_current
           tests.test_version2_release_ui
           tests.test_version2_release_cleanup_precedence
+          tests.test_w5_native_formclosing_dirty_pgn
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_pgn_open_worker
           tests.test_v2_windows_pgn_save_worker
