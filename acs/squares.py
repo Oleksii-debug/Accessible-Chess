@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from .input_limits import MAX_SQUARE_TEXT_CHARS
+
 
 FILES = "abcdefgh"
 RANKS = "12345678"
@@ -31,6 +33,8 @@ def parse_square(value: str | int) -> int:
 
     if type(value) is not str:
         raise ValueError("square must be canonical text or an integer in 0..63")
+    if len(value) > MAX_SQUARE_TEXT_CHARS:
+        raise ValueError("square text is too long")
     text = value.strip().lower()
     if len(text) != 2 or text[0] not in FILES or text[1] not in RANKS:
         raise ValueError(f"invalid square: {value!r}")
