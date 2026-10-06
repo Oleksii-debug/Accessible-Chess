@@ -365,6 +365,54 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 owner.posted.pop(0)()
             self.assertTrue(runtime.shutdown())
 
+    def test_library_cancel_remains_available_when_retained_ui_delivery_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cancel-through-ui-failure.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    cancelling = runtime("library.cancel_import", {})
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(
+                cancelling.kind,
+                FileWorkflowEventKind.IMPORT_CANCELLING,
+            )
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertTrue(runtime.request_pending_import_wakeup())
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_failed_pending_owner_callback_blocks_dispatch_until_same_callback_succeeds(self) -> None:
         owner = _Owner()
         fallback_calls: list[tuple[str, dict[str, object]]] = []
