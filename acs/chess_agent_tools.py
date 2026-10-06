@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from typing import Protocol
 
+from .agent_library_tools import register_library_open_game_tool
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
@@ -137,6 +138,7 @@ class ChessAgentToolRegistry:
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
+        library_open_game_command: Callable[[Mapping[str, int]], object] | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
             raise TypeError("executor must be ToolExecutor")
@@ -150,6 +152,9 @@ class ChessAgentToolRegistry:
         self.analysis_service = analysis_service
         self.search_service = search_service
         self.media = media
+        if library_open_game_command is not None and not callable(library_open_game_command):
+            raise TypeError("library_open_game_command must be callable or None")
+        self.library_open_game_command = library_open_game_command
 
     def register_all(self) -> tuple[ToolSpec, ...]:
         self._register_board()
@@ -157,6 +162,8 @@ class ChessAgentToolRegistry:
             self._register_engine()
         if self.search_service is not None:
             self._register_library()
+        if self.library_open_game_command is not None:
+            register_library_open_game_tool(self.executor, self.library_open_game_command)
         if self.media is not None:
             self._register_media()
         return self.executor.specs()

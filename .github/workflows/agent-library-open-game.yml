@@ -1,0 +1,83 @@
+name: Agent Library Open Game Contract
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+  push:
+    branches:
+      - feature/agent-library-open-game-20261006-sol56
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-library-open-game-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact parent scope and application authority
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PARENT_REF: work/media-agent-crossrepo-intake-20261005
+          PARENT_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/agent-library-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/agent-library-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'AGENT_LIBRARY_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$PARENT_SHA" HEAD
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$PARENT_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/agent-library-open-game.yml' 'acs/agent_library_tools.py' 'acs/chess_agent_tools.py' 'tests/test_agent_library_open_game.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent Library scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/agent_library_tools.py)" = 'c9fcbe58bbfd1b65626970b17568a16146d886aa'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'b2efb52e93aa83434d82def95ed95cb1d2e2b2ff'
+          test "$(git rev-parse HEAD:tests/test_agent_library_open_game.py)" = '95bfd1220f4afce18fc5f822b56b04b2d031c6f9'
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '300c0e71d1d714a51722ca4d517235be282bf9ae'
+          test "$(git rev-parse HEAD:acs/search_service.py)" = '98466d081fb4c77d52029963c2f295e5f022dd07'
+          echo 'AGENT_LIBRARY_OPEN_AUTHORITY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Agent Library surface
+        run: >-
+          python -m compileall -q
+          acs/agent_library_tools.py
+          acs/chess_agent_tools.py
+          tests/test_agent_library_open_game.py
+
+      - name: Execute Agent Library and application regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_library_open_game
+          tests.test_version2_application
+
+      - name: Execute core selftest
+        run: python -m acs.selftest
