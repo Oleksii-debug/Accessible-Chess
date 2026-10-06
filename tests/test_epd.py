@@ -204,6 +204,50 @@ class EpdFormatTests(unittest.TestCase):
         self.assertEqual(result["announcement"], "Некоректний EPD.")
         self.assertEqual(api.board.fen(), before)
 
+    def test_actual_web_move_input_accepts_epd_and_replaces_live_root(self):
+        api = AccessibleChessAPI(lang="uk")
+        self.assertTrue(api.make_move("e4")["ok"])
+        epd = START_EPD + ' hmvc 6; fmvn 9; id "move input";'
+
+        result = api.make_move(epd)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(api.board.fen(), f"{START_BOARD} w KQkq - 6 9")
+        self.assertEqual(api.start_fen, f"{START_BOARD} w KQkq - 6 9")
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+        self.assertEqual(len(api.review_history.tree_nodes()), 1)
+
+    def test_actual_web_move_input_announces_malformed_epd_without_mutation(self):
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+
+        result = api.make_move(START_EPD + " hmvc invalid;")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Некоректний EPD.")
+        self.assertTrue(result["announceMoveErrors"])
+        self.assertEqual(api.board.fen(), before)
+
+        api_en = AccessibleChessAPI(lang="en")
+        before_en = api_en.board.fen()
+        result_en = api_en.make_move(START_EPD + " fmvn 0;")
+        self.assertFalse(result_en["ok"])
+        self.assertEqual(result_en["announcement"], "Invalid EPD.")
+        self.assertTrue(result_en["announceMoveErrors"])
+        self.assertEqual(api_en.board.fen(), before_en)
+
+    def test_actual_web_move_input_still_leaves_six_field_fen_to_move_parser(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+
+        result = api.make_move(START_FEN)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertNotEqual(result["announcement"], "Position loaded from text editor.")
+        self.assertNotIn("announceMoveErrors", result)
+
     def test_move_entry_routes_epd_without_reclassifying_six_field_fen(self):
         epd_intent = parse_move_entry(START_EPD + " hmvc 4; fmvn 5;")
         self.assertEqual(epd_intent.kind, MoveEntryKind.POSITION)
