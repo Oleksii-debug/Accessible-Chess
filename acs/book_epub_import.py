@@ -733,7 +733,10 @@ def _validate_local_zip_header(
         )
     return extra_length, physical_end
 
-def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
+def _archive_index(
+    archive: zipfile.ZipFile,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> dict[str, zipfile.ZipInfo]:
     infos = archive.infolist()
     if not infos or len(infos) > MAX_EPUB_ENTRIES:
         raise _error(
@@ -764,7 +767,9 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         )
         for index, offset in enumerate(physical_offsets)
     }
-    for info in infos:
+    for entry_index, info in enumerate(infos, start=1):
+        if control_checkpoint is not None and entry_index % 128 == 1:
+            control_checkpoint()
         local_extra_length, local_physical_end = _validate_local_zip_header(
             archive,
             info,
@@ -925,12 +930,19 @@ def _read_entry(
     return data
 
 
-def _xml_root(data: bytes, label: str) -> ET.Element:
+def _xml_root(
+    data: bytes,
+    label: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> ET.Element:
     if len(data) > MAX_EPUB_XML_BYTES:
         raise _error(
             f"EPUB {label} exceeds the supported size",
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
+
+    if control_checkpoint is not None:
+        control_checkpoint()
 
     parser = expat.ParserCreate()
     element_count = 0
@@ -943,6 +955,8 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
     def start_element(_name: str, attrs: dict[str, str]) -> None:
         nonlocal element_count, attribute_count, depth
         element_count += 1
+        if control_checkpoint is not None and element_count % 128 == 1:
+            control_checkpoint()
         depth += 1
         current_attributes = len(attrs)
         attribute_count += current_attributes
@@ -982,13 +996,18 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
 
+    if control_checkpoint is not None:
+        control_checkpoint()
     try:
-        return ET.fromstring(data)
+        root = ET.fromstring(data)
     except ET.ParseError as exc:
         raise _error(
             f"EPUB {label} is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return root
 
 
 def _local_name(tag: object) -> str:
@@ -1973,7 +1992,7 @@ def import_epub_book(
     with archive:
         if control_checkpoint is not None:
             control_checkpoint()
-        index = _archive_index(archive)
+        index = _archive_index(archive, control_checkpoint)
         infos = archive.infolist()
         if len(infos) != expected_archive_entries:
             raise _error(
@@ -2000,6 +2019,7 @@ def import_epub_book(
         container = _xml_root(
             _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
             "container metadata",
+            control_checkpoint,
         )
         opf_names = _package_rootfiles(container, warnings, index)
         package_entry_names = frozenset(opf_names)
@@ -2018,6 +2038,7 @@ def import_epub_book(
                     limit=MAX_EPUB_XML_BYTES,
                 ),
                 "package metadata",
+                control_checkpoint,
             )
             _validate_package_document(rendition_package)
             rendition_version = rendition_package.attrib["version"]
