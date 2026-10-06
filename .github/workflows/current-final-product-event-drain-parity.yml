@@ -1,0 +1,47 @@
+name: Final Product Presentation Safety
+
+on:
+  push:
+    branches:
+      - work/final-product-event-drain-parity-20261006-x7q2
+    paths:
+      - web/version2_final_product_bootstrap.js
+      - tests/js/version2_final_product_event_drain_serialization_test.js
+      - .github/workflows/current-final-product-event-drain-parity.yml
+  pull_request:
+    paths:
+      - web/version2_final_product_bootstrap.js
+      - tests/js/version2_final_product_event_drain_serialization_test.js
+      - .github/workflows/current-final-product-event-drain-parity.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  presentation-safety:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: JavaScript syntax
+        run: node --check web/version2_final_product_bootstrap.js
+      - name: Canonical release presentation regression
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+      - name: Final-product presentation safety regression
+        run: node tests/js/version2_final_product_event_drain_serialization_test.js
+      - name: Semantic selection executable
+        run: node tests/p0_semantic_document_copy_executable.js
+      - name: Semantic copy source contract
+        run: python -m unittest tests.test_p0_semantic_document_copy
