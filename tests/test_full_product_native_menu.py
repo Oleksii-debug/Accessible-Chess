@@ -222,6 +222,20 @@ class FullProductNativeMenuTests(unittest.TestCase):
 
             self.assertEqual(len(mnemonic_keys), len(set(mnemonic_keys)))
 
+            menu_alt_bindings = {f"alt+{key}" for key in mnemonic_keys}
+            default_plain_alt_bindings = {
+                binding.casefold()
+                for definition in registry.definitions()
+                if (binding := registry.get_binding(definition.action_id)) is not None
+                and binding.startswith("Alt+")
+                and binding.count("+") == 1
+                and len(binding.removeprefix("Alt+")) == 1
+            }
+            self.assertTrue(
+                menu_alt_bindings.isdisjoint(default_plain_alt_bindings),
+                (language, menu_alt_bindings & default_plain_alt_bindings),
+            )
+
     def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
         controller, calls, commands, _exits = make_controller()
         books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
