@@ -65,8 +65,9 @@ class PgnWebViewBridge:
             raise TypeError(f"{name} must be text")
         if len(value) > limit or "\x00" in value:
             raise ValueError(f"{name} is invalid")
-        token = value.strip() if name != "comment text" else value
-        if name != "comment text" and not token:
+        preserve_exact = name in {"comment text", "tag value"}
+        token = value if preserve_exact else value.strip()
+        if not preserve_exact and not token:
             raise ValueError(f"{name} is invalid")
         return token
 
