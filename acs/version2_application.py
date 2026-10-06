@@ -2523,11 +2523,11 @@ class Version2Application:
                 if progress_error is None:
                     progress_error = error
                     progress_traceback = error.__traceback__
-        try:
-            self.database.close()
-        except BaseException:
-            if progress_error is None:
-                raise
         if progress_error is not None:
+            # Native FormClosing refuses the close when durable progress cannot
+            # be published. Keep ACSDB open as part of the same retryable owner
+            # state; closing it here would leave the still-visible application
+            # half shut down and unable to recover on the next close attempt.
             raise progress_error.with_traceback(progress_traceback)
+        self.database.close()
         return True
