@@ -92,6 +92,34 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         )
         return api, fake
 
+    def test_final_facade_preserves_locked_analysis_across_normal_move(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+        origin = api.get_state()["fen"]
+        fake.set_result(origin)
+        self.assertTrue(api.toggle_analysis_lock()["ok"])
+
+        moved = api.make_move("e4")
+
+        self.assertTrue(moved["ok"])
+        self.assertTrue(moved["analysis"]["targetLocked"])
+        self.assertEqual(moved["analysis"]["fen"], origin)
+        self.assertEqual(fake.updated, [])
+
+    def test_final_facade_keeps_temporary_analysis_view_mutation_fenced(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+        origin = api.get_state()["fen"]
+        fake.set_result(origin)
+        self.assertTrue(api.explore_analysis_pv()["ok"])
+
+        blocked = api.make_move("e4")
+
+        self.assertFalse(blocked["ok"])
+        self.assertIn("поверніться", blocked["announcement"].lower())
+        self.assertEqual(api.board.fen(), origin)
+        self.assertTrue(blocked["analysisViewingTemporaryPosition"])
+
     def test_composed_move_entry_blocks_invalid_editor_position_atomically(self):
         api, _fake = self.make_api()
         self.assertTrue(api.clear_board()["ok"])
