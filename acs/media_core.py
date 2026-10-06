@@ -225,7 +225,10 @@ class MediaClock:
 
     def buffer(self, now_ms: int) -> MediaClockSnapshot:
         self._materialize(now_ms)
-        if self._state is MediaPlaybackState.ENDED:
+        if self._state in (
+            MediaPlaybackState.ENDED,
+            MediaPlaybackState.PAUSED,
+        ):
             return self._snapshot()
         if self._state is not MediaPlaybackState.BUFFERING:
             self._state = MediaPlaybackState.BUFFERING
