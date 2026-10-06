@@ -5,10 +5,8 @@ import unittest
 from acs.media_core import (
     MediaChessLink,
     MediaChessSession,
-    MediaClockSnapshot,
     MediaCursor,
     MediaLinkStatus,
-    MediaPlaybackState,
     MediaPositionTimeline,
     MediaSource,
     MediaSourceKind,
@@ -56,19 +54,17 @@ def _link(
     )
 
 
-def _clock(
+def _clock_kwargs(
     position_ms: int = 20_500,
     *,
-    state: MediaPlaybackState = MediaPlaybackState.PAUSED,
-) -> MediaClockSnapshot:
-    return MediaClockSnapshot(
-        position_ms=position_ms,
-        state=state,
-        playback_rate=1.0,
-        duration_ms=120_000,
-        revision=7,
-    )
-
+    playback_state: str = "paused",
+) -> dict[str, object]:
+    return {
+        "position_ms": position_ms,
+        "duration_ms": 120_000,
+        "playback_state": playback_state,
+        "revision": 7,
+    }
 
 def _sync_snapshot(
     links: tuple[MediaChessLink, ...],
@@ -106,7 +102,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge(language="en")
 
         state = bridge.snapshot(
-            clock=_clock(),
+            **_clock_kwargs(),
             sync_snapshot=_sync_snapshot((_link(20_000, "opaque:confirmed-node"),)),
             preprocess=_checkpoint(PreprocessStatus.COMPLETE, 4, 4),
         )
@@ -129,7 +125,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge(language="uk")
 
         state = bridge.snapshot(
-            clock=_clock(state=MediaPlaybackState.PLAYING),
+            **_clock_kwargs(playback_state="playing"),
             sync_snapshot=_sync_snapshot((_link(20_000, "node:1"),)),
         )
 
@@ -140,7 +136,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge(language="en")
 
         state = bridge.snapshot(
-            clock=_clock(),
+            **_clock_kwargs(),
             sync_snapshot=_sync_snapshot((_link(20_000, "node:candidate", confirmed=False),)),
         )
 
@@ -153,7 +149,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge()
 
         state = bridge.snapshot(
-            clock=_clock(),
+            **_clock_kwargs(),
             sync_snapshot=_sync_snapshot(
                 (_link(20_000, "node:a"), _link(20_000, "node:b"))
             ),
@@ -168,7 +164,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge()
 
         state = bridge.snapshot(
-            clock=_clock(position_ms=10_000),
+            **_clock_kwargs(position_ms=10_000),
             sync_snapshot=_sync_snapshot((_link(20_000, "node:future"),), position_ms=10_000),
         )
 
@@ -190,7 +186,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge()
 
         state = bridge.snapshot(
-            clock=_clock(),
+            **_clock_kwargs(),
             playback=resolution,
         )
 
@@ -201,7 +197,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge(language="uk")
 
         state = bridge.snapshot(
-            clock=_clock(),
+            **_clock_kwargs(),
             preprocess=_checkpoint(PreprocessStatus.RUNNING, 2, 8),
         )
 
@@ -276,11 +272,11 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         ]
         for field_name, value in cases:
             with self.subTest(field=field_name):
-                clock = _clock()
+                kwargs = _clock_kwargs()
                 object.__setattr__(clock, field_name, value)
                 bridge = RecordedMediaAccessibilityBridge()
                 with self.assertRaises(RecordedMediaAccessibilityError):
-                    bridge.snapshot(clock=clock)
+                    bridge.snapshot(**kwargs)
 
     def test_cross_source_snapshots_fail_closed(self) -> None:
         bridge = RecordedMediaAccessibilityBridge()
@@ -303,7 +299,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         )
         with self.assertRaises(RecordedMediaAccessibilityError):
             bridge.snapshot(
-                clock=_clock(),
+                **_clock_kwargs(),
                 sync_snapshot=foreign_sync,
                 preprocess=_checkpoint(PreprocessStatus.RUNNING, 1, 3),
             )
