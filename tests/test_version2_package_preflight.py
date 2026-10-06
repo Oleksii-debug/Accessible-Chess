@@ -892,11 +892,46 @@ class Version2PackagePreflightTests(unittest.TestCase):
             st_mtime_ns=124,
             st_ctime_ns=456,
         )
+        size_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4097,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        negative_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=-1,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
         missing_mtime = SimpleNamespace(
             st_dev=11,
             st_ino=22,
             st_size=4096,
             st_mtime_ns=None,
+            st_ctime_ns=456,
+        )
+        negative_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=-1,
+            st_ctime_ns=456,
+        )
+        bool_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=True,
             st_ctime_ns=456,
         )
         missing_ctime = SimpleNamespace(
@@ -906,13 +941,34 @@ class Version2PackagePreflightTests(unittest.TestCase):
             st_mtime_ns=123,
             st_ctime_ns=None,
         )
+        negative_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=-1,
+        )
+        bool_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=True,
+        )
 
         with patch.object(preflight.os, "name", "nt"):
             self.assertEqual(preflight._stable_change_metadata(stable), (123,))
             self.assertTrue(preflight._same_file_snapshot(stable, ctime_drift))
             self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
             self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
             self.assertTrue(preflight._same_file_snapshot(stable, missing_ctime))
+            self.assertTrue(preflight._same_file_snapshot(stable, negative_ctime))
+            self.assertTrue(preflight._same_file_snapshot(stable, bool_ctime))
 
         with patch.object(preflight.os, "name", "posix"):
             self.assertEqual(
@@ -921,8 +977,15 @@ class Version2PackagePreflightTests(unittest.TestCase):
             )
             self.assertFalse(preflight._same_file_snapshot(stable, ctime_drift))
             self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, size_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_size))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_size))
             self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_mtime))
             self.assertFalse(preflight._same_file_snapshot(stable, missing_ctime))
+            self.assertFalse(preflight._same_file_snapshot(stable, negative_ctime))
+            self.assertFalse(preflight._same_file_snapshot(stable, bool_ctime))
 
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:
