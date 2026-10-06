@@ -46,6 +46,27 @@ class FenEditorTurnAndVisibleStatusTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(api.board.fen(), before)
 
+    def test_new_position_editor_controls_join_analysis_exploration_lock(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        start = html.index("function setAnalysisMutationLock")
+        end = html.index("function renderAnalysis", start)
+        lock_source = html[start:end]
+        for control_id in (
+            "position-square",
+            "position-piece",
+            "position-piece-apply",
+            "position-castling",
+            "position-ep",
+            "position-halfmove",
+            "position-fullmove",
+            "position-metadata-apply",
+            "position-validate",
+        ):
+            with self.subTest(control_id=control_id):
+                self.assertIn("'" + control_id + "'", lock_source)
+
     def test_position_editor_action_feedback_has_a_visible_copyable_surface(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"
