@@ -86,6 +86,24 @@ class Version2BookOpenWorker:
     def _emit(self, kind: BookOpenWorkerEventKind, focus_target: str) -> None:
         self._event_sink(BookOpenWorkerEvent(kind, focus_target))
 
+    def _publish_terminal_with_retry(
+        self,
+        kind: BookOpenWorkerEventKind,
+        focus_target: str,
+    ) -> None:
+        """Retain a terminal until the owner-side observer accepts it."""
+        self._assert_ui_thread()
+        with self._lock:
+            if self._recovery_focus is None:
+                self._recovery_focus = focus_target
+                self._recovery_terminal_kind = kind
+            elif (
+                self._recovery_focus != focus_target
+                or self._recovery_terminal_kind is not kind
+            ):
+                raise RuntimeError("Book Open terminal delivery is already pending")
+        self._publish_pending_recovery_terminal()
+
     def _publish_pending_recovery_terminal(self) -> None:
         """Publish one owner-thread terminal retained by a refused close."""
         self._assert_ui_thread()
@@ -172,22 +190,31 @@ class Version2BookOpenWorker:
                     may_start = False
                     cancelled_before_start = True
             if cancelled_before_start:
-                self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
+                self._publish_terminal_with_retry(
+                    BookOpenWorkerEventKind.CANCELLED,
+                    focus_target,
+                )
                 return False
             if not may_start:
                 return False
             thread.start()
         except BaseException:
+            failed_reserved_start = False
             with self._lock:
                 if generation == self._generation and self._thread is thread:
                     self._cancel = None
                     self._thread = None
                     self._focus_target = ""
                     self._pending_outcome_kind = None
-            try:
-                self._emit(BookOpenWorkerEventKind.FAILED, focus_target)
-            except BaseException:
-                pass
+                    failed_reserved_start = True
+            if failed_reserved_start:
+                try:
+                    self._publish_terminal_with_retry(
+                        BookOpenWorkerEventKind.FAILED,
+                        focus_target,
+                    )
+                except BaseException:
+                    pass
             raise
         return True
 
@@ -285,13 +312,10 @@ class Version2BookOpenWorker:
             current_cancel = self._cancel
         if stale_reopened:
             with self._lock:
-                recovery_terminal = self._recovery_terminal_kind
-            terminal = recovery_terminal or BookOpenWorkerEventKind.CANCELLED
-            self._emit(terminal, focus_target)
-            with self._lock:
-                if self._recovery_focus == focus_target:
-                    self._recovery_focus = None
-                    self._recovery_terminal_kind = None
+                if self._recovery_focus is None:
+                    self._recovery_focus = focus_target
+                    self._recovery_terminal_kind = BookOpenWorkerEventKind.CANCELLED
+            self._publish_pending_recovery_terminal()
             return
         if current_cancel is not cancel:
             return
@@ -315,7 +339,7 @@ class Version2BookOpenWorker:
                 self._thread = None
                 self._focus_target = ""
                 self._pending_outcome_kind = None
-        self._emit(terminal, focus_target)
+        self._publish_terminal_with_retry(terminal, focus_target)
 
     def resume_after_refused_shutdown(self) -> bool:
         """Re-open control after the native close was refused.
