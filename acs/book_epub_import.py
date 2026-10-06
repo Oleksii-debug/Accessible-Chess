@@ -32,6 +32,7 @@ from .book_html_import import (
 )
 from .bookdocument import (
     MAX_BOOK_DOCUMENT_BLOCKS,
+    MAX_BOOK_SOURCE_ANCHOR_CHARS,
     BookDocument,
     Heading,
     block_from_dict,
@@ -2092,7 +2093,13 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
     identity = f"{entry_name}\0{chapter_index}\0{block_index}\0{original_id}"
     data["block_id"] = f"epub-{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
     anchor = data.get("source_anchor")
-    data["source_anchor"] = entry_name if not anchor else f"{entry_name}#{anchor}"
+    rebased_anchor = entry_name if not anchor else f"{entry_name}#{anchor}"
+    if len(rebased_anchor) > MAX_BOOK_SOURCE_ANCHOR_CHARS:
+        raise _error(
+            "EPUB semantic source anchor exceeds the canonical BookDocument identifier limit",
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+    data["source_anchor"] = rebased_anchor
     return block_from_dict(data)
 
 
