@@ -122,6 +122,24 @@ env:
   LIBRARY_WEBVIEW_BRIDGE_BLOB: b4be6f6fd08d9876acfa86d018a78f9d164e484d
   WINDOWS_LIBRARY_EXPORT_BLOB: 8bf72f5da0364fb77b838c1b36538365a763c8d1
   LIBRARY_EXPORT_DOM_TEST_BLOB: 61af02b4fe654c02b76403a100ac73ea4fde479f
+  POSITION_EDITOR_WORKFLOW_BLOB: 4a67bdc01446406ea0b4515688167ff916034ee8
+  PRODUCT_ACCESSIBILITY_WORKFLOW_BLOB: c4053269b6cff428a5e24790079f9d50ecbdda9a
+  SQUARE_TEXT_WORKFLOW_BLOB: 4a28c7598532bd52f567f9f141122522dfc48ee0
+  WEBUI_ACCESSIBILITY_WORKFLOW_BLOB: 28dae83d74267e46ba55d550224228c83103d826
+  WINDOWS_RUNTIME_RETRY_WORKFLOW_BLOB: 1902bf6b0c95170bab003a239a96ad30a55a57a9
+  D01_PGN_WEBVIEW_WORKFLOW_BLOB: 60e53ba659a16eb3201ae135db21cb585571c84a
+  KEYBINDINGS_WORKFLOW_BLOB: e65842bd52eb0792cdfd9b957f1f0988e5e49c50
+  FULL_PRODUCT_ACTIONS_BLOB: ef33a8530e43ae78f6a56a6ecf5ba5f5ae9f4b4f
+  INPUT_LIMITS_BLOB: f06a74bc4d6e3e7f7461bb5dac1fd7f25776ec7a
+  POSITION_EDITOR_BLOB: b3b51e71f55f7477bf1b4dc9e35492f82625be7f
+  SQUARES_BLOB: b74cf01767590f057deb805b0793e040bac62044
+  UI_KEYMAP_ADAPTER_BLOB: 68ee886873ec96bfca9f8a25ec499deb67a5b25a
+  KEYMAP_RECOVERY_JS_TEST_BLOB: fc4f48c625c9b258fdb67e7f0ac19839ed445868
+  PGN_SURFACE_DOM_TEST_BLOB: 1054a49f7c9cb57acde843cc1dee0bdf943e77fc
+  PORTABLE_WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
+  POSITION_EDITOR_TEST_BLOB: 53d03f9daa249ca013af2feb67f889794b172235
+  SQUARES_TEST_BLOB: f539b9bb5f7145a04affa27a21ec4e2dc5c0be03
+  FULL_PRODUCT_PGN_BLOB: a093ac419098978d6ca614e761d9a2ed687963b1
 
 jobs:
   recovery-hardening:
@@ -335,6 +353,24 @@ jobs:
           test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = "$LIBRARY_WEBVIEW_BRIDGE_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_library_export.py)" = "$WINDOWS_LIBRARY_EXPORT_BLOB"
           test "$(git rev-parse HEAD:tests/js/library_export_surface_dom_test.js)" = "$LIBRARY_EXPORT_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-position-editor-ascii-fen.yml)" = "$POSITION_EDITOR_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-product-accessibility-formats-convergence.yml)" = "$PRODUCT_ACCESSIBILITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-square-text-bound.yml)" = "$SQUARE_TEXT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-webui-accessibility-oracle.yml)" = "$WEBUI_ACCESSIBILITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-windows-runtime-transactional-presentation-retry-apex.yml)" = "$WINDOWS_RUNTIME_RETRY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "$D01_PGN_WEBVIEW_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/keybindings-current-apex-dom-native.yml)" = "$KEYBINDINGS_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = "$FULL_PRODUCT_ACTIONS_BLOB"
+          test "$(git rev-parse HEAD:acs/input_limits.py)" = "$INPUT_LIMITS_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/squares.py)" = "$SQUARES_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_keymap_adapter.py)" = "$UI_KEYMAP_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:tests/js/keymap_recovery_accessibility_test.js)" = "$KEYMAP_RECOVERY_JS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$PGN_SURFACE_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_window_readiness.py)" = "$PORTABLE_WINDOW_READINESS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_editor.py)" = "$POSITION_EDITOR_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_squares.py)" = "$SQUARES_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$FULL_PRODUCT_PGN_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
@@ -447,6 +483,11 @@ jobs:
         run: >-
           python -m py_compile
           acs/full_product_native_menu.py
+          acs/full_product_actions.py
+          acs/input_limits.py
+          acs/position_editor.py
+          acs/squares.py
+          acs/ui_keymap_adapter.py
           acs/child_coaching_rotation.py
           acs/child_coaching_rotation_store.py
           acs/version2_final_product_application.py
@@ -623,6 +664,9 @@ jobs:
           node --check web/version2_release_bootstrap.js
           node --check web/version2_final_product_bootstrap.js
           node --check web/full_product_library.js
+          node --check web/full_product_pgn.js
+          node tests/js/keymap_recovery_accessibility_test.js
+          node tests/js/pgn_surface_dom_test.js
           node tests/js/owner_gameplay_keyboard_test.js
           node tests/js/owner_sound_bridge_ready_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
@@ -643,6 +687,9 @@ jobs:
           tests.test_verify_p0g_packaged_hotkey_result_evidence
           tests.test_current_launcher_resource_contract
           tests.test_portable_launcher_core_guard
+          tests.test_portable_launcher_window_readiness
+          tests.test_position_editor
+          tests.test_squares
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
