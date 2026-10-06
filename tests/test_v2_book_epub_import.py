@@ -185,7 +185,7 @@ class EpubRenditionBudgetTests(unittest.TestCase):
             opf=opf,
             container=container,
             entries={
-                "OEBPS/alternate.opf": opf,
+                "OEBPS/alternate.opf": b"<broken",
                 "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
             },
         )
