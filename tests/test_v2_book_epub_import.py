@@ -168,6 +168,40 @@ class EpubXmlStructureBudgetTests(unittest.TestCase):
         self.assertIn("package metadata", str(raised.exception))
 
 
+class EpubImageReferenceDeduplicationTests(unittest.TestCase):
+    def test_duplicate_resolved_images_preserve_first_seen_order_once(self) -> None:
+        manifest = """    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="img1" href="Images/board.png" media-type="image/png"/>
+    <item id="img2" href="Images/second.png" media-type="image/png"/>"""
+        spine = """    <itemref idref="c1"/>
+    <itemref idref="c2"/>"""
+        chapter_one = b"""<html><body><p>One</p>
+<img src="../Images/board.png" alt="Board"/>
+<img src="../Images/second.png" alt="Second"/></body></html>"""
+        chapter_two = b"""<html><body><p>Two</p>
+<img src="../Images/board.png" alt="Board again"/></body></html>"""
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                "OEBPS/Text/ch1.xhtml": chapter_one,
+                "OEBPS/Text/ch2.xhtml": chapter_two,
+                "OEBPS/Images/board.png": b"PNG",
+                "OEBPS/Images/second.png": b"PNG2",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="image-order.epub")
+
+        self.assertEqual(
+            result.image_references,
+            (
+                "OEBPS/Images/board.png",
+                "OEBPS/Images/second.png",
+            ),
+        )
+
+
 class EpubWarningBudgetTests(unittest.TestCase):
     def test_warning_budget_includes_suppression_marker_and_stays_bookdocument_compatible(self) -> None:
         self.assertEqual(MAX_EPUB_WARNINGS, MAX_BOOK_DOCUMENT_WARNINGS)

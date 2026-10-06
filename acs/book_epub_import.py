@@ -2070,6 +2070,7 @@ def import_epub_book(
         blocks = []
         chapter_titles: list[str] = []
         image_references: list[str] = []
+        seen_image_references: set[str] = set()
         pgn_games = 0
         imported_spine = 0
 
@@ -2142,7 +2143,8 @@ def import_epub_book(
                         f"spine {chapter_index}: a referenced package resource is not declared as an image"
                     )
                     continue
-                if resolved not in image_references:
+                if resolved not in seen_image_references:
+                    seen_image_references.add(resolved)
                     image_references.append(resolved)
 
         if not blocks:
