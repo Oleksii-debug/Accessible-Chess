@@ -591,6 +591,34 @@ def _iter_text_lines(
     yield line_start, value[line_start:]
 
 
+def _sha256_text_hex(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value.encode("utf-8")).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        state.update(value[offset : offset + 4_096].encode("utf-8"))
+    control_checkpoint()
+    return state.hexdigest()
+
+
+def _sha256_bytes_hex(
+    value: bytes,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 64 * 1024):
+        control_checkpoint()
+        state.update(value[offset : offset + 64 * 1024])
+    control_checkpoint()
+    return state.hexdigest()
+
+
 def _text(
     value: object,
     field: str,
@@ -2087,7 +2115,10 @@ def _canonical_pgn_games(
             title = " — ".join(
                 part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?"
             ) or game.tags.get("Event") or f"Embedded game {candidate_index}.{game_index}"
-            digest = sha256(game_source.encode("utf-8")).hexdigest()[:20]
+            digest = _sha256_text_hex(
+                game_source,
+                control_checkpoint,
+            )[:20]
             occurrence = identities.get(digest, 0) + 1
             identities[digest] = occurrence
             games.append(
@@ -2294,7 +2325,10 @@ def import_html_book(
                 # between surrounding paragraphs. Preserve it without a Game
                 # role or a Board action, under the existing prose limits.
                 candidate = block.candidate
-                digest = sha256(candidate.text.encode("utf-8")).hexdigest()[:20]
+                digest = _sha256_text_hex(
+                    candidate.text,
+                    control_checkpoint,
+                )[:20]
                 ordered_blocks.append(
                     Paragraph(
                         text=candidate.text,
@@ -2364,7 +2398,7 @@ def import_html_book(
             "HTML semantic projection exceeds canonical BookDocument limits",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         ) from exc
-    digest = sha256(raw).hexdigest()
+    digest = _sha256_bytes_hex(raw, control_checkpoint)
     return BookHtmlImportResult(
         document=document,
         source_sha256=digest,
