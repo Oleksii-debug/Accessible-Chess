@@ -36,6 +36,7 @@ from acs.education_workspace import EducationWorkspace
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.teaching_session import (
     LessonSession,
+    TeachingSessionError,
     PositionSourceKind,
     TeachingActivity,
     TeachingPositionSource,
@@ -294,6 +295,43 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         )
         self.assertEqual("pair_play", self.app.group_rotation_snapshot()["activity"])
         return state
+
+    def test_workspace_replacement_cannot_invalidate_active_lesson_scope(self) -> None:
+        before_revision = self.app.education_revision
+        before_workspace = self.app._education_workspace
+        workspace_path = self.root / "education-workspace.json"
+        before_bytes = workspace_path.read_bytes()
+
+        students = self.workspace.classroom.students
+        candidate = ClassroomSnapshot(
+            students=students,
+            classes=self.workspace.classroom.classes,
+            groups=self.workspace.classroom.groups,
+            courses=self.workspace.classroom.courses,
+            cohorts=(
+                Cohort(
+                    "cohort-1",
+                    "course-1",
+                    ("student-1", "student-2", "student-3"),
+                    "group-1",
+                ),
+            ),
+            lessons=self.workspace.classroom.lessons,
+        )
+
+        with self.assertRaisesRegex(
+            TeachingSessionError,
+            "outside the selected cohort",
+        ):
+            self.app.replace_education_workspace(
+                EducationWorkspace.empty(candidate),
+                expected_revision=before_revision,
+            )
+
+        self.assertEqual(before_revision, self.app.education_revision)
+        self.assertEqual(before_workspace, self.app._education_workspace)
+        self.assertEqual(before_bytes, workspace_path.read_bytes())
+        self.assertIsNotNone(self.app._teaching_state)
 
     def test_rebinding_store_exposes_unfinished_foreign_owner_before_start_resume(self) -> None:
         foreign_lesson = LessonSession(
