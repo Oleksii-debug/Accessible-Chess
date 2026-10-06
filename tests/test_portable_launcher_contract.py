@@ -73,6 +73,50 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn(".accessible-chess-instance.lock", self.workflow)
         self.assertIn("[IO.File]::Open(", self.workflow)
 
+    def test_report_write_failure_retires_owned_child_before_popup_and_exit(self):
+        retire_start = self.source.index(
+            "static BOOL ac_retire_child_for_report_failure(DWORD code)"
+        )
+        retire_end = self.source.index(
+            "static void ac_report_write_fail(HANDLE report, DWORD code)",
+            retire_start,
+        )
+        retire = self.source[retire_start:retire_end]
+        for token in (
+            "WaitForSingleObject(g_process.hProcess, 0)",
+            "TerminateProcess(g_process.hProcess, stable_code)",
+            "AC_TIMEOUT_CLEANUP_WAIT_MS",
+            "WAIT_OBJECT_0",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, retire)
+
+        fail_start = retire_end
+        fail_end = self.source.index(
+            "static void ac_write_utf8(HANDLE handle",
+            fail_start,
+        )
+        failure = self.source[fail_start:fail_end]
+        self.assertIn(
+            "BOOL child_stopped = ac_retire_child_for_report_failure(stable_code);",
+            failure,
+        )
+        self.assertIn("ac_close_child_process_handle();", failure)
+        self.assertIn("The main Accessible Chess process may still be running.", failure)
+        self.assertLess(
+            failure.index("ac_retire_child_for_report_failure(stable_code)"),
+            failure.index("MessageBoxW("),
+        )
+        self.assertLess(
+            failure.index("ac_close_child_process_handle();"),
+            failure.index("MessageBoxW("),
+        )
+        self.assertLess(failure.index("MessageBoxW("), failure.index("ExitProcess(stable_code)"))
+
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        self.assertNotIn("CloseHandle(g_process.hProcess);", main)
+        self.assertGreaterEqual(main.count("ac_close_child_process_handle();"), 8)
+
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
             (
@@ -462,7 +506,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         transfer = main[transfer_start:transfer_end]
         self.assertIn("TerminateProcess(g_process.hProcess", transfer)
         self.assertIn("CloseHandle(g_process.hThread)", transfer)
-        self.assertIn("CloseHandle(g_process.hProcess)", transfer)
+        self.assertIn("ac_close_child_process_handle()", transfer)
 
 
 if __name__ == "__main__":
