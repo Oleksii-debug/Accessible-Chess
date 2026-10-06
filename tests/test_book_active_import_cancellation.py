@@ -287,10 +287,10 @@ class BookActiveImportCancellationTests(unittest.TestCase):
     def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
         import acs.book_epub_import as epub
 
-        block = epub.Heading(text='Chapter')
-        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
+        block = epub.Heading(text='Chapter', source_anchor='anchor')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 10):
             with self.assertRaises(epub.BookEpubImportError) as caught:
-                epub._rebase_block(block, '123456789', 1, 1)
+                epub._rebase_block(block, '1234', 1, 1)
 
         self.assertEqual(
             caught.exception.code,
@@ -301,11 +301,11 @@ class BookActiveImportCancellationTests(unittest.TestCase):
     def test_epub_rebased_source_anchor_allows_exact_canonical_boundary(self):
         import acs.book_epub_import as epub
 
-        block = epub.Heading(text='Chapter')
+        block = epub.Heading(text='Chapter', source_anchor='abcd')
         with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
-            rebased = epub._rebase_block(block, '12345678', 1, 1)
+            rebased = epub._rebase_block(block, '123', 1, 1)
 
-        self.assertEqual(rebased.source_anchor, '12345678')
+        self.assertEqual(rebased.source_anchor, '123#abcd')
         self.assertTrue(rebased.block_id.startswith('epub-'))
 
     def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
