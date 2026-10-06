@@ -41,6 +41,13 @@ def test_fen_user_actions_are_bilingual_and_remappable():
         assert row["defaultBinding"] is None
 
 
+def test_new_pgn_is_bilingual_remappable_and_has_no_forced_shortcut():
+    row = _by_id(build_web_keymap(build_full_product_action_registry()))["pgn.new"]
+    assert (row["labelUk"], row["labelEn"]) == ("Новий PGN", "New PGN")
+    assert row["registryContext"] == "document"
+    assert row["defaultBinding"] is None
+
+
 def test_ui_keymap_has_no_legacy_parallel_action_ids():
     rows = _by_id(build_web_keymap())
     forbidden = {
