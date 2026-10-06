@@ -91,6 +91,9 @@ jobs:
       SNAPSHOT_CONTRACT_STORE_BLOB: 9edff8595f1bddaeb7c5fe17bc434be49d2ff814
       SNAPSHOT_CONTRACT_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
       SNAPSHOT_CONTRACT_BOOKREADER_BLOB: d138eefc020f0549a29f69b9ff11efe9c48b7551
+      PASSIVE_MAPPING_STORE_BLOB: 0aa57d2c9d93ed43df7124367c867b8b4c3b8cd6
+      PASSIVE_MAPPING_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
+      PASSIVE_MAPPING_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -139,6 +142,7 @@ jobs:
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
 
           bounded_feature=false
+          passive_mapping_feature=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             allowed="$(printf '%s\n' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
@@ -152,6 +156,14 @@ jobs:
               && printf '%s\n' "$changed" | grep -Fqx 'acs/book_progress_store.py' \
               && printf '%s\n' "$changed" | grep -Fqx 'tests/test_v2_book_progress_store.py'; then
               bounded_feature=true
+            fi
+            passive_mapping_expected="$(printf '%s\n' \
+              '.github/workflows/current-book-progress-passive-ingress.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_book_progress_passive_ingress_current.py' | sort)"
+            if [ "$changed" = "$passive_mapping_expected" ]; then
+              passive_mapping_feature=true
             fi
           else
             expected="$(printf '%s\n' \
@@ -327,7 +339,23 @@ jobs:
           owner_descendant_convergence="$BOOK_PROGRESS_OWNER_DESCENDANT_CONVERGENCE"
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
 
-          if [ "$bounded_feature" = true ]; then
+          if [ "$passive_mapping_feature" = true ]; then
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/current-book-progress-passive-ingress.yml \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_book_progress_passive_ingress_current.py
+            git diff --quiet "$upstream" HEAD -- \
+              acs/bookreader.py \
+              acs/bookdocument.py \
+              acs/version2_application.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py \
+              tests/test_version2_application.py \
+              acs/chesscore.py \
+              acs/gametree.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=PASSIVE_MAPPING_FEATURE'
+          elif [ "$bounded_feature" = true ]; then
             git diff --check "$upstream" HEAD
             git diff --quiet "$upstream" HEAD -- \
               .github/workflows/v2-book-progress-store.yml \
@@ -471,7 +499,8 @@ jobs:
             || [ "$owner_descendant_convergence" = true ]; then
             test "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB"
             test "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB"
-          elif [ "$snapshot_contract_successor" = true ]; then
+          elif [ "$snapshot_contract_successor" = true ] \
+            || [ "$passive_mapping_feature" = true ]; then
             :
           elif [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
             || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
@@ -499,7 +528,12 @@ jobs:
             fi
           fi
 
-          if { [ "$owner_composition" = true ] \
+          if [ "$passive_mapping_feature" = true ] \
+            && [ "$candidate_store" = "$PASSIVE_MAPPING_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$PASSIVE_MAPPING_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$PASSIVE_MAPPING_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=PASSIVE_MAPPING_FEATURE'
+          elif { [ "$owner_composition" = true ] \
               || [ "$owner_descendant_convergence" = true ]; } \
             && [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
             && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
