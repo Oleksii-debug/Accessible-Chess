@@ -192,6 +192,79 @@ class D06PgnRoundTripTests(unittest.TestCase):
                     max_games=4,
                 )
             )
+
+    def test_model_subclasses_fail_before_overrideable_attribute_hooks(self):
+        touches = []
+
+        class ActivePgnGame(PgnGame):
+            def __getattribute__(self, name):
+                touches.append(("game", name))
+                raise AssertionError("active PgnGame hook must not execute")
+
+        class ActiveVariationLine(VariationLine):
+            def __getattribute__(self, name):
+                touches.append(("line", name))
+                raise AssertionError("active VariationLine hook must not execute")
+
+        class ActiveMoveNode(MoveNode):
+            def __getattribute__(self, name):
+                touches.append(("move", name))
+                raise AssertionError("active MoveNode hook must not execute")
+
+        class ActiveComment(Comment):
+            def __getattribute__(self, name):
+                touches.append(("comment", name))
+                raise AssertionError("active Comment hook must not execute")
+
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (object.__new__(ActivePgnGame),),
+        )
+        self.assertEqual(touches, [])
+
+        game_with_active_line = PgnGame(
+            tags={"Result": "*"},
+            line=object.__new__(ActiveVariationLine),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game_with_active_line,),
+        )
+        self.assertEqual(touches, [])
+
+        game_with_active_move = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[object.__new__(ActiveMoveNode)],
+                result="*",
+            ),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game_with_active_move,),
+        )
+        self.assertEqual(touches, [])
+
+        game_with_active_comment = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                leading_comments=[object.__new__(ActiveComment)],
+                result="*",
+            ),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game_with_active_comment,),
+        )
+        self.assertEqual(touches, [])
+
     def test_bytes_parse_runs_one_semantic_preflight_with_shared_budget(self):
         payload = b'[Result "*"]\n\n1. e4 *\n'
         with patch.object(
