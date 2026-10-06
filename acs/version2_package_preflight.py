@@ -1766,6 +1766,9 @@ def _validate_required_runtime_resources(
                 max_bytes=_MAX_SOUND_FILE_BYTES,
             )
             with snapshot:
+                snapshot.seek(0, os.SEEK_END)
+                stable_snapshot_bytes = snapshot.tell()
+                snapshot.seek(0)
                 with wave.open(snapshot, "rb") as reader:
                     channels = reader.getnchannels()
                     sample_width = reader.getsampwidth()
@@ -1782,8 +1785,11 @@ def _validate_required_runtime_resources(
                         _fail(
                             f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
                         )
+                    declared_pcm_bytes = frames * channels * sample_width
+                    if declared_pcm_bytes > stable_snapshot_bytes:
+                        _fail(f"packaged sound asset is truncated: {event.value}")
                     frame_bytes = reader.readframes(frames)
-                    if len(frame_bytes) != frames * channels * sample_width:
+                    if len(frame_bytes) != declared_pcm_bytes:
                         _fail(f"packaged sound asset is truncated: {event.value}")
         except Version2PackagePreflightError:
             raise
