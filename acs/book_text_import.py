@@ -366,7 +366,7 @@ _TILDE_FENCE_RE = re.compile(r"^ {0,3}(~{3,})(.*)$")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
-_QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+_QUOTE_RE = re.compile(r"^ {0,3}>[ \t]?(.*)$")
 
 
 def _match_fence_opener(line: str) -> tuple[str, str] | None:
