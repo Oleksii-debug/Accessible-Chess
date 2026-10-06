@@ -137,9 +137,13 @@ class Version2WindowsLibraryExportDelegate:
         self._thread: threading.Thread | None = None
         self._cancel: threading.Event | None = None
         self._terminal_pending: tuple[int, LibraryExportHostEvent] | None = None
+        self._terminal_delivery_inflight = False
         self._retry_timer: threading.Timer | None = None
         self._generation = 0
         self._closed = False
+        self._shutdown_recovery_requested = False
+        self._shutdown_recovery_terminal: LibraryExportHostEvent | None = None
+        self._shutdown_recovery_delivery_inflight = False
 
     @property
     def asynchronous(self) -> bool:
@@ -394,7 +398,11 @@ class Version2WindowsLibraryExportDelegate:
                 return
 
         def finish() -> None:
-            self._finish_export(generation, terminal)
+            self._finish_export(
+                generation,
+                terminal,
+                retry_on_failure=schedule_retry,
+            )
 
         try:
             assert self._post_to_ui is not None
@@ -461,22 +469,49 @@ class Version2WindowsLibraryExportDelegate:
         self,
         generation: int,
         terminal: LibraryExportHostEvent,
-    ) -> None:
+        *,
+        retry_on_failure: bool = False,
+    ) -> bool:
         self._assert_ui_thread()
         with self._lock:
             if generation != self._generation or self._closed:
-                return
+                return False
             pending = self._terminal_pending
-            if pending != (generation, terminal):
-                return
+            if pending != (generation, terminal) or self._terminal_delivery_inflight:
+                return False
+            self._terminal_delivery_inflight = True
             retry_timer = self._retry_timer
             self._retry_timer = None
+        if retry_timer is not None:
+            retry_timer.cancel()
+
+        try:
+            self._event_sink(terminal)
+        except BaseException:
+            with self._lock:
+                self._terminal_delivery_inflight = False
+            if retry_on_failure:
+                self._schedule_terminal_retry(generation, terminal)
+            _LOG.warning(
+                "Version 2 Library export terminal delivery failed",
+                exc_info=True,
+            )
+            return False
+
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+            ):
+                self._terminal_delivery_inflight = False
+                return False
             self._terminal_pending = None
             self._cancel = None
             self._thread = None
-        if retry_timer is not None:
-            retry_timer.cancel()
-        self._emit(terminal)
+            self._shutdown_recovery_requested = False
+            self._terminal_delivery_inflight = False
+        return True
 
     def recover_pending_terminal(self) -> bool:
         """Publish an already-chosen terminal on the owner thread, if any."""
@@ -486,8 +521,7 @@ class Version2WindowsLibraryExportDelegate:
             if self._closed or self._terminal_pending is None:
                 return False
             generation, terminal = self._terminal_pending
-        self._finish_export(generation, terminal)
-        return True
+        return self._finish_export(generation, terminal)
 
     def cancel_export(self) -> LibraryExportHostEvent:
         """Request cooperative cancellation without racing a chosen terminal result."""
@@ -533,13 +567,12 @@ class Version2WindowsLibraryExportDelegate:
         return not thread.is_alive()
 
     def resume_after_refused_shutdown(self) -> bool:
-        """Reopen a clean retired owner after the application refused to close.
+        """Reopen a retired owner and replay one retained truthful terminal.
 
-        Shutdown increments the generation before retiring pending UI work.
-        Keep that generation fence intact so callbacks queued before the refused
-        close stay stale after recovery. Only a fully quiescent retired owner may
-        become live again; any residual worker/terminal/retry authority fails
-        closed instead of advertising a partially recovered export boundary.
+        Successful shutdown increments the generation before retiring queued UI
+        work, so callbacks from the pre-close generation stay stale. When close
+        is later refused, a terminal explicitly retained for recovery is emitted
+        once on the owner thread after all worker/retry authority is quiescent.
         """
 
         self._assert_ui_thread()
@@ -553,24 +586,77 @@ class Version2WindowsLibraryExportDelegate:
                 or self._retry_timer is not None
             ):
                 return False
+            recovery_terminal = self._shutdown_recovery_terminal
+            if recovery_terminal is None:
+                self._shutdown_recovery_requested = False
+                self._shutdown_recovery_delivery_inflight = False
+                self._closed = False
+                return True
+            if self._shutdown_recovery_delivery_inflight:
+                return False
+            self._shutdown_recovery_delivery_inflight = True
+
+        # Recovery terminal delivery is stronger than ordinary status delivery:
+        # a transient presentation/NVDA observer failure must not consume the
+        # canonical terminal or advertise this owner as live. Keep the delegate
+        # closed and the exact event retained until one owner-thread delivery
+        # commits successfully.
+        try:
+            self._event_sink(recovery_terminal)
+        except BaseException:
+            with self._lock:
+                self._shutdown_recovery_delivery_inflight = False
+            _LOG.warning(
+                "Version 2 Library export recovery terminal delivery failed",
+                exc_info=True,
+            )
+            return False
+
+        with self._lock:
+            if not self._closed:
+                self._shutdown_recovery_delivery_inflight = False
+                return False
+            if self._shutdown_recovery_terminal is not recovery_terminal:
+                self._shutdown_recovery_delivery_inflight = False
+                return False
+            self._shutdown_recovery_terminal = None
+            self._shutdown_recovery_requested = False
+            self._shutdown_recovery_delivery_inflight = False
             self._closed = False
         return True
 
-    def shutdown(self, timeout: float | None = None) -> bool:
-        """Cancel/join worker; queued owner callbacks become stale after success."""
+    def shutdown(
+        self,
+        timeout: float | None = None,
+        *,
+        retain_terminal_for_recovery: bool = False,
+    ) -> bool:
+        """Cancel/join worker; fence stale callbacks and optionally retain truth."""
 
         self._assert_ui_thread()
         if timeout is not None and (
             type(timeout) not in {int, float} or timeout < 0
         ):
             raise ValueError("Library export shutdown timeout must be non-negative or None")
+        if type(retain_terminal_for_recovery) is not bool:
+            raise TypeError("retain_terminal_for_recovery must be bool")
         with self._lock:
+            if self._shutdown_recovery_delivery_inflight:
+                return False
             if self._closed:
                 return True
+            if self._terminal_delivery_inflight:
+                return False
             cancel = self._cancel
             thread = self._thread
+            worker_was_live = thread is not None and thread.is_alive()
             if cancel is not None:
                 cancel.set()
+            if worker_was_live:
+                # A close attempt that interrupts live work may be refused by a
+                # later application owner. Preserve whichever truthful terminal
+                # the worker ultimately chooses until that decision is known.
+                self._shutdown_recovery_requested = True
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
             if thread.is_alive():
@@ -578,6 +664,15 @@ class Version2WindowsLibraryExportDelegate:
         with self._lock:
             retry_timer = self._retry_timer
             self._retry_timer = None
+            pending = self._terminal_pending
+            retain_terminal = (
+                retain_terminal_for_recovery
+                or self._shutdown_recovery_requested
+            )
+            self._shutdown_recovery_terminal = (
+                pending[1] if retain_terminal and pending is not None else None
+            )
+            self._shutdown_recovery_requested = False
             self._closed = True
             self._generation += 1
             self._terminal_pending = None

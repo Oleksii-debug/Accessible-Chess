@@ -37,11 +37,11 @@ env:
   RELEASE_UI_TEST_BLOB: 5993cc5cb4315fe50adf9b89d0f7583dfb90e065
   BOOK_OPEN_WORKER_BLOB: 516edf78739212b3766443a04f4ae38b1c189764
   FILE_WORKFLOWS_BLOB: 9c33d9121d8378144dd12e6bb9884063ac78f64b
-  HOST_RUNTIME_BLOB: 5033d79b06e20caec772ac3c3ceda3e029f4b202
+  HOST_RUNTIME_BLOB: 777b93fd42f8fe2f2ccb04aa5ab8e70384b9ba8b
   IMPORT_UI_PUMP_BLOB: 2551c9a3a06cef24b1a849154e9ced66aac6f23b
   IMPORT_UI_PUMP_TEST_BLOB: 7131b3cafd8a6a4673c1296fb739e16abfa1e4f2
   BOOK_OPEN_WORKER_TEST_BLOB: 434d66ce85d8da05891c220cd477d3ea41ff36b1
-  HOST_RUNTIME_TEST_BLOB: 5bf76149f11751ee46820a4ad21e595a82585ef8
+  HOST_RUNTIME_TEST_BLOB: 200dbbf6c065671d4537481de528d3b2e290eff7
   FILE_SHUTDOWN_TEST_BLOB: 999475ab6289877a21392de0dbf3550729b7f4a3
   FORMCLOSING_TEST_BLOB: 197661e6fee63d19fcdc86535815389cb1c70868
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
@@ -50,9 +50,9 @@ env:
   PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB: 7e39e8051194559bf8c4001161030a70fc5d74ad
   PORTABLE_PACKAGE_BLOB: a474d9698f0e702e206428cb7ec0b206b641ea0d
   PORTABLE_PACKAGE_TEST_BLOB: 2f375d8cdf9df70fcdd404fe346a95ed509aca1f
-  RELEASE_RECEIPT_BLOB: 00bb1fff72d83b7c27e2f2063a4f974a0b36ada0
-  RELEASE_RECEIPT_TEST_BLOB: fa48ff395340799ef66e43a8103dc65213bfcf12
-  W5_RELEASE_RECEIPT_WORKFLOW_BLOB: 48f1627ac5a018bf0153ab9c40ed7cf9e4c30f45
+  RELEASE_RECEIPT_BLOB: 491fab63b7cc0609bb6d8f6d67b9acf06350cc72
+  RELEASE_RECEIPT_TEST_BLOB: 9d4e7470eb98a68cc5e5fb8dd821147b8ddfca08
+  W5_RELEASE_RECEIPT_WORKFLOW_BLOB: b89434326135e4fda94670757809c24c511eb537
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
   V2_RELEASE_BOOTSTRAP_BLOB: 7d385bb0e1cfa55521b74ba6a4904700379e8f9c
   V2_RELEASE_DOM_TEST_BLOB: ab982e5db979477860d19158b7233587fdc54cdb
@@ -94,9 +94,9 @@ env:
   POSITION_TEXT_BLOB: c4eed9078ec8f12b9286235355e7af09bd778355
   NOTATION_TEST_BLOB: 77c3f12f91d0ca219848bdf263fe33a0c6308ee8
   POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
-  BOOK_HTML_STYLE_WORKFLOW_BLOB: f67ae577e7b73dd9b9f72847c38d26a6ec509f61
-  BOOK_HTML_IMPORT_BLOB: 0dc6e07bfc410e612488908ccfebb7f97ffc9a2c
-  BOOK_HTML_IMPORT_TEST_BLOB: 8ac8ea34eec9a179a486612505b25b3028c16a02
+  BOOK_HTML_STYLE_WORKFLOW_BLOB: 144a1c1486ff9f8ce87121d0d765417ea5f45956
+  BOOK_HTML_IMPORT_BLOB: 1a904cb62c5e95dcc49fc52c6d68d8ef2a88d679
+  BOOK_HTML_IMPORT_TEST_BLOB: 5889ce94de3fc82056b9ded5a4d9e701a8fd1771
   CURRENT_LAUNCHER_IDENTITY_WORKFLOW_BLOB: 659fb1aa81a171d522e5c5a497702e8a5dd465b6
   P0_LAUNCHER_WORKFLOW_BLOB: 9890bdba06f2628177c094cf56adc49cbe652dad
   PORTABLE_LAUNCH_REPARSE_WORKFLOW_BLOB: 3bd9dc39fe50642b43a443450bad46d5ee6d3954
@@ -116,13 +116,17 @@ env:
   CHILD_ROTATION_RECOVERY_TEST_BLOB: 5a3233b611cca861de497d3e7692560f7d9b449e
   GROUP_ROTATION_BINDING_TEST_BLOB: a3d8e457673b48bc707c938a9d4cc5ac5b942344
   LIBRARY_EXPORT_CAS_WORKFLOW_BLOB: 20465341a036c3d118af1b3eca0ffce447714066
+  LIBRARY_EXPORT_REFUSED_CLOSE_WORKFLOW_BLOB: 1ac0c749ba6039287171c11ef1d5343b00aab0e7
+  BOOKREADER_PROVISIONAL_WORKFLOW_BLOB: 5642e344c0915970c0df671330e95cd91abb181a
+  BOOKREADER_BLOB: 7afb17856686683c5cce5fd8f80ed00383d255a3
+  BOOKREADER_REVISION_TEST_BLOB: ba87b9627097aa53a169e159168286e6faffdcda
   LIBRARY_OPEN_ACK_WORKFLOW_BLOB: 1c67fe0e2b8fbecdd918b6dbf630f14c52830e34
   LIBRARY_OPEN_PUBLICATION_TEST_BLOB: cc3c1eadd86498e6ced76c3ea898f80b33d25975
-  LIBRARY_EXPORT_BACKGROUND_TEST_BLOB: 9b7de203065595261988568e3b9702d7cfcb61b1
+  LIBRARY_EXPORT_BACKGROUND_TEST_BLOB: 5cd205682da6aeb8df64e6f9ee3f606a7254091e
   LIBRARY_EXPORT_SERVICE_BLOB: 8efa08f714d6f14d2e6a251e442f0fcd47af2570
   LIBRARY_EXPORT_PROJECTION_BLOB: f43f9fd71953035a582a84bd8a64ead0d54ee25a
   LIBRARY_WEBVIEW_BRIDGE_BLOB: b4be6f6fd08d9876acfa86d018a78f9d164e484d
-  WINDOWS_LIBRARY_EXPORT_BLOB: 8bf72f5da0364fb77b838c1b36538365a763c8d1
+  WINDOWS_LIBRARY_EXPORT_BLOB: 16e6c65e3f62a0e19e81810b40d938a55d573a04
   LIBRARY_EXPORT_DOM_TEST_BLOB: 61af02b4fe654c02b76403a100ac73ea4fde479f
   POSITION_EDITOR_WORKFLOW_BLOB: 4a67bdc01446406ea0b4515688167ff916034ee8
   PRODUCT_ACCESSIBILITY_WORKFLOW_BLOB: c4053269b6cff428a5e24790079f9d50ecbdda9a
@@ -197,8 +201,10 @@ jobs:
             ".github/workflows/child-coaching-current-apex-20261004.yml"
             ".github/workflows/child-coaching-keyboard-current-apex.yml"
             ".github/workflows/current-book-html-inline-style-visibility.yml"
+            ".github/workflows/current-bookreader-provisional-return-point.yml"
             ".github/workflows/current-launcher-report-data-identity.yml"
             ".github/workflows/current-library-export-destination-cas.yml"
+            ".github/workflows/current-library-export-refused-close-terminal.yml"
             ".github/workflows/current-library-open-publication-ack.yml"
             ".github/workflows/current-owner-portable-passive-ingress.yml"
             ".github/workflows/current-package-passive-control-ingress.yml"
@@ -223,6 +229,7 @@ jobs:
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
             "acs/book_html_import.py"
+            "acs/bookreader.py"
             "acs/child_coaching_rotation.py"
             "acs/child_coaching_rotation_store.py"
             "acs/full_product_actions.py"
@@ -271,6 +278,7 @@ jobs:
             "tests/js/version2_library_open_route_refresh_dom_test.js"
             "tests/js/version2_release_bootstrap_dom_test.js"
             "tests/test_accessible_webui.py"
+            "tests/test_bookreader_revision_barriers_current.py"
             "tests/test_child_coaching_keyboard_actions.py"
             "tests/test_child_coaching_rotation.py"
             "tests/test_child_coaching_rotation_completed_recovery.py"
@@ -352,6 +360,10 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_child_coaching_rotation_completed_recovery.py)" = "$CHILD_ROTATION_RECOVERY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-library-export-destination-cas.yml)" = "$LIBRARY_EXPORT_CAS_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-library-export-refused-close-terminal.yml)" = "$LIBRARY_EXPORT_REFUSED_CLOSE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-bookreader-provisional-return-point.yml)" = "$BOOKREADER_PROVISIONAL_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/bookreader.py)" = "$BOOKREADER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_bookreader_revision_barriers_current.py)" = "$BOOKREADER_REVISION_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-library-open-publication-ack.yml)" = "$LIBRARY_OPEN_ACK_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_PUBLICATION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
@@ -502,6 +514,7 @@ jobs:
           acs/version2_final_product_application.py
           run_accessible_chess_v2.py
           acs/book_html_import.py
+          acs/bookreader.py
           acs/library_webview_projection.py
           acs/library_export_service.py
           acs/library_export_webview_projection.py
@@ -577,6 +590,7 @@ jobs:
           tests/test_verify_p0_packaged_document_copy_evidence.py
           tests/test_verify_p0g_packaged_hotkey_result_evidence.py
           tests/test_ui_native_menu_recovery.py
+          tests/test_bookreader_revision_barriers_current.py
           tests/test_v2_book_html_import.py
           tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_version2_application.py
