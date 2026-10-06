@@ -119,13 +119,17 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "#define AC_STARTUP_POLL_MS 100",
             "#define AC_STARTUP_READY_STABILITY_MS 500",
             "#define AC_STARTUP_WINDOW_TIMEOUT_MS 30000",
+            "#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000",
             "WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS)",
             "startup_started = GetTickCount64();",
             "now = GetTickCount64();",
             "now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS",
             "STATUS: FAILED_STARTUP_TIMEOUT",
             "USER_WINDOW_PROVEN: NO",
-            "CHILD_LEFT_RUNNING: YES",
+            "TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)",
+            "WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)",
+            "TIMEOUT_CHILD_CLEANUP: PASS",
+            "CHILD_LEFT_RUNNING: NO",
             "ExitProcess(ERROR_TIMEOUT)",
         ):
             with self.subTest(token=token):
@@ -153,7 +157,10 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "ACS_SMOKE_HUNG_WINDOW",
             "PeekMessageW(",
             "STATUS: FAILED_STARTUP_TIMEOUT",
-            "CHILD_LEFT_RUNNING: YES",
+            "TIMEOUT_CHILD_CLEANUP: PASS",
+            "CHILD_LEFT_RUNNING: NO",
+            ".accessible-chess-instance.lock",
+            "[IO.File]::Open(",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.workflow)
