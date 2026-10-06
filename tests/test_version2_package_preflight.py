@@ -1181,6 +1181,56 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 report.inventory,
             )
 
+    def test_pe_hygiene_classification_and_scan_share_one_path_handle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dll = root / "helper.dll"
+            dll.write_bytes(
+                _minimal_windows_pe()
+                + b"\x00compiler=C:\\Users\\Builder\\source\\helper.pdb\x00"
+            )
+            real_open = Path.open
+            read_opens = 0
+
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == dll and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counting_open):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("helper.dll",),
+                    PackageLimits(),
+                )
+
+            self.assertEqual(read_opens, 1)
+
+    def test_text_hygiene_rejects_identity_change_during_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = root / "payload.txt"
+            payload.write_bytes(b"safe diagnostic text")
+
+            with (
+                patch.object(
+                    preflight,
+                    "_same_file_snapshot",
+                    side_effect=(True, False),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being scanned",
+                ),
+            ):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("payload.txt",),
+                    PackageLimits(),
+                )
+
     def test_text_disguised_as_dll_does_not_bypass_private_path_gate(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"

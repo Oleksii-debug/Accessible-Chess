@@ -696,6 +696,145 @@ def _raw_offset_for_pe_section(
     return None
 
 
+def _inspect_windows_pe_stream(
+    source,
+    *,
+    inspect_clr: bool = False,
+) -> tuple[int, int, int, bool] | None:
+    """Inspect PE, subsystem and optional CLR metadata from one open handle."""
+    if type(inspect_clr) is not bool:
+        raise TypeError("inspect_clr must be bool")
+    source.seek(0, os.SEEK_END)
+    file_size = source.tell()
+    source.seek(0)
+    dos_header = source.read(64)
+    identity: tuple[int, int, int, bool] | None = None
+    if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
+        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+        if 0x40 <= pe_offset <= file_size - 24:
+            source.seek(pe_offset)
+            pe_header = source.read(24)
+            if len(pe_header) == 24 and pe_header[:4] == b"PE\x00\x00":
+                machine = int.from_bytes(pe_header[4:6], "little")
+                section_count = int.from_bytes(pe_header[6:8], "little")
+                optional_header_size = int.from_bytes(pe_header[20:22], "little")
+                characteristics = int.from_bytes(pe_header[22:24], "little")
+                if (
+                    machine != 0
+                    and 0 < section_count <= 96
+                    and optional_header_size >= 96
+                    and characteristics & 0x0002
+                    and pe_offset + 24 + optional_header_size + (section_count * 40)
+                    <= file_size
+                ):
+                    optional_header = source.read(optional_header_size)
+                    if len(optional_header) == optional_header_size:
+                        optional_magic = int.from_bytes(optional_header[:2], "little")
+                        if (
+                            optional_magic == 0x10B
+                            or (
+                                optional_magic == 0x20B
+                                and optional_header_size >= 112
+                            )
+                        ):
+                            subsystem = int.from_bytes(
+                                optional_header[68:70], "little"
+                            )
+                            has_clr = False
+                            if inspect_clr:
+                                if optional_magic == 0x10B:
+                                    directory_count_offset = 92
+                                    directory_table_offset = 96
+                                else:
+                                    directory_count_offset = 108
+                                    directory_table_offset = 112
+                                if len(optional_header) >= directory_count_offset + 4:
+                                    directory_count = int.from_bytes(
+                                        optional_header[
+                                            directory_count_offset:directory_count_offset + 4
+                                        ],
+                                        "little",
+                                    )
+                                    clr_directory_offset = directory_table_offset + (14 * 8)
+                                    if (
+                                        directory_count > 14
+                                        and len(optional_header) >= clr_directory_offset + 8
+                                    ):
+                                        clr_rva = int.from_bytes(
+                                            optional_header[
+                                                clr_directory_offset:clr_directory_offset + 4
+                                            ],
+                                            "little",
+                                        )
+                                        clr_size = int.from_bytes(
+                                            optional_header[
+                                                clr_directory_offset + 4:clr_directory_offset + 8
+                                            ],
+                                            "little",
+                                        )
+                                        section_table_offset = (
+                                            pe_offset + 24 + optional_header_size
+                                        )
+                                        section_table_size = section_count * 40
+                                        if (
+                                            clr_rva != 0
+                                            and clr_size == 0x48
+                                            and section_table_offset + section_table_size
+                                            <= file_size
+                                        ):
+                                            source.seek(section_table_offset)
+                                            section_table = source.read(section_table_size)
+                                            if len(section_table) == section_table_size:
+                                                clr_offset = _raw_offset_for_pe_section(
+                                                    section_table,
+                                                    section_count=section_count,
+                                                    file_size=file_size,
+                                                    rva=clr_rva,
+                                                    size=0x48,
+                                                )
+                                                if clr_offset is not None:
+                                                    source.seek(clr_offset)
+                                                    clr_header = source.read(0x48)
+                                                    if (
+                                                        len(clr_header) == 0x48
+                                                        and int.from_bytes(
+                                                            clr_header[0:4], "little"
+                                                        ) == 0x48
+                                                    ):
+                                                        metadata_rva = int.from_bytes(
+                                                            clr_header[8:12], "little"
+                                                        )
+                                                        metadata_size = int.from_bytes(
+                                                            clr_header[12:16], "little"
+                                                        )
+                                                        metadata_offset = (
+                                                            _raw_offset_for_pe_section(
+                                                                section_table,
+                                                                section_count=section_count,
+                                                                file_size=file_size,
+                                                                rva=metadata_rva,
+                                                                size=metadata_size,
+                                                            )
+                                                            if metadata_rva != 0
+                                                            and metadata_size >= 4
+                                                            else None
+                                                        )
+                                                        if metadata_offset is not None:
+                                                            source.seek(metadata_offset)
+                                                            has_clr = (
+                                                                source.read(4) == b"BSJB"
+                                                            )
+                            identity = (
+                                machine,
+                                optional_magic,
+                                subsystem,
+                                has_clr,
+                            )
+
+
+    return identity
+
+
 def _inspect_windows_pe_identity(
     path: Path,
     *,
@@ -718,133 +857,10 @@ def _inspect_windows_pe_identity(
         if not _same_file_snapshot(before, opened):
             _fail(f"{label} changed while being opened")
 
-        source.seek(0, os.SEEK_END)
-        file_size = source.tell()
-        source.seek(0)
-        dos_header = source.read(64)
-        identity: tuple[int, int, int, bool] | None = None
-        if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
-            pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-            if 0x40 <= pe_offset <= file_size - 24:
-                source.seek(pe_offset)
-                pe_header = source.read(24)
-                if len(pe_header) == 24 and pe_header[:4] == b"PE\x00\x00":
-                    machine = int.from_bytes(pe_header[4:6], "little")
-                    section_count = int.from_bytes(pe_header[6:8], "little")
-                    optional_header_size = int.from_bytes(pe_header[20:22], "little")
-                    characteristics = int.from_bytes(pe_header[22:24], "little")
-                    if (
-                        machine != 0
-                        and 0 < section_count <= 96
-                        and optional_header_size >= 96
-                        and characteristics & 0x0002
-                        and pe_offset + 24 + optional_header_size + (section_count * 40)
-                        <= file_size
-                    ):
-                        optional_header = source.read(optional_header_size)
-                        if len(optional_header) == optional_header_size:
-                            optional_magic = int.from_bytes(optional_header[:2], "little")
-                            if (
-                                optional_magic == 0x10B
-                                or (
-                                    optional_magic == 0x20B
-                                    and optional_header_size >= 112
-                                )
-                            ):
-                                subsystem = int.from_bytes(
-                                    optional_header[68:70], "little"
-                                )
-                                has_clr = False
-                                if inspect_clr:
-                                    if optional_magic == 0x10B:
-                                        directory_count_offset = 92
-                                        directory_table_offset = 96
-                                    else:
-                                        directory_count_offset = 108
-                                        directory_table_offset = 112
-                                    if len(optional_header) >= directory_count_offset + 4:
-                                        directory_count = int.from_bytes(
-                                            optional_header[
-                                                directory_count_offset:directory_count_offset + 4
-                                            ],
-                                            "little",
-                                        )
-                                        clr_directory_offset = directory_table_offset + (14 * 8)
-                                        if (
-                                            directory_count > 14
-                                            and len(optional_header) >= clr_directory_offset + 8
-                                        ):
-                                            clr_rva = int.from_bytes(
-                                                optional_header[
-                                                    clr_directory_offset:clr_directory_offset + 4
-                                                ],
-                                                "little",
-                                            )
-                                            clr_size = int.from_bytes(
-                                                optional_header[
-                                                    clr_directory_offset + 4:clr_directory_offset + 8
-                                                ],
-                                                "little",
-                                            )
-                                            section_table_offset = (
-                                                pe_offset + 24 + optional_header_size
-                                            )
-                                            section_table_size = section_count * 40
-                                            if (
-                                                clr_rva != 0
-                                                and clr_size == 0x48
-                                                and section_table_offset + section_table_size
-                                                <= file_size
-                                            ):
-                                                source.seek(section_table_offset)
-                                                section_table = source.read(section_table_size)
-                                                if len(section_table) == section_table_size:
-                                                    clr_offset = _raw_offset_for_pe_section(
-                                                        section_table,
-                                                        section_count=section_count,
-                                                        file_size=file_size,
-                                                        rva=clr_rva,
-                                                        size=0x48,
-                                                    )
-                                                    if clr_offset is not None:
-                                                        source.seek(clr_offset)
-                                                        clr_header = source.read(0x48)
-                                                        if (
-                                                            len(clr_header) == 0x48
-                                                            and int.from_bytes(
-                                                                clr_header[0:4], "little"
-                                                            ) == 0x48
-                                                        ):
-                                                            metadata_rva = int.from_bytes(
-                                                                clr_header[8:12], "little"
-                                                            )
-                                                            metadata_size = int.from_bytes(
-                                                                clr_header[12:16], "little"
-                                                            )
-                                                            metadata_offset = (
-                                                                _raw_offset_for_pe_section(
-                                                                    section_table,
-                                                                    section_count=section_count,
-                                                                    file_size=file_size,
-                                                                    rva=metadata_rva,
-                                                                    size=metadata_size,
-                                                                )
-                                                                if metadata_rva != 0
-                                                                and metadata_size >= 4
-                                                                else None
-                                                            )
-                                                            if metadata_offset is not None:
-                                                                source.seek(metadata_offset)
-                                                                has_clr = (
-                                                                    source.read(4) == b"BSJB"
-                                                                )
-                                identity = (
-                                    machine,
-                                    optional_magic,
-                                    subsystem,
-                                    has_clr,
-                                )
-
+        identity = _inspect_windows_pe_stream(
+            source,
+            inspect_clr=inspect_clr,
+        )
         after_read = os.fstat(source.fileno())
         after_path = _safe_lstat(path, label=label)
         if (
@@ -1823,38 +1839,58 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
+        source = None
         try:
-            # A PE image can legitimately contain compiler/debug build paths.  Do
-            # not classify those embedded binary strings as package text merely
-            # because UTF-8 error-ignoring happens to expose them.  This is
-            # structure-based, not suffix-only: text renamed to .dll/.exe still
-            # follows the normal path-leak gate.  Credential signatures remain
-            # scanned even inside recognized PE images.
+            before = _safe_lstat(path, label="package hygiene file")
+            if not stat.S_ISREG(before.st_mode):
+                _fail("package hygiene file must be a regular file")
+            source = path.open("rb")
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail("package hygiene file must remain a regular non-reparse file")
+            if not _same_file_snapshot(before, opened):
+                _fail("package hygiene file changed while being opened")
+
+            # A PE image can legitimately contain compiler/debug build paths. Do
+            # not classify those embedded binary strings as package text. The PE
+            # decision and the hygiene scan intentionally share this exact open
+            # handle so a pathname swap cannot make them describe different bytes.
             is_pe_binary = (
                 PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
-                and _has_windows_pe_structure(path)
+                and _inspect_windows_pe_stream(source) is not None
             )
-            with path.open("rb") as handle:
-                while True:
-                    block = handle.read(chunk_size)
-                    if not block:
-                        break
-                    window = tail + block
-                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large file as a scan exemption.
-                    text = window.decode("utf-8", errors="ignore")
-                    if (
-                        not is_pe_binary
-                        and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
-                    ):
-                        _fail(f"private local path leaked into package text: {relative}")
-                    if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-                        _fail(f"secret-like credential leaked into package text: {relative}")
-                    tail = window[-overlap_bytes:]
+            source.seek(0)
+            while True:
+                block = source.read(chunk_size)
+                if not block:
+                    break
+                window = tail + block
+                # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
+                # without treating a large file as a scan exemption.
+                text = window.decode("utf-8", errors="ignore")
+                if (
+                    not is_pe_binary
+                    and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
+                ):
+                    _fail(f"private local path leaked into package text: {relative}")
+                if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
+                    _fail(f"secret-like credential leaked into package text: {relative}")
+                tail = window[-overlap_bytes:]
+
+            after_read = os.fstat(source.fileno())
+            after_path = _safe_lstat(path, label="package hygiene file")
+            if (
+                not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+            ):
+                _fail("package hygiene file changed while being scanned")
         except Version2PackagePreflightError:
             raise
         except OSError as exc:
             _fail(f"package hygiene scan failed: {type(exc).__name__}")
+        finally:
+            if source is not None:
+                source.close()
 
 
 def _normalize_expected_integration_sha(value: str) -> str:
