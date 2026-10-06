@@ -1,0 +1,81 @@
+name: Current BookIndex Search Filter Snapshot
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'acs/book_index.py'
+      - 'tests/test_book_index.py'
+      - '.github/workflows/current-book-index-search-filter-snapshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-book-index-search-filter-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact checkout and shipping-child geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.base_ref }}"
+            event_base='${{ github.event.pull_request.base.sha }}'
+          else
+            base_ref='converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb'
+            event_base=''
+          fi
+          git fetch --no-tags origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "$event_base" ]; then
+            git merge-base --is-ancestor "$event_base" "$live_base"
+          fi
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | LC_ALL=C sort)"
+          wanted="$(printf '%s\n' \
+            '.github/workflows/current-book-index-search-filter-snapshot.yml' \
+            'acs/book_index.py' \
+            'tests/test_book_index.py' | LC_ALL=C sort)"
+          test "$changed" = "$wanted"
+
+          test "$(git hash-object acs/book_index.py)" = "3b52e9cf9854853de80b9a39a3fa111a9e3b1caa"
+          test "$(git hash-object tests/test_book_index.py)" = "46d3a24e7c391d20d03c9430b90b254948558405"
+
+      - name: Compile BookIndex authority
+        run: python -m py_compile acs/book_index.py tests/test_book_index.py
+
+      - name: Run focused semantic search regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_index
+          tests.test_bookreader
+
+      - name: Core selftest
+        run: python -m acs.selftest
