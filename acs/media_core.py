@@ -63,6 +63,160 @@ class MediaLinkStatus(str, Enum):
     CONFIRMED = "confirmed"
 
 
+class MediaPlaybackState(str, Enum):
+    """Provider-neutral playback state owned by the media clock."""
+
+    UNSTARTED = "unstarted"
+    PLAYING = "playing"
+    PAUSED = "paused"
+    BUFFERING = "buffering"
+    ENDED = "ended"
+
+
+@dataclass(frozen=True, slots=True)
+class MediaClockSnapshot:
+    """Immutable playback-clock observation at one monotonic host time."""
+
+    position_ms: int
+    state: MediaPlaybackState
+    playback_rate: float
+    duration_ms: int | None
+    revision: int
+
+
+class MediaClock:
+    """Deterministic provider-neutral media clock with explicit host time."""
+
+    __slots__ = ("_position_ms", "_last_now_ms", "_playback_rate", "_duration_ms", "_state", "_revision")
+
+    def __init__(
+        self, *, position_ms: int = 0,
+        state: MediaPlaybackState = MediaPlaybackState.UNSTARTED,
+        playback_rate: float = 1.0, duration_ms: int | None = None,
+    ) -> None:
+        self._position_ms = _require_nonnegative_int(position_ms, "position_ms")
+        if duration_ms is not None:
+            try:
+                duration = _require_nonnegative_int(duration_ms, "duration_ms")
+            except MediaContractError as exc:
+                raise MediaContractError(str(exc), code=MediaErrorCode.INVALID_DURATION) from exc
+            if self._position_ms > duration:
+                raise MediaContractError("position exceeds media duration", code=MediaErrorCode.INVALID_TIMESTAMP)
+        else:
+            duration = None
+        try:
+            normalized_state = MediaPlaybackState(state)
+        except (TypeError, ValueError) as exc:
+            raise MediaContractError(
+                f"unsupported media playback state: {state!r}",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+        self._playback_rate = self._require_rate(playback_rate)
+        self._duration_ms = duration
+        self._state = normalized_state
+        self._last_now_ms = 0
+        self._revision = 0
+        if duration is not None and self._position_ms == duration:
+            self._state = MediaPlaybackState.ENDED
+
+    @staticmethod
+    def _require_now(now_ms: object) -> int:
+        return _require_nonnegative_int(now_ms, "now_ms")
+
+    @staticmethod
+    def _require_rate(value: object) -> float:
+        if type(value) not in (int, float) or isinstance(value, bool):
+            raise MediaContractError("playback_rate must be a finite positive number", code=MediaErrorCode.INVALID_CONTAINER)
+        rate = float(value)
+        if not math.isfinite(rate) or rate <= 0.0:
+            raise MediaContractError("playback_rate must be a finite positive number", code=MediaErrorCode.INVALID_CONTAINER)
+        return rate
+
+    def _materialize(self, now_ms: int) -> None:
+        now = self._require_now(now_ms)
+        if now < self._last_now_ms:
+            raise MediaContractError("media clock time cannot move backwards", code=MediaErrorCode.INVALID_TIMESTAMP)
+        elapsed = now - self._last_now_ms
+        if self._state is MediaPlaybackState.PLAYING and elapsed:
+            self._position_ms += int(elapsed * self._playback_rate)
+            if self._duration_ms is not None and self._position_ms >= self._duration_ms:
+                self._position_ms = self._duration_ms
+                if self._state is not MediaPlaybackState.ENDED:
+                    self._state = MediaPlaybackState.ENDED
+                    self._revision += 1
+        self._last_now_ms = now
+
+    def _snapshot(self) -> MediaClockSnapshot:
+        return MediaClockSnapshot(self._position_ms, self._state, self._playback_rate, self._duration_ms, self._revision)
+
+    @property
+    def revision(self) -> int:
+        return self._revision
+
+    def snapshot(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        return self._snapshot()
+
+    def play(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._duration_ms is not None and self._position_ms >= self._duration_ms:
+            if self._state is not MediaPlaybackState.ENDED:
+                self._state = MediaPlaybackState.ENDED
+                self._revision += 1
+            return self._snapshot()
+        if self._state is not MediaPlaybackState.PLAYING:
+            self._state = MediaPlaybackState.PLAYING
+            self._revision += 1
+        return self._snapshot()
+
+    def pause(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._state is MediaPlaybackState.PLAYING:
+            self._state = MediaPlaybackState.PAUSED
+            self._revision += 1
+        return self._snapshot()
+
+    def buffer(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._state is not MediaPlaybackState.BUFFERING:
+            self._state = MediaPlaybackState.BUFFERING
+            self._revision += 1
+        return self._snapshot()
+
+    def resume(self, now_ms: int) -> MediaClockSnapshot:
+        return self.play(now_ms)
+
+    def seek(self, position_ms: int, now_ms: int) -> MediaClockSnapshot:
+        position = _require_nonnegative_int(position_ms, "position_ms")
+        self._materialize(now_ms)
+        if self._duration_ms is not None and position > self._duration_ms:
+            raise MediaContractError("media position exceeds source duration", code=MediaErrorCode.INVALID_TIMESTAMP)
+        self._position_ms = position
+        self._last_now_ms = self._require_now(now_ms)
+        if self._duration_ms is not None and position == self._duration_ms:
+            self._state = MediaPlaybackState.ENDED
+        elif self._state is MediaPlaybackState.ENDED:
+            self._state = MediaPlaybackState.PLAYING
+        self._revision += 1
+        return self._snapshot()
+
+    def set_playback_rate(self, playback_rate: float, now_ms: int) -> MediaClockSnapshot:
+        rate = self._require_rate(playback_rate)
+        self._materialize(now_ms)
+        if rate != self._playback_rate:
+            self._playback_rate = rate
+            self._revision += 1
+        return self._snapshot()
+
+    def end(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._duration_ms is not None:
+            self._position_ms = self._duration_ms
+        if self._state is not MediaPlaybackState.ENDED:
+            self._state = MediaPlaybackState.ENDED
+            self._revision += 1
+        return self._snapshot()
+
 def _require_text(value: object, field_name: str) -> str:
     if type(value) is not str or not value.strip():
         raise MediaContractError(
