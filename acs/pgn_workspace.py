@@ -54,6 +54,7 @@ from .gametree_navigation import (
 )
 from .pgn_roundtrip import (
     PgnRoundTripError,
+    _contains_invalid_unicode_scalar as _contains_unicode_surrogate,
     canonical_round_trip_bytes,
     canonical_round_trip_text,
     materialize_pgn_games_bounded,
@@ -75,12 +76,6 @@ def _pgn_edit_text_units(value: str) -> int:
     """Return browser-compatible UTF-16 units for bounded PGN edit text."""
 
     return len(value.encode("utf-16-le", "surrogatepass")) // 2
-
-
-def _contains_unicode_surrogate(value: str) -> bool:
-    """Reject lone UTF-16 surrogate code points before PGN publication."""
-
-    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
 
 
 class PgnWorkspaceErrorCode(str, Enum):
