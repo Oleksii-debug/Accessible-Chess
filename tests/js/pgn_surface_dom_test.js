@@ -261,6 +261,58 @@ async function run() {
     "PGN render accepted an oversized tree before item validation"
   );
 
+  const customContractSnapshot = snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa");
+  customContractSnapshot.edit_contract = {
+    tag_name_max_chars: 17,
+    tag_value_max_chars: 29
+  };
+  const customContractRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    customContractRoot,
+    customContractSnapshot,
+    () => ({ kind: "delegated", payload: { action: "pgn.copy_selection" } }),
+    () => {},
+    ""
+  );
+  const customName = customContractRoot.descendants().find(
+    (item) => item.id === "pgn-tag-name"
+  );
+  const customValue = customContractRoot.descendants().find(
+    (item) => item.id === "pgn-tag-value"
+  );
+  check(
+    customName && customName.maxLength === 17 &&
+      customValue && customValue.maxLength === 29,
+    "PGN browser tag editor ignored the host edit contract"
+  );
+
+  const malformedContractSnapshot = snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa");
+  malformedContractSnapshot.edit_contract = {
+    tag_name_max_chars: 80,
+    tag_value_max_chars: 0
+  };
+  const malformedContractRoot = new FakeElement("div");
+  let malformedContractRejected = false;
+  try {
+    window.AccessibleChessPgnSurface.render(
+      malformedContractRoot,
+      malformedContractSnapshot,
+      () => ({}),
+      () => {},
+      ""
+    );
+  } catch (error) {
+    malformedContractRejected = error instanceof TypeError;
+  }
+  check(
+    malformedContractRejected,
+    "PGN browser accepted an invalid edit contract"
+  );
+  check(
+    malformedContractRoot.children.length === 0,
+    "invalid PGN edit contract mutated DOM before validation"
+  );
+
   let announcementCoercionTouched = false;
   const hostileAnnouncement = {
     toString: function () {
