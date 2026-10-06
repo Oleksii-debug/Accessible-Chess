@@ -635,6 +635,8 @@ def validate_portable_oneclick_tree(
     expected_integration_sha: str,
     require_user_seed: bool = False,
 ) -> Version2PortablePackageReport:
+    if type(require_user_seed) is not bool:
+        raise TypeError("require_user_seed must be an exact bool")
     root = Path(package_root)
     sha = _sha40(expected_integration_sha)
     _safe_info(root, label="portable package root", directory=True)
@@ -834,6 +836,8 @@ def assemble_portable_oneclick_tree(
     integration_sha: str,
     require_user_seed: bool = False,
 ) -> Version2PortablePackageReport:
+    if type(require_user_seed) is not bool:
+        raise TypeError("require_user_seed must be an exact bool")
     sha = _sha40(integration_sha)
     canonical = Path(canonical_package_root)
     launcher = Path(launcher_exe)
@@ -982,6 +986,8 @@ def write_portable_oneclick_zip(
     require_user_seed: bool = False,
     expected_checksum_sha256: str | None = None,
 ) -> Version2PortablePackageReport:
+    if type(require_user_seed) is not bool:
+        raise TypeError("require_user_seed must be an exact bool")
     root = Path(package_root)
     target = Path(zip_path)
     expected_checksum = None
