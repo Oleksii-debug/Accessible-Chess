@@ -595,6 +595,31 @@ jobs:
             $exclusiveLock.Dispose()
 
             if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+
+            # Prove the user's next one-click attempt is no longer coalesced behind
+            # the timed-out child: remove fault injection and relaunch the same root EXE.
+            Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+            $retry = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            if (-not $retry.WaitForExit(10000)) {
+              $retry.Kill()
+              $retry.WaitForExit()
+              throw 'Portable launcher retry after timeout did not reach a terminal launcher state'
+            }
+            if ($retry.ExitCode -ne 0) {
+              throw "Portable launcher retry after timeout failed with exit code $($retry.ExitCode)"
+            }
+            $retryText = Get-Content -LiteralPath $report -Raw -Encoding utf8
+            foreach ($required in @(
+              'PREFLIGHT: PASS',
+              'PROCESS_CREATED: YES',
+              'STATUS: STARTUP_WINDOW_READY',
+              'USER_WINDOW_PROVEN: YES',
+              'USER_NVDA_PROVEN: NO'
+            )) {
+              if (-not $retryText.Contains($required)) {
+                throw "Retry launch report missing: $required"
+              }
+            }
           }
           finally {
             Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
