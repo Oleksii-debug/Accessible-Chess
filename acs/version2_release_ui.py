@@ -701,7 +701,7 @@ def run_version2_release_window(
         api.bind_version2_application(application)
 
     application_closed = False
-    startup_errors: list[Exception] = []
+    startup_errors: list[BaseException] = []
 
     def close_application(*_args: Any) -> bool:
         nonlocal application_closed
@@ -810,7 +810,7 @@ def run_version2_release_window(
         def start_native_host(*_args: Any) -> None:
             try:
                 install_menu_on_native_host()
-            except Exception as error:
+            except BaseException as error:
                 startup_errors.append(error)
                 try:
                     close_application()
