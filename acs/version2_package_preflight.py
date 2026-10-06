@@ -769,9 +769,14 @@ def _validate_windows_pe_executable(
                 pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
                 handle.seek(pe_offset + 4)
                 machine_bytes = handle.read(2)
+                handle.seek(pe_offset + 20)
+                optional_header_size_bytes = handle.read(2)
                 handle.seek(pe_offset + 24)
                 optional_magic_bytes = handle.read(2)
                 if expected_subsystem is not None:
+                    if len(optional_header_size_bytes) != 2:
+                        _fail(f"{label} optional header size is truncated")
+                    optional_header_size = int.from_bytes(optional_header_size_bytes, "little")
                     if optional_header_size < 70:
                         _fail(f"{label} optional header is truncated before subsystem")
                     handle.seek(pe_offset + 24 + 68)
@@ -780,6 +785,8 @@ def _validate_windows_pe_executable(
                     subsystem_bytes = b""
             if len(machine_bytes) != 2:
                 _fail(f"{label} machine header is truncated")
+            if expected_subsystem is not None and len(optional_header_size_bytes) != 2:
+                _fail(f"{label} optional header size is truncated")
             if len(optional_magic_bytes) != 2:
                 _fail(f"{label} optional header is truncated")
             if expected_subsystem is not None and len(subsystem_bytes) != 2:
