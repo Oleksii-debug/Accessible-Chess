@@ -158,6 +158,45 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
             self.assertFalse(session.dirty)
 
+    def test_save_owner_commit_skips_record_identity_and_full_document_view(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "bounded-owner-save.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Bounded owner commit")
+            controller, _, poster, _, async_events, _, _ = self._controller(session)
+
+            with (
+                mock.patch(
+                    "acs.pgn_workspace.identity_for_game",
+                    side_effect=AssertionError(
+                        "background save owner commit must not build record identity"
+                    ),
+                ) as identity,
+                mock.patch.object(
+                    PgnDocumentSession,
+                    "view",
+                    autospec=True,
+                    side_effect=AssertionError(
+                        "background save owner commit must not build full document view"
+                    ),
+                ) as document_view,
+            ):
+                started = controller("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(controller.wait_for_pgn_save(5.0))
+                self.assertEqual(async_events, [])
+                poster.drain()
+
+            identity.assert_not_called()
+            document_view.assert_not_called()
+            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(session.dirty)
+            self.assertIn(
+                "Bounded owner commit",
+                source.read_text(encoding="utf-8"),
+            )
+
     def test_save_publishes_off_owner_then_commits_on_owner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
