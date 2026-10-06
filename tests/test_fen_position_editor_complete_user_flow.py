@@ -106,6 +106,13 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
             ("w", "-", " " * (MAX_SQUARE_TEXT_CHARS + 1), "0", "1"),
             ("w", "-", "-", "1" * (MAX_FEN_CHARS + 1), "1"),
             ("w", "-", "-", "0", "1" * (MAX_FEN_CHARS + 1)),
+            (
+                "w",
+                "-",
+                "-",
+                "1" * (MAX_FEN_CHARS // 2),
+                "1" * (MAX_FEN_CHARS // 2),
+            ),
         )
         for args in cases:
             with self.subTest(args=(len(args[0]), len(args[1]), len(args[2]), len(args[3]), len(args[4]))):
