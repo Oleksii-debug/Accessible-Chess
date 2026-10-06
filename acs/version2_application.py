@@ -37,6 +37,7 @@ from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
 from .library_webview_projection import LibraryImportPhase, LibraryWebViewEvent
 from .pgn_document import PgnDocumentSession
+from .position_editor import PositionState
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
@@ -1545,6 +1546,33 @@ class Version2Application:
                     },
                 }
             )
+            return {"ok": True, "fen": canonical}
+        if action == "pgn.new_from_position":
+            if payload:
+                raise ValueError("PGN position creation accepts no payload")
+            if self.shell.current_route.route_id != "board":
+                raise ValueError("PGN position creation requires the visible Board")
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before replacing the PGN document")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("return to the book before replacing the PGN document")
+            result = self._board_dispatch("board.read_fen", {})
+            if type(result) is not dict or result.get("ok") is not True:
+                raise RuntimeError("canonical visible FEN is unavailable")
+            fen = result.get("fen")
+            if (
+                type(fen) is not str
+                or not fen
+                or len(fen) > MAX_FEN_CHARS
+                or "\x00" in fen
+            ):
+                raise RuntimeError("canonical visible FEN is unavailable")
+            canonical = Board(fen).fen()
+            if canonical != fen:
+                raise RuntimeError("canonical visible FEN is inconsistent")
+            position = PositionState.from_fen(canonical)
+            candidate = PgnDocumentSession.new_game_from_position(position)
+            self.set_document(candidate)
             return {"ok": True, "fen": canonical}
         # Route-changing delegated PGN actions must respect modal focus before
         # they mutate Board projection or ownership flags. Otherwise open_route()
