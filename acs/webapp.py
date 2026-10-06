@@ -95,6 +95,8 @@ class AccessibleChessAPI:
             "language_change_failed": "Не вдалося змінити мову інтерфейсу.",
             "move_history_failed": "Не вдалося синхронізувати дошку та історію ходів.",
             "review_position_failed": "Не вдалося підготувати вибрану позицію історії.",
+            "history_metadata_invalid": "Не вдалося прочитати історію ходів.",
+            "history_variation_selected": "Вибрано позицію варіанта. Лінійний перегляд історії тимчасово недоступний.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -121,6 +123,8 @@ class AccessibleChessAPI:
             "language_change_failed": "Could not change interface language.",
             "move_history_failed": "Could not synchronize the board and move history.",
             "review_position_failed": "Could not prepare the selected history position.",
+            "history_metadata_invalid": "Could not read move history.",
+            "history_variation_selected": "A variation position is selected. Linear history review is temporarily unavailable.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -177,11 +181,83 @@ class AccessibleChessAPI:
                 lines.append(f"{names[typ]}: {', '.join(squares)}")
         return "; ".join(lines) if lines else ("фігур немає" if self.lang == "uk" else "no pieces")
 
+    def _history_metadata_valid(self) -> bool:
+        if type(self.sans) is not list or type(self.move_sides) is not list:
+            return False
+        if len(self.sans) != len(self.move_sides):
+            return False
+        for san, side in zip(self.sans, self.move_sides):
+            if type(san) is not str or not san.strip():
+                return False
+            if type(side) is not str or side not in {"w", "b"}:
+                return False
+        return True
+
+    def _redo_metadata_valid(self) -> bool:
+        if type(self.redo_meta) is not list:
+            return False
+        for item in self.redo_meta:
+            if type(item) is not tuple or len(item) != 2:
+                return False
+            san, side = item
+            if type(san) is not str or not san.strip():
+                return False
+            if type(side) is not str or side not in {"w", "b"}:
+                return False
+        return True
+
+    def _validated_history_lineage(self) -> list[int] | None:
+        if not self._history_metadata_valid():
+            return None
+        try:
+            lineage = self._live_line_nodes()
+            records = {
+                record.node_id: record
+                for record in self.review_history.tree_nodes()
+            }
+        except Exception:
+            return None
+        if len(lineage) != len(self.sans) + 1:
+            return None
+        root = records.get(lineage[0])
+        live = records.get(self.live_history_node)
+        if root is None or root.snapshot.fen != self.start_fen:
+            return None
+        if live is None or live.snapshot.fen != self.board.fen():
+            return None
+        for ply, (san, side) in enumerate(
+            zip(self.sans, self.move_sides),
+            start=1,
+        ):
+            record = records.get(lineage[ply])
+            if record is None:
+                return None
+            snapshot = record.snapshot
+            if snapshot.san is not None and snapshot.san != san:
+                return None
+            if snapshot.side is not None and snapshot.side != side:
+                return None
+            if snapshot.last_move is not None and snapshot.last_move != san:
+                return None
+        return lineage
+
     def _visible_ply_count(self) -> int:
-        return min(self.review_adapter.current().ply, len(self.sans))
+        lineage = self._validated_history_lineage()
+        if lineage is None:
+            return 0
+        current_node = self.review_history.cursor_node_id
+        if current_node not in set(lineage):
+            return 0
+        return lineage.index(current_node)
 
     def _moves_text(self) -> str:
-        count = self._visible_ply_count()
+        lineage = self._validated_history_lineage()
+        if lineage is None:
+            return self._t("history_metadata_invalid")
+        current_node = self.review_history.cursor_node_id
+        if current_node not in set(lineage):
+            return self._t("history_variation_selected")
+        count = lineage.index(current_node)
         if count == 0:
             return self._t("no_moves")
         sans = self.sans[:count]
@@ -206,6 +282,43 @@ class AccessibleChessAPI:
                 move_no += 1
                 i += 1
         return "\n".join(out)
+
+    def _history_items(self) -> list[dict[str, Any]]:
+        """Project the immutable live line as a selectable review move list.
+
+        Arrow-key browsing belongs to presentation; each item carries only the
+        canonical ply target that go_to_move already validates before review
+        publication. Review selection never mutates the live Board.
+        """
+        lineage = self._validated_history_lineage()
+        if lineage is None:
+            return []
+        current_node = self.review_history.cursor_node_id
+        if current_node not in set(lineage):
+            return []
+        items: list[dict[str, Any]] = [
+            {
+                "ply": 0,
+                "label": self._t("review_start"),
+                "selected": lineage[0] == current_node,
+                "live": lineage[0] == self.live_history_node,
+            }
+        ]
+        for ply, (san, side) in enumerate(
+            zip(self.sans, self.move_sides),
+            start=1,
+        ):
+            move_number = (ply + 1) // 2
+            prefix = f"{move_number}." if side == "w" else f"{move_number}..."
+            items.append(
+                {
+                    "ply": ply,
+                    "label": f"{prefix} {format_accessible_compact_san(san, self.lang)}",
+                    "selected": ply < len(lineage) and lineage[ply] == current_node,
+                    "live": ply < len(lineage) and lineage[ply] == self.live_history_node,
+                }
+            )
+        return items
 
     def _game_status(self, board: Board | None = None) -> str:
         b = board or self._display_board()
@@ -364,13 +477,44 @@ class AccessibleChessAPI:
         source = self.review_history if history is None else history
         records = source.tree_nodes()
         by_id = {record.node_id: record for record in records}
+        if len(by_id) != len(records):
+            raise RuntimeError("duplicate review history node")
         lineage: list[int] = []
+        seen: set[int] = set()
         current: int | None = self.live_history_node
         while current is not None:
+            if current in seen:
+                raise RuntimeError("cyclic live review history")
+            record = by_id.get(current)
+            if record is None:
+                raise RuntimeError("live review history node is missing")
+            seen.add(current)
             lineage.append(current)
-            current = by_id[current].parent_id
+            if len(lineage) > len(records):
+                raise RuntimeError("live review history exceeds node inventory")
+            current = record.parent_id
+        if not lineage:
+            raise RuntimeError("live review history is empty")
         lineage.reverse()
         return lineage
+
+    def _reject_off_live_review(
+        self,
+        candidate_history: ReviewHistory,
+        candidate_adapter: ReviewPresentationAdapter,
+    ) -> dict[str, Any]:
+        """Fail closed if History Review tries to expose a GameTree branch.
+
+        ReviewHistory intentionally owns the complete variation tree.  The
+        linear History Review surface, however, is a projection of the current
+        live game only.  Recover its cursor to the canonical live node instead
+        of letting a preserved variation silently become history authority.
+        """
+        candidate_history.select_node(self.live_history_node)
+        live_view = candidate_adapter.current()
+        self._validate_review_view(live_view)
+        self._publish_review_transaction(candidate_history, candidate_adapter)
+        return self._error(self._t("review_invalid"))
 
     def review_previous(self) -> dict[str, Any]:
         try:
@@ -378,6 +522,11 @@ class AccessibleChessAPI:
             result = candidate_adapter.previous()
             if not result.ok:
                 return self._error(result.announcement)
+            if result.view.node_id not in self._live_line_nodes(candidate_history):
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             self._validate_review_view(result.view)
         except Exception:
             return self._error(self._t("review_position_failed"))
@@ -393,11 +542,10 @@ class AccessibleChessAPI:
             if not result.ok:
                 return self._error(result.announcement)
             if result.view.node_id not in self._live_line_nodes(candidate_history):
-                candidate_history.select_node(self.live_history_node)
-                live_view = candidate_adapter.current()
-                self._validate_review_view(live_view)
-                self._publish_review_transaction(candidate_history, candidate_adapter)
-                return self._error(self._t("review_invalid"))
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             self._validate_review_view(result.view)
         except Exception:
             return self._error(self._t("review_position_failed"))
@@ -405,8 +553,15 @@ class AccessibleChessAPI:
         return self._ok(result.announcement)
 
     def _select_review_node(self, node_id: int) -> dict[str, Any]:
+        if type(node_id) is not int:
+            return self._error(self._t("review_invalid"))
         try:
             candidate_history, candidate_adapter = self._clone_review_transaction()
+            if node_id not in self._live_line_nodes(candidate_history):
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             result = candidate_adapter.select_node(node_id)
             if not result.ok:
                 return self._error(result.announcement)
@@ -439,11 +594,31 @@ class AccessibleChessAPI:
     def get_state(self) -> dict[str, Any]:
         display_view = self._display_review()
         display_board = self._display_board()
-        visible = self._visible_ply_count()
-        last = (
-            format_accessible_compact_san(self.sans[visible - 1], self.lang)
-            if visible else self._t("no_last")
+        history_lineage = self._validated_history_lineage()
+        history_source_valid = history_lineage is not None
+        current_node = self.review_history.cursor_node_id
+        cursor_on_live_line = (
+            history_lineage is not None and current_node in set(history_lineage)
         )
+        visible = (
+            history_lineage.index(current_node)
+            if cursor_on_live_line
+            else 0
+        )
+        if not history_source_valid:
+            last = self._t("history_metadata_invalid")
+        elif cursor_on_live_line:
+            last = (
+                format_accessible_compact_san(self.sans[visible - 1], self.lang)
+                if visible else self._t("no_last")
+            )
+        elif type(display_view.last_move) is str and display_view.last_move.strip():
+            try:
+                last = format_accessible_compact_san(display_view.last_move, self.lang)
+            except Exception:
+                last = self._t("history_metadata_invalid")
+        else:
+            last = self._t("no_last")
         status = self._game_status(display_board)
         engine_status = (
             "Stockfish увімкнено." if self.lang == "uk" else "Stockfish enabled."
@@ -470,6 +645,35 @@ class AccessibleChessAPI:
                 "editable": self._at_history_end(),
             }
 
+        history_items = self._history_items()
+        history_length = len(self.sans) if type(self.sans) is list else 0
+        history_projection_valid = (
+            history_source_valid
+            and cursor_on_live_line
+            and len(history_items) == history_length + 1
+            and sum(bool(item["selected"]) for item in history_items) == 1
+            and sum(bool(item["live"]) for item in history_items) == 1
+        )
+        at_history_end = self._at_history_end()
+        editor_projection["editable"] = bool(
+            editor_projection.get("editable") and history_projection_valid
+        )
+        can_history_previous = (
+            history_projection_valid and display_view.ply > 0
+        )
+        can_history_next = (
+            history_projection_valid and display_view.ply < history_length
+        )
+        can_undo = (
+            history_projection_valid and at_history_end and bool(self.sans)
+        )
+        can_redo = (
+            history_projection_valid
+            and at_history_end
+            and bool(self.redo_meta)
+            and self._redo_metadata_valid()
+        )
+
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
             "gameInfo": status,
@@ -485,8 +689,22 @@ class AccessibleChessAPI:
             ),
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
             "positionComplete": self._position_playable(display_board),
-            "reviewCursor": display_view.ply, "historyLength": len(self.sans),
-            "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
+            "reviewCursor": display_view.ply, "historyLength": history_length,
+            "historyItems": history_items,
+            "reviewStatus": (
+                display_view.status
+                if history_projection_valid
+                else (
+                    self._t("history_variation_selected")
+                    if history_source_valid and not cursor_on_live_line
+                    else self._t("history_metadata_invalid")
+                )
+            ),
+            "atHistoryEnd": at_history_end,
+            "historyProjectionValid": history_projection_valid,
+            "canHistoryPrevious": can_history_previous,
+            "canHistoryNext": can_history_next,
+            "canUndo": can_undo, "canRedo": can_redo,
         }
 
     def _ok(self, message: str) -> dict[str, Any]:
@@ -532,6 +750,8 @@ class AccessibleChessAPI:
     def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         try:
             if len(state.to_fen()) > MAX_FEN_CHARS:
                 return self._error(self._t("fen_text_too_long"))
@@ -709,6 +929,8 @@ class AccessibleChessAPI:
             return commands[text]()
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
         if not self._position_playable(self.board):
@@ -772,6 +994,8 @@ class AccessibleChessAPI:
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         try:
             target = parse_sq(square)
         except ValueError as exc:
@@ -854,6 +1078,8 @@ class AccessibleChessAPI:
     def undo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self.sans:
             return self._error(self._t("undo_none"))
         try:
@@ -906,6 +1132,10 @@ class AccessibleChessAPI:
     def redo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
+        if not self._redo_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self.redo_meta:
             return self._error(self._t("redo_none"))
         try:
