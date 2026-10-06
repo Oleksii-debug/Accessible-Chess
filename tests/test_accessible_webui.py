@@ -85,6 +85,16 @@ class AccessibleWebUiTests(unittest.TestCase):
             fragment = self.html[self.html.index(f'id="{control}"'):self.html.index(f'id="{control}"') + 250]
             self.assertNotIn("aria-describedby", fragment)
 
+    def test_help_dialog_focus_target_is_programmatically_focusable(self):
+        self.assertIn(
+            '<div id="help" class="block" tabindex="-1" aria-live="off"></div>',
+            self.html,
+        )
+        self.assertIn(
+            "el('open-help').addEventListener('click',()=>{el('help-dialog').showModal();el('help').focus()})",
+            self.html,
+        )
+
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', self.html)
