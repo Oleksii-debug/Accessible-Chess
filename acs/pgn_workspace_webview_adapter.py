@@ -371,7 +371,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             "content_revision": identity[4],
         }
         if extra:
-            unknown = set(extra).difference({"text"})
+            unknown = set(extra).difference({"text", "slot", "index"})
             if unknown:
                 raise ValueError("PGN action contains untrusted authority fields")
             if "text" in extra:
