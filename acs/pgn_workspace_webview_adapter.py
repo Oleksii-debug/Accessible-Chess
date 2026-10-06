@@ -20,6 +20,10 @@ from .full_product_presenters import PgnTreePresenter
 from .full_product_ui_shell import UILanguage
 from .gametree_navigation import GameTreeCursor, VariationStep
 from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection
+from .pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 
 @runtime_checkable
 class PgnWorkspacePort(Protocol):
@@ -515,9 +519,20 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return self._operate_and_render(operation)
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+        if (
+            type(name) is not str
+            or not name
+            or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+        ):
             raise ValueError("PGN tag name is invalid")
-        if type(value) is not str or len(value) > 360 or "\x00" in value:
+        if (
+            type(value) is not str
+            or len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+            or "\x00" in value
+            or "\r" in value
+            or "\n" in value
+        ):
             raise ValueError("PGN tag value is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -527,7 +542,12 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+        if (
+            type(name) is not str
+            or not name
+            or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+        ):
             raise ValueError("PGN tag name is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
