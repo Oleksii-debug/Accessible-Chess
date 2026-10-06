@@ -36,6 +36,19 @@ class _TestVerifier:
         return key_id == "release-2026" and signature == self.sign(message)
 
 
+class _TestTimeSource:
+    def __init__(self, *instants):
+        if not instants:
+            raise ValueError("at least one instant is required")
+        self._instants = list(instants)
+        self._last = instants[-1]
+
+    def utc_now(self):
+        if self._instants:
+            self._last = self._instants.pop(0)
+        return self._last
+
+
 def _metadata(package: bytes, **changes) -> bytes:
     signed = {
         "schema_version": 1,
@@ -76,7 +89,7 @@ class UpdateSecurityTests(unittest.TestCase):
                 package,
                 current_version="2.0.0",
                 verifier=_TestVerifier(),
-                now=_NOW,
+                time_source=_TestTimeSource(_NOW),
             )
             self.assertEqual(verified.version, "2.1.0")
             self.assertEqual(verified.package_path, package)
@@ -86,7 +99,7 @@ class UpdateSecurityTests(unittest.TestCase):
             )
             self.assertEqual(verified.package_sha256, hashlib.sha256(payload).hexdigest())
             self.assertEqual(verified.key_id, "release-2026")
-            with open_verified_update(verified, now=_NOW) as handle:
+            with open_verified_update(verified, time_source=_TestTimeSource(_NOW)) as handle:
                 self.assertEqual(handle.read(), payload)
 
     def test_verified_capability_cannot_be_forged_or_serialized(self):
@@ -99,7 +112,7 @@ class UpdateSecurityTests(unittest.TestCase):
                 package,
                 current_version="2.0.0",
                 verifier=_TestVerifier(),
-                now=_NOW,
+                time_source=_TestTimeSource(_NOW),
             )
 
             with self.assertRaisesRegex(TypeError, "not serializable"):
@@ -118,12 +131,12 @@ class UpdateSecurityTests(unittest.TestCase):
             ):
                 object.__setattr__(forged, name, value)
             with self.assertRaisesRegex(UpdateSecurityError, "capability is invalid"):
-                with open_verified_update(forged, now=_NOW):
+                with open_verified_update(forged, time_source=_TestTimeSource(_NOW)):
                     pass
 
             incomplete = update_security.VerifiedUpdate()
             with self.assertRaisesRegex(UpdateSecurityError, "capability is invalid"):
-                with open_verified_update(incomplete, now=_NOW):
+                with open_verified_update(incomplete, time_source=_TestTimeSource(_NOW)):
                     pass
 
     def test_replacement_after_verification_fails_at_consumption_boundary(self):
@@ -136,13 +149,13 @@ class UpdateSecurityTests(unittest.TestCase):
                 package,
                 current_version="2.0.0",
                 verifier=_TestVerifier(),
-                now=_NOW,
+                time_source=_TestTimeSource(_NOW),
             )
             replacement = b"MZ-attacker-update!"
             self.assertEqual(len(payload), len(replacement))
             package.write_bytes(replacement)
             with self.assertRaisesRegex(UpdateSecurityError, "digest mismatch|changed"):
-                with open_verified_update(verified, now=_NOW):
+                with open_verified_update(verified, time_source=_TestTimeSource(_NOW)):
                     pass
 
     def test_verified_consumption_rechecks_expiry(self):
@@ -155,14 +168,14 @@ class UpdateSecurityTests(unittest.TestCase):
                 package,
                 current_version="2.0.0",
                 verifier=_TestVerifier(),
-                now=_NOW,
+                time_source=_TestTimeSource(_NOW),
             )
             expired = datetime(2026, 10, 4, 18, 0, tzinfo=timezone.utc)
             with self.assertRaisesRegex(UpdateSecurityError, "expired"):
-                with open_verified_update(verified, now=expired):
+                with open_verified_update(verified, time_source=_TestTimeSource(expired)):
                     pass
 
-    def test_trusted_time_is_explicit_and_cannot_roll_back_after_verification(self):
+    def test_trusted_time_source_is_required_strict_and_non_regressing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             payload = b"MZ-authentic-update"
@@ -176,13 +189,32 @@ class UpdateSecurityTests(unittest.TestCase):
                     verifier=_TestVerifier(),
                 )
 
-            with self.assertRaisesRegex(ValueError, "exact timezone.utc"):
+            with self.assertRaisesRegex(TypeError, "TrustedTimeSource"):
                 verify_update_package(
                     _metadata(payload),
                     package,
                     current_version="2.0.0",
                     verifier=_TestVerifier(),
-                    now=datetime(2026, 9, 26, 18, 0),
+                    time_source=object(),
+                )
+
+            with self.assertRaisesRegex(UpdateSecurityError, "time is invalid"):
+                verify_update_package(
+                    _metadata(payload),
+                    package,
+                    current_version="2.0.0",
+                    verifier=_TestVerifier(),
+                    time_source=_TestTimeSource(datetime(2026, 9, 26, 18, 0)),
+                )
+
+            rolled_back = datetime(2026, 9, 26, 17, 30, tzinfo=timezone.utc)
+            with self.assertRaisesRegex(UpdateSecurityError, "time moved backwards"):
+                verify_update_package(
+                    _metadata(payload),
+                    package,
+                    current_version="2.0.0",
+                    verifier=_TestVerifier(),
+                    time_source=_TestTimeSource(_NOW, rolled_back),
                 )
 
             verified = verify_update_package(
@@ -190,16 +222,29 @@ class UpdateSecurityTests(unittest.TestCase):
                 package,
                 current_version="2.0.0",
                 verifier=_TestVerifier(),
-                now=_NOW,
+                time_source=_TestTimeSource(_NOW),
             )
             with self.assertRaises(TypeError):
                 with open_verified_update(verified):
                     pass
-
-            rolled_back = datetime(2026, 9, 26, 17, 30, tzinfo=timezone.utc)
             with self.assertRaisesRegex(UpdateSecurityError, "time moved backwards"):
-                with open_verified_update(verified, now=rolled_back):
+                with open_verified_update(
+                    verified,
+                    time_source=_TestTimeSource(rolled_back),
+                ):
                     pass
+
+            class _ExplodingTimeSource:
+                def utc_now(self):
+                    raise RuntimeError("secret-clock-detail")
+
+            with self.assertRaisesRegex(UpdateSecurityError, "time is unavailable") as caught:
+                with open_verified_update(
+                    verified,
+                    time_source=_ExplodingTimeSource(),
+                ):
+                    pass
+            self.assertNotIn("secret-clock-detail", str(caught.exception))
 
     def test_unsigned_or_bad_signature_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
@@ -211,14 +256,14 @@ class UpdateSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(UpdateSecurityError, "signature is missing"):
                 verify_update_package(
                     json.dumps(envelope).encode(), package,
-                    current_version="2.0.0", verifier=_TestVerifier(), now=_NOW,
+                    current_version="2.0.0", verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
             envelope = json.loads(_metadata(payload))
             envelope["signature"] = base64.b64encode(b"forged").decode()
             with self.assertRaisesRegex(UpdateSecurityError, "signature verification failed"):
                 verify_update_package(
                     json.dumps(envelope).encode(), package,
-                    current_version="2.0.0", verifier=_TestVerifier(), now=_NOW,
+                    current_version="2.0.0", verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
     def test_signed_metadata_tamper_is_detected(self):
@@ -230,7 +275,7 @@ class UpdateSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(UpdateSecurityError, "signature verification failed"):
                 verify_update_package(
                     json.dumps(envelope).encode(), package,
-                    current_version="2.0.0", verifier=_TestVerifier(), now=_NOW,
+                    current_version="2.0.0", verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
     def test_payload_tamper_is_detected_after_authentic_metadata(self):
@@ -241,7 +286,7 @@ class UpdateSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(UpdateSecurityError, "size mismatch|digest mismatch"):
                 verify_update_package(
                     _metadata(original), package,
-                    current_version="2.0.0", verifier=_TestVerifier(), now=_NOW,
+                    current_version="2.0.0", verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
     def test_equal_version_downgrade_and_too_old_source_are_rejected(self):
@@ -254,12 +299,12 @@ class UpdateSecurityTests(unittest.TestCase):
                     with self.assertRaisesRegex(UpdateSecurityError, "would not advance"):
                         verify_update_package(
                             _metadata(payload), package,
-                            current_version=current, verifier=_TestVerifier(), now=_NOW,
+                            current_version=current, verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                         )
             with self.assertRaisesRegex(UpdateSecurityError, "too old"):
                 verify_update_package(
                     _metadata(payload), package,
-                    current_version="1.9.9", verifier=_TestVerifier(), now=_NOW,
+                    current_version="1.9.9", verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
     def test_expired_or_future_metadata_is_rejected(self):
@@ -270,13 +315,13 @@ class UpdateSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(UpdateSecurityError, "expired"):
                 verify_update_package(
                     expired, package, current_version="2.0.0",
-                    verifier=_TestVerifier(), now=_NOW,
+                    verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
             future = _metadata(payload, published_at="2026-09-26T19:00:00Z")
             with self.assertRaisesRegex(UpdateSecurityError, "not yet valid"):
                 verify_update_package(
                     future, package, current_version="2.0.0",
-                    verifier=_TestVerifier(), now=_NOW,
+                    verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
     def test_download_url_is_signed_https_only_and_unambiguous(self):
@@ -298,7 +343,7 @@ class UpdateSecurityTests(unittest.TestCase):
                             package,
                             current_version="2.0.0",
                             verifier=_TestVerifier(),
-                            now=_NOW,
+                            time_source=_TestTimeSource(_NOW),
                         )
 
     def test_download_url_tamper_breaks_signature(self):
@@ -313,7 +358,7 @@ class UpdateSecurityTests(unittest.TestCase):
                     package,
                     current_version="2.0.0",
                     verifier=_TestVerifier(),
-                    now=_NOW,
+                    time_source=_TestTimeSource(_NOW),
                 )
 
     def test_extra_fields_and_duplicate_keys_are_rejected(self):
@@ -325,13 +370,13 @@ class UpdateSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(UpdateSecurityError, "signed update metadata is invalid"):
                 verify_update_package(
                     json.dumps(envelope).encode(), package,
-                    current_version="2.0.0", verifier=_TestVerifier(), now=_NOW,
+                    current_version="2.0.0", verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
             duplicate = b'{"signed":{},"signed":{},"signature":"x"}'
             with self.assertRaisesRegex(UpdateSecurityError, "metadata is invalid"):
                 verify_update_package(
                     duplicate, package, current_version="2.0.0",
-                    verifier=_TestVerifier(), now=_NOW,
+                    verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
     def test_symlink_package_is_rejected(self):
@@ -349,7 +394,7 @@ class UpdateSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(UpdateSecurityError, "regular non-reparse"):
                 verify_update_package(
                     _metadata(payload), link, current_version="2.0.0",
-                    verifier=_TestVerifier(), now=_NOW,
+                    verifier=_TestVerifier(), time_source=_TestTimeSource(_NOW),
                 )
 
 

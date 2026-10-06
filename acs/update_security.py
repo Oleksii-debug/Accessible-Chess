@@ -7,8 +7,9 @@ turns an update package into a ``VerifiedUpdate`` capability only after signed
 metadata, version policy, expiry, source URL, size and SHA-256 binding have all
 passed. Cryptographic key storage/rotation is supplied by a replaceable
 asymmetric ``SignatureVerifier``; no signing secret belongs in the client.
-Validity checks require an explicit trusted UTC instant from the caller; this
-module never falls back to the mutable local Windows system clock.
+Validity checks require an explicit provider-neutral ``TrustedTimeSource``
+from the caller; this module never falls back to the mutable local Windows
+system clock.
 """
 
 from contextlib import contextmanager
@@ -58,6 +59,13 @@ class SignatureVerifier(Protocol):
     """Verify a detached signature using client-embedded public trust only."""
 
     def verify(self, *, key_id: str, message: bytes, signature: bytes) -> bool:
+        ...
+
+
+class TrustedTimeSource(Protocol):
+    """Supply authenticated/signed or otherwise trusted non-regressing UTC time."""
+
+    def utc_now(self) -> datetime:
         ...
 
 
@@ -146,9 +154,15 @@ def _utc_time(value: object, label: str) -> datetime:
     return parsed
 
 
-def _require_trusted_utc_instant(value: datetime) -> datetime:
+def _trusted_utc_now(source: TrustedTimeSource) -> datetime:
+    if not callable(getattr(source, "utc_now", None)):
+        raise TypeError("time_source must implement TrustedTimeSource")
+    try:
+        value = source.utc_now()
+    except Exception as exc:
+        raise UpdateSecurityError("trusted update time is unavailable") from exc
     if type(value) is not datetime or value.tzinfo is not timezone.utc:
-        raise ValueError("now must be an exact timezone.utc datetime")
+        raise UpdateSecurityError("trusted update time is invalid")
     return value
 
 
@@ -267,31 +281,39 @@ def _verified_package_handle(
 def open_verified_update(
     verified: VerifiedUpdate,
     *,
-    now: datetime,
+    time_source: TrustedTimeSource,
 ) -> Iterator[BinaryIO]:
     """Yield only the exact signed bytes still valid at consumption time.
 
     Future update installers must consume this retained read-only handle (or bytes
     derived from it), not reopen ``verified.package_path`` after verification.
-    ``now`` must be freshly obtained from the caller's trusted update-time
-    authority; local wall-clock fallback is intentionally unavailable.
+    ``time_source`` is consulted both before and after package revalidation,
+    so local wall-clock fallback, long-hash expiry and same-operation time
+    rollback are all fail-closed.
     """
     if not isinstance(verified, VerifiedUpdate):
         raise TypeError("verified must be a VerifiedUpdate capability")
     if getattr(verified, "_attestation", None) is not _VERIFIED_UPDATE_ATTESTATION:
         raise UpdateSecurityError("verified update capability is invalid")
-    instant = _require_trusted_utc_instant(now)
-    if instant < verified._verified_at:
+    before = _trusted_utc_now(time_source)
+    if before < verified._verified_at:
         raise UpdateSecurityError("trusted update time moved backwards")
-    if instant < verified.published_at:
+    if before < verified.published_at:
         raise UpdateSecurityError("verified update is not yet valid")
-    if instant > verified.expires_at:
+    if before > verified.expires_at:
         raise UpdateSecurityError("verified update is expired")
     with _verified_package_handle(
         verified.package_path,
         expected_size=verified.package_size,
         expected_digest=verified.package_sha256,
     ) as handle:
+        after = _trusted_utc_now(time_source)
+        if after < before or after < verified._verified_at:
+            raise UpdateSecurityError("trusted update time moved backwards")
+        if after < verified.published_at:
+            raise UpdateSecurityError("verified update is not yet valid")
+        if after > verified.expires_at:
+            raise UpdateSecurityError("verified update is expired")
         yield handle
 
 
@@ -301,14 +323,15 @@ def verify_update_package(
     *,
     current_version: str,
     verifier: SignatureVerifier,
-    now: datetime,
+    time_source: TrustedTimeSource,
     max_package_bytes: int = _DEFAULT_PACKAGE_LIMIT,
 ) -> VerifiedUpdate:
     """Return a capability only for an authentic, applicable package.
 
-    Callers must provide ``now`` from an authenticated/signed or otherwise
-    trusted non-regressing UTC time authority; the mutable local system clock is
-    never consulted implicitly. Callers must treat failure as non-applicable and
+    Callers must provide a ``TrustedTimeSource`` backed by authenticated/signed
+    or otherwise trusted non-regressing UTC time; the mutable local system clock
+    is never consulted implicitly. The source is re-read after package hashing
+    before a capability is minted. Callers must treat failure as non-applicable and
     must never execute or install the candidate package on any exception from this function. A caller
     that later consumes package bytes must use :func:`open_verified_update` so
     pathname replacement after this function returns cannot bypass verification.
@@ -376,10 +399,10 @@ def verify_update_package(
 
     published = _utc_time(signed.get("published_at"), "published time")
     expires = _utc_time(signed.get("expires_at"), "expiry time")
-    instant = _require_trusted_utc_instant(now)
-    if expires <= published or instant > expires:
+    started = _trusted_utc_now(time_source)
+    if expires <= published or started > expires:
         raise UpdateSecurityError("update metadata is expired")
-    if published > instant:
+    if published > started:
         raise UpdateSecurityError("update metadata is not yet valid")
 
     package = Path(package_path)
@@ -390,6 +413,14 @@ def verify_update_package(
     ):
         pass
 
+    finished = _trusted_utc_now(time_source)
+    if finished < started:
+        raise UpdateSecurityError("trusted update time moved backwards")
+    if finished > expires:
+        raise UpdateSecurityError("update metadata is expired")
+    if published > finished:
+        raise UpdateSecurityError("update metadata is not yet valid")
+
     return _mint_verified_update(
         package_path=package,
         version=str(signed["version"]),
@@ -399,12 +430,13 @@ def verify_update_package(
         key_id=key_id,
         published_at=published,
         expires_at=expires,
-        verified_at=instant,
+        verified_at=finished,
     )
 
 
 __all__ = [
     "SignatureVerifier",
+    "TrustedTimeSource",
     "UpdateSecurityError",
     "open_verified_update",
     "verify_update_package",
