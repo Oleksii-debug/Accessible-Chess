@@ -38,7 +38,10 @@ class AcsdbBookGameLookup:
     """Resolve one Book ``game_id`` through the existing ACSDB read contract."""
 
     def __init__(self, database: AcsDatabase) -> None:
-        if not isinstance(database, AcsDatabase):
+        if type(database) is not AcsDatabase:
+            # This adapter owns a concrete ACSDB trust boundary, not an extensible
+            # provider interface. Reject subclasses before later get_game()
+            # dispatch can execute provider-defined code inside the Books ingress.
             raise TypeError("database must be an AcsDatabase")
         self._database = database
 
@@ -57,7 +60,11 @@ class AcsdbBookGameLookup:
             raise BookLibraryGameLookupError("stored book game warnings are invalid")
         try:
             warnings = json.loads(raw)
-        except (json.JSONDecodeError, RecursionError) as exc:
+        except (ValueError, RecursionError):
+            # json.loads() can raise ValueError for syntactically JSON input whose
+            # integer conversion breaches Python's bounded decimal-digit guard.
+            # Corrupt persisted diagnostics must stay behind the same sanitized
+            # Books -> Library boundary as ordinary JSON syntax/depth failures.
             raise BookLibraryGameLookupError(
                 "stored book game warnings are invalid"
             ) from None
@@ -66,8 +73,8 @@ class AcsdbBookGameLookup:
             or len(warnings) > MAX_PGN_LEXICAL_TOKENS
             or any(
                 type(item) is not str
-                or not item.strip()
                 or len(item) > MAX_PGN_TOKEN_CHARS
+                or not item.strip()
                 or "\x00" in item
                 or any(0xD800 <= ord(character) <= 0xDFFF for character in item)
                 for item in warnings
@@ -82,13 +89,26 @@ class AcsdbBookGameLookup:
         reparsed: list[str],
     ) -> list[str]:
         if not persisted:
+            if len(reparsed) > MAX_PGN_LEXICAL_TOKENS:
+                raise BookLibraryGameLookupError(
+                    "stored book game warnings exceed the canonical resource limit"
+                )
             return list(reparsed)
         merged = list(persisted)
         seen = set(persisted)
         for warning in reparsed:
-            if warning not in seen:
-                merged.append(warning)
-                seen.add(warning)
+            if warning in seen:
+                continue
+            if len(merged) >= MAX_PGN_LEXICAL_TOKENS:
+                # Each warning source is bounded independently, but their union
+                # must stay inside the same canonical lexical-work envelope.
+                # Do not publish a Book-side GameTree whose diagnostics exceed
+                # the D06 source budget merely because provenance was merged.
+                raise BookLibraryGameLookupError(
+                    "stored book game warnings exceed the canonical resource limit"
+                )
+            merged.append(warning)
+            seen.add(warning)
         return merged
 
     def load_book_game(self, game_id: int) -> PgnGame:
@@ -104,7 +124,11 @@ class AcsdbBookGameLookup:
 
         identity = self._game_id(game_id)
         try:
-            row = self._database.get_game(identity)
+            # Dispatch through the concrete class method, not an instance
+            # attribute. AcsDatabase instances are mutable and can otherwise
+            # shadow get_game on __dict__ even though the exact runtime type was
+            # validated at construction.
+            row = AcsDatabase.get_game(self._database, identity)
         except Exception:
             raise BookLibraryGameLookupError("book game lookup failed") from None
 
@@ -116,11 +140,17 @@ class AcsdbBookGameLookup:
         source_index = row.get("source_index")
         if type(source_index) is not int or source_index < 0 or source_index > _SQLITE_INTEGER_MAX:
             raise BookLibraryGameLookupError("stored book game identity is invalid")
-        persisted_warnings = self._stored_warnings(row)
 
         pgn_text = row.get("pgn_text")
-        if type(pgn_text) is not str or not pgn_text.strip():
+        # Bound the exact stored scalar before strip(), warning JSON decoding or
+        # D06 parsing. A corrupt database row must not force a full scan/allocation
+        # elsewhere in the record before its primary game payload is rejected.
+        if type(pgn_text) is not str or len(pgn_text) > MAX_PGN_TEXT_CHARS:
             raise BookLibraryGameLookupError("stored book game is not canonical")
+        if not pgn_text.strip():
+            raise BookLibraryGameLookupError("stored book game is not canonical")
+
+        persisted_warnings = self._stored_warnings(row)
 
         try:
             games = parse_pgn_text(pgn_text, strict=False)
