@@ -435,6 +435,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             )
 
     def restart_analysis(self) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         try:
             displayed = self._display_review()
             if not self.analysis_ui.target_locked and not self._displayed_position_playable():
@@ -455,6 +458,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
 
     def configure_analysis(self, multipv: int, depth: int) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         if not self.analysis_ui.available:
             return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
         try:
@@ -474,6 +480,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             )
 
     def toggle_analysis_lock(self) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         displayed = self._display_review()
         if not self._displayed_position_playable():
             return self._error(
@@ -512,6 +521,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         return self.read_analysis_pv(index)
 
     def select_relative_analysis_pv(self, delta: int) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         try:
             line = self.analysis_ui.select_relative_pv(delta, self._display_review().fen)
             return self._ok(self._analysis_line_message(line.multipv))
