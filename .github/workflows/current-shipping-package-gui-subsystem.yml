@@ -1,0 +1,96 @@
+name: Current Shipping Package GUI Subsystem
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-package-gui-subsystem-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PARENT_SHA: 90f5af77f564c2471bc0984b93ae524d0221ff5c
+  PREFLIGHT_BLOB: 08c4024b063a7c674bada1a712cfdf44e7470c10
+  PREFLIGHT_TEST_BLOB: b986b679e9bb14e60f7c8297c09ddef914357c15
+
+jobs:
+  package-gui-subsystem:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact parent, scope and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+          git cat-file -e "$PARENT_SHA^{commit}"
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          mapfile -t paths < <(git diff --name-only "$PARENT_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-shipping-package-gui-subsystem.yml"
+            "acs/version2_package_preflight.py"
+            "tests/test_version2_package_preflight.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$PREFLIGHT_TEST_BLOB"
+
+      - name: Compile package boundary
+        run: >-
+          python -m py_compile
+          acs/version2_package_preflight.py
+          tests/test_version2_package_preflight.py
+
+      - name: Execute package preflight contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+
+      - name: Execute package and shipping consumers
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_portable_launcher_contract
+          tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
