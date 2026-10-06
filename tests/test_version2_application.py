@@ -23,7 +23,7 @@ from acs.library_webview_projection import LibraryImportPhase
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
-from acs.version2_application import Version2Application
+from acs.version2_application import PreparedBookOpen, Version2Application
 from acs.version2_windows_book_open_worker import Version2BookOpenWorker
 from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
@@ -1331,6 +1331,58 @@ class Version2ApplicationTests(unittest.TestCase):
         persisted = store.restore(key, self.app.reader.document)
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+    def test_prepared_book_open_rejects_active_warnings_before_publication(self):
+        candidate = self.root / "book-open-active-warnings.md"
+        candidate.write_text("# Candidate\n\nSafe warning boundary.\n", encoding="utf-8")
+        trusted = self.app.prepare_book_open(candidate)
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_books = self.app.books
+
+        class ActiveWarnings(tuple):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active warning container hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active warning container hook must not execute")
+
+        prepared = PreparedBookOpen(
+            trusted.book_key,
+            trusted.document,
+            ActiveWarnings(("warning",)),
+        )
+        with self.assertRaisesRegex(TypeError, "warnings are invalid"):
+            self.app.commit_prepared_book_open(prepared)
+
+        self.assertFalse(ActiveWarnings.touched)
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(trusted.book_key))
+
+        class ActiveWarning(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("active warning text hook must not execute")
+
+        prepared = PreparedBookOpen(
+            trusted.book_key,
+            trusted.document,
+            (ActiveWarning("warning"),),
+        )
+        with self.assertRaisesRegex(TypeError, "warnings are invalid"):
+            self.app.commit_prepared_book_open(prepared)
+        self.assertFalse(ActiveWarning.touched)
+        self.assertFalse(self.app.progress_store.has(trusted.book_key))
 
     def test_book_open_focus_failure_rolls_back_before_owner_or_progress_publication(self):
         candidate = self.root / "book-open-focus-failure.md"

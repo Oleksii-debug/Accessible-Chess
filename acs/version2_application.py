@@ -24,7 +24,7 @@ from .book_progress_store import (
     BookProgressStoreError,
     BookProgressStoreErrorCode,
 )
-from .bookdocument import BookDocument
+from .bookdocument import BookDocument, MAX_BOOK_DOCUMENT_WARNINGS
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
@@ -619,6 +619,20 @@ class Version2Application:
         self._assert_book_open_allowed()
         if type(prepared) is not PreparedBookOpen:
             raise TypeError("prepared Book Open result is invalid")
+        # PreparedBookOpen crosses a worker/UI ownership boundary. Its frozen
+        # dataclass shell does not make referenced values canonical: callers can
+        # construct it directly, and object.__setattr__ can mutate frozen fields.
+        # Snapshot and validate warnings before any persistence/route publication
+        # so an active container or element cannot run a hook after the Book has
+        # already become visible and turn a successful open into FAILED.
+        warnings = prepared.warnings
+        if (
+            type(warnings) is not tuple
+            or len(warnings) > MAX_BOOK_DOCUMENT_WARNINGS
+            or any(type(warning) is not str for warning in warnings)
+        ):
+            raise TypeError("prepared Book Open warnings are invalid")
+        warning_count = len(warnings)
 
         self.save_training_progress()
         self.save_book_progress()
@@ -703,7 +717,6 @@ class Version2Application:
         )
         self.training_workspace = self.training = None
         self._focus = route_focus
-        warning_count = len(prepared.warnings)
         if warning_count:
             announcement = (
                 f"Книгу відкрито з попередженнями імпорту: {warning_count}."
