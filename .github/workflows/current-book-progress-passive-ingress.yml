@@ -17,7 +17,7 @@ permissions:
 
 env:
   STORE_BLOB: 9679133f914839439bc42b63c4d79064b9c49bdd
-  INGRESS_TEST_BLOB: 09e68edb9f50b91d8cf13dcdb6939a19946b49bd
+  INGRESS_TEST_BLOB: fdc34f0637c2b26c2e5e70bab63c973204bb6481
 
 concurrency:
   group: current-book-progress-passive-ingress-${{ github.event.pull_request.number || github.ref }}
