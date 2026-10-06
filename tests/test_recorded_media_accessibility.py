@@ -19,8 +19,6 @@ from acs.recorded_media_sync import (
     AccessibleRecordedSyncEvent,
     RecordedPlaybackResolution,
     RecordedSyncSnapshot,
-    RecordedSyncStep,
-    RecordedSyncStepKind,
 )
 from acs.recorded_media_accessibility import (
     RecordedMediaAccessibilityBridge,
@@ -254,7 +252,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         bridge = RecordedMediaAccessibilityBridge()
         cases = (
             lambda: bridge.set_language("pl"),
-            lambda: bridge.snapshot(clock="not-a-clock"),
+            lambda: bridge.snapshot(playback_state=1),
             lambda: bridge.snapshot(preprocess="not-a-checkpoint"),
             lambda: bridge.snapshot(event="not-an-event"),
             lambda: bridge.error_state(position_ms=-1),
@@ -264,19 +262,22 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
                 with self.assertRaises(RecordedMediaAccessibilityError):
                     action()
 
-    def test_tampered_clock_fields_fail_before_render(self) -> None:
+    def test_invalid_clock_values_fail_before_render(self) -> None:
         cases = [
-            ("position_ms", "bad"),
-            ("playback_rate", float("nan")),
-            ("revision", -1),
+            {"position_ms": -1},
+            {"duration_ms": -1},
+            {"playback_state": "bogus"},
+            {"revision": -1},
+            {"position_ms": 120_001, "duration_ms": 120_000},
         ]
-        for field_name, value in cases:
-            with self.subTest(field=field_name):
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
                 kwargs = _clock_kwargs()
-                object.__setattr__(clock, field_name, value)
+                kwargs.update(overrides)
                 bridge = RecordedMediaAccessibilityBridge()
                 with self.assertRaises(RecordedMediaAccessibilityError):
                     bridge.snapshot(**kwargs)
+
 
     def test_cross_source_snapshots_fail_closed(self) -> None:
         bridge = RecordedMediaAccessibilityBridge()
