@@ -823,6 +823,91 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             self.assertFalse(runtime.pgn_save_running)
             self.assertTrue(runtime.shutdown())
 
+    def test_real_pgn_save_double_presentation_abort_requires_explicit_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-save-explicit-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Explicit terminal recovery")
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+            ready_calls = 0
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                nonlocal ready_calls
+                ready_calls += 1
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if ready_calls <= 2:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.save", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertFalse(session.dirty)
+                self.assertIn(
+                    "Explicit terminal recovery",
+                    source.read_text(encoding="utf-8"),
+                )
+                self.assertEqual(ready_calls, 1)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+                self.assertEqual(ready_calls, 2)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+                self.assertEqual(owner.posted, [])
+
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.PGN_SAVED)
+                self.assertEqual(
+                    tuple(id(event) for event in leased_batches[1]),
+                    tuple(id(event) for event in first_batch),
+                )
+
+                self.assertTrue(runtime.request_pending_import_wakeup())
+
+            self.assertEqual(ready_calls, 3)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[2]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertIn(
+                "Explicit terminal recovery",
+                source.read_text(encoding="utf-8"),
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_real_pgn_open_failure_terminal_retries_transactionally(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory) / "missing-transactional-open.pgn"
