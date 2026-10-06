@@ -57,7 +57,7 @@ jobs:
           }
           test "$(git rev-parse HEAD:acs/agent_books_training_tools.py)" = '2ef2b02d4e30d33270be97ef3a3bb6f8dfc55eb9'
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'b5c2561c07fecba999db98add8c5abb3c50d8afd'
-          test "$(git rev-parse HEAD:tests/test_agent_books_training_tools.py)" = '792c6d10d2cdb14c2b778b69d19d5eb48f9ce28d'
+          test "$(git rev-parse HEAD:tests/test_agent_books_training_tools.py)" = '6c724b509324b452ef1289ccd2959774e1b77e90'
           test "$(git rev-parse HEAD:acs/version2_application.py)" = '300c0e71d1d714a51722ca4d517235be282bf9ae'
           test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '1efa223baa961ccb4f1e46283082a657dba7051b'
           test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = '64f4af6bb8d84ac7347fee1ab43139d4fbf6663a'
