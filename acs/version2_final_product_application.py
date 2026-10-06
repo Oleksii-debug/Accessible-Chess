@@ -891,6 +891,16 @@ class Version2FinalProductApplication(Version2Application):
                 "recovery_required": True,
                 "announcement": announcement,
             }
+        if self._rotation_store is None:
+            announcement = self._teacher_keyboard_announcement(
+                "Групова ротація недоступна.",
+                "Group rotation is unavailable.",
+            )
+            return {
+                "kind": "group-rotation",
+                "recovery_required": False,
+                "announcement": announcement,
+            }
         if self._rotation_state is None or self._rotation_plan is None:
             announcement = self._teacher_keyboard_announcement(
                 "Групову ротацію ще не розпочато. Натисніть Control+Alt+R, щоб почати або відновити.",
