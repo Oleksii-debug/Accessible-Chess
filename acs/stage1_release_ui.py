@@ -34,8 +34,14 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
 
     def get_move_feedback_settings(self) -> dict[str, Any]:
         settings = getattr(self, "_settings", None)
-        return {"ok": True, "enabled": settings.get("announce_move_errors", False) is True
-                if settings is not None else False}
+        if settings is None:
+            return {"ok": False, "enabled": False}
+        try:
+            enabled = settings.get("announce_move_errors", False) is True
+        except Exception:
+            _core._LOG.exception("Could not read move feedback preference")
+            return {"ok": False, "enabled": False}
+        return {"ok": True, "enabled": enabled}
 
     def set_move_error_announcements(self, enabled: bool) -> dict[str, Any]:
         settings = getattr(self, "_settings", None)
