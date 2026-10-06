@@ -297,6 +297,24 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         parse.assert_not_called()
 
+    def test_html_explicit_pgn_preamble_scan_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during explicit PGN preamble scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        raw = "{PGN 1}\n" + ("   \n" * 400) + '[Event "Study"]\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._explicit_pgn_pre(raw, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
     def test_html_visible_pgn_scan_observes_control_across_large_prose(self):
         import acs.book_html_import as html
 
