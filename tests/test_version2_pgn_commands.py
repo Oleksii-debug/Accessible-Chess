@@ -369,6 +369,45 @@ class PgnCommandsTests(unittest.TestCase):
         self.assertEqual(first.workspace.selected_game_index, 1)
         self.assertEqual(second.workspace.selected_game_index, 0)
 
+    def test_game_management_commands_add_select_and_delete_with_stale_fence(self):
+        session = PgnDocumentSession.new_game({"Event": "First"})
+        commands = Version2PgnCommands(lambda: session)
+
+        def target():
+            view = session.workspace.view()
+            return {
+                "game_index": view.selected_game_index,
+                "line_path": tuple(
+                    (step.parent_move_index, step.variation_index)
+                    for step in view.cursor.line_path
+                ),
+                "move_index": (
+                    view.cursor.next_move_index - 1
+                    if view.cursor.next_move_index
+                    else None
+                ),
+                "expected_record_digest": view.current_record_digest,
+                "expected_content_digest": view.content_digest,
+                "content_revision": view.content_revision,
+            }
+
+        original = target()
+        commands("pgn.game_add", original)
+        self.assertEqual(2, session.workspace.game_count)
+        self.assertEqual(1, session.workspace.selected_game_index)
+
+        with self.assertRaises(ValueError):
+            commands("pgn.game_delete", original)
+        self.assertEqual(2, session.workspace.game_count)
+
+        commands("pgn.game_delete", target())
+        self.assertEqual(1, session.workspace.game_count)
+        self.assertEqual("First", session.workspace.current_game().tags["Event"])
+
+        with self.assertRaises(Exception):
+            commands("pgn.game_delete", target())
+        self.assertEqual(1, session.workspace.game_count)
+
     def test_metadata_commands_edit_current_game_with_cas_and_keep_position_tags_protected(self):
         session = PgnDocumentSession.from_text(
             '[Event "Old"]\n[Result "*"]\n\n1. e4 *\n'
