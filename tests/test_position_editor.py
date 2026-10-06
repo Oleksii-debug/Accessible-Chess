@@ -139,6 +139,35 @@ class PositionEditorTests(unittest.TestCase):
         with self.assertRaisesRegex(PositionValidationError, "fullmove"):
             PositionState.from_fen("8/8/8/8/8/8/8/K6k w - - 0 0")
 
+    def test_fen_lexical_numbers_use_ascii_grammar(self):
+        invalid = (
+            # Unicode decimal digits must not be interpreted as FEN rank counts.
+            "７1/8/8/8/8/8/8/K6k w - - 0 1",
+            # Some Unicode digits satisfy isdigit() but cannot be parsed by int();
+            # rejection must still stay inside the PositionValidationError domain.
+            "²6/8/8/8/8/8/8/K6k w - - 0 1",
+            # Canonical Board rejects signs and non-ASCII decimal counters.
+            "8/8/8/8/8/8/8/K6k w - - +0 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 +1",
+            "8/8/8/8/8/8/8/K6k w - - ٠ 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 ١",
+        )
+        for fen in invalid:
+            with self.subTest(fen=fen):
+                with self.assertRaises(PositionValidationError):
+                    PositionState.from_fen(fen)
+
+    def test_ascii_counter_lexemes_remain_compatible_and_canonicalize(self):
+        position = PositionState.from_fen(
+            "8/8/8/8/8/8/8/K6k b - - 00017 00042"
+        )
+        self.assertEqual(position.halfmove, 17)
+        self.assertEqual(position.fullmove, 42)
+        self.assertEqual(
+            position.to_fen(),
+            "8/8/8/8/8/8/8/K6k b - - 17 42",
+        )
+
     def test_clear_preserves_turn_but_resets_position_metadata(self):
         position = PositionState.from_fen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 17 22")
         cleared = position.cleared()
