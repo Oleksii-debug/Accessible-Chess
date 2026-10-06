@@ -161,7 +161,7 @@ def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
     return BookEpubImportError(message, code=code)
 
 
-def _normalized_host_text(
+def _normalized_whitespace_text(
     value: str,
     control_checkpoint: Callable[[], None] | None = None,
 ) -> str:
@@ -207,7 +207,7 @@ def _required_text(
             f"{field} exceeds the canonical BookDocument text field limit",
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
-    normalized = _normalized_host_text(value, control_checkpoint)
+    normalized = _normalized_whitespace_text(value, control_checkpoint)
     if not normalized:
         raise _error(
             f"{field} must be non-empty text",
@@ -1297,7 +1297,7 @@ def _metadata_values(
                 "EPUB Dublin Core metadata must contain text only",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        text = " ".join((element.text or "").split())
+        text = _normalized_whitespace_text(element.text or "", control_checkpoint)
         if text and text not in values:
             values.append(text)
     return values
@@ -2285,6 +2285,38 @@ def _resolved_asset(
         return None
 
 
+def _first_heading_text(
+    blocks: list[object],
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
+    for block_index, block in enumerate(blocks, start=1):
+        if control_checkpoint is not None and block_index % 128 == 1:
+            control_checkpoint()
+        if isinstance(block, Heading):
+            return block.text
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return None
+
+
+def _controlled_join(
+    values: list[str],
+    separator: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return separator.join(values)
+    output = StringIO()
+    for value_index, value in enumerate(values):
+        if value_index % 128 == 0:
+            control_checkpoint()
+        if value_index:
+            output.write(separator)
+        output.write(value)
+    control_checkpoint()
+    return output.getvalue()
+
+
 def import_epub_book(
     source: bytes,
     *,
@@ -2560,11 +2592,15 @@ def import_epub_book(
 
         resolved_title = override_title or (package_titles[0] if package_titles else None)
         if not resolved_title:
-            first_heading = next((block.text for block in blocks if isinstance(block, Heading)), None)
+            first_heading = _first_heading_text(blocks, control_checkpoint)
             resolved_title = first_heading or (chapter_titles[0] if chapter_titles else display_source)
-        resolved_author = override_author or ("; ".join(creators) if creators else None)
+        resolved_author = override_author or (
+            _controlled_join(creators, "; ", control_checkpoint) if creators else None
+        )
         resolved_language = override_language or (languages[0] if languages else None)
-        resolved_rights = "; ".join(rights) if rights else None
+        resolved_rights = (
+            _controlled_join(rights, "; ", control_checkpoint) if rights else None
+        )
 
         try:
             document = BookDocument(
