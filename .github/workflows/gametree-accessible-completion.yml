@@ -1,0 +1,68 @@
+name: GameTree Accessible Completion
+
+on:
+  pull_request:
+    paths:
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'web/full_product_pgn.js'
+      - 'tests/test_gametree_accessible_completion.py'
+      - '.github/workflows/gametree-accessible-completion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gametree-accessible-completion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile GameTree accessible surface
+        run: >-
+          python -m compileall -q
+          acs/full_product_actions.py
+          acs/full_product_presenters.py
+          acs/pgn_webview_projection.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_pgn_commands.py
+          acs/ui_keymap_adapter.py
+          tests/test_gametree_accessible_completion.py
+      - name: Parse browser GameTree surface
+        run: node --check web/full_product_pgn.js
+      - name: GameTree completion regression
+        run: >-
+          python -m unittest -v
+          tests.test_gametree_accessible_completion
+          tests.test_gametree_editing
+          tests.test_gametree_insertion
+          tests.test_gametree_navigation
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_bilingual_localization_contract_current
+          tests.test_full_product_pgn_keybindings
+      - name: Core chess selftest
+        run: python -m acs.selftest
