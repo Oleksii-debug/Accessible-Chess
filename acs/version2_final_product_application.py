@@ -536,8 +536,9 @@ class Version2FinalProductApplication(Version2Application):
             # Binding never adopts durable lesson state, but malformed or
             # unreadable storage is already recovery-relevant product truth.
             self._rotation_load_error = True
-        else:
-            self._rotation_load_error = False
+        # A successful integrity probe is not a state reconciliation. Preserve
+        # any prior recovery fence until begin_or_resume reloads the exact
+        # durable generation into the application-owned plan/state/revision.
 
     def _rotation_authorities(
         self,
