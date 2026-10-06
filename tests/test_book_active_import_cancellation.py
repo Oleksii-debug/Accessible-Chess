@@ -328,9 +328,14 @@ class BookActiveImportCancellationTests(unittest.TestCase):
 
     def test_epub_final_bookdocument_aggregate_overflow_maps_to_resource_limit(self):
         import acs.book_epub_import as epub
+        from acs.bookdocument import BookDocumentErrorCode
 
         raw = _simple_epub(b'<html><body><p>Readable semantic text</p></body></html>')
-        with patch('acs.bookdocument.MAX_BOOK_DOCUMENT_TOTAL_TEXT_CHARS', 10):
+        failure = epub.BookDocumentError(
+            'BookDocument text exceeds the canonical aggregate limit',
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+        with patch.object(epub, 'BookDocument', side_effect=failure):
             with self.assertRaises(epub.BookEpubImportError) as caught:
                 import_epub_book(raw, source_name='book.epub')
 
@@ -339,6 +344,7 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
         self.assertIn('canonical BookDocument limits', str(caught.exception))
+        self.assertIs(caught.exception.__cause__, failure)
 
     def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
         import acs.book_epub_import as epub
