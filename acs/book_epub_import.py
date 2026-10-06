@@ -1088,9 +1088,15 @@ def _normalized_media_type(value: object, *, context: str) -> str:
     return value.casefold()
 
 
-def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
+def _direct_child(
+    parent: ET.Element,
+    name: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> ET.Element | None:
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
-    for child in parent:
+    for child_index, child in enumerate(parent, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
         if child.tag == wanted:
             return child
     return None
@@ -2238,7 +2244,7 @@ def import_epub_book(
                 control_checkpoint()
             manifest_by_resource[item.entry_name] = item
 
-        metadata = _direct_child(package, "metadata")
+        metadata = _direct_child(package, "metadata", control_checkpoint)
         package_titles = _metadata_values(metadata, "title", control_checkpoint)
         creators = _metadata_values(metadata, "creator", control_checkpoint)
         languages = _metadata_values(metadata, "language", control_checkpoint)
