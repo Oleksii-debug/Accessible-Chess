@@ -1,0 +1,74 @@
+name: Media Agent Canonical Navigation
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-canonical-core-bridge-20261005-sol56-r2
+    paths:
+      - acs/media_application.py
+      - acs/chess_agent_tools.py
+      - tests/test_media_agent_canonical_navigation.py
+      - .github/workflows/media-agent-canonical-navigation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-agent-canonical-navigation-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  canonical-navigation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install retained test dependency
+        run: python -m pip install pytest==8.4.2
+
+      - name: Fail closed on stale base or widened scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python -c "import os, subprocess, sys;
+          expected_base='cae6cd392d2b7df0b2d33e4a2d6255eb49983446';
+          base=os.environ['BASE_SHA']; head=os.environ['HEAD_SHA'];
+          expected={'.github/workflows/media-agent-canonical-navigation.yml','acs/chess_agent_tools.py','acs/media_application.py','tests/test_media_agent_canonical_navigation.py'};
+          changed=set(subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines());
+          print('base', base); print('head', head); print('changed', sorted(changed));
+          sys.exit(0 if base == expected_base and changed == expected else 1)"
+
+      - name: Compile canonical navigation surfaces
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/media_application.py
+          acs/media_foundation.py
+          acs/chess_agent_tools.py
+          tests/test_media_agent_canonical_navigation.py
+
+      - name: Run focused and retained Media Agent regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_agent_canonical_navigation
+          tests.test_media_agent_canonical_core_bridge
+          tests.test_media_application
+          tests.test_media_core
+          tests.test_chess_agent_tools_crossrepo
+          tests.test_universal_chess_agent_crossrepo

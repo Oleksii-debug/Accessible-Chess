@@ -25,6 +25,8 @@ class MediaApplicationCode(str, Enum):
     INVALID_STATE = "invalid_state"
     NO_CONFIRMED_POSITION = "no_confirmed_position"
     AMBIGUOUS_POSITION = "ambiguous_position"
+    NO_NEXT_POSITION = "no_next_position"
+    NO_PREVIOUS_POSITION = "no_previous_position"
 
 
 class MediaApplicationError(ValueError):
@@ -45,6 +47,17 @@ class MediaApplicationSnapshot:
     qualification: str
     can_restore: bool
     status_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class MediaNavigationTarget:
+    source_id: str
+    revision: int
+    from_position_ms: int
+    target_position_ms: int
+    chess_ref: str
+    direction: str
+    accessible_text: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +240,75 @@ class MediaApplicationService:
             self._session = candidate
             self._revision += 1
         return self.snapshot()
+
+    def _media_navigation_target(
+        self,
+        position_ms: int,
+        *,
+        direction: str,
+    ) -> MediaNavigationTarget:
+        candidate = self._session.seek_media(
+            position_ms,
+            duration_ms=self._source.duration_ms,
+        )
+        current = candidate.media_cursor.position_ms
+        if direction == "next":
+            timestamps = (item for item in self._timeline.timestamps if item > current)
+            missing_code = MediaApplicationCode.NO_NEXT_POSITION
+            missing_message = "no later media chess position exists"
+            label = "Next"
+        elif direction == "previous":
+            timestamps = (
+                item for item in reversed(self._timeline.timestamps) if item < current
+            )
+            missing_code = MediaApplicationCode.NO_PREVIOUS_POSITION
+            missing_message = "no earlier media chess position exists"
+            label = "Previous"
+        else:
+            raise ValueError("unsupported media navigation direction")
+
+        target = next(timestamps, None)
+        if target is None:
+            raise MediaApplicationError(missing_message, code=missing_code)
+        if self._source.duration_ms is not None and target > self._source.duration_ms:
+            raise MediaApplicationError(
+                "timeline navigation target exceeds source duration",
+                code=MediaApplicationCode.INVALID_STATE,
+            )
+
+        resolution = self._timeline.resolve_exact(target)
+        if resolution.ambiguous:
+            raise MediaApplicationError(
+                "nearest media navigation target is ambiguous",
+                code=MediaApplicationCode.AMBIGUOUS_POSITION,
+            )
+        if not resolution.resolved or resolution.chess_ref is None:
+            raise MediaApplicationError(
+                "nearest media navigation target is not confirmed",
+                code=MediaApplicationCode.NO_CONFIRMED_POSITION,
+            )
+
+        return MediaNavigationTarget(
+            source_id=self._source.source_id,
+            revision=self._revision,
+            from_position_ms=current,
+            target_position_ms=target,
+            chess_ref=resolution.chess_ref,
+            direction=direction,
+            accessible_text=(
+                f"{label} confirmed media chess position is at {target} ms."
+            ),
+        )
+
+    def next_media_position(self, position_ms: int) -> MediaNavigationTarget:
+        """Resolve the nearest later timeline anchor without mutating cursors."""
+
+        return self._media_navigation_target(position_ms, direction="next")
+
+    def previous_media_position(self, position_ms: int) -> MediaNavigationTarget:
+        """Resolve the nearest earlier timeline anchor without mutating cursors."""
+
+        return self._media_navigation_target(position_ms, direction="previous")
 
     def restore_media_position(
         self, position_ms: int | None = None
