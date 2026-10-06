@@ -790,6 +790,86 @@ class BookHtmlImportTests(unittest.TestCase):
                 self.assertEqual(len(positions), 1)
                 self.assertEqual(positions[0].fen, Board.START)
 
+    def test_inline_content_visibility_hidden_suppresses_semantic_subtree(self) -> None:
+        source = f"""<html><body>
+<section style="content-visibility:hidden">
+  <p>Hidden accessible text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+  <pre>{PGN 1}
+{PGN}</pre>
+  <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+  <div style="content-visibility:visible">Descendant cannot restore subtree</div>
+</section>
+<p>Visible tail</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="content-visibility-hidden.html",
+            available_assets={"images/hidden.png"},
+        )
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertEqual(rendered.strip(), "Visible tail")
+
+    def test_inline_content_visibility_cascade_and_important_precedence(self) -> None:
+        visible = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden; content-visibility:visible">
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>""",
+            source_name="content-visibility-visible-override.html",
+        )
+        self.assertEqual(
+            len([block for block in visible.document.blocks if isinstance(block, Position)]),
+            1,
+        )
+
+        hidden = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden !important; content-visibility:visible">
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+</section>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="content-visibility-important.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in hidden.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_invalid_content_visibility_value_cannot_resurrect_hidden_subtree(self) -> None:
+        result = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden; content-visibility:bogus">
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+</section>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="content-visibility-invalid-override.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in result.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in result.document.blocks
+            )
+        )
+
     def test_inline_display_comments_cannot_smuggle_hidden_semantics(self) -> None:
         hidden_sources = (
             f'''<html><body>
