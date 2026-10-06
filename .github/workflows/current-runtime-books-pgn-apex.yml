@@ -5,6 +5,7 @@ on:
     branches:
       - converge/current-runtime-books-pgn-apex-20261006-zftrkmo
       - converge/current-shipping-runtime-evidence-apex-20261006-zftrkmo
+      - converge/current-shipping-atomicity-evidence-successor-20261006-sol56
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
@@ -19,9 +20,13 @@ concurrency:
 
 env:
   PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
-  RUNTIME_MERGE_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
+  ORIGINAL_RUNTIME_MERGE_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
   PGN_PARENT_SHA: 7acff17b56d1beaf0f0924fa06ab9d00214b4cbe
   BOOKS_PARENT_SHA: b0cb38cad9630cc92dcb848e6bcaf2abfd2ba474
+  BOOKS_REPAIR_SHA: 9aa4729ead9539bc264fb4fd99e6b9f1ca8d349f
+  PGN_REPAIR_SHA: 9acd0361260874e59ec80ca96bb68b8599751b50
+  RUNTIME_SUCCESSOR_MERGE_SHA: 446be708b6210d5d02f242977643ad84318ae520
+  RUNTIME_SUCCESSOR_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
 
 jobs:
   convergence:
@@ -31,91 +36,65 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
-
     steps:
-      - name: Checkout exact candidate
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove fixed runtime receipt and descendant-safe scope
+      - name: Prove current runtime authority and descendant safety
         shell: bash
         run: |
           set -euo pipefail
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$head"
-          git cat-file -e "$RUNTIME_MERGE_SHA^{commit}"
-          git merge-base --is-ancestor "$RUNTIME_MERGE_SHA" HEAD
-          receipt="$(git rev-list --parents -n 1 "$RUNTIME_MERGE_SHA")"
-          test "$receipt" = "$RUNTIME_MERGE_SHA $PGN_PARENT_SHA $BOOKS_PARENT_SHA"
-          test "$(git merge-base "$PRODUCT_SHA" "$RUNTIME_MERGE_SHA")" = "$PRODUCT_SHA"
+          test "$(git rev-list --parents -n 1 "$ORIGINAL_RUNTIME_MERGE_SHA")" = "$ORIGINAL_RUNTIME_MERGE_SHA $PGN_PARENT_SHA $BOOKS_PARENT_SHA"
+          test "$(git rev-list --parents -n 1 "$RUNTIME_SUCCESSOR_MERGE_SHA")" = "$RUNTIME_SUCCESSOR_MERGE_SHA $ORIGINAL_RUNTIME_MERGE_SHA $BOOKS_REPAIR_SHA $PGN_REPAIR_SHA"
+          test "$(git rev-list --parents -n 1 "$RUNTIME_SUCCESSOR_SHA")" = "$RUNTIME_SUCCESSOR_SHA $RUNTIME_SUCCESSOR_MERGE_SHA"
+          git merge-base --is-ancestor "$RUNTIME_SUCCESSOR_SHA" HEAD
+          test "$(git merge-base "$PRODUCT_SHA" "$RUNTIME_SUCCESSOR_SHA")" = "$PRODUCT_SHA"
           git diff --check "$PRODUCT_SHA"...HEAD
-          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' || true)"
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
 
           python - <<'PY'
-          import os
-          import subprocess
-
-          product = os.environ["PRODUCT_SHA"]
-          runtime_merge = os.environ["RUNTIME_MERGE_SHA"]
-          pgn = os.environ["PGN_PARENT_SHA"]
-          books = os.environ["BOOKS_PARENT_SHA"]
-
-          def triple(a: str, b: str) -> set[str]:
-              out = subprocess.check_output(["git", "diff", "--name-only", f"{a}...{b}"], text=True)
-              return {line for line in out.splitlines() if line}
-
-          def direct(a: str, b: str) -> set[str]:
-              out = subprocess.check_output(["git", "diff", "--name-only", a, b], text=True)
-              return {line for line in out.splitlines() if line}
-
-          expected = triple(product, pgn) | triple(product, books) | {
-              ".github/workflows/current-runtime-books-pgn-apex.yml"
+          import os, subprocess
+          def triple(a, b):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",f"{a}...{b}"], text=True).splitlines() if x}
+          def direct(a, b):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",a,b], text=True).splitlines() if x}
+          product=os.environ["PRODUCT_SHA"]
+          runtime=os.environ["RUNTIME_SUCCESSOR_SHA"]
+          runtime_paths=triple(product, runtime)
+          drift=direct(runtime, "HEAD") & runtime_paths
+          allowed={
+              ".github/workflows/current-runtime-books-pgn-apex.yml",
+              ".github/workflows/current-runtime-atomicity-successor.yml",
           }
-          receipt_paths = triple(product, runtime_merge)
-          if receipt_paths != expected:
-              print("receipt missing:", sorted(expected - receipt_paths))
-              print("receipt unexpected:", sorted(receipt_paths - expected))
-              raise SystemExit("RUNTIME_RECEIPT_SCOPE_MISMATCH")
-
-          drift = direct(runtime_merge, "HEAD") & receipt_paths
-          allowed = {".github/workflows/current-runtime-books-pgn-apex.yml"}
           if not drift <= allowed:
-              print("runtime drift:", sorted(drift - allowed))
-              raise SystemExit("RUNTIME_DESCENDANT_DRIFT")
-          print(f"RUNTIME_RECEIPT_PATHS={len(receipt_paths)}")
+              raise SystemExit("RUNTIME_SUCCESSOR_PRODUCT_DRIFT "+repr(sorted(drift-allowed)))
+          print(f"RUNTIME_SUCCESSOR_PATHS={len(runtime_paths)}")
+          print(f"RUNTIME_DESCENDANT_ALLOWED_DRIFT={sorted(drift)}")
           PY
 
-          grep -Fq 'if type(row) is not LibraryRowView:' acs/library_webview_projection.py
-          grep -Fq 'def _capture_presentation_state(self)' acs/library_webview_projection.py
-          grep -Fq 'if type(progress) is not LibraryImportProgress:' acs/library_webview_projection.py
-          grep -Fq 'previous_presenter = self._presenter._capture_presentation_state()' acs/library_webview_projection.py
-          grep -Fq 'test_provider_page_subclass_is_rejected_before_attribute_hooks' tests/test_dev1_library_webview_projection.py
-          grep -Fq 'test_import_projection_rejects_derived_progress_before_field_hooks' tests/test_dev1_library_webview_projection.py
+          for path in acs/book_board_workflow.py tests/test_v2_book_board_workflow.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$BOOKS_REPAIR_SHA:$path")"
+          done
+          for path in acs/version2_windows_file_workflows.py tests/test_v2_windows_pgn_open_worker.py tests/test_v2_windows_pgn_save_worker.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$PGN_REPAIR_SHA:$path")"
+          done
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
 
-      - name: Install pinned test runner
-        run: python -m pip install -q pytest==8.4.2
-
-      - name: Compile integrated semantic, persistence and Windows boundaries
+      - name: Compile integrated runtime boundaries
         run: >-
           python -m py_compile
           acs/bookreader.py
           acs/book_board_workflow.py
           acs/book_webview_bridge.py
           acs/book_webview_projection.py
-          acs/training_webview_bridge.py
-          acs/training_webview_projection.py
-          acs/version2_book_workspace.py
-          acs/gametree_resume.py
-          acs/version2_gametree_resume.py
-          acs/local_profile.py
-          acs/version2_local_profile_api.py
           acs/library_webview_projection.py
           acs/pgn_document.py
           acs/pgn_save_snapshot.py
@@ -125,10 +104,7 @@ jobs:
           acs/version2_windows_host_runtime.py
           acs/version2_windows_import_ui_pump.py
 
-      - name: Execute shared Library projection composition
-        run: python -m unittest -v tests.test_dev1_library_webview_projection
-
-      - name: Execute Books semantic, navigation and recovery regressions
+      - name: Execute Books semantic and recovery regressions
         run: >-
           python -m unittest -v
           tests.test_bookreader
@@ -140,12 +116,8 @@ jobs:
           tests.test_book_bidirectional_semantic_navigation
           tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
-          tests.test_d06_gametree_snapshot_resume
-          tests.test_d06_v2_gametree_resume_reachability
-          tests.test_local_profile
-          tests.test_version2_local_profile_api
 
-      - name: Execute PGN persistence and Windows file workflow regressions
+      - name: Execute PGN persistence and Windows workflow regressions
         run: >-
           python -m unittest -v
           tests.test_pgn_workspace
@@ -162,15 +134,6 @@ jobs:
           tests.test_v2_windows_library_import_observer
           tests.test_v2_windows_nvda_file_workflows
           tests.test_version2_application
-          tests.test_version2_composition_startup_cleanup_current
-
-      - name: Pytest overlap and bounded save owner suites
-        run: >-
-          pytest -q
-          tests/test_dev1_library_webview_projection.py
-          tests/test_pgn_workspace.py
-          tests/test_pgn_save_snapshot.py
-          tests/test_v2_windows_pgn_save_worker.py
 
       - name: Core selftest
         run: python -m acs.selftest

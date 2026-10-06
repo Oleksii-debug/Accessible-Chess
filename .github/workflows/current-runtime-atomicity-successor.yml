@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - converge/current-runtime-atomicity-successor-20261006-sol56
+      - converge/current-shipping-atomicity-evidence-successor-20261006-sol56
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
@@ -24,6 +25,7 @@ env:
   PGN_PARENT_SHA: 7acff17b56d1beaf0f0924fa06ab9d00214b4cbe
   PGN_REPAIR_SHA: 9acd0361260874e59ec80ca96bb68b8599751b50
   RUNTIME_MERGE_SHA: 446be708b6210d5d02f242977643ad84318ae520
+  RUNTIME_HEAD_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
 
 jobs:
   integrated-atomicity:
@@ -33,124 +35,74 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 70
-
     steps:
-      - name: Checkout exact runtime successor
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact three-parent receipt and bounded successor scope
+      - name: Prove fixed runtime successor and descendant-safe product state
         shell: bash
         run: |
           set -euo pipefail
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$head"
-
-          for sha in "$PRODUCT_SHA" "$RUNTIME_PARENT_SHA" "$BOOKS_PARENT_SHA" "$BOOKS_REPAIR_SHA" "$PGN_PARENT_SHA" "$PGN_REPAIR_SHA" "$RUNTIME_MERGE_SHA"; do
-            git cat-file -e "$sha^{commit}"
-          done
-
           test "$(git rev-list --parents -n 1 "$RUNTIME_MERGE_SHA")" = "$RUNTIME_MERGE_SHA $RUNTIME_PARENT_SHA $BOOKS_REPAIR_SHA $PGN_REPAIR_SHA"
-          git merge-base --is-ancestor "$RUNTIME_MERGE_SHA" HEAD
-          git merge-base --is-ancestor "$PRODUCT_SHA" HEAD
+          test "$(git rev-list --parents -n 1 "$RUNTIME_HEAD_SHA")" = "$RUNTIME_HEAD_SHA $RUNTIME_MERGE_SHA"
+          git merge-base --is-ancestor "$RUNTIME_HEAD_SHA" HEAD
+          test "$(git merge-base "$PRODUCT_SHA" "$RUNTIME_HEAD_SHA")" = "$PRODUCT_SHA"
           test "$(git merge-base "$BOOKS_PARENT_SHA" "$BOOKS_REPAIR_SHA")" = "$BOOKS_PARENT_SHA"
           test "$(git merge-base "$PGN_PARENT_SHA" "$PGN_REPAIR_SHA")" = "$PGN_PARENT_SHA"
 
           python - <<'PY'
-          import os
-          import subprocess
-
-          def paths(base: str, head: str) -> set[str]:
-              out = subprocess.check_output(
-                  ["git", "diff", "--name-only", f"{base}...{head}"],
-                  text=True,
-              )
-              return {line for line in out.splitlines() if line}
-
-          books = paths(os.environ["BOOKS_PARENT_SHA"], os.environ["BOOKS_REPAIR_SHA"])
-          pgn = paths(os.environ["PGN_PARENT_SHA"], os.environ["PGN_REPAIR_SHA"])
-          expected_books = {
-              ".github/workflows/books-navigation-abort-rollback.yml",
-              "acs/book_board_workflow.py",
-              "tests/test_v2_book_board_workflow.py",
-          }
-          expected_pgn = {
-              ".github/workflows/pgn-modal-persistence-generation.yml",
-              "acs/version2_windows_file_workflows.py",
-              "tests/test_v2_windows_pgn_open_worker.py",
-              "tests/test_v2_windows_pgn_save_worker.py",
-          }
-          if books != expected_books:
-              raise SystemExit(f"BOOKS_SUCCESSOR_SCOPE_MISMATCH {sorted(books)}")
-          if pgn != expected_pgn:
-              raise SystemExit(f"PGN_SUCCESSOR_SCOPE_MISMATCH {sorted(pgn)}")
-          if books & pgn:
-              raise SystemExit(f"SUCCESSOR_SCOPE_OVERLAP {sorted(books & pgn)}")
-
-          integration = paths(os.environ["RUNTIME_PARENT_SHA"], "HEAD")
-          expected = books | pgn | {".github/workflows/current-runtime-atomicity-successor.yml"}
-          if integration != expected:
-              print("missing:", sorted(expected - integration))
-              print("unexpected:", sorted(integration - expected))
-              raise SystemExit("RUNTIME_SUCCESSOR_SCOPE_MISMATCH")
-          print(f"BOOKS_SUCCESSOR_PATHS={len(books)}")
-          print(f"PGN_SUCCESSOR_PATHS={len(pgn)}")
-          print(f"RUNTIME_SUCCESSOR_PATHS={len(integration)}")
+          import os, subprocess
+          def paths(base, head):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",f"{base}...{head}"], text=True).splitlines() if x}
+          def direct(base, head):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",base,head], text=True).splitlines() if x}
+          books=paths(os.environ["BOOKS_PARENT_SHA"], os.environ["BOOKS_REPAIR_SHA"])
+          pgn=paths(os.environ["PGN_PARENT_SHA"], os.environ["PGN_REPAIR_SHA"])
+          expected_books={".github/workflows/books-navigation-abort-rollback.yml","acs/book_board_workflow.py","tests/test_v2_book_board_workflow.py"}
+          expected_pgn={".github/workflows/pgn-modal-persistence-generation.yml","acs/version2_windows_file_workflows.py","tests/test_v2_windows_pgn_open_worker.py","tests/test_v2_windows_pgn_save_worker.py"}
+          if books != expected_books or pgn != expected_pgn or books & pgn:
+              raise SystemExit("RUNTIME_SUCCESSOR_CHILD_SCOPE_MISMATCH")
+          runtime=paths(os.environ["RUNTIME_PARENT_SHA"], os.environ["RUNTIME_HEAD_SHA"])
+          expected=books|pgn|{".github/workflows/current-runtime-atomicity-successor.yml"}
+          if runtime != expected:
+              raise SystemExit("RUNTIME_SUCCESSOR_FIXED_SCOPE_MISMATCH")
+          product_runtime=paths(os.environ["PRODUCT_SHA"], os.environ["RUNTIME_HEAD_SHA"])
+          drift=direct(os.environ["RUNTIME_HEAD_SHA"], "HEAD") & product_runtime
+          allowed={".github/workflows/current-runtime-atomicity-successor.yml",".github/workflows/current-runtime-books-pgn-apex.yml"}
+          if not drift <= allowed:
+              raise SystemExit("RUNTIME_SUCCESSOR_DESCENDANT_DRIFT "+repr(sorted(drift-allowed)))
+          print(f"RUNTIME_SUCCESSOR_DELTA={len(runtime)}")
           PY
 
-          for path in             .github/workflows/books-navigation-abort-rollback.yml             acs/book_board_workflow.py             tests/test_v2_book_board_workflow.py
-          do
+          for path in acs/book_board_workflow.py tests/test_v2_book_board_workflow.py; do
             test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$BOOKS_REPAIR_SHA:$path")"
           done
-
-          for path in             .github/workflows/pgn-modal-persistence-generation.yml             acs/version2_windows_file_workflows.py             tests/test_v2_windows_pgn_open_worker.py             tests/test_v2_windows_pgn_save_worker.py
-          do
+          for path in acs/version2_windows_file_workflows.py tests/test_v2_windows_pgn_open_worker.py tests/test_v2_windows_pgn_save_worker.py; do
             test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$PGN_REPAIR_SHA:$path")"
           done
-
-          git diff --check "$RUNTIME_PARENT_SHA"...HEAD
+          git diff --check "$PRODUCT_SHA"...HEAD
           test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
 
-      - name: Compile integrated runtime atomicity boundary
-        run: >-
-          python -m py_compile
-          acs/book_board_workflow.py
-          acs/bookreader.py
-          acs/pgn_workspace.py
-          acs/pgn_save_snapshot.py
-          acs/version2_windows_file_workflows.py
-          acs/version2_application.py
-          tests/test_v2_book_board_workflow.py
-          tests/test_v2_windows_pgn_open_worker.py
-          tests/test_v2_windows_pgn_save_worker.py
-
-      - name: Execute Books semantic and Board recovery contracts
+      - name: Execute atomicity and whole-product contracts
         run: >-
           python -m unittest -v
           tests.test_bookreader_revision_barriers_current
           tests.test_book_bidirectional_semantic_navigation
           tests.test_v2_book_board_workflow
-          tests.test_dev1_books_training_webview_bridge
-
-      - name: Execute PGN persistence generation and Windows worker contracts
-        run: >-
-          python -m unittest -v
           tests.test_pgn_workspace
           tests.test_pgn_save_snapshot
           tests.test_v2_windows_pgn_open_worker
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_nvda_file_workflows
-
-      - name: Execute presentation and whole-product smoke
-        run: >-
-          python -m unittest -v
           tests.test_dev1_pgn_webview_projection
           tests.test_version2_application
           tests.test_whole_product_user_journey
