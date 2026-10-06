@@ -1224,13 +1224,16 @@ class _SemanticHtmlParser(HTMLParser):
                 # malformed duplicates change semantic/image/progress metadata.
                 continue
             attrs[normalized_name] = value or ""
-        aria_value = _controlled_strip(
-            attrs.get("aria-hidden", ""),
-            self._checkpoint if self.control_checkpoint is not None else None,
+        raw_aria_value = attrs.get("aria-hidden", "")
+        aria_value = (
+            _controlled_strip(
+                raw_aria_value,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
+            if raw_aria_value
+            else ""
         )
-        aria_hidden = (
-            len(aria_value) == 4 and aria_value.casefold() == "true"
-        )
+        aria_hidden = len(aria_value) == 4 and aria_value.casefold() == "true"
         inline_style_hidden = _inline_style_hides(
             attrs.get("style", ""),
             self._checkpoint if self.control_checkpoint is not None else None,
@@ -1257,9 +1260,14 @@ class _SemanticHtmlParser(HTMLParser):
             if lang:
                 self.language = lang
         if tag == "meta":
-            raw_name = _controlled_strip(
-                attrs.get("name") or attrs.get("property") or "",
-                self._checkpoint if self.control_checkpoint is not None else None,
+            raw_name_value = attrs.get("name") or attrs.get("property") or ""
+            raw_name = (
+                _controlled_strip(
+                    raw_name_value,
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
+                if raw_name_value
+                else ""
             )
             name = raw_name.lower() if len(raw_name) <= 64 else ""
             content = self._compact_text(attrs.get("content", ""))
@@ -1273,9 +1281,14 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML book contains too many image references",
                     code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
                 )
-            src = _controlled_strip(
-                attrs.get("src", ""),
-                self._checkpoint if self.control_checkpoint is not None else None,
+            raw_src = attrs.get("src", "")
+            src = (
+                _controlled_strip(
+                    raw_src,
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
+                if raw_src
+                else ""
             )
             alt = self._compact_text(attrs.get("alt", ""))
             if src:
@@ -1371,6 +1384,11 @@ class _SemanticHtmlParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         self._parser_event_checkpoint()
+        if len(tag) > MAX_HTML_MARKUP_NAME_CHARS:
+            raise BookHtmlImportError(
+                "HTML markup name exceeds the supported size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
         tag = tag.lower()
         if tag in _SUPPRESSED_TAGS:
             if self._suppressed_depth:
