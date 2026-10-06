@@ -26,6 +26,7 @@ env:
   PGN_REPAIR_SHA: 9acd0361260874e59ec80ca96bb68b8599751b50
   RUNTIME_MERGE_SHA: 446be708b6210d5d02f242977643ad84318ae520
   RUNTIME_HEAD_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
+  CURRENT_RUNTIME_SHA: a604e92e98c8b4ba9636e15b4e1221a18742bc84
 
 jobs:
   integrated-atomicity:
@@ -50,8 +51,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$head"
           test "$(git rev-list --parents -n 1 "$RUNTIME_MERGE_SHA")" = "$RUNTIME_MERGE_SHA $RUNTIME_PARENT_SHA $BOOKS_REPAIR_SHA $PGN_REPAIR_SHA"
           test "$(git rev-list --parents -n 1 "$RUNTIME_HEAD_SHA")" = "$RUNTIME_HEAD_SHA $RUNTIME_MERGE_SHA"
-          git merge-base --is-ancestor "$RUNTIME_HEAD_SHA" HEAD
-          test "$(git merge-base "$PRODUCT_SHA" "$RUNTIME_HEAD_SHA")" = "$PRODUCT_SHA"
+          git merge-base --is-ancestor "$RUNTIME_HEAD_SHA" "$CURRENT_RUNTIME_SHA"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_SHA" HEAD
+          test "$(git merge-base "$PRODUCT_SHA" "$CURRENT_RUNTIME_SHA")" = "$PRODUCT_SHA"
           test "$(git merge-base "$BOOKS_PARENT_SHA" "$BOOKS_REPAIR_SHA")" = "$BOOKS_PARENT_SHA"
           test "$(git merge-base "$PGN_PARENT_SHA" "$PGN_REPAIR_SHA")" = "$PGN_PARENT_SHA"
 
@@ -71,8 +73,17 @@ jobs:
           expected=books|pgn|{".github/workflows/current-runtime-atomicity-successor.yml"}
           if runtime != expected:
               raise SystemExit("RUNTIME_SUCCESSOR_FIXED_SCOPE_MISMATCH")
-          product_runtime=paths(os.environ["PRODUCT_SHA"], os.environ["RUNTIME_HEAD_SHA"])
-          drift=direct(os.environ["RUNTIME_HEAD_SHA"], "HEAD") & product_runtime
+          current=direct(os.environ["RUNTIME_HEAD_SHA"], os.environ["CURRENT_RUNTIME_SHA"])
+          expected_current={
+              ".github/workflows/current-runtime-pgn-cancel-successor.yml",
+              "acs/version2_windows_file_workflows.py",
+              "tests/test_v2_windows_pgn_open_worker.py",
+              "tests/test_v2_windows_pgn_save_worker.py",
+          }
+          if current != expected_current:
+              raise SystemExit("RUNTIME_PGN_CANCEL_SUCCESSOR_SCOPE_MISMATCH "+repr(sorted(current)))
+          product_runtime=paths(os.environ["PRODUCT_SHA"], os.environ["CURRENT_RUNTIME_SHA"])
+          drift=direct(os.environ["CURRENT_RUNTIME_SHA"], "HEAD") & product_runtime
           allowed={".github/workflows/current-runtime-atomicity-successor.yml",".github/workflows/current-runtime-books-pgn-apex.yml"}
           if not drift <= allowed:
               raise SystemExit("RUNTIME_SUCCESSOR_DESCENDANT_DRIFT "+repr(sorted(drift-allowed)))
@@ -83,7 +94,7 @@ jobs:
             test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$BOOKS_REPAIR_SHA:$path")"
           done
           for path in acs/version2_windows_file_workflows.py tests/test_v2_windows_pgn_open_worker.py tests/test_v2_windows_pgn_save_worker.py; do
-            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$PGN_REPAIR_SHA:$path")"
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$CURRENT_RUNTIME_SHA:$path")"
           done
           git diff --check "$PRODUCT_SHA"...HEAD
           test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
