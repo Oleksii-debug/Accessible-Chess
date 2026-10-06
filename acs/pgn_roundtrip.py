@@ -17,7 +17,7 @@ Position/History, filesystem publication, or UI behavior.
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .gametree import (
     Comment,
@@ -214,12 +214,19 @@ def _claim_token(counter: list[int], source_budget: PgnSourceBudget) -> None:
     source_budget.claim_lexical_tokens()
 
 
-def _preflight_recovered_brace_comment_lengths(normalized: str) -> None:
+def _preflight_recovered_brace_comment_lengths(
+    normalized: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     """Enforce the comment cap before nested-comment recovery allocates text."""
 
     index = 0
     length = len(normalized)
+    next_control_index = 0
     while index < length:
+        if control_checkpoint is not None and index >= next_control_index:
+            control_checkpoint()
+            next_control_index = index + 4_096
         if index == 0 or normalized[index - 1] == "\n":
             line_end = normalized.find("\n", index)
             if line_end < 0:
@@ -237,7 +244,9 @@ def _preflight_recovered_brace_comment_lengths(normalized: str) -> None:
             index += 1
             continue
 
-        next_index, _nested, unterminated = _scan_brace_comment_span(normalized, index)
+        next_index, _nested, unterminated = _scan_brace_comment_span(
+            normalized, index, control_checkpoint
+        )
         delimiter_chars = 1 if unterminated else 2
         comment_chars = next_index - index - delimiter_chars
         if comment_chars > MAX_PGN_COMMENT_CHARS:
@@ -253,6 +262,7 @@ def _preflight_text(
     *,
     source_budget: PgnSourceBudget | None = None,
     text_precounted: bool = False,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> str:
     """Bound lexical work before the recovery parser allocates token objects."""
 
@@ -275,15 +285,24 @@ def _preflight_text(
     if not text_precounted:
         source_budget.claim_text_chars(len(text))
 
+    if control_checkpoint is not None:
+        control_checkpoint()
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    _preflight_recovered_brace_comment_lengths(normalized)
+    if control_checkpoint is not None:
+        control_checkpoint()
+    _preflight_recovered_brace_comment_lengths(normalized, control_checkpoint)
     token_count = [0]
     tags_in_game = 0
     seen_movetext = False
     comment_until = 0
     line_start = 0
 
-    for line in normalized.split("\n"):
+    lines = normalized.split("\n")
+    if control_checkpoint is not None:
+        control_checkpoint()
+    for line_index, line in enumerate(lines, start=1):
+        if control_checkpoint is not None and line_index % 128 == 1:
+            control_checkpoint()
         line_end = line_start + len(line)
         starts_inside_comment = comment_until > line_start
 
@@ -336,13 +355,18 @@ def _preflight_text(
             if line[index:].strip():
                 seen_movetext = True
 
+        next_line_control_index = index
         while index < len(line):
+            if control_checkpoint is not None and index >= next_line_control_index:
+                control_checkpoint()
+                next_line_control_index = index + 4_096
             character = line[index]
             if character == "{":
                 flush_token()
                 span_end, _nested, _unterminated = _scan_brace_comment_span(
                     normalized,
                     line_start + index,
+                    control_checkpoint,
                 )
                 # The canonical recovery tokenizer publishes one
                 # Comment token for this whole shared span. Count that
@@ -447,7 +471,14 @@ def _validate_parsed_comment_size(comment: object) -> None:
         )
 
 
-def _normalize_and_validate_line(line: VariationLine, *, depth: int = 0) -> None:
+def _normalize_and_validate_line(
+    line: VariationLine,
+    *,
+    depth: int = 0,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if depth > MAX_VARIATION_DEPTH:
         _raise_limit(
             "PGN variation nesting exceeds the safety limit",
@@ -455,7 +486,9 @@ def _normalize_and_validate_line(line: VariationLine, *, depth: int = 0) -> None
         )
     for comment in line.leading_comments:
         _validate_parsed_comment_size(comment)
-    for node in line.moves:
+    for node_index, node in enumerate(line.moves, start=1):
+        if control_checkpoint is not None and node_index % 128 == 1:
+            control_checkpoint()
         _split_attached_annotation(node)
         _validate_san(node.san)
         for comment in node.comments_before:
@@ -463,7 +496,11 @@ def _normalize_and_validate_line(line: VariationLine, *, depth: int = 0) -> None
         for comment in node.comments_after:
             _validate_parsed_comment_size(comment)
         for variation in node.variations:
-            _normalize_and_validate_line(variation, depth=depth + 1)
+            _normalize_and_validate_line(
+                variation,
+                depth=depth + 1,
+                control_checkpoint=control_checkpoint,
+            )
     for comment in line.trailing_comments:
         _validate_parsed_comment_size(comment)
 
@@ -474,6 +511,7 @@ def parse_pgn_text(
     strict: bool = True,
     source_budget: PgnSourceBudget | None = None,
     text_precounted: bool = False,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[PgnGame, ...]:
     """Parse bounded PGN into canonical GameTrees.
 
@@ -483,6 +521,10 @@ def parse_pgn_text(
     inspection while retaining D06 resource bounds and SAN normalization.
     """
 
+    if control_checkpoint is not None and not callable(control_checkpoint):
+        raise TypeError("control_checkpoint must be callable or None")
+    if control_checkpoint is not None:
+        control_checkpoint()
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
     if not isinstance(source_budget, PgnSourceBudget):
@@ -491,9 +533,10 @@ def parse_pgn_text(
         text,
         source_budget=source_budget,
         text_precounted=text_precounted,
+        control_checkpoint=control_checkpoint,
     )
     try:
-        games = tuple(parse_games(normalized))
+        games = tuple(parse_games(normalized, control_checkpoint))
     except GameTreeContractError as exc:
         if exc.code in {
             GameTreeErrorCode.GRAPH_DEPTH_LIMIT,
@@ -519,8 +562,13 @@ def parse_pgn_text(
             code=PgnRoundTripErrorCode.EMPTY_PGN,
         )
 
-    for game in games:
-        _normalize_and_validate_line(game.line)
+    for game_index, game in enumerate(games, start=1):
+        if control_checkpoint is not None and game_index % 128 == 1:
+            control_checkpoint()
+        _normalize_and_validate_line(
+            game.line,
+            control_checkpoint=control_checkpoint,
+        )
         if strict and game.warnings:
             raise PgnRoundTripError(
                 "PGN requires recovery and is not strict round-trip safe",
