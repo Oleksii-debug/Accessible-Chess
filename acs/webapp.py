@@ -635,7 +635,12 @@ class AccessibleChessAPI:
             "positionComplete": self._position_playable(display_board),
             "reviewCursor": display_view.ply, "historyLength": history_length,
             "historyItems": history_items,
-            "reviewStatus": display_view.status, "atHistoryEnd": at_history_end,
+            "reviewStatus": (
+                display_view.status
+                if history_projection_valid
+                else self._t("history_metadata_invalid")
+            ),
+            "atHistoryEnd": at_history_end,
             "historyProjectionValid": history_projection_valid,
             "canHistoryPrevious": can_history_previous,
             "canHistoryNext": can_history_next,
