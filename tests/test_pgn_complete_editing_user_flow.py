@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.gametree_navigation import GameTreeCursor, VariationStep, resolve_line
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_workspace import (
+    MAX_PGN_COMMENT_TEXT_UNITS,
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
+    MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS,
+    MAX_PGN_NAG_TEXT_UNITS,
+    MAX_PGN_SEARCH_TEXT_UNITS,
 )
 from acs.version2_pgn_commands import Version2PgnCommands
 
@@ -144,6 +149,62 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
                 {**command_target(session), "text": "Nf3 {\ud800}"},
             )
         self.assertEqual(before, snapshot())
+
+    def test_direct_command_utf16_resource_fences_are_atomic(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "Stable"]\n[Result "*"]\n\n1. e4 e5 *'
+        )
+        session.workspace.set_cursor(GameTreeCursor((), 1))
+        commands = Version2PgnCommands(lambda: session)
+
+        def snapshot():
+            view = session.workspace.view()
+            return (
+                session.workspace.to_text(),
+                view.content_revision,
+                view.content_digest,
+                session.workspace.cursor,
+                session.workspace.dirty,
+            )
+
+        oversized_comment = "😀" * (MAX_PGN_COMMENT_TEXT_UNITS // 2 + 1)
+        oversized_nag = "😀" * (MAX_PGN_NAG_TEXT_UNITS // 2 + 1)
+        oversized_search = "😀" * (MAX_PGN_SEARCH_TEXT_UNITS // 2 + 1)
+        oversized_fragment = "😀" * (MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS // 2 + 1)
+
+        for action_id, extra in (
+            ("pgn.comment_edit", {"text": oversized_comment}),
+            ("pgn.nag_edit", {"text": oversized_nag}),
+            ("pgn.search", {"text": oversized_search}),
+        ):
+            before = snapshot()
+            with self.subTest(action_id=action_id):
+                with self.assertRaises(ValueError):
+                    commands(action_id, {**command_target(session), **extra})
+                self.assertEqual(before, snapshot())
+
+        with patch(
+            "acs.version2_pgn_commands.parse_pgn_text",
+            side_effect=AssertionError("oversized fragment must fail before parsing"),
+        ) as parser:
+            before = snapshot()
+            with self.assertRaises(ValueError):
+                commands(
+                    "pgn.variation_add",
+                    {**command_target(session), "text": oversized_fragment},
+                )
+            self.assertEqual(before, snapshot())
+            parser.assert_not_called()
+
+            session.workspace.line_end()
+            before = snapshot()
+            with self.assertRaises(ValueError):
+                commands(
+                    "pgn.append_moves",
+                    {**command_target(session), "text": oversized_fragment},
+                )
+            self.assertEqual(before, snapshot())
+            parser.assert_not_called()
 
     def test_nag_edit_and_clear_round_trip(self):
         session = PgnDocumentSession.from_text("1. e4 e5 *")
