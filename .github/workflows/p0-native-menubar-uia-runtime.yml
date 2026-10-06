@@ -161,7 +161,8 @@ jobs:
             'uia_handle_native_handle_matches',
             'uia_handle_enabled',
             'uia_handle_onscreen',
-            'uia_handle_probe_clean'
+            'uia_handle_probe_clean',
+            'uia_exact_row_binds_same_handle'
           )){
             if(-not [bool]$evidence.checks.$check){
               throw "Concrete native MenuBar UIA handle binding check failed: $check"
