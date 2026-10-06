@@ -12,6 +12,7 @@ from .gametree_editing import VariationEditTarget
 from .gametree_insertion import variation_insert_target
 from .gametree_legality import validate_game_legality
 from .pgn_roundtrip import parse_pgn_text
+from .pgn_workspace import _contains_unicode_surrogate
 from .gametree_navigation import GameTreeCursor, MoveAddress, VariationStep, resolve_line, validate_cursor
 from .search_policy import normalize_search_term, normalize_search_text, search_fold
 from .pgn_document import PgnDocumentSession
@@ -324,6 +325,8 @@ class Version2PgnCommands:
                 allow_root=True,
             )
             text = payload.get("text", "")
+            if type(text) is not str or _contains_unicode_surrogate(text):
+                raise ValueError("invalid PGN continuation text")
             origin_fen = self.current_fen()
             fragment = self._variation_from_text(text, origin_fen=origin_fen)
             return workspace.append_moves(fragment)
@@ -390,7 +393,12 @@ class Version2PgnCommands:
                 if index < -1:
                     raise ValueError("invalid PGN comment index")
                 text = payload.get("text", "")
-                if type(text) is not str or len(text) > 8000 or "\x00" in text:
+                if (
+                    type(text) is not str
+                    or len(text) > 8000
+                    or "\x00" in text
+                    or _contains_unicode_surrogate(text)
+                ):
                     raise ValueError("invalid PGN comment")
                 game = workspace.current_game()
                 if request.move_index is None:
@@ -461,7 +469,11 @@ class Version2PgnCommands:
                 )
 
             text = payload.get("text", "")
-            if type(text) is not str or len(text) > 8000:
+            if (
+                type(text) is not str
+                or len(text) > 8000
+                or _contains_unicode_surrogate(text)
+            ):
                 raise ValueError("invalid PGN comment")
             comments = (Comment(text),) if text.strip() else ()
             if request.move_index is None:
@@ -477,7 +489,12 @@ class Version2PgnCommands:
             if request.move_index is None:
                 raise ValueError("NAG editing requires a selected move")
             text = payload.get("text", "")
-            if type(text) is not str or len(text) > 512 or "\x00" in text:
+            if (
+                type(text) is not str
+                or len(text) > 512
+                or "\x00" in text
+                or _contains_unicode_surrogate(text)
+            ):
                 raise ValueError("invalid PGN NAG text")
             tokens = tuple(token for token in text.split() if token)
             if len(tokens) > 64:
@@ -490,6 +507,8 @@ class Version2PgnCommands:
             if request.move_index is None:
                 raise ValueError("variation creation requires a selected move")
             text = payload.get("text", "")
+            if type(text) is not str or _contains_unicode_surrogate(text):
+                raise ValueError("invalid PGN variation text")
             origin_fen = self._selected_move_origin_fen(workspace, cursor)
             variation = self._variation_from_text(text, origin_fen=origin_fen)
             target = variation_insert_target(
