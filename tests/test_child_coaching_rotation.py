@@ -280,6 +280,29 @@ class ChildCoachingRotationTests(unittest.TestCase):
             )
 
 
+    def test_rotation_state_constructor_enforces_exact_wire_revision_bound(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-wire-revision")
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "exact wire bounds",
+        ):
+            RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+                phase=RotationPhase.ACTIVE,
+                round_index=0,
+                revision=(1 << 53),
+            )
+
+        exact = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+            phase=RotationPhase.ACTIVE,
+            round_index=0,
+            revision=(1 << 53) - 1,
+        )
+        self.assertEqual(exact, RotationState.from_json(exact.to_json()))
+
     def test_rotation_plan_constructor_enforces_wire_size_limit(self) -> None:
         target_ids = tuple(
             f"s{index:04d}" + ("x" * 122)
