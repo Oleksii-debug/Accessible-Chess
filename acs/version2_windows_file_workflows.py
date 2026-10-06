@@ -362,10 +362,6 @@ class Version2WindowsFileActionDelegate:
         self._pending_save_result: tuple[object, ...] | None = None
         self._generation = 0
         self._shutdown_requested = False
-        # If shutdown fully retires an in-flight Library import, its worker-side
-        # terminal is intentionally fenced. A later refused close must reconcile
-        # the Library/NVDA RUNNING state before new work is accepted.
-        self._recovery_import_cancel_pending = False
 
     @property
     def import_running(self) -> bool:
@@ -2265,13 +2261,7 @@ class Version2WindowsFileActionDelegate:
         that cancelled-draining generation so its truthful terminal can reach the
         owner/NVDA path and clear the slot. A reserved-but-unstarted worker remains
         fenced: allowing re-entrant recovery there could start work after shutdown.
-
-        When an import fully retired during shutdown, its normal worker terminal
-        was fenced by the shutdown generation. Retain and publish exactly one
-        cancellation into the canonical mailbox on recovery so the Library
-        presentation cannot remain permanently RUNNING after the close is refused.
         """
-        recovery_import_cancel = False
         with self._lock:
             if not self._shutdown_requested:
                 return True
@@ -2284,46 +2274,34 @@ class Version2WindowsFileActionDelegate:
                 ):
                     return False
                 self._shutdown_requested = False
-                recovery_import_cancel = self._recovery_import_cancel_pending
-                self._recovery_import_cancel_pending = False
+                return True
+
+            if (
+                not self._worker_started
+                or self._cancel_event is None
+                or not self._cancel_event.is_set()
+                or self._worker_kind not in {"import", "pgn_open", "pgn_save"}
+                or self._terminal_pending is not None
+            ):
+                return False
+            if self._worker_kind == "pgn_open":
+                if self._pending_save_result is not None:
+                    return False
+                pending = self._pending_open_result
+            elif self._worker_kind == "pgn_save":
+                if self._pending_open_result is not None:
+                    return False
+                pending = self._pending_save_result
             else:
                 if (
-                    not self._worker_started
-                    or self._cancel_event is None
-                    or not self._cancel_event.is_set()
-                    or self._worker_kind not in {"import", "pgn_open", "pgn_save"}
-                    or self._terminal_pending is not None
+                    self._pending_open_result is not None
+                    or self._pending_save_result is not None
                 ):
                     return False
-                if self._worker_kind == "pgn_open":
-                    if self._pending_save_result is not None:
-                        return False
-                    pending = self._pending_open_result
-                elif self._worker_kind == "pgn_save":
-                    if self._pending_open_result is not None:
-                        return False
-                    pending = self._pending_save_result
-                else:
-                    if (
-                        self._pending_open_result is not None
-                        or self._pending_save_result is not None
-                    ):
-                        return False
-                    pending = None
-                if pending is not None and pending[0] != self._generation:
-                    return False
-                self._shutdown_requested = False
-        if recovery_import_cancel:
-            # Store the terminal through the normal sink. In production this is
-            # the retained mailbox; the runtime requests delivery only after both
-            # delegate and pump have been restored.
-            self._emit(
-                FileWorkflowEvent(
-                    FileWorkflowEventKind.IMPORT_CANCELLED,
-                    "library.import",
-                    focus_target="library-import-file",
-                )
-            )
+                pending = None
+            if pending is not None and pending[0] != self._generation:
+                return False
+            self._shutdown_requested = False
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
@@ -2343,12 +2321,6 @@ class Version2WindowsFileActionDelegate:
             return False
         worker.join(timeout)
         stopped = not worker.is_alive()
-        if stopped and worker_kind == "import" and cancel_event is not None:
-            # Worker terminals are fenced once shutdown owns the generation.
-            # Remember only an import whose cancel lease was still live when
-            # shutdown began; an already-selected terminal clears that lease.
-            with self._lock:
-                self._recovery_import_cancel_pending = True
         if stopped and worker_kind == "pgn_open":
             # The worker may already have queued an owner callback. Removing its
             # ownership here makes that callback terminally stale before the
