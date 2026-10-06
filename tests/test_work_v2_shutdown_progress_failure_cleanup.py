@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -10,6 +11,7 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.version2_application import Version2Application
+from acs.version2_windows_book_open_worker import Version2BookOpenWorker
 
 
 class _FailingProgressStore:
@@ -68,6 +70,87 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_real_draining_book_refusal_restores_other_native_owner(self) -> None:
+        class RecoverableFiles:
+            def __init__(self) -> None:
+                self.shutdown_calls = []
+                self.resume_calls = 0
+                self.closed = False
+
+            def shutdown(self, timeout=None):
+                self.shutdown_calls.append(timeout)
+                self.closed = True
+                return True
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                if not self.closed:
+                    return False
+                self.closed = False
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            callbacks = []
+            entered = threading.Event()
+            release = threading.Event()
+
+            def prepare(_source, *, cancel_check):
+                entered.set()
+                release.wait(2)
+                return object()
+
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                book_worker = Version2BookOpenWorker(
+                    prepare=prepare,
+                    commit=lambda _prepared: None,
+                    post_to_ui=callbacks.append,
+                    event_sink=lambda _event: None,
+                )
+                files = RecoverableFiles()
+                application._book_open_worker = book_worker
+                application._files = files
+
+                self.assertTrue(book_worker.start(root / "book.md"))
+                self.assertTrue(entered.wait(2))
+                self.assertFalse(application.shutdown(timeout=0))
+
+                self.assertFalse(book_worker.closed)
+                self.assertTrue(book_worker.active)
+                self.assertFalse(files.closed)
+                self.assertEqual(files.shutdown_calls, [0])
+                self.assertEqual(files.resume_calls, 1)
+                self.assertIsNone(
+                    getattr(application, "_native_shutdown_recovery_error", None)
+                )
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+
+                release.set()
+                deadline = threading.Event()
+                # The worker posts exactly one stale terminal back to this UI
+                # owner. Wait without consuming it from the worker thread.
+                for _ in range(400):
+                    if callbacks:
+                        break
+                    deadline.wait(0.005)
+                self.assertTrue(callbacks)
+                callbacks.pop(0)()
+                self.assertFalse(book_worker.active)
+            finally:
+                release.set()
+                try:
+                    book_worker.shutdown(timeout=2)
+                except UnboundLocalError:
+                    pass
+                database.close()
+                analysis.close()
     def test_partial_worker_retirement_refusal_reopens_each_recoverable_owner(self) -> None:
         class Worker:
             def __init__(self, shutdown_result, resume_result) -> None:
