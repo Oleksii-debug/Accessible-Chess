@@ -162,6 +162,32 @@ def test_verified_compressed_payload_rejects_non_regular_open_handle(tmp_path):
         lawful_bundle._read_verified_compressed_payload(source)
 
 
+def test_verified_compressed_payload_uses_nonblocking_binary_open_when_available(tmp_path):
+    source = tmp_path / "pinned-corpus.pgn.zst"
+    payload = b"verified-regular-file"
+    source.write_bytes(payload)
+    observed = {}
+    original_open = lawful_bundle.os.open
+
+    def open_spy(path, flags):
+        observed["path"] = path
+        observed["flags"] = flags
+        return original_open(path, flags)
+
+    with (
+        patch.object(lawful_bundle.os, "open", side_effect=open_spy),
+        patch.object(lawful_bundle, "CORPUS_SHA256", hashlib.sha256(payload).hexdigest()),
+    ):
+        assert lawful_bundle._read_verified_compressed_payload(source) == payload
+
+    assert observed["path"] == source
+    assert observed["flags"] & lawful_bundle.os.O_RDONLY == lawful_bundle.os.O_RDONLY
+    if getattr(lawful_bundle.os, "O_BINARY", 0):
+        assert observed["flags"] & lawful_bundle.os.O_BINARY
+    if getattr(lawful_bundle.os, "O_NONBLOCK", 0):
+        assert observed["flags"] & lawful_bundle.os.O_NONBLOCK
+
+
 def test_local_build_materializes_only_verified_bounded_snapshot(tmp_path):
     source = tmp_path / "caller-source.pgn.zst"
     destination = tmp_path / "bundle"
