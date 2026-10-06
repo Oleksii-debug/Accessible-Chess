@@ -2134,7 +2134,7 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
 
 def _resolved_asset(entry_name: str, reference: str) -> str | None:
     parts = urlsplit(reference.strip())
-    if parts.scheme or parts.netloc or not parts.path:
+    if parts.scheme or parts.netloc or parts.query or not parts.path:
         return None
     try:
         return _resolve_package_href(
