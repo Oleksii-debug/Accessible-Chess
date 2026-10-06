@@ -50,10 +50,14 @@ jobs:
       - name: Prove exact recorded-media parent and bounded scope
         shell: bash
         env:
+          EXPECTED_PARENT_BRANCH: work/recorded-media-canonical-application-adapter-20261005-sol56q8n4
           EXPECTED_PARENT: 1ef7ce3e8b4a021d83be90316496f5e0c4d72c3c
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_PARENT_BRANCH:refs/remotes/origin/recorded-media-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/recorded-media-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT"
           test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
           git merge-base --is-ancestor "$EXPECTED_PARENT" HEAD
           git diff --check "$EXPECTED_PARENT"...HEAD
