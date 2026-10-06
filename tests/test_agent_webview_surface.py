@@ -183,7 +183,25 @@ class AgentWebViewSurfaceTests(unittest.TestCase):
         result = projection.submit("Analyze")
         self.assertEqual(result.kind, "error")
         self.assertNotIn("private-model-token", str(result.payload))
+        self.assertEqual(result.payload["focus_target"], "agent-input")
         self.assertEqual(projection.snapshot()["state"], "failed")
+
+    def test_synchronous_cancel_completion_restores_input_focus_target(self):
+        holder = {}
+        def cancel(run_id):
+            holder["projection"].mark_cancelled(run_id)
+
+        projection = AgentConversationProjection(
+            start_run=lambda _run_id, _text: None,
+            cancel_run=cancel,
+            language="en",
+        )
+        holder["projection"] = projection
+        projection.submit("Cancel me")
+        event = projection.cancel()
+        self.assertEqual(event.kind, "cancel-requested")
+        self.assertEqual(event.payload["focus_target"], "agent-input")
+        self.assertEqual(event.payload["snapshot"]["state"], "cancelled")
 
     def test_complete_result_accepts_existing_agent_run_result_shape(self):
         starts = []
