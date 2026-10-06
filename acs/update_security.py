@@ -157,6 +157,8 @@ def _utc_time(value: object, label: str) -> datetime:
 def _trusted_utc_now(source: TrustedTimeSource) -> datetime:
     try:
         utc_now = getattr(source, "utc_now")
+    except AttributeError as exc:
+        raise TypeError("time_source must implement TrustedTimeSource") from exc
     except Exception as exc:
         raise UpdateSecurityError("trusted update time is unavailable") from exc
     if not callable(utc_now):
