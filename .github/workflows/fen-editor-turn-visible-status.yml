@@ -19,7 +19,7 @@ concurrency:
 
 env:
   WEBAPP_BLOB: 51cc882511c3a874f7bce3dfa97eda01df1501c6
-  TURN_TEST_BLOB: 97307a5d800f4d7729af2a7ca15506f53f1132c0
+  TURN_TEST_BLOB: 17c72639bcc7e6dc84e7c69b2b3b319c3ec744e2
 
 jobs:
   exact-head:
