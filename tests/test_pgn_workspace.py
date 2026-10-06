@@ -425,6 +425,19 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.workspace.cursor, GameTreeCursor())
         self.assertFalse(self.workspace.dirty)
 
+    def test_direct_workspace_rejects_invalid_unicode_as_domain_error(self):
+        games = list(self.workspace.games())
+        games[0].tags["Event"] = "bad-surrogate-\ud800"
+
+        with self.assertRaises(PgnWorkspaceError) as caught:
+            PgnWorkspace(games)
+
+        self.assertEqual(caught.exception.code, PgnWorkspaceErrorCode.INVALID_DOCUMENT)
+        self.assertEqual(
+            str(caught.exception),
+            "PGN document is not strict round-trip safe",
+        )
+
     def test_invalid_recovery_document_is_rejected_at_workspace_boundary(self):
         malformed = '[Event "bad"]\n\n1. e4 (1... c5 2. Nf3 *\n'
         with self.assertRaises(PgnWorkspaceError) as caught:
