@@ -1109,34 +1109,98 @@ def _local_name(tag: object) -> str:
     return tag.rsplit("}", 1)[-1].split(":", 1)[-1].casefold()
 
 
-def _is_exact_identifier(value: object) -> bool:
+def _controlled_characters(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+):
+    """Yield one string without leaving a long single-token cancellation blind spot."""
+
+    for character_index, character in enumerate(value):
+        if control_checkpoint is not None and character_index % 4096 == 0:
+            control_checkpoint()
+        yield character
+
+
+def _contains_ascii_control(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    return any(
+        ord(character) < 0x20 or ord(character) == 0x7F
+        for character in _controlled_characters(value, control_checkpoint)
+    )
+
+
+def _is_space_separated_tokens(
+    value: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    if type(value) is not str or not value or value != value.strip():
+        return False
+    previous_space = False
+    last_index = len(value) - 1
+    for character_index, character in enumerate(
+        _controlled_characters(value, control_checkpoint)
+    ):
+        if character == " ":
+            if character_index == 0 or character_index == last_index or previous_space:
+                return False
+            previous_space = True
+            continue
+        if character.isspace():
+            return False
+        previous_space = False
+    return True
+
+
+def _is_exact_identifier(
+    value: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
     return (
         type(value) is str
         and bool(value)
         and value == value.strip()
-        and not any(character.isspace() for character in value)
+        and not any(
+            character.isspace()
+            for character in _controlled_characters(value, control_checkpoint)
+        )
     )
 
 
-def _is_mime_token(value: str) -> bool:
+def _is_mime_token(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
     return bool(value) and all(
         0x21 <= ord(character) <= 0x7E and character not in _MIME_TSPECIALS
-        for character in value
+        for character in _controlled_characters(value, control_checkpoint)
     )
 
 
-def _normalized_media_type(value: object, *, context: str) -> str:
+def _normalized_media_type(
+    value: object,
+    *,
+    context: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if type(value) is not str or value != value.strip():
         raise _error(
             f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
     parts = value.split("/")
-    if len(parts) != 2 or not all(_is_mime_token(part) for part in parts):
+    if len(parts) != 2 or not all(
+        _is_mime_token(part, control_checkpoint) for part in parts
+    ):
         raise _error(
             f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    if control_checkpoint is not None:
+        control_checkpoint()
     return value.casefold()
 
 
@@ -1209,9 +1273,12 @@ def _validate_container_attributes(
     allowed: frozenset[str],
     *,
     context: str,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
     container_prefix = f"{{{_CONTAINER_NAMESPACE}}}"
-    for attribute_name in element.attrib:
+    for attribute_index, attribute_name in enumerate(element.attrib, start=1):
+        if control_checkpoint is not None and attribute_index % 128 == 1:
+            control_checkpoint()
         if attribute_name.startswith("{"):
             # OCF extension attributes are permitted only when they are foreign
             # to the OCF container namespace. Attributes in the container
@@ -1246,7 +1313,7 @@ def _validate_package_ids_unique(
         raw_id = element.attrib.get("id")
         if raw_id is None:
             return
-        if not _is_exact_identifier(raw_id):
+        if not _is_exact_identifier(raw_id, control_checkpoint):
             raise _error(
                 "EPUB package contains a malformed document identifier",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1306,7 +1373,7 @@ def _validate_package_document(
             )
 
     unique_identifier = package.attrib.get("unique-identifier")
-    if not _is_exact_identifier(unique_identifier):
+    if not _is_exact_identifier(unique_identifier, control_checkpoint):
         raise _error(
             "EPUB package metadata has a missing or malformed unique identifier",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1437,7 +1504,10 @@ def _resolve_package_href(
     *,
     allow_fragment: bool = False,
     allow_surrounding_whitespace: bool = False,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> str:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if type(href) is not str or not href.strip():
         raise _error(
             "EPUB manifest href is invalid",
@@ -1449,11 +1519,13 @@ def _resolve_package_href(
             "EPUB package href contains surrounding whitespace",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_href):
+    if _contains_ascii_control(raw_href, control_checkpoint):
         raise _error(
             "EPUB package href contains an ASCII control character",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    if control_checkpoint is not None:
+        control_checkpoint()
     try:
         parts = urlsplit(raw_href)
     except ValueError as exc:
@@ -1481,6 +1553,8 @@ def _resolve_package_href(
             "EPUB package href percent-encodes a path separator",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    if control_checkpoint is not None:
+        control_checkpoint()
     try:
         decoded = unquote(parts.path, errors="strict")
     except UnicodeDecodeError as exc:
@@ -1488,7 +1562,7 @@ def _resolve_package_href(
             "EPUB package href contains invalid UTF-8 percent encoding",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
-    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in decoded):
+    if _contains_ascii_control(decoded, control_checkpoint):
         raise _error(
             "EPUB package href decodes to an ASCII control character",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1498,7 +1572,11 @@ def _resolve_package_href(
             "EPUB manifest contains an unsafe reading href",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
+    if control_checkpoint is not None:
+        control_checkpoint()
     joined = posixpath.normpath(posixpath.join(base_dir, decoded))
+    if control_checkpoint is not None:
+        control_checkpoint()
     if joined in {"", ".", ".."} or joined.startswith("../") or joined.startswith("/"):
         raise _error(
             "EPUB manifest reading href escapes the package root",
@@ -1517,6 +1595,7 @@ def _package_rootfiles(
         container,
         frozenset({"version"}),
         context="container element",
+        control_checkpoint=control_checkpoint,
     )
     if (
         container.tag != _CONTAINER_TAG
@@ -1569,6 +1648,7 @@ def _package_rootfiles(
         rootfiles,
         frozenset(),
         context="rootfiles element",
+        control_checkpoint=control_checkpoint,
     )
     if (rootfiles.text or "").strip():
         raise _error(
@@ -1601,6 +1681,7 @@ def _package_rootfiles(
             element,
             frozenset({"full-path", "media-type"}),
             context="rootfile element",
+            control_checkpoint=control_checkpoint,
         )
         if (element.text or "").strip():
             raise _error(
@@ -1621,7 +1702,9 @@ def _package_rootfiles(
                 "EPUB rootfile has a missing or invalid package media type",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        full_path = _resolve_package_href("", element.attrib.get("full-path"))
+        full_path = _resolve_package_href(
+            "", element.attrib.get("full-path"), control_checkpoint=control_checkpoint
+        )
         if full_path in seen_paths:
             raise _error(
                 "EPUB container resolves multiple rootfiles to the same package document",
@@ -1657,6 +1740,7 @@ def _package_rootfiles(
             links,
             frozenset(),
             context="links element",
+            control_checkpoint=control_checkpoint,
         )
         if (links.text or "").strip():
             raise _error(
@@ -1687,6 +1771,7 @@ def _package_rootfiles(
                 element,
                 frozenset({"href", "media-type", "rel"}),
                 context="container link element",
+                control_checkpoint=control_checkpoint,
             )
             if (element.text or "").strip():
                 raise _error(
@@ -1708,13 +1793,14 @@ def _package_rootfiles(
                 _normalized_media_type(
                     raw_media_type,
                     context="container link",
+                    control_checkpoint=control_checkpoint,
                 )
             if type(raw_href) is not str or not raw_href or raw_href != raw_href.strip():
                 raise _error(
                     "EPUB container link href is missing or malformed",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
-            if any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw_href):
+            if _contains_ascii_control(raw_href, control_checkpoint):
                 raise _error(
                     "EPUB container link href contains an ASCII control character",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1731,7 +1817,9 @@ def _package_rootfiles(
                     "EPUB container link href is not path-relative",
                     BookEpubImportErrorCode.UNSAFE_PACKAGE,
                 )
-            resolved_link = _resolve_package_href("", href_parts.path)
+            resolved_link = _resolve_package_href(
+                "", href_parts.path, control_checkpoint=control_checkpoint
+            )
             if resolved_link not in archive_index:
                 raise _error(
                     "EPUB container link references a resource that is unavailable",
@@ -1741,10 +1829,7 @@ def _package_rootfiles(
                 type(raw_rel) is not str
                 or not raw_rel
                 or raw_rel != raw_rel.strip()
-                or any(
-                    not token or any(character.isspace() for character in token)
-                    for token in raw_rel.split(" ")
-                )
+                or not _is_space_separated_tokens(raw_rel, control_checkpoint)
             ):
                 raise _error(
                     "EPUB container link rel is missing or malformed",
@@ -1804,7 +1889,7 @@ def _manifest_items(
         href = element.attrib.get("href")
         raw_fallback = element.attrib.get("fallback")
         raw_media_overlay = element.attrib.get("media-overlay")
-        if not _is_exact_identifier(raw_item_id):
+        if not _is_exact_identifier(raw_item_id, control_checkpoint):
             raise _error(
                 "EPUB manifest item is missing or has malformed required identity",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1813,10 +1898,11 @@ def _manifest_items(
         media_type = _normalized_media_type(
             raw_media_type,
             context="manifest item",
+            control_checkpoint=control_checkpoint,
         )
         if raw_fallback is None:
             fallback = None
-        elif not _is_exact_identifier(raw_fallback):
+        elif not _is_exact_identifier(raw_fallback, control_checkpoint):
             raise _error(
                 "EPUB manifest fallback identifier is malformed",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1825,7 +1911,7 @@ def _manifest_items(
             fallback = raw_fallback
         if raw_media_overlay is None:
             media_overlay = None
-        elif not _is_exact_identifier(raw_media_overlay):
+        elif not _is_exact_identifier(raw_media_overlay, control_checkpoint):
             raise _error(
                 "EPUB manifest media-overlay identifier is malformed",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1837,7 +1923,9 @@ def _manifest_items(
                 "EPUB manifest contains duplicate item identifiers",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        entry_name = _resolve_package_href(opf_dir, href)
+        entry_name = _resolve_package_href(
+            opf_dir, href, control_checkpoint=control_checkpoint
+        )
         previous_item_id = resource_owners.get(entry_name)
         if previous_item_id is not None:
             raise _error(
@@ -1973,7 +2061,7 @@ def _spine_ids(
         )
     raw_toc = spine.attrib.get("toc")
     if raw_toc is not None:
-        if not _is_exact_identifier(raw_toc):
+        if not _is_exact_identifier(raw_toc, control_checkpoint):
             raise _error(
                 "EPUB spine toc identifier is malformed",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -2029,7 +2117,7 @@ def _spine_ids(
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         raw_item_id = element.attrib.get("idref")
-        if not _is_exact_identifier(raw_item_id):
+        if not _is_exact_identifier(raw_item_id, control_checkpoint):
             raise _error(
                 "EPUB spine item has a missing or malformed manifest reference",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -2136,7 +2224,13 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
     return block_from_dict(data)
 
 
-def _resolved_asset(entry_name: str, reference: str) -> str | None:
+def _resolved_asset(
+    entry_name: str,
+    reference: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
+    if control_checkpoint is not None:
+        control_checkpoint()
     parts = urlsplit(reference.strip())
     if parts.scheme or parts.netloc or not parts.path:
         return None
@@ -2146,6 +2240,7 @@ def _resolved_asset(entry_name: str, reference: str) -> str | None:
             reference,
             allow_fragment=True,
             allow_surrounding_whitespace=True,
+            control_checkpoint=control_checkpoint,
         )
     except BookEpubImportError:
         return None
@@ -2394,7 +2489,7 @@ def import_epub_book(
             for reference_index, reference in enumerate(imported.image_references, start=1):
                 if control_checkpoint is not None and reference_index % 128 == 1:
                     control_checkpoint()
-                resolved = _resolved_asset(item.entry_name, reference)
+                resolved = _resolved_asset(item.entry_name, reference, control_checkpoint)
                 if resolved is None:
                     warnings.add(f"spine {chapter_index}: an external or unsafe image reference was not resolved")
                     continue
