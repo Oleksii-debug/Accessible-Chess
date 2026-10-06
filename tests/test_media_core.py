@@ -1029,6 +1029,104 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")
 
 
+
+    def test_clock_restart_from_snapshot_preserves_revision_and_reanchors_host_time(self):
+        clock = MediaClock(duration_ms=10_000)
+        clock.play(100)
+        clock.set_playback_rate(1.5, 1100)
+        persisted = clock.snapshot(2100)
+        self.assertEqual(persisted.position_ms, 2500)
+        self.assertEqual(persisted.revision, 2)
+
+        restored = MediaClock.from_snapshot(persisted, now_ms=50_000)
+        immediate = restored.snapshot(50_000)
+        self.assertEqual(immediate, persisted)
+        self.assertEqual(restored.revision, 2)
+        after = restored.snapshot(51_000)
+        self.assertEqual(after.position_ms, 4000)
+        self.assertEqual(after.revision, 2)
+
+    def test_clock_restart_does_not_replay_process_downtime(self):
+        persisted = MediaClockSnapshot(
+            position_ms=5000,
+            state=MediaPlaybackState.PLAYING,
+            playback_rate=1.0,
+            duration_ms=20_000,
+            revision=9,
+        )
+        restored = MediaClock.from_snapshot(persisted, now_ms=1_000_000)
+        self.assertEqual(restored.snapshot(1_000_000).position_ms, 5000)
+        self.assertEqual(restored.snapshot(1_001_000).position_ms, 6000)
+
+    def test_clock_restart_rejects_non_snapshot_and_invalid_host_anchor(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClock.from_snapshot(object())
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+        snapshot = MediaClock().snapshot(0)
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClock.from_snapshot(snapshot, now_ms=-1)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_media_session_rejects_stale_or_unrevisioned_clock_rollback(self):
+        session = self.media_session()
+        stale = MediaClockSnapshot(
+            position_ms=20_000,
+            state=session.clock.state,
+            playback_rate=session.clock.playback_rate,
+            duration_ms=session.clock.duration_ms,
+            revision=session.clock.revision - 1,
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            session.with_clock(stale)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        same_revision_rewind = MediaClockSnapshot(
+            position_ms=session.clock.position_ms - 1,
+            state=session.clock.state,
+            playback_rate=session.clock.playback_rate,
+            duration_ms=session.clock.duration_ms,
+            revision=session.clock.revision,
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            session.with_clock(same_revision_rewind)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_media_session_accepts_same_revision_forward_materialization(self):
+        session = self.media_session()
+        advanced = MediaClockSnapshot(
+            position_ms=session.clock.position_ms + 500,
+            state=session.clock.state,
+            playback_rate=session.clock.playback_rate,
+            duration_ms=session.clock.duration_ms,
+            revision=session.clock.revision,
+        )
+        updated = session.with_clock(advanced)
+        self.assertEqual(updated.clock, advanced)
+        self.assertEqual(updated.revision, session.revision + 1)
+
+    def test_media_session_requires_revision_for_clock_control_change(self):
+        session = self.media_session()
+        illegal = MediaClockSnapshot(
+            position_ms=session.clock.position_ms,
+            state=MediaPlaybackState.PLAYING,
+            playback_rate=session.clock.playback_rate,
+            duration_ms=session.clock.duration_ms,
+            revision=session.clock.revision,
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            session.with_clock(illegal)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        legal = MediaClockSnapshot(
+            position_ms=session.clock.position_ms,
+            state=MediaPlaybackState.PLAYING,
+            playback_rate=session.clock.playback_rate,
+            duration_ms=session.clock.duration_ms,
+            revision=session.clock.revision + 1,
+        )
+        updated = session.with_clock(legal)
+        self.assertEqual(updated.clock, legal)
+
     def test_clock_starts_unstarted_and_snapshot_is_deterministic(self):
         clock = MediaClock()
         first = clock.snapshot(0)

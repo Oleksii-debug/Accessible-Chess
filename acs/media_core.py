@@ -330,6 +330,37 @@ class MediaClock:
         if duration is not None and self._position_ms == duration:
             self._state = MediaPlaybackState.ENDED
 
+    @classmethod
+    def from_snapshot(
+        cls,
+        snapshot: MediaClockSnapshot,
+        *,
+        now_ms: int = 0,
+    ) -> "MediaClock":
+        """Restore one persisted clock snapshot without replaying downtime.
+
+        Host monotonic time is re-anchored at now_ms. A PLAYING snapshot
+        resumes from its persisted media position and advances only after the
+        restored process observes new host time.
+        """
+
+        if type(snapshot) is not MediaClockSnapshot:
+            raise MediaContractError(
+                "snapshot must be an exact MediaClockSnapshot",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        now = cls._require_now(now_ms)
+        restored = cls(
+            position_ms=snapshot.position_ms,
+            state=snapshot.state,
+            playback_rate=snapshot.playback_rate,
+            duration_ms=snapshot.duration_ms,
+        )
+        restored._revision = snapshot.revision
+        restored._last_now_ms = now
+        restored._fractional_ms = 0.0
+        return restored
+
     @staticmethod
     def _require_now(now_ms: object) -> int:
         return _require_nonnegative_int(now_ms, "now_ms")
@@ -1625,6 +1656,26 @@ class MediaSession:
             )
         if clock == self.clock:
             return self
+        if clock.revision < self.clock.revision:
+            raise MediaContractError(
+                "stale media clock revision cannot replace current session clock",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if clock.revision == self.clock.revision:
+            if (
+                clock.state is not self.clock.state
+                or clock.playback_rate != self.clock.playback_rate
+                or clock.duration_ms != self.clock.duration_ms
+            ):
+                raise MediaContractError(
+                    "clock control state changed without revision advance",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            if clock.position_ms < self.clock.position_ms:
+                raise MediaContractError(
+                    "clock position moved backwards without revision advance",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
         return replace(self, clock=clock, revision=self.revision + 1)
 
     def select_analysis_cursor(self, chess_ref: str | None) -> "MediaSession":
