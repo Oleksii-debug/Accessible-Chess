@@ -693,10 +693,12 @@ class PgnWebViewProjection:
         if selected is None:
             raise LookupError("PGN selection is required")
         if action_id == "pgn.comment_edit":
-            if len(selected.comments) > 1:
+            exact = bool(extra and "slot" in extra and "index" in extra)
+            if not exact and len(selected.comments) > 1:
                 raise ValueError("ambiguous PGN comment selection")
         elif action_id == "pgn.comment_delete":
-            if len(selected.comments) != 1:
+            exact = bool(extra and "slot" in extra and "index" in extra)
+            if not exact and len(selected.comments) != 1:
                 raise ValueError("exactly one PGN comment is required")
         elif action_id in {"pgn.nag_edit", "pgn.variation_add"}:
             if selected.kind != "move":
@@ -731,15 +733,40 @@ class PgnWebViewProjection:
             raise ValueError("PGN search text is invalid")
         return self._dispatch_selected("pgn.search", extra={"text": text})
 
-    def edit_comment(self, text: str) -> PgnWebViewEvent:
+    def edit_comment(
+        self,
+        text: str,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+    ) -> PgnWebViewEvent:
         if type(text) is not str:
             raise TypeError("PGN comment text must be text")
         if _utf16_units(text) > 8000 or "\x00" in text:
             raise ValueError("PGN comment text is invalid")
-        return self._dispatch_selected("pgn.comment_edit", extra={"text": text})
+        extra: dict[str, object] = {"text": text}
+        if slot is not None or index is not None:
+            if type(slot) is not str or slot not in {"before", "after", "leading", "trailing"}:
+                raise ValueError("PGN comment slot is invalid")
+            if type(index) is not int or index < -1 or index > 255:
+                raise ValueError("PGN comment index is invalid")
+            extra.update(slot=slot, index=index)
+        return self._dispatch_selected("pgn.comment_edit", extra=extra)
 
-    def delete_comment(self) -> PgnWebViewEvent:
-        return self._dispatch_selected("pgn.comment_delete")
+    def delete_comment(
+        self,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+    ) -> PgnWebViewEvent:
+        extra: dict[str, object] | None = None
+        if slot is not None or index is not None:
+            if type(slot) is not str or slot not in {"before", "after", "leading", "trailing"}:
+                raise ValueError("PGN comment slot is invalid")
+            if type(index) is not int or index < 0 or index > 255:
+                raise ValueError("PGN comment index is invalid")
+            extra = {"slot": slot, "index": index}
+        return self._dispatch_selected("pgn.comment_delete", extra=extra)
 
     def edit_nags(self, text: str) -> PgnWebViewEvent:
         if type(text) is not str or len(text) > 512 or "\x00" in text:
