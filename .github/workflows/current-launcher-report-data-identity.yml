@@ -16,10 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT: e8d745bf2db4a47a30114037de310f4e98c1b0c0
-  CURRENT_PRODUCT_REF: converge/current-gametree-resume-discard-recovery-20261005-ooxple7
-  LAUNCHER_BLOB: 8089546cbc73cb35e3e8e50a4f28e7c9f175d15c
-  CONTRACT_TEST_BLOB: a2ddfc7980cd8be2797f978bbbef9cb660b635ce
+  CURRENT_PRODUCT: 34197e963e9d5091c79b3d2fc396cdecfa229b77
+  CURRENT_PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  LAUNCHER_BLOB: 9ffc6677e33637d89d8834ebb6c135ab6d26f3bb
+  CONTRACT_TEST_BLOB: 4ae48babd7ada71d38148dfb537982b74140da6b
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 jobs:
@@ -72,6 +72,8 @@ jobs:
           changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
             'tests/test_portable_launcher_contract.py' | sort)"
           test "$changed" = "$expected" || {
