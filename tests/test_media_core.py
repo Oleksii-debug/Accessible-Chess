@@ -312,12 +312,8 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
 
     def test_serializer_rejects_lone_surrogates_in_state_text(self):
-        source = MediaSource(
-            source_id="lesson-1",
-            title="Accessible lesson",
-            kind=MediaSourceKind.LOCAL_FILE,
-            attribution="broken\ud800",
-        )
+        source = self.source()
+        object.__setattr__(source, "attribution", "broken\ud800")
         with self.assertRaises(MediaContractError) as caught:
             serialize_media_state(
                 source,
