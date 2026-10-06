@@ -1319,5 +1319,103 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertTrue(all(callback is checkpoint for _, callback in observed))
 
 
+    def test_epub_dublin_core_text_normalization_observes_control_inside_one_value(self):
+        import acs.book_epub_import as epub
+        import xml.etree.ElementTree as ET
+
+        metadata = ET.Element("{http://www.idpf.org/2007/opf}metadata")
+        title = ET.SubElement(
+            metadata,
+            "{http://purl.org/dc/elements/1.1/}title",
+        )
+        title.text = (" " * 20_000) + "Study"
+        failure = SourceReadCancelledError(
+            "cancelled during Dublin Core metadata normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._metadata_values(metadata, "title", cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_dublin_core_control_preserves_whitespace_semantics(self):
+        import acs.book_epub_import as epub
+        import xml.etree.ElementTree as ET
+
+        metadata = ET.Element("{http://www.idpf.org/2007/opf}metadata")
+        title = ET.SubElement(
+            metadata,
+            "{http://purl.org/dc/elements/1.1/}title",
+        )
+        title.text = "\u2003  Study\tTitle\nwith\rmetadata  \u2002"
+
+        plain = epub._metadata_values(metadata, "title")
+        calls = []
+        controlled = epub._metadata_values(
+            metadata,
+            "title",
+            lambda: calls.append(1),
+        )
+
+        self.assertEqual(controlled, plain)
+        self.assertEqual(controlled, ["Study Title with metadata"])
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_first_heading_fallback_observes_control_before_late_heading(self):
+        import acs.book_epub_import as epub
+
+        blocks = [object() for _ in range(300)]
+        blocks.append(epub.Heading(text="Late heading"))
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB first-heading fallback"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._first_heading_text(blocks, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_creator_rights_join_observes_control_inside_large_collection(self):
+        import acs.book_epub_import as epub
+
+        values = [f"Creator {index}" for index in range(400)]
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB metadata aggregation"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._controlled_join(values, "; ", cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            epub._controlled_join(["A", "B", "C"], "; ", lambda: None),
+            "A; B; C",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
