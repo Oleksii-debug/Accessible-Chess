@@ -670,6 +670,43 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_sound_validation_parses_wav_semantics_from_snapshot_handles(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            _write_checksums(root)
+
+            real_wave_open = preflight.wave.open
+            observed = []
+
+            def record_wave_source(source, *args, **kwargs):
+                observed.append(source)
+                return real_wave_open(source, *args, **kwargs)
+
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                patch.object(
+                    preflight.wave,
+                    "open",
+                    side_effect=record_wave_source,
+                ),
+            ):
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            self.assertTrue(observed)
+            self.assertTrue(
+                all(not isinstance(source, (str, Path)) for source in observed),
+                "sound semantic validation must not reopen mutable pathnames",
+            )
+
     def test_inventory_bound_runtime_variant_rejects_24bit_pcm(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
