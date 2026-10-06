@@ -225,6 +225,12 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+class _BackendFingerprintControlError(RuntimeError):
+    def __init__(self, cause: Exception) -> None:
+        super().__init__("backend fingerprint control checkpoint failed")
+        self.cause = cause
+
+
 def _backend_fingerprint_cancel_check(
     control_checkpoint: Callable[[], None] | None,
 ) -> Callable[[], bool] | None:
@@ -232,7 +238,10 @@ def _backend_fingerprint_cancel_check(
         return None
 
     def poll() -> bool:
-        control_checkpoint()
+        try:
+            control_checkpoint()
+        except Exception as exc:
+            raise _BackendFingerprintControlError(exc) from exc
         return False
 
     return poll
@@ -250,6 +259,8 @@ def _capture_decoder_backend(
             config.executable,
             cancel_check=_backend_fingerprint_cancel_check(control_checkpoint),
         )
+    except _BackendFingerprintControlError as exc:
+        raise exc.cause
     except (OSError, ValueError) as exc:
         raise ChessBaseDecodeError(
             "ChessBase decoder backend failed read-only validation",
@@ -270,6 +281,8 @@ def _verify_decoder_backend_unchanged(
             cancel_check=_backend_fingerprint_cancel_check(control_checkpoint),
         )
         unchanged = before.size == after.size and before.sha256 == after.sha256
+    except _BackendFingerprintControlError as exc:
+        raise exc.cause
     except (OSError, ValueError):
         unchanged = False
     if not unchanged:
