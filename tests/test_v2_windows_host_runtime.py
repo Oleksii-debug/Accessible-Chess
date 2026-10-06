@@ -2589,5 +2589,53 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
 
 
 
+    def test_full_shutdown_resume_restores_library_export_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "post-refused-close-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = self._runtime(owner, export_events=export_events)
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+
+            started = runtime(
+                "library.export",
+                LibraryExportRequest.selected([1]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown())
+
+    def test_failed_library_export_resume_rolls_back_full_runtime_recovery(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        with patch.object(
+            runtime._library_export_delegate,
+            "resume_after_refused_shutdown",
+            return_value=False,
+        ) as export_resume:
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+            export_resume.assert_called_once_with()
+
+        self.assertTrue(runtime.closed)
+        with self.assertRaisesRegex(RuntimeError, "runtime is closed"):
+            runtime("library.import", {})
+
+        # The failed recovery was rolled back to a clean retired state, so a
+        # later retry can reopen the same canonical owners without replacement.
+        self.assertTrue(runtime.resume_after_refused_shutdown())
+        self.assertFalse(runtime.closed)
+        self.assertTrue(runtime.shutdown())
+
+
 if __name__ == "__main__":
     unittest.main()
