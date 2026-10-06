@@ -20,9 +20,10 @@
   }
 
   function announce(message) {
-    if (!message) return;
+    const text = boundedText(message, MAX_ANNOUNCEMENT_TEXT);
+    if (!text) return;
     live.textContent = "";
-    global.setTimeout(function () { live.textContent = String(message).slice(0, 300); }, 20);
+    global.setTimeout(function () { live.textContent = text; }, 20);
   }
 
   const nav = documentRef.createElement("nav");
@@ -259,9 +260,44 @@
   }
 
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+  const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
+  const MAX_NATIVE_EVENT_BATCH = 64;
+  const MAX_ANNOUNCEMENT_TEXT = 1200;
+  const NATIVE_EVENT_KINDS = new Set([
+    "route",
+    "delegated",
+    "book-board",
+    "render-import",
+    "status",
+    "error",
+    "render",
+    "dialog-open",
+    "dialog-close"
+  ]);
 
   function validFocusId(value) {
     return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
+
+  function validRouteId(value) {
+    return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
+  }
+
+  function validActionId(value) {
+    return typeof value === "string" && ACTION_ID_PATTERN.test(value);
+  }
+
+  function boundedText(value, limit) {
+    return typeof value === "string" &&
+      value.length <= limit &&
+      value.indexOf("\x00") < 0
+      ? value
+      : "";
+  }
+
+  function plainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
   }
 
   function focusById(id) {
@@ -577,8 +613,11 @@
   }
 
   function applyQueuedEvent(event, orderedStage1Refreshes) {
-    if (!event || typeof event !== "object") return false;
-    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (!plainObject(event) || !NATIVE_EVENT_KINDS.has(event.kind)) return false;
+    if (!plainObject(event.payload)) return false;
+    const payload = event.payload;
+    if (event.kind === "route" && !validRouteId(payload.route_id)) return false;
+    if (event.kind === "delegated" && !validActionId(payload.action_id)) return false;
     if (event.kind === "render-import") {
       if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
           typeof global.AccessibleChessLibrarySurface.apply === "function") {
@@ -638,12 +677,12 @@
       return;
     }
     Promise.resolve(drained).then(function (events) {
-      if (!Array.isArray(events) || !events.length) return;
+      if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
       let needsRefresh = false;
       let queuedTerminalFocus = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
+        const payload = plainObject(event) && plainObject(event.payload) ? event.payload : {};
         if (
           (event.kind === "status" || event.kind === "error") &&
           validFocusId(payload.focus_target)
@@ -668,7 +707,7 @@
 
   documentRef.addEventListener("focusin", function (event) {
     const target = event.target;
-    if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    if (!target || !validFocusId(target.id)) return;
     if (target.id.indexOf("v2-nav-") === 0) return;
     const bridge = api();
     if (bridge && typeof bridge.v2_record_focus === "function") {
