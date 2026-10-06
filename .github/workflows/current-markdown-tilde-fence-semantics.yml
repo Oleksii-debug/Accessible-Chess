@@ -19,8 +19,8 @@ concurrency:
 
 env:
   BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  SOURCE_BLOB: 486e5967ab2afec150794416934415b48968a760
-  TEST_BLOB: 5ef106f303ff6098b9cfba69cdf184d26b408998
+  SOURCE_BLOB: 7b4ca7b4d6eb767841175fadd6b7f83706303d10
+  TEST_BLOB: 7179fe43109b8e1c82d1276bb620754d04946ee8
 
 jobs:
   qualify:
@@ -30,7 +30,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -71,8 +71,23 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile bounded Markdown surfaces
-        run: python -m compileall -q acs/book_text_import.py tests/test_markdown_library_journey.py
+      - name: Compile bounded Markdown and inherited recovery surfaces
+        run: >-
+          python -m compileall -q
+          acs/book_text_import.py
+          tests/test_markdown_library_journey.py
+          tests/test_v2_book_text_import.py
+          tests/test_v2_markdown_semantic_lists.py
+          tests/test_bookdocument.py
+          tests/test_bookreader.py
+          tests/test_v2_book_progress_store.py
 
-      - name: Execute Markdown semantic regression
-        run: python -m unittest -v tests.test_markdown_library_journey
+      - name: Execute Markdown semantic and persistence regressions
+        run: >-
+          python -m unittest -v
+          tests.test_markdown_library_journey
+          tests.test_v2_book_text_import
+          tests.test_v2_markdown_semantic_lists
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_v2_book_progress_store
