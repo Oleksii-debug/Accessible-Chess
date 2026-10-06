@@ -407,6 +407,27 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(branch.created_count, 2)
         return branch.node_ids
 
+    def test_detached_gametree_branch_is_distinct_from_corrupt_history(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5", "Nf3")
+        _, branch_second = self._append_detached_branch(api)
+        api.review_history.select_node(branch_second)
+
+        state = api.get_state()
+        self.assertFalse(state["historyProjectionValid"])
+        self.assertEqual(state["historyItems"], [])
+        self.assertEqual(
+            state["reviewStatus"],
+            "A variation position is selected. Linear history review is temporarily unavailable.",
+        )
+        self.assertEqual(
+            state["moves"],
+            "A variation position is selected. Linear history review is temporarily unavailable.",
+        )
+        self.assertFalse(state["positionEditor"]["editable"])
+        self.assertFalse(state["canUndo"])
+        self.assertFalse(state["canRedo"])
+
     def test_history_previous_recovers_from_detached_gametree_branch(self) -> None:
         api = AccessibleChessAPI("en")
         play(api, "e4", "e5", "Nf3")
