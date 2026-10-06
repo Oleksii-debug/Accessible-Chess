@@ -529,7 +529,14 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def search(self, text: str) -> PgnWebViewEvent:
-        return self._mutate_and_render(lambda: PgnWebViewProjection.search(self, text))
+        if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
+            raise ValueError("PGN search text is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.search",
+                {**self._trusted_current_target(), "text": text},
+            )
+        )
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
