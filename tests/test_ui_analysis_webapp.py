@@ -400,6 +400,18 @@ class UIAnalysisWebAppTests(unittest.TestCase):
                 self.assertIn("поверніться", result["announcement"].lower())
                 self.assertEqual(api.board.fen(), origin_fen)
 
+        for operation in (
+            api.restart_analysis,
+            lambda: api.configure_analysis(3, 20),
+            api.toggle_analysis_lock,
+            lambda: api.select_relative_analysis_pv(1),
+        ):
+            with self.subTest(analysis_operation=operation):
+                result = operation()
+                self.assertFalse(result["ok"])
+                self.assertIn("поверніться", result["announcement"].lower())
+                self.assertTrue(result["analysisViewingTemporaryPosition"])
+
         self.assertTrue(api.return_from_analysis()["ok"])
 
     def test_failed_analysis_return_does_not_move_live_review_cursor(self):
