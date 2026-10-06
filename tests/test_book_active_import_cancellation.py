@@ -16,7 +16,7 @@ from acs.library_import_service import LibraryImportService
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind, Version2ImportWorkerServices, Version2WindowsFileActionDelegate,
 )
-from test_v2_book_epub_import import _opf, _simple_epub
+from test_v2_book_epub_import import _epub, _opf, _simple_epub
 
 
 HTML = ('<html lang="uk"><head><title>Книга</title></head><body>'
@@ -218,6 +218,85 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             with self.subTest(importer=importer):
                 with self.assertRaises(TypeError):
                     importer(source, source_name='study', control_checkpoint=True, **args)
+
+    def test_native_cancel_interrupts_large_epub_package_scan_before_library_staging(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        source = root / 'study.epub'
+        chapter = b'<html><body><p>Readable chapter</p></body></html>'
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={'OEBPS/Text/ch1.xhtml': chapter},
+            prepend=[(f'Extras/{index:03}.bin', b'x') for index in range(300)],
+        )
+        source.write_bytes(raw)
+        original = source.read_bytes()
+        database = AcsDatabase(root / 'library.acsdb')
+        self.addCleanup(database.close)
+        ready, release, closed = threading.Event(), threading.Event(), threading.Event()
+        events = []
+
+        class Dialogs:
+            def open_pgn(self): return None
+            def save_pgn_as(self, *args): return None
+            def select_library_import(self): return source
+
+        def services():
+            worker_database = AcsDatabase(root / 'library.acsdb')
+            def close():
+                worker_database.close()
+                closed.set()
+            return Version2ImportWorkerServices(
+                LibraryImportService(worker_database), None, close
+            )
+
+        delegate = Version2WindowsFileActionDelegate(
+            dialogs=Dialogs(), get_pgn_session=lambda: None, set_pgn_session=lambda _: None,
+            import_services_factory=services, event_sink=events.append, next_delegate=lambda *_: None,
+        )
+        import acs.book_epub_import as epub
+        validate = epub._validate_local_zip_header
+        calls = 0
+        def pause(archive, info):
+            nonlocal calls
+            result = validate(archive, info)
+            calls += 1
+            if calls == 100:
+                ready.set()
+                if not release.wait(5):
+                    raise RuntimeError('test EPUB scan release timed out')
+            return result
+
+        with patch.object(epub, '_validate_local_zip_header', pause):
+            try:
+                delegate('library.import', {})
+                self.assertTrue(ready.wait(5))
+                delegate('library.cancel_import', {})
+            finally:
+                release.set()
+                self.assertTrue(delegate.wait_for_import(5))
+
+        self.assertTrue(closed.is_set())
+        self.assertEqual(
+            1,
+            sum(event.kind is FileWorkflowEventKind.IMPORT_CANCELLED for event in events),
+        )
+        self.assertFalse(
+            any(
+                event.kind in {FileWorkflowEventKind.FAILED, FileWorkflowEventKind.IMPORT_COMPLETED}
+                for event in events
+            )
+        )
+        self.assertEqual(source.read_bytes(), original)
+        for table in ('sources', 'games', 'import_attempts'):
+            self.assertEqual(
+                database.conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0],
+                0,
+            )
 
     def test_native_cancel_interrupts_actual_html_parser_before_any_library_staging(self):
         temporary = tempfile.TemporaryDirectory()
