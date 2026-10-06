@@ -95,6 +95,30 @@ class EpubXmlStructureBudgetTests(unittest.TestCase):
         self.assertEqual(len(list(root.iter())), 3)
 
 
+    def test_import_maps_opf_structure_overflow_to_resource_limit(self) -> None:
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            entries={
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
+            },
+        )
+        # container.xml has exactly three elements; the OPF has more. This
+        # proves the real import path accepts the container then rejects the
+        # structurally over-budget package metadata before ElementTree build.
+        with patch("acs.book_epub_import.MAX_EPUB_XML_ELEMENTS", 3):
+            with self.assertRaises(BookEpubImportError) as raised:
+                import_epub_book(raw, source_name="xml-structure-budget.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("package metadata", str(raised.exception))
+
+
 class EpubWarningBudgetTests(unittest.TestCase):
     def test_warning_budget_includes_suppression_marker_and_stays_bookdocument_compatible(self) -> None:
         self.assertEqual(MAX_EPUB_WARNINGS, MAX_BOOK_DOCUMENT_WARNINGS)
