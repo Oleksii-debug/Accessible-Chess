@@ -226,6 +226,46 @@ class Version2WindowsFileWorkflowRuntime:
         mailbox_recovered = self._pump.request_pending_wakeup()
         return owner_recovered or mailbox_recovered
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Restore the exact quiesced runtime when native FormClosing is refused.
+
+        Application shutdown retires the file delegate before durable Book/Training
+        progress and ACSDB close. If a later durability step fails, the owner Form
+        remains visible and this same runtime must become usable again. Recovery is
+        all-or-fenced: the delegate and pump both reopen, or the delegate is
+        re-retired and the runtime remains closed.
+        """
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError(
+                "Version 2 Windows file workflow recovery requires UI thread"
+            )
+        with self._lock:
+            if not self._closed:
+                return True
+
+        resumed_delegate = self._file_delegate.resume_after_refused_shutdown()
+        if resumed_delegate is not True:
+            return False
+
+        try:
+            resumed_pump = self._pump.resume_after_refused_shutdown()
+        except BaseException:
+            try:
+                self._file_delegate.shutdown(timeout=0.0)
+            except BaseException:
+                pass
+            raise
+        if resumed_pump is not True:
+            try:
+                self._file_delegate.shutdown(timeout=0.0)
+            except BaseException:
+                pass
+            return False
+
+        with self._lock:
+            self._closed = False
+        return True
+
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join active file worker before closing the UI pump."""
 
