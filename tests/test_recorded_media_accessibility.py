@@ -96,6 +96,30 @@ def _checkpoint(status: PreprocessStatus, completed: int, total: int) -> Preproc
 
 
 class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
+    def test_nested_media_cursor_must_be_exact_passive_value(self) -> None:
+        class ActiveCursor(MediaCursor):
+            def __getattribute__(self, name):
+                if name in {"source_id", "position_ms"}:
+                    raise AssertionError("active cursor getter was executed")
+                return super().__getattribute__(name)
+
+        bridge = RecordedMediaAccessibilityBridge(language="en")
+        cursor = ActiveCursor("recorded-1", 20_500)
+        session = MediaChessSession(cursor, "opaque:session-node")
+        snapshot = RecordedSyncSnapshot(
+            source_revision="revision-1",
+            cache_fingerprint="cache-fingerprint",
+            plan_digest="plan-digest",
+            source=_source(),
+            timeline=MediaPositionTimeline(
+                "recorded-1", (_link(20_000, "opaque:confirmed-node"),)
+            ),
+            session=session,
+        )
+
+        with self.assertRaises(RecordedMediaAccessibilityError):
+            bridge.snapshot(**_clock_kwargs(), sync_snapshot=snapshot)
+
     def test_confirmed_snapshot_is_browser_safe_and_copyable(self) -> None:
         bridge = RecordedMediaAccessibilityBridge(language="en")
 
