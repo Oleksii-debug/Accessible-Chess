@@ -28,6 +28,8 @@ def _localized_message(exc: ValueError, language: str) -> str:
         return "Потрібно рівно по одному королю"
     if message.startswith("invalid square: "):
         return "Неправильне поле: " + message.removeprefix("invalid square: ")
+    if message == "invalid square":
+        return "Неправильне поле"
     return message
 
 
