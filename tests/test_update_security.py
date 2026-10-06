@@ -246,6 +246,36 @@ class UpdateSecurityTests(unittest.TestCase):
                     pass
             self.assertNotIn("secret-clock-detail", str(caught.exception))
 
+    def test_trusted_time_is_rechecked_after_package_hashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = b"MZ-authentic-update"
+            package = self._package(root, payload)
+            expired_after_hash = datetime(2026, 10, 4, 18, 0, tzinfo=timezone.utc)
+
+            with self.assertRaisesRegex(UpdateSecurityError, "metadata is expired"):
+                verify_update_package(
+                    _metadata(payload),
+                    package,
+                    current_version="2.0.0",
+                    verifier=_TestVerifier(),
+                    time_source=_TestTimeSource(_NOW, expired_after_hash),
+                )
+
+            verified = verify_update_package(
+                _metadata(payload),
+                package,
+                current_version="2.0.0",
+                verifier=_TestVerifier(),
+                time_source=_TestTimeSource(_NOW),
+            )
+            with self.assertRaisesRegex(UpdateSecurityError, "verified update is expired"):
+                with open_verified_update(
+                    verified,
+                    time_source=_TestTimeSource(_NOW, expired_after_hash),
+                ):
+                    pass
+
     def test_unsigned_or_bad_signature_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
