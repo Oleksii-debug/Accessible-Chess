@@ -41,6 +41,7 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     pid = 4242
     handle = 9001
     canonical = {
+        "menu_binding_stable": True,
         "menu_from_handle": {
             "automation_id": "AccessibleChessFullProductMenu",
             "control_type": "ControlType.MenuBar",
@@ -155,12 +156,18 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     assert checks["uia_from_handle_matches_automation_id_row"] is False
 
 
-def test_source_uia_probe_waits_for_unique_exact_automation_id_not_any_process_menubar() -> None:
+def test_source_uia_probe_waits_for_stable_unique_handle_binding_not_presence_only() -> None:
     source = Path("scripts/p0_native_menubar_uia_probe.ps1").read_text(encoding="utf-8")
 
-    assert "if($exact.Count -eq 1 -and $anyId.Count -eq 1){ break }" in source
-    assert "if($exact.Count -eq 1){ break }" not in source
+    assert "function Test-CanonicalMenuBinding" in source
+    assert "$bindingStable = Test-CanonicalMenuBinding" in source
+    assert "if($bindingStable){ break }" in source
+    assert "menu_binding_stable = [bool]$bindingStable" in source
+    assert "if($exact.Count -eq 1 -and $anyId.Count -eq 1){ break }" not in source
     assert "$exact.Count -eq 1 -or $bars.Count -gt 0" not in source
+    assert "[long]$row['native_window_handle'] -ne $ExpectedMenuHandle" in source
+    assert "if(-not [bool]$row['enabled'])" in source
+    assert "if([bool]$row['offscreen'])" in source
 
 
 def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_errors() -> None:
@@ -168,11 +175,13 @@ def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_err
 
     missing = _uia_menu_handle_binding_checks({}, pid=1, menu_handle=7)
     assert missing["uia_handle_element_present"] is False
+    assert missing["uia_probe_binding_stable"] is False
     assert missing["uia_handle_native_handle_matches"] is False
     assert missing["uia_exact_row_binds_same_handle"] is False
 
     errored = _uia_menu_handle_binding_checks(
         {
+            "menu_binding_stable": True,
             "menu_from_handle": {
                 "automation_id": "AccessibleChessFullProductMenu",
                 "control_type": "ControlType.MenuBar",
