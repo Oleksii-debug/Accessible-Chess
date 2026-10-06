@@ -183,7 +183,11 @@ class W6Version2LanguageOwnerCurrentTests(unittest.TestCase):
                 mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
                 mock.patch.object(
                     release_app,
-                    "Version2ReleaseAccessibleChessAPI",
+                    (
+                        "Version2ProfileAccessibleChessAPI"
+                        if hasattr(release_app, "Version2ProfileAccessibleChessAPI")
+                        else "Version2ReleaseAccessibleChessAPI"
+                    ),
                     return_value=api,
                 ) as api_class,
                 mock.patch.object(release_app, "AcsDatabase", return_value=database),
