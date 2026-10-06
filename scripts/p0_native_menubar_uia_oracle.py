@@ -213,6 +213,7 @@ def _uia_menu_handle_binding_checks(
         "uia_handle_enabled": from_handle.get("enabled") is True,
         "uia_handle_onscreen": from_handle.get("offscreen") is False,
         "uia_handle_probe_clean": not bool(uia.get("menu_from_handle_error")),
+        "uia_probe_binding_stable": uia.get("menu_binding_stable") is True,
         "uia_automation_id_unique_in_process": (
             isinstance(any_id_rows, list) and len(any_id_rows) == 1
         ),
