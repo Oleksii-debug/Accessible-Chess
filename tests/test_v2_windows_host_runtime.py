@@ -55,6 +55,7 @@ class _OpenDialog:
 
 
 class _SaveDialog:
+    selected_paths: list[str] = []
     owners: list[object] = []
 
     def __init__(self) -> None:
@@ -62,6 +63,8 @@ class _SaveDialog:
 
     def ShowDialog(self, owner):  # noqa: N802
         type(self).owners.append(owner)
+        if type(self).selected_paths:
+            self.FileName = type(self).selected_paths.pop(0)
         return _DialogResult.OK
 
     def Dispose(self):  # noqa: N802
@@ -167,6 +170,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         _OpenDialog.selected_paths.clear()
         _OpenDialog.owners.clear()
+        _SaveDialog.selected_paths.clear()
         _SaveDialog.owners.clear()
 
     def _runtime(
@@ -813,6 +817,82 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 self.assertEqual(len(owner.posted), 1)
                 owner.posted.pop(0)()
 
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_pgn_save_as_terminal_retry_never_republishes_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "save-as-source.pgn"
+            destination = Path(directory) / "save-as-destination.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Save As terminal retry")
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.save_as", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_save(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertFalse(session.dirty)
+                self.assertIn(
+                    "Save As terminal retry",
+                    destination.read_text(encoding="utf-8"),
+                )
+                self.assertEqual(len(leased_batches), 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(
+                    first_batch[0].kind,
+                    FileWorkflowEventKind.PGN_SAVED_AS,
+                )
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                external = _PGN.replace("Runtime", "External newer destination")
+                destination.write_text(external, encoding="utf-8")
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), external)
             self.assertEqual(len(leased_batches), 2)
             self.assertEqual(
                 tuple(id(event) for event in leased_batches[1]),
