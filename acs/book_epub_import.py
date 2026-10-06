@@ -2195,7 +2195,9 @@ def import_epub_book(
                 rendition_manifest,
                 control_checkpoint,
             )
-            for rendition_item_id in rendition_spine:
+            for spine_index, rendition_item_id in enumerate(rendition_spine, start=1):
+                if control_checkpoint is not None and spine_index % 128 == 1:
+                    control_checkpoint()
                 _supported_manifest_item(
                     rendition_item_id,
                     rendition_manifest,
@@ -2210,10 +2212,11 @@ def import_epub_book(
             )
 
         opf_name, package, manifest, spine = renditions[0]
-        manifest_by_resource = {
-            item.entry_name: item
-            for item in manifest.values()
-        }
+        manifest_by_resource: dict[str, _ManifestItem] = {}
+        for manifest_index, item in enumerate(manifest.values(), start=1):
+            if control_checkpoint is not None and manifest_index % 128 == 1:
+                control_checkpoint()
+            manifest_by_resource[item.entry_name] = item
 
         metadata = _direct_child(package, "metadata")
         package_titles = _metadata_values(metadata, "title", control_checkpoint)
@@ -2277,11 +2280,17 @@ def import_epub_book(
                 control_checkpoint()
             chapter_titles.append(imported.document.title)
             pgn_games += imported.pgn_games
-            for warning in imported.warnings:
+            for warning_index, warning in enumerate(imported.warnings, start=1):
+                if control_checkpoint is not None and warning_index % 128 == 1:
+                    control_checkpoint()
                 warnings.add(f"spine {chapter_index}: {warning}")
             for block_index, block in enumerate(imported.document.blocks, start=1):
+                if control_checkpoint is not None and block_index % 128 == 1:
+                    control_checkpoint()
                 blocks.append(_rebase_block(block, item.entry_name, chapter_index, block_index))
-            for reference in imported.image_references:
+            for reference_index, reference in enumerate(imported.image_references, start=1):
+                if control_checkpoint is not None and reference_index % 128 == 1:
+                    control_checkpoint()
                 resolved = _resolved_asset(item.entry_name, reference)
                 if resolved is None:
                     warnings.add(f"spine {chapter_index}: an external or unsafe image reference was not resolved")
