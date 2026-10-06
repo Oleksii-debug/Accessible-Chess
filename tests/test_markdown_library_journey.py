@@ -77,6 +77,17 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
                 open_book_library_source(source)
 
 
+
+    def test_fence_opener_keeps_marker_specific_info_rules(self):
+        from acs.book_text_import import _match_fence_opener
+
+        self.assertEqual(
+            _match_fence_opener("~~~code`meta"),
+            ("~~~", "code`meta"),
+        )
+        self.assertIsNone(_match_fence_opener("```code`meta"))
+        self.assertIsNone(_match_fence_opener("    ~~~code"))
+
     def test_valid_tilde_fence_with_backtick_info_stays_code_not_semantic_markdown(self):
         source = (
             "~~~code`meta\n"
