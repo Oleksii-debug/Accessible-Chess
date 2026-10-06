@@ -212,9 +212,14 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         state["entitlement"] = semantic_contract(entitlement_view)
         displayed_fen = str(state["fen"])
         try:
-            self.analysis_ui.sync_position(displayed_fen)
-            if self.analysis_ui.enabled and not self.analysis_ui.target_locked:
-                self._analysis_origin_node_id = self._display_review().node_id
+            # Editable roots are allowed to be structurally incomplete while the
+            # user builds a position.  Never forward such a FEN to Stockfish;
+            # keep any existing target stale until an explicit reset path either
+            # reanchors a valid position or stops analysis.
+            if state["positionComplete"]:
+                self.analysis_ui.sync_position(displayed_fen)
+                if self.analysis_ui.enabled and not self.analysis_ui.target_locked:
+                    self._analysis_origin_node_id = self._display_review().node_id
             snapshot = self.analysis_ui.snapshot(displayed_fen)
             analysis = snapshot.as_dict()
             for projected, line in zip(analysis["lines"], snapshot.lines):
@@ -281,16 +286,27 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             else "Return from the temporary Stockfish variation first."
         )
 
-    def _reanchor_analysis_after_reset(self) -> None:
+    def _displayed_position_playable(self) -> bool:
+        try:
+            return self._position_playable(self._display_board())
+        except Exception:
+            return False
+
+    def _reanchor_analysis_after_reset(self) -> bool:
         if not self.analysis_ui.enabled:
             self._analysis_origin_node_id = self.review_history.cursor_node_id
-            return
+            return False
         displayed = self._display_review()
+        if not self._displayed_position_playable():
+            self.analysis_ui.disable()
+            self._analysis_origin_node_id = displayed.node_id
+            return True
         if self.analysis_ui.target_locked:
             self.analysis_ui.unlock_target(displayed.fen)
         else:
             self.analysis_ui.sync_position(displayed.fen)
         self._analysis_origin_node_id = displayed.node_id
+        return False
 
     def _canonical_reset_result(self, operation: Any) -> dict[str, Any]:
         blocked = self._temporary_exploration_error()
@@ -300,13 +316,20 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         if not result.get("ok"):
             return result
         message = str(result.get("announcement") or "")
+        stopped_for_invalid_position = False
         try:
-            self._reanchor_analysis_after_reset()
+            stopped_for_invalid_position = self._reanchor_analysis_after_reset()
         except Exception:
             try:
                 self.analysis_ui.disable()
             except Exception:
                 pass
+        if stopped_for_invalid_position:
+            message += (
+                " Аналіз Stockfish зупинено, доки позиція не стане коректною."
+                if self.lang == "uk"
+                else " Stockfish analysis stopped until the position is valid."
+            )
         return self._ok(message)
 
     def new_game(self) -> dict[str, Any]:
@@ -325,8 +348,11 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         return self._canonical_reset_result(lambda: super(KeymapAwareAccessibleChessAPI, self).set_fen(fen))
 
     def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return blocked if blocked is not None else super().edit_position_piece(square, piece)
+        return self._canonical_reset_result(
+            lambda: super(KeymapAwareAccessibleChessAPI, self).edit_position_piece(
+                square, piece
+            )
+        )
 
     def edit_position_metadata(
         self,
@@ -336,11 +362,8 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         halfmove_text: str,
         fullmove_text: str,
     ) -> dict[str, Any]:
-        blocked = self._temporary_exploration_error()
-        return (
-            blocked
-            if blocked is not None
-            else super().edit_position_metadata(
+        return self._canonical_reset_result(
+            lambda: super(KeymapAwareAccessibleChessAPI, self).edit_position_metadata(
                 turn, castling, en_passant, halfmove_text, fullmove_text
             )
         )
@@ -378,6 +401,12 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def start_analysis(self) -> dict[str, Any]:
         displayed = self._display_review()
+        if not self._displayed_position_playable():
+            return self._error(
+                "Спочатку зробіть позицію коректною для гри."
+                if self.lang == "uk"
+                else "Make the position valid for play before starting Stockfish analysis."
+            )
         try:
             if not self.analysis_ui.enabled:
                 self.analysis_ui.enable(displayed.fen)
@@ -408,6 +437,12 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
     def restart_analysis(self) -> dict[str, Any]:
         try:
             displayed = self._display_review()
+            if not self.analysis_ui.target_locked and not self._displayed_position_playable():
+                return self._error(
+                    "Спочатку зробіть позицію коректною для гри."
+                    if self.lang == "uk"
+                    else "Make the position valid for play before restarting Stockfish analysis."
+                )
             self.analysis_ui.restart(displayed.fen)
             if not self.analysis_ui.target_locked:
                 self._analysis_origin_node_id = displayed.node_id
@@ -440,6 +475,12 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def toggle_analysis_lock(self) -> dict[str, Any]:
         displayed = self._display_review()
+        if not self._displayed_position_playable():
+            return self._error(
+                "Поточна позиція некоректна для аналізу."
+                if self.lang == "uk"
+                else "The current position is not valid for analysis."
+            )
         try:
             if self.analysis_ui.target_locked:
                 self.analysis_ui.unlock_target(displayed.fen)
