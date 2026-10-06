@@ -1,9 +1,9 @@
-name: Books Navigation Abort Rollback
+name: Books Return Invalidation Atomicity
 
 on:
   push:
     branches:
-      - fix/books-navigation-abort-rollback-20261006-c2mbezb
+      - fix/books-return-reader-rollback-20261006-ooxple7
   pull_request:
     branches:
       - converge/current-books-persistence-apex-20261006-zftrkmo
@@ -13,11 +13,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: books-navigation-abort-rollback-${{ github.head_ref || github.ref_name }}
+  group: books-return-invalidation-atomicity-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  navigation-abort-rollback:
+  return-invalidation-atomicity:
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 35
     env:
       BASE_BRANCH: converge/current-books-persistence-apex-20261006-zftrkmo
-      BASE_SHA: df42b54bbffa40731d17ea3242eb49c7d379412d
+      BASE_SHA: b0cb38cad9630cc92dcb848e6bcaf2abfd2ba474
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -70,9 +70,6 @@ jobs:
           expected=(
             ".github/workflows/books-navigation-abort-rollback.yml"
             "acs/book_board_workflow.py"
-            "acs/bookreader.py"
-            "tests/test_bookreader_revision_barriers_current.py"
-            "tests/test_dev1_books_training_webview_bridge.py"
             "tests/test_v2_book_board_workflow.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
@@ -80,32 +77,26 @@ jobs:
             test "${paths[$i]}" = "${expected[$i]}"
           done
 
-      - name: Compile Books navigation boundary
+      - name: Compile Books return boundary
         run: >-
           python -m py_compile
           acs/book_board_workflow.py
-          acs/bookreader.py
-          tests/test_bookreader_revision_barriers_current.py
-          tests/test_dev1_books_training_webview_bridge.py
           tests/test_v2_book_board_workflow.py
 
-      - name: Execute Books semantic and browser regressions
+      - name: Execute Book Board and route regressions
         run: >-
           python -m unittest -v
-          tests.test_bookreader
-          tests.test_bookreader_revision_barriers_current
           tests.test_v2_book_board_workflow
+          tests.test_book_board_route_ownership
+          tests.test_version2_application
           tests.test_dev1_books_training_webview_bridge
-          tests.test_dev1_books_training_webview_projection
-          tests.test_version2_book_workspace
           tests.test_book_engine_authority_passive_ingress
 
-      - name: Pytest focused navigation rollback
+      - name: Pytest focused Return rollback
         run: >-
           pytest -q
-          tests/test_bookreader_revision_barriers_current.py
-          tests/test_dev1_books_training_webview_bridge.py
-          tests/test_dev1_books_training_webview_projection.py
+          tests/test_v2_book_board_workflow.py
+          tests/test_book_board_route_ownership.py
 
       - name: Core selftest
         run: python -m acs.selftest
