@@ -2178,16 +2178,27 @@ class Version2WindowsFileActionDelegate:
 
     def _emit_if_current(self, generation: int, event: FileWorkflowEvent) -> None:
         with self._lock:
-            current = (
+            owned = (
                 generation == self._generation
                 and self._worker_kind == "import"
-                and not self._shutdown_requested
             )
-            terminal = current and event.kind in self._IMPORT_TERMINAL_KINDS
-            if terminal:
+            shutting_down = owned and self._shutdown_requested
+            current = owned and not self._shutdown_requested
+            terminal = owned and event.kind in self._IMPORT_TERMINAL_KINDS
+            if current and terminal:
                 self._terminal_pending = (generation, event)
                 self._cancel_event = None
         if not current:
+            if shutting_down and terminal:
+                # A cooperative import can reach its truthful terminal while
+                # shutdown() is joining it. Production keeps the UI mailbox
+                # alive until that join completes, and pump.close() deliberately
+                # preserves queued events. Retain this terminal there so a later
+                # refused Form close can reopen the runtime and announce the
+                # cancellation/failure instead of leaving keyboard/NVDA state
+                # stranded at the pre-shutdown progress event. Successful process
+                # exit simply leaves the retained event behind in the closed pump.
+                self._emit(event)
             return
         try:
             self._emit(event)
