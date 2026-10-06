@@ -1,0 +1,62 @@
+name: Current HTML Inert Semantics
+
+on:
+  pull_request:
+    branches:
+      - fix/book-html-available-assets-bounds-20261006-ooxple7108
+    paths:
+      - '.github/workflows/current-html-inert-semantics.yml'
+      - 'acs/book_html_import.py'
+      - 'tests/test_v2_book_html_import.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-html-inert-semantics-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: bfc10b19cd2dd64e57b94cf18a35dc2d16fcd74b
+  HTML_TEST_BLOB: 976af7c8766931d12efe4ec5f473593d061727d0
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove bounded geometry and exact blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-html-inert-semantics.yml' \
+            'acs/book_html_import.py' \
+            'tests/test_v2_book_html_import.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$HTML_TEST_BLOB"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile changed Python
+        run: python -m py_compile acs/book_html_import.py tests/test_v2_book_html_import.py
+      - name: Run HTML import regressions
+        run: python -m unittest tests.test_v2_book_html_import

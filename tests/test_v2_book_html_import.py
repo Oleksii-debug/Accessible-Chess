@@ -1704,5 +1704,85 @@ one; display:block">
         )
 
 
+    def test_inert_subtree_cannot_publish_accessible_or_chess_semantics(self) -> None:
+        source = f"""<html><body>
+<h1>Visible before</h1>
+<section inert>
+  <p>Inert reading text</p>
+  <div data-acs-fen="{Board.START}">Inert position</div>
+  <img src="images/inert.png" alt="Inert image" data-acs-fen="{Board.START}">
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible after</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="inert-subtree.html",
+            available_assets={"images/inert.png"},
+        )
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible before", rendered)
+        self.assertIn("Visible after", rendered)
+        self.assertNotIn("Inert reading text", rendered)
+
+    def test_inert_boolean_attribute_value_false_is_still_inert(self) -> None:
+        source = f"""<html><body>
+<section inert="false">
+  <div data-acs-fen="{Board.START}">Must remain inaccessible</div>
+  <p>Must remain inaccessible prose</p>
+</section>
+<p>Accessible tail</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="inert-false-is-present.html",
+        )
+
+        self.assertFalse(
+            any(isinstance(block, Position) for block in result.document.blocks)
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertEqual(rendered.strip(), "Accessible tail")
+
+    def test_inert_void_element_does_not_hide_following_content(self) -> None:
+        source = f"""<html><body>
+<img inert src="images/inert.png" alt="Inert image" data-acs-fen="{Board.START}">
+<p>Visible after inert image</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="inert-void.html",
+            available_assets={"images/inert.png"},
+        )
+
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible after inert image"
+                for block in result.document.blocks
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
