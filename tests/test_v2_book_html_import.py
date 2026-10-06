@@ -795,7 +795,7 @@ class BookHtmlImportTests(unittest.TestCase):
 <section style="content-visibility:hidden">
   <p>Hidden accessible text</p>
   <div data-acs-fen="{Board.START}">Hidden position</div>
-  <pre>{PGN 1}
+  <pre>{{PGN 1}}
 {PGN}</pre>
   <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
   <div style="content-visibility:visible">Descendant cannot restore subtree</div>
