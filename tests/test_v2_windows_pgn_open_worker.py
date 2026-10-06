@@ -673,19 +673,56 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
                 self.assertTrue(controller.wait_for_pgn_open(2.0))
 
-                cancelling = controller("pgn.cancel_open", {})
-                self.assertEqual(
-                    cancelling.kind,
+                terminal = controller("pgn.cancel_open", {})
+                self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(terminal.error_code, "pgn_open_failed")
+                self.assertNotIn(
                     FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                    [event.kind for event in events],
                 )
+                event_count = len(events)
                 poster.drain()
+                self.assertEqual(len(events), event_count)
 
             self.assertIs(session_box["value"], previous)
             self.assertEqual(publications, [])
-            terminal = events[-1]
-            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
-            self.assertEqual(terminal.error_code, "pgn_open_failed")
+            self.assertEqual(events[-1], terminal)
             self.assertFalse(controller.pgn_open_running)
+
+    def test_late_cancel_after_worker_success_resolves_before_owner_drain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "late-cancel-after-success.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous-late-success-cancel.pgn"
+            previous_path.write_text(
+                PGN_TEXT.replace("Async open", "Previous"),
+                encoding="utf-8",
+            )
+            previous = PgnDocumentSession.open(previous_path)
+            controller, _, poster, events, session_box, publications = self._controller(
+                source, previous=previous
+            )
+
+            started = controller("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(controller.wait_for_pgn_open(2.0))
+            self.assertTrue(poster.callbacks)
+
+            terminal = controller("pgn.cancel_open", {})
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
+            self.assertEqual(terminal.action_id, "pgn.open")
+            self.assertNotIn(
+                FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                [event.kind for event in events],
+            )
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(publications, [])
+            self.assertFalse(controller.pgn_open_running)
+
+            event_count = len(events)
+            poster.drain()
+            self.assertEqual(len(events), event_count)
+            self.assertIs(session_box["value"], previous)
 
     def test_import_cannot_overlap_pgn_open_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
