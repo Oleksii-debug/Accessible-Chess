@@ -536,6 +536,7 @@ function snapshot(checked) {
   );
   const operationCheckbox =
     operationRoot.querySelector("#library-game-0123456789abcdefabcd-export");
+  const oldImportRegion = operationRoot.querySelector("#library-import-region");
   const oldImportButton = operationRoot.querySelector("#library-import-file");
   operationCheckbox.checked = true;
   operationCheckbox.listeners.change({});
@@ -559,8 +560,13 @@ function snapshot(checked) {
       announcement: ""
     }
   }, operationInvoke, announce);
-  check(oldImportButton.parentNode === null,
-    "partial operation update did not detach the old Import region");
+  check(
+    oldImportRegion &&
+      oldImportRegion.parentNode === null &&
+      oldImportButton.parentNode === oldImportRegion &&
+      operationRoot.querySelector("#library-import-file") !== oldImportButton,
+    "partial operation update did not replace the old Import region"
+  );
   operationDeferred[0](null);
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
