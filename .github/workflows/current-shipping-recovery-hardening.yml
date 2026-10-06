@@ -51,7 +51,8 @@ env:
   PORTABLE_PACKAGE_BLOB: a474d9698f0e702e206428cb7ec0b206b641ea0d
   PORTABLE_PACKAGE_TEST_BLOB: 2f375d8cdf9df70fcdd404fe346a95ed509aca1f
   RELEASE_RECEIPT_BLOB: 00bb1fff72d83b7c27e2f2063a4f974a0b36ada0
-  RELEASE_RECEIPT_TEST_BLOB: fdcff572870271b6c1d18cbed5a2620b9aa74226
+  RELEASE_RECEIPT_TEST_BLOB: fa48ff395340799ef66e43a8103dc65213bfcf12
+  W5_RELEASE_RECEIPT_WORKFLOW_BLOB: 48f1627ac5a018bf0153ab9c40ed7cf9e4c30f45
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
   V2_RELEASE_BOOTSTRAP_BLOB: fd3ceb1185bf07f996427f0967feedc599eec120
   V2_RELEASE_DOM_TEST_BLOB: 3b61778122cb97a6f0cca8febbb3ccc801c0275b
@@ -170,6 +171,7 @@ jobs:
             ".github/workflows/p0-user-oneclick-portable-launcher.yml"
             ".github/workflows/portable-launch-report-reparse-safety.yml"
             ".github/workflows/sound-scaled-cache-integrity.yml"
+            ".github/workflows/w5-release-receipt-contract.yml"
             ".github/workflows/w6-v2-package-assembler.yml"
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
@@ -319,6 +321,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_owner_portable_candidate.py)" = "$OWNER_PORTABLE_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$RELEASE_RECEIPT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$RELEASE_RECEIPT_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/w5-release-receipt-contract.yml)" = "$W5_RELEASE_RECEIPT_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
           test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$V2_RELEASE_BOOTSTRAP_BLOB"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
