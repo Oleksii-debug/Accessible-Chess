@@ -673,5 +673,45 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         self.assertEqual(mailbox.pending_count, 0)
 
 
+    def test_refused_shutdown_reopens_pump_and_delivers_retained_terminal(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        delivered = []
+        pump = Version2ImportUiWakeupPump(
+            mailbox,
+            _QueuedPoster(),
+            lambda: delivered.extend(mailbox.drain()),
+        )
+        terminal = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            "library.import",
+            focus_target="library-import-file",
+            processed_games=1,
+            total_games=1,
+            game_count=1,
+        )
+
+        pump(terminal)
+        self.assertEqual(mailbox.pending_count, 1)
+        pump.close()
+        self.assertTrue(pump.closed)
+
+        self.assertTrue(pump.resume_after_refused_shutdown())
+
+        self.assertFalse(pump.closed)
+        self.assertEqual(delivered, [terminal])
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_refused_shutdown_recovery_is_ui_thread_affine(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        pump = Version2ImportUiWakeupPump(mailbox, _QueuedPoster(), lambda: None)
+        pump.close()
+        errors = _run_thread(pump.resume_after_refused_shutdown)
+
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertIn("UI thread", str(errors[0]))
+        self.assertTrue(pump.closed)
+
+
 if __name__ == "__main__":
     unittest.main()
