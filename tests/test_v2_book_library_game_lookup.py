@@ -282,6 +282,8 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                 "acs.book_library_game_lookup.MAX_PGN_TEXT_CHARS",
                 4,
             ), mock.patch(
+                "acs.book_library_game_lookup.json.loads",
+            ) as warning_decoder, mock.patch(
                 "acs.book_library_game_lookup.parse_pgn_text",
             ) as parser:
                 with self.assertRaises(BookLibraryGameLookupError) as caught:
@@ -289,6 +291,7 @@ class BookLibraryGameLookupTests(unittest.TestCase):
 
             self.assertEqual(str(caught.exception), "stored book game is not canonical")
             self.assertIsNone(caught.exception.__cause__)
+            warning_decoder.assert_not_called()
             parser.assert_not_called()
 
     def test_corrupt_stored_pgn_parser_failure_has_no_internal_cause(self) -> None:
