@@ -68,3 +68,13 @@ jobs:
 
       - name: V2 HTML importer regression
         run: python -m unittest tests.test_v2_book_html_import
+
+      - name: Re-run converged FEN and analysis accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+
+      - name: Core selftest
+        run: python -m acs.selftest
