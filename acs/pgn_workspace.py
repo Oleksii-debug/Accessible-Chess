@@ -335,6 +335,22 @@ class PgnWorkspace:
         self._cursor = GameTreeCursor()
         return self.view()
 
+    def select_game_cursor(self, index: object, cursor: GameTreeCursor) -> PgnWorkspaceView:
+        """Select one game and one validated cursor atomically without editing PGN."""
+        game_index = self._require_game_index(index)
+        if not isinstance(cursor, GameTreeCursor):
+            raise TypeError("PGN search cursor must be GameTreeCursor")
+        try:
+            validated_cursor = validate_cursor(self._games[game_index], cursor)
+        except (TypeError, GameTreeNavigationError) as exc:
+            raise _workspace_error(
+                "cursor is not valid in the selected game",
+                PgnWorkspaceErrorCode.CURSOR,
+            ) from exc
+        self._selected_game_index = game_index
+        self._cursor = validated_cursor
+        return self.view()
+
     def next_game(self) -> PgnWorkspaceView:
         if self._selected_game_index + 1 >= len(self._games):
             raise _workspace_error(
