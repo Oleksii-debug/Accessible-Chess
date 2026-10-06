@@ -470,6 +470,45 @@ class PortableTreeTests(unittest.TestCase):
                     portable_module._same_file_snapshot(first, second),
                 )
 
+    def test_publication_snapshot_ignores_namespace_ctime_but_requires_mtime(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+
+        self.assertTrue(
+            portable_module._same_publication_snapshot(first, ctime_drift),
+        )
+        self.assertFalse(
+            portable_module._same_publication_snapshot(first, mtime_drift),
+        )
+        self.assertFalse(
+            portable_module._same_publication_snapshot(first, missing_mtime),
+        )
+
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(
             lambda path: portable_module._stable_bytes(
@@ -1408,6 +1447,14 @@ class PortableTreeTests(unittest.TestCase):
                         handle.write(b"X" if first != b"X" else b"Y")
                         handle.flush()
                         os.fsync(handle.fileno())
+                    current = target.stat()
+                    os.utime(
+                        target,
+                        ns=(
+                            current.st_atime_ns,
+                            current.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
                     injected = True
 
             with mock.patch.object(
@@ -1417,7 +1464,7 @@ class PortableTreeTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2PortablePackageError,
-                    "published portable ZIP bytes differ from the verified archive",
+                    "portable ZIP publication is not the verified archive snapshot",
                 ):
                     write_portable_oneclick_zip(
                         root,
@@ -1454,7 +1501,7 @@ class PortableTreeTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(
                     Version2PortablePackageError,
-                    "not the verified archive inode",
+                    "not the verified archive snapshot",
                 ):
                     write_portable_oneclick_zip(
                         root,
@@ -1466,6 +1513,56 @@ class PortableTreeTests(unittest.TestCase):
             # The raced-in foreign inode is deliberately preserved; cleanup is
             # allowed to remove only the exact inode published by this writer.
             self.assertTrue(target.exists())
+
+    def test_zip_publication_rejects_mutation_after_durability_before_final_digest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_sync = portable_module._sync_published_zip_namespace
+            injected = False
+
+            def sync_then_mutate(path, *, expected):
+                nonlocal injected
+                snapshot = real_sync(path, expected=expected)
+                if not injected:
+                    candidate = Path(path)
+                    with candidate.open("r+b") as handle:
+                        first = handle.read(1)
+                        handle.seek(0)
+                        handle.write(b"X" if first != b"X" else b"Y")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    current = candidate.stat()
+                    os.utime(
+                        candidate,
+                        ns=(
+                            current.st_atime_ns,
+                            current.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                    injected = True
+                return snapshot
+
+            with mock.patch.object(
+                portable_module,
+                "_sync_published_zip_namespace",
+                side_effect=sync_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "published portable ZIP bytes differ from the verified archive",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
 
     def test_zip_publication_uses_durability_barrier_before_return(self):
         with tempfile.TemporaryDirectory() as raw:
