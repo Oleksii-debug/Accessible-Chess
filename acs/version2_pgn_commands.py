@@ -293,6 +293,14 @@ class Version2PgnCommands:
                     allow_root=True,
                 )
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
+        if action_id == "pgn.append_moves":
+            if set(payload) not in ({*_TARGET_FIELDS, "text"}, {*_TARGET_FIELDS, "expected_content_digest", "text"}):
+                raise ValueError("invalid PGN continuation payload")
+            _request, _cursor = self._target(payload, require_current=True, workspace=workspace)
+            text = payload.get("text", "")
+            origin_fen = self.current_fen()
+            fragment = self._variation_from_text(text, origin_fen=origin_fen)
+            return workspace.append_moves(fragment)
         if action_id == "pgn.search":
             if set(payload) not in ({* _TARGET_FIELDS, "text"}, {* _TARGET_FIELDS, "expected_content_digest", "text"}):
                 raise ValueError("invalid PGN search payload")
