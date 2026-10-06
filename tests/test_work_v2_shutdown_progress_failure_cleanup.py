@@ -229,9 +229,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
-    def test_progress_save_failure_does_not_skip_database_close(self) -> None:
-        """Shutdown must release ACSDB even when durable Book progress fails."""
-
+    def test_progress_save_failure_keeps_database_open_for_close_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = AcsDatabase(root / "library.acsdb")
@@ -246,15 +244,12 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "synthetic progress publication failure"):
                     application.shutdown()
 
-                with self.assertRaises(sqlite3.ProgrammingError):
-                    database.conn.execute("SELECT 1")
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
             finally:
-                # Idempotent if Product already did the required cleanup; needed
-                # only to keep an expected-RED baseline from leaking a test DB.
                 database.close()
                 analysis.close()
 
-    def test_training_progress_failure_still_attempts_book_progress_and_database_close(self) -> None:
+    def test_training_progress_failure_still_attempts_book_progress_and_keeps_database_open(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = AcsDatabase(root / "library.acsdb")
@@ -290,19 +285,17 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
 
                 self.assertIs(caught.exception, primary)
                 self.assertEqual(calls, ["training", "book"])
-                with self.assertRaises(sqlite3.ProgrammingError):
-                    database.conn.execute("SELECT 1")
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
             finally:
                 database.close()
                 analysis.close()
 
-    def test_training_progress_failure_remains_primary_when_database_close_aborts(self) -> None:
+    def test_progress_failure_skips_database_close_even_if_close_would_abort(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = AcsDatabase(root / "library.acsdb")
             analysis = AnalysisService(lambda: None)
             primary = OSError("PRIMARY_TRAINING_PROGRESS")
-            close_failure = RuntimeError("SECONDARY_DATABASE_CLOSE")
             try:
                 application = self._application(
                     database,
@@ -320,38 +313,49 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 ), mock.patch.object(
                     database,
                     "close",
-                    side_effect=close_failure,
+                    side_effect=RuntimeError("SHOULD_NOT_CLOSE"),
                 ) as close:
                     with self.assertRaises(OSError) as caught:
                         application.shutdown()
 
                 self.assertIs(caught.exception, primary)
-                close.assert_called_once_with()
+                close.assert_not_called()
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
             finally:
                 database.close()
                 analysis.close()
 
-    def test_database_close_failure_does_not_replace_progress_failure(self) -> None:
-        """The first cleanup failure remains primary while later cleanup is attempted."""
-
+    def test_database_close_failure_propagates_after_progress_succeeds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = AcsDatabase(root / "library.acsdb")
             analysis = AnalysisService(lambda: None)
-            progress_failure = OSError("PRIMARY_PROGRESS_PUBLICATION")
-            database_failure = RuntimeError("SECONDARY_DATABASE_CLOSE")
+            database_failure = RuntimeError("DATABASE_CLOSE_FAILED")
             try:
                 application = self._application(
                     database,
                     analysis,
-                    _FailingProgressStore(root / "book-progress.json", progress_failure),
+                    _FailingProgressStore(root / "book-progress.json"),
                 )
-                with mock.patch.object(database, "close", side_effect=database_failure) as close:
-                    with self.assertRaises(OSError) as caught:
+                with mock.patch.object(
+                    application,
+                    "save_training_progress",
+                    return_value=None,
+                ), mock.patch.object(
+                    application,
+                    "save_book_progress",
+                    return_value=None,
+                ), mock.patch.object(
+                    database,
+                    "close",
+                    side_effect=database_failure,
+                ) as close:
+                    with self.assertRaises(RuntimeError) as caught:
                         application.shutdown()
 
-                self.assertIs(caught.exception, progress_failure)
+                self.assertIs(caught.exception, database_failure)
                 close.assert_called_once_with()
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
             finally:
                 database.close()
                 analysis.close()
