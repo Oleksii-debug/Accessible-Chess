@@ -289,6 +289,55 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         self.assertEqual(delivered, ["done"])
         self.assertFalse(pump.owner_callback_pending)
 
+    def test_owner_callback_execution_failure_remains_retryable(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
+        calls: list[str] = []
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: None)
+
+        class CallbackAbort(BaseException):
+            pass
+
+        def flaky_callback() -> None:
+            calls.append("call")
+            if len(calls) == 1:
+                raise CallbackAbort()
+
+        pump.post_owner_callback(flaky_callback)
+        self.assertTrue(pump.owner_callback_pending)
+        callback = poster.callbacks.pop(0)
+
+        with self.assertRaises(CallbackAbort):
+            callback()
+
+        self.assertEqual(calls, ["call"])
+        self.assertTrue(pump.owner_callback_pending)
+        self.assertFalse(pump._owner_callback_active)
+
+        self.assertTrue(pump.request_pending_owner_callback())
+
+        self.assertEqual(calls, ["call", "call"])
+        self.assertFalse(pump.owner_callback_pending)
+        self.assertFalse(pump._owner_callback_active)
+
+    def test_owner_callback_reentrant_recovery_does_not_recurse(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        poster = _QueuedPoster()
+        states: list[object] = []
+        pump = Version2ImportUiWakeupPump(mailbox, poster, lambda: None)
+
+        def reentrant_callback() -> None:
+            states.append(pump.owner_callback_pending)
+            states.append(pump.request_pending_owner_callback())
+            states.append(pump.owner_callback_pending)
+
+        pump.post_owner_callback(reentrant_callback)
+        poster.callbacks.pop(0)()
+
+        self.assertEqual(states, [True, True, True])
+        self.assertFalse(pump.owner_callback_pending)
+        self.assertFalse(pump._owner_callback_active)
+
     def test_close_cancels_scheduled_owner_callback_retry(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
         poster = _CountedFailurePoster(1)
