@@ -849,6 +849,11 @@ def _measure_line(
                 "PGN model exceeds the node safety limit",
                 PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
             )
+        if type(node.san) is not str:
+            raise PgnRoundTripError(
+                "PGN model contains invalid SAN text",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
         _validate_san(node.san)
         _claim_model_chars(budget, len(node.san) + 32)
         _claim_model_tokens(token_count)
