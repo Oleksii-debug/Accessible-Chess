@@ -439,10 +439,9 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertFalse(runtime.pgn_open_running)
             self.assertIsNone(session_box["value"])
-            self.assertEqual(
-                [event.kind for event in imported_events],
-                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
-            )
+            # This terminal is returned synchronously to the application
+            # dispatcher; it must not also traverse the owner-async mailbox.
+            self.assertEqual(imported_events, [])
 
             # The retained callback is now stale. Recovering it on a later
             # unrelated action must not publish the cancelled document.
@@ -452,10 +451,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 fallback_calls, [("analysis.restart", {"source": "board"})]
             )
             self.assertIsNone(session_box["value"])
-            self.assertEqual(
-                [event.kind for event in imported_events],
-                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
-            )
+            self.assertEqual(imported_events, [])
             self.assertTrue(runtime.shutdown())
 
     def test_cancel_save_resolves_fixed_pending_result_before_callback_recovery(self) -> None:
@@ -493,10 +489,9 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
             self.assertFalse(runtime.pgn_save_running)
             self.assertFalse(session.dirty)
-            self.assertEqual(
-                [event.kind for event in imported_events],
-                [FileWorkflowEventKind.PGN_SAVED],
-            )
+            # The fixed save result is returned by this Cancel command and is
+            # caller-owned; owner-async delivery would double-announce it.
+            self.assertEqual(imported_events, [])
             self.assertTrue(runtime.shutdown())
 
     def test_mismatched_cancel_still_recovers_retained_owner_result(self) -> None:
