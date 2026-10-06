@@ -258,8 +258,14 @@
     return false;
   }
 
+  const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+
+  function validFocusId(value) {
+    return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
+
   function focusById(id) {
-    if (!id) return false;
+    if (!validFocusId(id)) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
@@ -486,7 +492,24 @@
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
-    return actionId === "library.import" || actionId === "library.cancel_import";
+    return actionId === "library.import" || actionId === "library.cancel_import" ||
+      actionId === "library.export";
+  }
+
+  function restoreQueuedNativeFocus(id) {
+    if (!validFocusId(id)) return false;
+    const target = documentRef.getElementById(id);
+    if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
+    if (documentRef.activeElement === target) return true;
+    const active = documentRef.activeElement;
+    if (
+      active &&
+      (workspace.contains(active) || nav.contains(active)) &&
+      !hiddenByAncestor(active)
+    ) {
+      return true;
+    }
+    return focusById(id);
   }
 
   function refreshStage1Surface() {
@@ -525,45 +548,71 @@
       const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
       if (delegatedHasOwnPresentationEvent(actionId)) return false;
       if (actionId && !isVersion2DomainAction(actionId)) {
-        refreshStage1Surface();
+        orderedStage1Refreshes.push(refreshStage1Surface);
         return false;
       }
     }
     if (event.kind === "book-board") {
-      orderedStage1Refreshes.push(refreshStage1Surface());
+      orderedStage1Refreshes.push(refreshStage1Surface);
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
     return event.kind !== "error" && event.kind !== "status";
   }
 
+  let eventDrainInFlight = false;
+  let eventDrainPending = false;
+
+  function finishEventDrain() {
+    eventDrainInFlight = false;
+    if (!eventDrainPending) return;
+    eventDrainPending = false;
+    drainEvents();
+  }
+
   function drainEvents() {
+    if (eventDrainInFlight) {
+      eventDrainPending = true;
+      return;
+    }
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
-    bridge.v2_drain_events().then(function (events) {
+    eventDrainInFlight = true;
+    eventDrainPending = false;
+    let drained;
+    try {
+      drained = bridge.v2_drain_events();
+    } catch (_) {
+      finishEventDrain();
+      return;
+    }
+    Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length) return;
       let needsRefresh = false;
-      let queuedFocusTarget = "";
+      let queuedTerminalFocus = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
         const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
-        if (candidate) queuedFocusTarget = candidate;
+        if (
+          (event.kind === "status" || event.kind === "error") &&
+          validFocusId(payload.focus_target)
+        ) {
+          queuedTerminalFocus = payload.focus_target;
+        }
+        const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
+        if (refreshRequired) needsRefresh = true;
       });
-      if (needsRefresh) {
-        const repaintBarrier = orderedStage1Refreshes.length
-          ? Promise.all(orderedStage1Refreshes)
-          : Promise.resolve();
-        repaintBarrier.then(function () {
-          return refresh(true);
-        }).then(function () {
-          if (queuedFocusTarget) focusById(queuedFocusTarget);
-        }, function () {});
+      if (!needsRefresh && !orderedStage1Refreshes.length) {
+        if (queuedTerminalFocus) restoreQueuedNativeFocus(queuedTerminalFocus);
+        return;
       }
-    }, function () {});
+      const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
+        return chain.then(function () { return refreshStage1(); });
+      }, Promise.resolve());
+      return repaintBarrier.then(function () {
+        return needsRefresh ? refresh(true) : undefined;
+      });
+    }).then(finishEventDrain, finishEventDrain);
   }
 
   documentRef.addEventListener("focusin", function (event) {
