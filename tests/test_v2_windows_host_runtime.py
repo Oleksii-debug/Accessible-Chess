@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from acs.pgn_document import PgnDocumentSession
 from acs.library_import_service import (
@@ -952,6 +953,46 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("UI thread", str(errors[0]))
         self.assertFalse(runtime.closed)
         self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+
+    def test_failed_pump_recovery_keeps_runtime_closed(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        with mock.patch.object(
+            runtime._pump,
+            "resume_after_refused_shutdown",
+            return_value=False,
+        ):
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+
+        self.assertTrue(runtime.closed)
+        with self.assertRaisesRegex(RuntimeError, "runtime is closed"):
+            runtime("analysis.restart", {})
+
+    def test_refused_shutdown_recovery_is_ui_thread_affine(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                runtime.resume_after_refused_shutdown()
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=worker, name="runtime-recovery-wrong-thread")
+        thread.start()
+        thread.join(5.0)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertIn("UI thread", str(errors[0]))
         self.assertTrue(runtime.closed)
 
 
