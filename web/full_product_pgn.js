@@ -15,6 +15,7 @@
   const ACTIONS = [
     "pgn.previous_game",
     "pgn.next_game",
+    "pgn.search",
     "pgn.parent",
     "pgn.comment_edit",
     "pgn.comment_delete",
@@ -766,6 +767,7 @@
     save.addEventListener("click", function () {
       if (pending) return;
       const value = textarea.value;
+      if (spec.command === "pgn.search") root._pgnLastSearch = value;
       if (spec.requireNonEmpty && !value.trim()) {
         announce(spec.emptyMessage);
         textarea.focus({ preventScroll: true });
@@ -816,7 +818,7 @@
     };
   }
 
-  function renderActions(root, host, snapshot, invoke, announce, commentDialog, nagDialog, variationDialog) {
+  function renderActions(root, host, snapshot, invoke, announce, searchDialog, commentDialog, nagDialog, variationDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-orientation", "horizontal");
@@ -836,6 +838,10 @@
       });
       button.addEventListener("click", function () {
         if (button.disabled) return;
+        if (action.action === "pgn.search") {
+          searchDialog.open(button);
+          return;
+        }
         if (action.action === "pgn.comment_edit") {
           commentDialog.open(button);
           return;
@@ -981,6 +987,18 @@
     );
     const selected = snapshot.tree.find(function (item) { return item.selected; });
     const en = snapshot.document.lang === "en";
+    const searchDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-search-dialog",
+      title: en ? "Search PGN" : "Пошук у PGN",
+      label: en ? "Search tags, moves, comments and NAGs" : "Пошук у тегах, ходах, коментарях і NAG",
+      saveLabel: en ? "Find next" : "Знайти далі",
+      cancelLabel: en ? "Close" : "Закрити",
+      command: "pgn.search",
+      maxLength: 4096,
+      requireNonEmpty: true,
+      emptyMessage: en ? "Enter search text." : "Введіть текст для пошуку.",
+      initialValue: function () { return root._pgnLastSearch || ""; }
+    });
     const nagDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
       id: "pgn-nag-dialog",
       title: en ? "NAG annotations" : "Анотації NAG",
@@ -1007,7 +1025,8 @@
       emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
       initialValue: function () { return ""; }
     });
-    renderActions(root, main, snapshot, invoke, announce, commentDialog, nagDialog, variationDialog);
+    renderActions(root, main, snapshot, invoke, announce, searchDialog, commentDialog, nagDialog, variationDialog);
+    main.appendChild(searchDialog.dialog);
     main.appendChild(commentDialog.dialog);
     main.appendChild(nagDialog.dialog);
     main.appendChild(variationDialog.dialog);
