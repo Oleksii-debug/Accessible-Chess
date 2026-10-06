@@ -227,6 +227,12 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 return False
+        # UI delivery is an owner boundary and may re-enter a bounded native
+        # shutdown that cannot close this outer runtime while a worker drains.
+        # In that case the delegate is fenced even though _closed is still False.
+        # Do not report wakeup recovery while file actions are no longer live.
+        if self._file_delegate.shutdown_requested:
+            return False
         return owner_recovered or mailbox_recovered
 
     def resume_after_refused_shutdown(self) -> bool:
@@ -284,6 +290,11 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 return False
+        # A synchronous UI-ready callback can re-enter bounded shutdown. When
+        # that retry times out, the outer runtime remains open but the delegate
+        # has been fenced again. Treat that state as not recovered.
+        if self._file_delegate.shutdown_requested:
+            return False
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
