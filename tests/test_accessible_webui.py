@@ -87,11 +87,15 @@ class AccessibleWebUiTests(unittest.TestCase):
 
     def test_help_dialog_focus_target_is_programmatically_focusable(self):
         self.assertIn(
-            '<div id="help" class="block" tabindex="-1" aria-live="off"></div>',
+            '<h2 id="help-title" tabindex="-1">Довідка</h2>',
             self.html,
         )
         self.assertIn(
-            "el('open-help').addEventListener('click',()=>{el('help-dialog').showModal();el('help').focus()})",
+            '<div id="help" class="block" aria-live="off"></div>',
+            self.html,
+        )
+        self.assertIn(
+            "el('open-help').addEventListener('click',()=>{el('help-dialog').showModal();el('help-title').focus()})",
             self.html,
         )
 
