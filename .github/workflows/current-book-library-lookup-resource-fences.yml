@@ -26,7 +26,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     env:
-      PINNED_BASE_SHA: 6be0afe67366b62757baae53ab0eaae6b8bfafdf
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
@@ -48,11 +47,17 @@ jobs:
             test -n "$PR_BASE_SHA"
             test -n "$PR_HEAD_SHA"
             test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
-            upstream="$PR_BASE_SHA"
+            base_ref="${{ github.base_ref }}"
+            event_base="$PR_BASE_SHA"
           else
-            upstream="$PINNED_BASE_SHA"
+            base_ref='converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb'
+            event_base=''
           fi
-          git cat-file -e "$upstream^{commit}"
+          git fetch --no-tags origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "$event_base" ]; then
+            git merge-base --is-ancestor "$event_base" "$upstream"
+          fi
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
           git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
