@@ -488,7 +488,41 @@ def _inline_style_hides(
     )
     return display_hidden or content_hidden
 
-def _text(value: object, field: str, *, optional: bool = False) -> str | None:
+def _controlled_strip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Match str.strip() while polling trusted cancellation on long metadata."""
+
+    if control_checkpoint is None:
+        return value.strip()
+    start = 0
+    end = len(value)
+    while start < end:
+        if start % 4_096 == 0:
+            control_checkpoint()
+        if not value[start].isspace():
+            break
+        start += 1
+    scanned_from_end = 0
+    while end > start:
+        if scanned_from_end % 4_096 == 0:
+            control_checkpoint()
+        if not value[end - 1].isspace():
+            break
+        end -= 1
+        scanned_from_end += 1
+    control_checkpoint()
+    return value[start:end]
+
+
+def _text(
+    value: object,
+    field: str,
+    *,
+    optional: bool = False,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
     if value is None and optional:
         return None
     if type(value) is not str:
@@ -501,13 +535,13 @@ def _text(value: object, field: str, *, optional: bool = False) -> str | None:
             f"{field} exceeds the canonical BookDocument text field limit",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
-    if not value.strip():
+    stripped = _controlled_strip(value, control_checkpoint)
+    if not stripped:
         raise BookHtmlImportError(
             f"{field} must be non-empty text",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
-    return value.strip()
-
+    return stripped
 
 def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
@@ -1977,10 +2011,18 @@ def import_html_book(
         if not callable(control_checkpoint):
             raise TypeError("control_checkpoint must be callable")
         control_checkpoint()
-    display_source = _text(source_name, "source_name")
-    override_title = _text(title, "title", optional=True)
-    override_author = _text(author, "author", optional=True)
-    override_language = _text(language, "language", optional=True)
+    display_source = _text(
+        source_name, "source_name", control_checkpoint=control_checkpoint
+    )
+    override_title = _text(
+        title, "title", optional=True, control_checkpoint=control_checkpoint
+    )
+    override_author = _text(
+        author, "author", optional=True, control_checkpoint=control_checkpoint
+    )
+    override_language = _text(
+        language, "language", optional=True, control_checkpoint=control_checkpoint
+    )
     text, raw, legacy_windows_1251 = _source_text(source)
     assets = _asset_set(available_assets, control_checkpoint)
 
