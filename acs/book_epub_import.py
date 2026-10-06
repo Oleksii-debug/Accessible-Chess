@@ -1349,6 +1349,7 @@ def _metadata_values(
         return []
     wanted = f"{{{_DUBLIN_CORE_NAMESPACE}}}{name}"
     values: list[str] = []
+    seen_values: set[str] = set()
     for metadata_index, element in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
@@ -1360,7 +1361,8 @@ def _metadata_values(
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         text = _normalized_whitespace_text(element.text or "", control_checkpoint)
-        if text and text not in values:
+        if text and text not in seen_values:
+            seen_values.add(text)
             values.append(text)
     return values
 
