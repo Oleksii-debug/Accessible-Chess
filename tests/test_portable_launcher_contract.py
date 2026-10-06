@@ -130,6 +130,14 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             generic_failure.index("ac_write_line(report"),
         )
         self.assertIn("ac_close_child_process_handle();", generic_failure)
+        self.assertLess(
+            generic_failure.index("ac_write_line(report"),
+            generic_failure.index("ac_close_child_process_handle();"),
+        )
+        self.assertLess(
+            generic_failure.index("ac_close_child_process_handle();"),
+            generic_failure.index("MessageBoxW("),
+        )
 
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
