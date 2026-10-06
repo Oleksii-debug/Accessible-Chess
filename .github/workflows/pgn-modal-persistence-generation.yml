@@ -89,7 +89,11 @@ jobs:
           tests.test_v2_windows_pgn_save_worker
           tests.test_pgn_save_snapshot
           tests.test_pgn_document_passive_ingress
-          tests.test_v2_windows_file_workflows
+          tests.test_v2_windows_file_worker_preflight
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_pgn_open_invalid_session
+          tests.test_v2_windows_nvda_file_workflows
 
       - name: Pytest focused modal generation
         run: >-
