@@ -397,6 +397,19 @@ class BookLibraryGameLookupTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             AcsdbBookGameLookup(object())  # type: ignore[arg-type]
 
+    def test_instance_get_game_shadow_cannot_replace_concrete_acsdb_boundary(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+
+            def poisoned_get_game(_game_id: int):
+                raise AssertionError("instance get_game shadow executed")
+
+            database.get_game = poisoned_get_game  # type: ignore[method-assign]
+            loaded = AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(loaded.source_index, 37)
+            self.assertEqual(loaded.line.moves[0].san, "e4")
+
     def test_constructor_rejects_acsdb_subclass_before_provider_dispatch(self) -> None:
         class ProviderDatabase(AcsDatabase):
             def get_game(self, game_id: int):  # pragma: no cover - must never dispatch
