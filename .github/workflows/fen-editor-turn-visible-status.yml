@@ -68,11 +68,24 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile changed Python
+      - name: Compile changed and inherited FEN surfaces
         run: >-
           python -m py_compile
+          acs/position_editor.py
           acs/webapp.py
+          acs/webapp_keymap_core.py
           tests/test_fen_editor_turn_and_visible_status.py
+
+      - name: Validate converged WebView JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("web/index.html").read_text(encoding="utf-8")
+          script = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+          Path(".fen-turn-web.js").write_text(script, encoding="utf-8")
+          PY
+          node --check .fen-turn-web.js
 
       - name: Execute turn semantics and FEN editor adjacency
         run: >-
