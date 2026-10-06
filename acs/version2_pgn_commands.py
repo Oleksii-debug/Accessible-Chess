@@ -12,7 +12,14 @@ from .gametree_editing import VariationEditTarget
 from .gametree_insertion import variation_insert_target
 from .gametree_legality import validate_game_legality
 from .pgn_roundtrip import parse_pgn_text
-from .pgn_workspace import _contains_unicode_surrogate
+from .pgn_workspace import (
+    MAX_PGN_COMMENT_TEXT_UNITS,
+    MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS,
+    MAX_PGN_NAG_TEXT_UNITS,
+    MAX_PGN_SEARCH_TEXT_UNITS,
+    _contains_unicode_surrogate,
+    _pgn_edit_text_units,
+)
 from .gametree_navigation import GameTreeCursor, MoveAddress, VariationStep, resolve_line, validate_cursor
 from .search_policy import normalize_search_term, normalize_search_text, search_fold
 from .pgn_document import PgnDocumentSession
@@ -232,7 +239,13 @@ class Version2PgnCommands:
 
     @staticmethod
     def _variation_from_text(text: str, *, origin_fen: str) -> VariationLine:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _pgn_edit_text_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
             raise ValueError("invalid PGN variation text")
         fields = origin_fen.split()
         if len(fields) != 6 or fields[1] not in {"w", "b"}:
@@ -340,7 +353,13 @@ class Version2PgnCommands:
                 allow_root=True,
             )
             text = payload.get("text", "")
-            if type(text) is not str:
+            if (
+                type(text) is not str
+                or not text.strip()
+                or _pgn_edit_text_units(text) > MAX_PGN_SEARCH_TEXT_UNITS
+                or "\x00" in text
+                or _contains_unicode_surrogate(text)
+            ):
                 raise ValueError("invalid PGN search text")
             return self._search_pgn(workspace, text)
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
@@ -395,7 +414,7 @@ class Version2PgnCommands:
                 text = payload.get("text", "")
                 if (
                     type(text) is not str
-                    or len(text) > 8000
+                    or _pgn_edit_text_units(text) > MAX_PGN_COMMENT_TEXT_UNITS
                     or "\x00" in text
                     or _contains_unicode_surrogate(text)
                 ):
@@ -471,7 +490,7 @@ class Version2PgnCommands:
             text = payload.get("text", "")
             if (
                 type(text) is not str
-                or len(text) > 8000
+                or _pgn_edit_text_units(text) > MAX_PGN_COMMENT_TEXT_UNITS
                 or _contains_unicode_surrogate(text)
             ):
                 raise ValueError("invalid PGN comment")
@@ -491,7 +510,7 @@ class Version2PgnCommands:
             text = payload.get("text", "")
             if (
                 type(text) is not str
-                or len(text) > 512
+                or _pgn_edit_text_units(text) > MAX_PGN_NAG_TEXT_UNITS
                 or "\x00" in text
                 or _contains_unicode_surrogate(text)
             ):
