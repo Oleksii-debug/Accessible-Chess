@@ -148,6 +148,20 @@ def test_verified_compressed_payload_enforces_bound_before_extraction(tmp_path):
         lawful_bundle._read_verified_compressed_payload(source)
 
 
+def test_verified_compressed_payload_rejects_non_regular_open_handle(tmp_path):
+    source = tmp_path / "pinned-corpus.pgn.zst"
+    source.write_bytes(b"regular-path-bytes")
+
+    class FakeStat:
+        st_mode = 0
+
+    with (
+        patch.object(lawful_bundle.os, "fstat", return_value=FakeStat()),
+        _raises(RuntimeError, match="must be a regular file"),
+    ):
+        lawful_bundle._read_verified_compressed_payload(source)
+
+
 def test_local_build_materializes_only_verified_bounded_snapshot(tmp_path):
     source = tmp_path / "caller-source.pgn.zst"
     destination = tmp_path / "bundle"
