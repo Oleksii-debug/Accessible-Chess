@@ -496,8 +496,17 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             return rejected
         return self._operate_and_render(operation)
 
+    def search(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.search(self, text))
+
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
+
+    def edit_nags(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.edit_nags(self, text))
+
+    def add_variation(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.add_variation(self, text))
 
     def delete_comment(self) -> PgnWebViewEvent:
         return self._mutate_and_render(super().delete_comment)
