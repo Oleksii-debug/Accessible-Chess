@@ -73,6 +73,14 @@
       positionMs,
       durationMs,
       positionText: optionalText(value.positionText, "positionText", 64),
+      regionLabel: requiredText(value.regionLabel, "regionLabel", 256),
+      heading: requiredText(value.heading, "heading", 256),
+      seekLabel: requiredText(value.seekLabel, "seekLabel", 256),
+      backLabel: requiredText(value.backLabel, "backLabel", 256),
+      forwardLabel: requiredText(value.forwardLabel, "forwardLabel", 256),
+      restoreLabel: requiredText(value.restoreLabel, "restoreLabel", 256),
+      cancelLabel: requiredText(value.cancelLabel, "cancelLabel", 256),
+      progressLabel: requiredText(value.progressLabel, "progressLabel", 256),
       playbackState,
       qualification,
       statusText: requiredText(value.statusText, "statusText"),
@@ -168,9 +176,9 @@
     const generation = nextGeneration(root);
 
     const section = document.createElement("section");
-    section.setAttribute("aria-label", "recorded chess media");
+    section.setAttribute("aria-label", state.regionLabel);
 
-    appendText(section, "h2", "recorded-media-heading", "Recorded chess media");
+    appendText(section, "h2", "recorded-media-heading", state.heading);
 
     const position = appendText(section, "p", "recorded-media-position", state.positionText);
     if (state.positionMs !== null) {
@@ -190,7 +198,7 @@
       seek.setAttribute("min", "0");
       seek.setAttribute("max", String(state.durationMs));
       seek.setAttribute("step", "1000");
-      seek.setAttribute("aria-label", state.positionText || "Recorded media position");
+      seek.setAttribute("aria-label", state.seekLabel);
       seek.setAttribute("aria-describedby", STATUS_ID);
       seek.setAttribute("aria-valuetext", state.positionText);
       seek.value = String(state.positionMs);
@@ -208,8 +216,8 @@
       section.appendChild(seek);
 
       const nav = document.createElement("div");
-      const back = makeButton(nav, BACK_ID, "Back 10 seconds", !state.seekEnabled, SEEK_ID);
-      const forward = makeButton(nav, FORWARD_ID, "Forward 10 seconds", !state.seekEnabled, SEEK_ID);
+      const back = makeButton(nav, BACK_ID, state.backLabel, !state.seekEnabled, SEEK_ID);
+      const forward = makeButton(nav, FORWARD_ID, state.forwardLabel, !state.seekEnabled, SEEK_ID);
       back.addEventListener("click", () => {
         runCommand(root, generation, back, invokeCommand, {
           action: "seek",
@@ -236,11 +244,11 @@
     play.addEventListener("click", () => {
       runCommand(root, generation, play, invokeCommand, { action: state.playAction });
     });
-    makeButton(controls, RESTORE_ID, "Restore synchronized chess position", !state.restoreEnabled, STATUS_ID)
+    makeButton(controls, RESTORE_ID, state.restoreLabel, !state.restoreEnabled, STATUS_ID)
       .addEventListener("click", function () {
         runCommand(root, generation, this, invokeCommand, { action: "restore" });
       });
-    makeButton(controls, CANCEL_ID, "Cancel media preprocessing", !state.cancelEnabled, STATUS_ID)
+    makeButton(controls, CANCEL_ID, state.cancelLabel, !state.cancelEnabled, STATUS_ID)
       .addEventListener("click", function () {
         runCommand(root, generation, this, invokeCommand, { action: "cancel" });
       });
@@ -253,7 +261,7 @@
     progress.id = PROGRESS_ID;
     progress.setAttribute("max", String(Math.max(1, state.preprocessTotal)));
     progress.value = state.preprocessCompleted;
-    progress.setAttribute("aria-label", "Preprocessing progress");
+    progress.setAttribute("aria-label", state.progressLabel);
     section.appendChild(progress);
 
     const announcement = appendText(section, "p", ANNOUNCEMENT_ID, state.announcement);
