@@ -579,6 +579,7 @@ class Version2FinalProductApplication(Version2Application):
                     "Stored group rotation belongs to a different teaching session"
                 ) from exc
             if loaded.plan.rotation_id != rotation_id:
+                self._rotation_load_error = True
                 raise RuntimeError(
                     "A different durable group rotation already exists"
                 )
