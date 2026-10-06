@@ -30,7 +30,10 @@ from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import PreparedBookOpen, Version2Application
-from acs.version2_windows_book_open_worker import Version2BookOpenWorker
+from acs.version2_windows_book_open_worker import (
+    BookOpenWorkerEventKind,
+    Version2BookOpenWorker,
+)
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
     FileWorkflowEventKind,
@@ -269,6 +272,47 @@ class Version2ApplicationTests(unittest.TestCase):
 
         delivered = self.app.drain_events()
         self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+        self.assertEqual(delivered[1]["payload"]["focus_target"], "book-open")
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_event_drain_recovers_book_terminal_after_observer_failure(self):
+        callbacks = []
+        fail_terminal_once = [True]
+
+        def sink(event):
+            if (
+                event.kind is BookOpenWorkerEventKind.COMPLETED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("transient Book terminal observer failure")
+            return self.app._book_open_event(event)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: None,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        self.app.bind_book_open_worker(worker)
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while not callbacks and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(len(callbacks), 1)
+
+        with self.assertRaisesRegex(RuntimeError, "terminal observer failure"):
+            callbacks.pop(0)()
+        self.assertFalse(worker.active)
+
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "status"])
         self.assertTrue(delivered[0]["payload"]["book_open_busy"])
         self.assertFalse(delivered[1]["payload"]["book_open_busy"])
         self.assertEqual(delivered[1]["payload"]["focus_target"], "book-open")
