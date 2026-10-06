@@ -366,9 +366,16 @@ class Version2PgnCommands:
             for variant in allowed_variants
         ):
             raise ValueError("invalid PGN command payload")
+        main_line_comment = (
+            action_id in {"pgn.comment_edit", "pgn.comment_delete"}
+            and type(payload.get("line_path")) is tuple
+            and payload.get("line_path") == ()
+            and payload.get("move_index") is None
+            and payload.get("slot") in {"leading", "trailing"}
+        )
         request, cursor = self._target(
             payload,
-            require_current=action_id not in navigation,
+            require_current=action_id not in navigation and not main_line_comment,
             workspace=workspace,
         )
         if action_id in navigation:
