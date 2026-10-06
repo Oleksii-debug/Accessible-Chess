@@ -668,6 +668,72 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             self.assertFalse(runtime.pgn_save_running)
             self.assertTrue(runtime.shutdown())
 
+    def test_real_pgn_open_failure_terminal_retries_transactionally(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing-transactional-open.pgn"
+            _OpenDialog.selected_paths.append(str(missing))
+            previous = PgnDocumentSession.from_text(_PGN)
+            session_box: dict[str, PgnDocumentSession | None] = {"value": previous}
+            owner = _Owner()
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                pgn_session_box=session_box,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_open(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertIs(session_box["value"], previous)
+                self.assertEqual(len(leased_batches), 1)
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(first_batch[0].action_id, "pgn.open")
+                self.assertEqual(first_batch[0].error_code, "pgn_open_failed")
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertTrue(runtime.shutdown())
+
     def test_real_import_recovers_after_abort_class_begininvoke_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "abort-post-import.pgn"
