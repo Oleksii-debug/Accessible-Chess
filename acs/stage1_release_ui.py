@@ -32,6 +32,12 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         )
         return state
 
+    def get_sound_settings(self) -> dict[str, Any]:
+        state = super().get_sound_settings()
+        if getattr(self, "_settings", None) is None:
+            return {**state, "ok": False}
+        return state
+
     def get_move_feedback_settings(self) -> dict[str, Any]:
         settings = getattr(self, "_settings", None)
         if settings is None:
