@@ -11,6 +11,7 @@ on:
       - 'acs/version2_package_assembler.py'
       - 'acs/version2_package_preflight.py'
       - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_pe_identity.py'
       - 'tests/test_current_launcher_resource_contract.py'
 
 permissions:
@@ -30,6 +31,12 @@ env:
   RESOURCE_PREFLIGHT_BLOB: 2fc32cf05863757e0145a2f8efb5fa1b4393e08c
   RESOURCE_PAYLOAD_BLOB: f93db09b617e5ec3cd4149153e5bff3fb5e68efb
   RESOURCE_PAYLOAD_TEST_BLOB: ab29624c6be6a16f0158aa4c34f460b3f84cc98c
+  RUNTIME_PREFLIGHT_BLOB: 81a0af758b980eccb12278625e7b50ac87af6834
+  RUNTIME_PAYLOAD_TEST_BLOB: d5585a6f31e66c34142dccd73cc11984a964224e
+  PE_IDENTITY_PREFLIGHT_BLOB: d75f25e44caa8d1300e3cebb47e806bb1b78dc39
+  PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
+  SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
+  SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
@@ -66,22 +73,23 @@ jobs:
           if [ "$changed" = "$expected" ]; then
             echo 'W6_PAYLOAD_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
           else
-            # Once the payload/assembler lineage has been composed into the
-            # current runtime, later accepted Books/Training/D06/UI changes are
-            # expected descendants. Keep this gate fail-closed on the release
-            # components themselves instead of requiring the whole runtime to
-            # remain byte-identical to the historical assembler parent.
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
-            case "$(git rev-parse HEAD:acs/version2_package_preflight.py)" in
-              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB") ;;
+            preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
+            case "$preflight_blob" in
+              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB") ;;
               *) echo 'Unqualified canonical preflight identity' >&2; exit 1 ;;
             esac
+            if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            fi
             echo 'W6_PAYLOAD_TOPOLOGY=CURRENT_RUNTIME_COMPOSITION'
           fi
 
           payload_pair="$(git rev-parse HEAD:acs/version2_release_payload.py):$(git rev-parse HEAD:tests/test_version2_release_payload.py)"
           case "$payload_pair" in
-            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB") ;;
+            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RUNTIME_PAYLOAD_TEST_BLOB") ;;
             *) echo 'Unqualified release payload/test pair' >&2; exit 1 ;;
           esac
 
@@ -90,6 +98,7 @@ jobs:
           python -m compileall -q
           acs/version2_release_payload.py
           tests/test_version2_release_payload.py
+          tests/test_version2_package_pe_identity.py
 
       - name: Payload plus current assembler/preflight regressions
         run: >-
@@ -101,6 +110,7 @@ jobs:
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
           tests.test_current_launcher_resource_contract
 
   official-stockfish-contract:

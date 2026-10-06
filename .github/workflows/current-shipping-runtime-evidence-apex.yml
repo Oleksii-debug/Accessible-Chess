@@ -1,0 +1,166 @@
+name: Current Shipping Runtime + Evidence Apex
+
+on:
+  push:
+    branches:
+      - converge/current-shipping-runtime-evidence-apex-20261006-zftrkmo
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-runtime-evidence-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  RUNTIME_PARENT_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
+  RELEASE_PARENT_SHA: db267b71414b22dfee52139af074795c2f33195a
+
+jobs:
+  shipping-convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout exact shipping receipt
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove two-parent shipping authority and disjoint union
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$head"
+          receipt="$(git rev-list --parents -n 1 HEAD)"
+          test "$receipt" = "$head $RUNTIME_PARENT_SHA $RELEASE_PARENT_SHA"
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          git diff --check "$PRODUCT_SHA"...HEAD
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
+
+          python - <<'PY'
+          import os
+          import subprocess
+
+          product = os.environ["PRODUCT_SHA"]
+          runtime = os.environ["RUNTIME_PARENT_SHA"]
+          release = os.environ["RELEASE_PARENT_SHA"]
+
+          def paths(a: str, b: str) -> set[str]:
+              output = subprocess.check_output(
+                  ["git", "diff", "--name-only", f"{a}...{b}"],
+                  text=True,
+              )
+              return {line for line in output.splitlines() if line}
+
+          runtime_paths = paths(product, runtime)
+          release_paths = paths(product, release)
+          overlap = runtime_paths & release_paths
+          if overlap:
+              print("unexpected parent overlap:", sorted(overlap))
+              raise SystemExit("SHIPPING_PARENT_SCOPE_OVERLAP")
+          expected = runtime_paths | release_paths | {".github/workflows/current-shipping-runtime-evidence-apex.yml"}
+          actual = paths(product, "HEAD")
+          if actual != expected:
+              print("missing:", sorted(expected - actual))
+              print("unexpected:", sorted(actual - expected))
+              raise SystemExit("SHIPPING_CONVERGENCE_SCOPE_MISMATCH")
+          print(f"RUNTIME_PATHS={len(runtime_paths)}")
+          print(f"RELEASE_PATHS={len(release_paths)}")
+          print(f"SHIPPING_PATHS={len(actual)}")
+          PY
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile runtime, package and evidence boundaries
+        run: >-
+          python -m py_compile
+          run_accessible_chess.py
+          acs/bookreader.py
+          acs/book_board_workflow.py
+          acs/library_webview_projection.py
+          acs/pgn_document.py
+          acs/pgn_save_snapshot.py
+          acs/pgn_workspace.py
+          acs/version2_application.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
+          acs/version2_release_receipt.py
+          scripts/finalize_owner_final_receipt.py
+          scripts/record_owner_physical_acceptance.py
+
+      - name: Execute integrated runtime smoke and recovery contracts
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_library_webview_projection
+          tests.test_bookreader_revision_barriers_current
+          tests.test_v2_book_board_workflow
+          tests.test_pgn_workspace
+          tests.test_pgn_save_snapshot
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_version2_application
+
+      - name: Execute package, receipt and evidence-chain contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_version2_package_zip_topology_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact shipping receipt
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Execute semantic document-copy oracle
+        run: >-
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          python -m unittest -v tests.test_p0_semantic_document_copy
