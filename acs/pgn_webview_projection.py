@@ -618,6 +618,9 @@ class PgnWebViewProjection:
         elif action_id == "pgn.comment_delete":
             if len(selected.comments) != 1:
                 raise ValueError("exactly one PGN comment is required")
+        elif action_id in {"pgn.nag_edit", "pgn.variation_add"}:
+            if selected.kind != "move":
+                raise ValueError("PGN move edit action requires a move selection")
         elif action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             if selected.kind != "variation":
                 raise ValueError("PGN variation action requires variation selection")
