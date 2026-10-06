@@ -1715,7 +1715,7 @@ def _validate_required_runtime_resources(
         _fail("Stockfish GPL notice is incomplete")
 
 
-def _manifest(root: Path) -> tuple[str, dict[str, object]]:
+def _manifest(root: Path) -> tuple[str, dict[str, object], str]:
     path = root / MANIFEST_NAME
     info = _safe_lstat(path, label="release manifest")
     if not stat.S_ISREG(info.st_mode):
