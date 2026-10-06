@@ -15,6 +15,7 @@ from acs.version2_release_receipt import (
     CANONICAL_W5_WORKFLOW,
     RELEASE_RECEIPT_SCHEMA_VERSION,
     REPOSITORY_FULL_NAME,
+    Version2ReleaseReceipt,
     Version2ReleaseReceiptError,
     build_version2_release_receipt,
     main,
@@ -96,11 +97,72 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             self.assertGreater(receipt.inventory_files, 0)
             self.assertGreater(receipt.total_bytes, 0)
             self.assertGreater(receipt.checksums_verified, 0)
+            self.assertEqual(receipt.checksums_verified, receipt.inventory_files - 1)
             self.assertRegex(receipt.inventory_sha256, r"^[0-9a-f]{64}$")
 
             payload = json.loads(receipt.to_json())
             self.assertEqual(payload["package_sha256"], receipt.package_sha256)
             self.assertNotIn(str(archive), receipt.to_json())
+
+    def test_builder_rejects_impossible_checksum_coverage_from_preflight(self):
+        report = SimpleNamespace(
+            archive_sha256="a" * 64,
+            inventory=("manifest.json", "payload.bin"),
+            integration_sha=_SHA,
+            total_bytes=10,
+            checksums_verified=7,
+        )
+        with patch.object(
+            release_receipt_module,
+            "validate_version2_package_zip",
+            return_value=report,
+        ):
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "checksum coverage does not match inventory",
+            ):
+                _build(Path("ignored.zip"))
+
+    def test_receipt_paths_reject_active_pathlike_before_hooks(self):
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        active = ActivePath()
+        valid = Version2ReleaseReceipt(
+            schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+            product="Accessible Chess",
+            repository=REPOSITORY_FULL_NAME,
+            workflow_path=CANONICAL_W5_WORKFLOW,
+            workflow_run_id=1,
+            workflow_run_attempt=1,
+            qualification_head_sha=_HEAD_SHA,
+            artifact_id=1,
+            artifact_name="artifact",
+            integration_sha=_SHA,
+            package_sha256="a" * 64,
+            inventory_sha256="b" * 64,
+            inventory_files=2,
+            total_bytes=1,
+            checksums_verified=1,
+        )
+
+        with patch.object(
+            release_receipt_module,
+            "_safe_receipt_lstat",
+            side_effect=AssertionError("receipt filesystem work must not start"),
+        ) as lstat:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                read_version2_release_receipt(active)
+            lstat.assert_not_called()
+
+        with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+            write_version2_release_receipt(active, valid)
+
+        self.assertEqual(touched, [])
 
     def test_receipt_reuses_canonical_zip_preflight_and_rejects_corruption(self):
         with tempfile.TemporaryDirectory() as td:
@@ -852,6 +914,69 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             )
 
 
+
+    def test_direct_json_serialization_rejects_impossible_checksum_coverage(self):
+        receipt = Version2ReleaseReceipt(
+            schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+            product="Accessible Chess",
+            repository=REPOSITORY_FULL_NAME,
+            workflow_path=CANONICAL_W5_WORKFLOW,
+            workflow_run_id=1,
+            workflow_run_attempt=1,
+            qualification_head_sha=_HEAD_SHA,
+            artifact_id=1,
+            artifact_name="artifact",
+            integration_sha=_SHA,
+            package_sha256="a" * 64,
+            inventory_sha256="b" * 64,
+            inventory_files=3,
+            total_bytes=1,
+            checksums_verified=1,
+        )
+
+        with self.assertRaisesRegex(
+            Version2ReleaseReceiptError,
+            "checksum coverage does not match inventory",
+        ):
+            receipt.to_json()
+
+    def test_checksum_coverage_must_match_inventory_before_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            object.__setattr__(
+                receipt,
+                "checksums_verified",
+                receipt.checksums_verified - 1,
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "checksum coverage does not match inventory",
+            ):
+                write_version2_release_receipt(output, receipt)
+
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+    def test_readback_rejects_impossible_checksum_coverage(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            payload = json.loads(receipt.to_json())
+            payload["checksums_verified"] = payload["checksums_verified"] - 1
+            output.write_text(_canonical_json(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "checksum coverage does not match inventory",
+            ):
+                read_version2_release_receipt(output)
 
     def test_writer_revalidates_direct_receipt_instances_before_io(self):
         with tempfile.TemporaryDirectory() as td:

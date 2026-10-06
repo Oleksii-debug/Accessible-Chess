@@ -6,6 +6,7 @@ on:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - ".github/workflows/w5-release-receipt-contract.yml"
+      - "acs/version2_release_receipt.py"
       - "tests/test_version2_release_receipt.py"
   workflow_dispatch:
 
@@ -18,9 +19,9 @@ concurrency:
 
 env:
   BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  RECEIPT_SOURCE_BLOB: 00bb1fff72d83b7c27e2f2063a4f974a0b36ada0
-  PREFLIGHT_SOURCE_BLOB: ea86b7b0458fe47487a735bdc24d58435c7abaad
-  RECEIPT_TEST_BLOB: fa48ff395340799ef66e43a8103dc65213bfcf12
+  RECEIPT_SOURCE_BLOB: 491fab63b7cc0609bb6d8f6d67b9acf06350cc72
+  PREFLIGHT_SOURCE_BLOB: 8b54944644e68e512daee3b6b6f3f9c303d70d8d
+  RECEIPT_TEST_BLOB: 9d4e7470eb98a68cc5e5fb8dd821147b8ddfca08
 
 jobs:
   qualify:
@@ -39,7 +40,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove live shipping base, two-path evidence scope and exact blobs
+      - name: Prove live shipping base, three-path evidence scope and exact blobs
         shell: bash
         run: |
           set -euo pipefail
@@ -59,6 +60,7 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
             ".github/workflows/w5-release-receipt-contract.yml"
+            "acs/version2_release_receipt.py"
             "tests/test_version2_release_receipt.py"
           )
           test "${#actual[@]}" -eq "${#expected[@]}"

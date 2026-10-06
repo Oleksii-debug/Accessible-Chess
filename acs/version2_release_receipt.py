@@ -33,6 +33,7 @@ _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,255}$")
 _MAX_ID = (1 << 63) - 1
+_PLATFORM_PATH_TYPE = type(Path())
 _RECEIPT_FIELDS = frozenset(
     {
         "schema_version",
@@ -77,12 +78,23 @@ class Version2ReleaseReceipt:
     checksums_verified: int
 
     def to_json(self) -> str:
+        validated = _validated_receipt_instance(self)
         return json.dumps(
-            asdict(self),
+            asdict(validated),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         ) + "\n"
+
+
+def _passive_receipt_path(value: str | Path, *, label: str) -> Path:
+    """Accept only passive path controls before receipt filesystem work."""
+
+    if type(value) is _PLATFORM_PATH_TYPE:
+        return value
+    if type(value) is str:
+        return Path(value)
+    raise TypeError(f"{label} must be exact str or platform Path")
 
 
 def _positive_id(value: int, *, label: str) -> int:
@@ -259,6 +271,15 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
     if type(payload["workflow_path"]) is not str or payload["workflow_path"] != CANONICAL_W5_WORKFLOW:
         raise Version2ReleaseReceiptError("release receipt workflow identity mismatch")
 
+    inventory_files = _positive_id(payload["inventory_files"], label="inventory_files")
+    checksums_verified = _positive_id(
+        payload["checksums_verified"], label="checksums_verified"
+    )
+    if checksums_verified != inventory_files - 1:
+        raise Version2ReleaseReceiptError(
+            "release receipt checksum coverage does not match inventory"
+        )
+
     return Version2ReleaseReceipt(
         schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
         product="Accessible Chess",
@@ -276,11 +297,9 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
         integration_sha=_sha40(payload["integration_sha"], label="integration_sha"),
         package_sha256=_sha256(payload["package_sha256"], label="package_sha256"),
         inventory_sha256=_sha256(payload["inventory_sha256"], label="inventory_sha256"),
-        inventory_files=_positive_id(payload["inventory_files"], label="inventory_files"),
+        inventory_files=inventory_files,
         total_bytes=_positive_id(payload["total_bytes"], label="total_bytes"),
-        checksums_verified=_positive_id(
-            payload["checksums_verified"], label="checksums_verified"
-        ),
+        checksums_verified=checksums_verified,
     )
 
 
@@ -317,7 +336,7 @@ def read_version2_release_receipt(
 ) -> Version2ReleaseReceipt:
     """Read one bounded, byte-canonical receipt from one stable file identity."""
 
-    path = Path(receipt_path)
+    path = _passive_receipt_path(receipt_path, label="receipt_path")
     before = _safe_receipt_lstat(path)
     if not stat.S_ISREG(before.st_mode):
         raise Version2ReleaseReceiptError("release receipt must be a regular file")
@@ -409,22 +428,24 @@ def build_version2_release_receipt(
             "canonical package preflight returned an empty inventory"
         )
 
-    return Version2ReleaseReceipt(
-        schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
-        product="Accessible Chess",
-        repository=REPOSITORY_FULL_NAME,
-        workflow_path=CANONICAL_W5_WORKFLOW,
-        workflow_run_id=run_id,
-        workflow_run_attempt=run_attempt,
-        qualification_head_sha=head_sha,
-        artifact_id=action_artifact_id,
-        artifact_name=safe_artifact_name,
-        integration_sha=report.integration_sha,
-        package_sha256=report.archive_sha256,
-        inventory_sha256=_inventory_digest(report.inventory),
-        inventory_files=len(report.inventory),
-        total_bytes=report.total_bytes,
-        checksums_verified=report.checksums_verified,
+    return _validated_receipt_instance(
+        Version2ReleaseReceipt(
+            schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+            product="Accessible Chess",
+            repository=REPOSITORY_FULL_NAME,
+            workflow_path=CANONICAL_W5_WORKFLOW,
+            workflow_run_id=run_id,
+            workflow_run_attempt=run_attempt,
+            qualification_head_sha=head_sha,
+            artifact_id=action_artifact_id,
+            artifact_name=safe_artifact_name,
+            integration_sha=report.integration_sha,
+            package_sha256=report.archive_sha256,
+            inventory_sha256=_inventory_digest(report.inventory),
+            inventory_files=len(report.inventory),
+            total_bytes=report.total_bytes,
+            checksums_verified=report.checksums_verified,
+        )
     )
 
 
@@ -490,7 +511,7 @@ def write_version2_release_receipt(
     """
 
     validated_receipt = _validated_receipt_instance(receipt)
-    path = Path(output_path)
+    path = _passive_receipt_path(output_path, label="output_path")
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
 
