@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_PARENT: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
+  EXPECTED_PARENT: 06157d9cef5123f203e4c52975c66089e077902d
   PARENT_BRANCH: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   EXPECTED_RUNTIME_TEST_BLOB: 52dd8d02890af3c84d50e36b5eceac5bb2797969
   EXPECTED_RUNTIME_SOURCE_BLOB: 5033d79b06e20caec772ac3c3ceda3e029f4b202
