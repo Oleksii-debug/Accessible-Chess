@@ -1464,6 +1464,20 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(ActiveWarning.touched)
         self.assertFalse(self.app.progress_store.has(trusted.book_key))
 
+        forged = PreparedBookOpen(
+            trusted.book_key,
+            trusted.document,
+            ("forged warning",),
+        )
+        with patch.object(self.app, "save_training_progress") as save_training, patch.object(
+            self.app, "save_book_progress"
+        ) as save_book:
+            with self.assertRaisesRegex(TypeError, "warnings do not match"):
+                self.app.commit_prepared_book_open(forged)
+            save_training.assert_not_called()
+            save_book.assert_not_called()
+        self.assertFalse(self.app.progress_store.has(trusted.book_key))
+
     def test_book_open_focus_failure_rolls_back_before_owner_or_progress_publication(self):
         candidate = self.root / "book-open-focus-failure.md"
         candidate.write_text(

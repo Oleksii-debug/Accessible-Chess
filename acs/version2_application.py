@@ -640,7 +640,6 @@ class Version2Application:
             or any(type(warning) is not str for warning in warnings)
         ):
             raise TypeError("prepared Book Open warnings are invalid")
-        warning_count = len(warnings)
         # Validate and detach the mutable BookDocument before saving any current
         # owner state. BookReader.document_snapshot() rechecks the live revision
         # before and after cloning; bind the candidate reader to that detached
@@ -648,6 +647,10 @@ class Version2Application:
         validating_reader = BookReader(document)
         document = validating_reader.document_snapshot()
         fresh_reader = BookReader(document)
+        canonical_warnings = fresh_reader.document_warnings_snapshot()
+        if warnings != canonical_warnings:
+            raise TypeError("prepared Book Open warnings do not match the document")
+        warning_count = len(canonical_warnings)
 
         self.save_training_progress()
         self.save_book_progress()
