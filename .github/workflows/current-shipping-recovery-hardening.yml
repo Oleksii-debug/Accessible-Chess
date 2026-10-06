@@ -117,6 +117,11 @@ env:
   LIBRARY_OPEN_ACK_WORKFLOW_BLOB: 1c67fe0e2b8fbecdd918b6dbf630f14c52830e34
   LIBRARY_OPEN_PUBLICATION_TEST_BLOB: cc3c1eadd86498e6ced76c3ea898f80b33d25975
   LIBRARY_EXPORT_BACKGROUND_TEST_BLOB: 9b7de203065595261988568e3b9702d7cfcb61b1
+  LIBRARY_EXPORT_SERVICE_BLOB: 8efa08f714d6f14d2e6a251e442f0fcd47af2570
+  LIBRARY_EXPORT_PROJECTION_BLOB: f43f9fd71953035a582a84bd8a64ead0d54ee25a
+  LIBRARY_WEBVIEW_BRIDGE_BLOB: b4be6f6fd08d9876acfa86d018a78f9d164e484d
+  WINDOWS_LIBRARY_EXPORT_BLOB: 8bf72f5da0364fb77b838c1b36538365a763c8d1
+  LIBRARY_EXPORT_DOM_TEST_BLOB: 61af02b4fe654c02b76403a100ac73ea4fde479f
 
 jobs:
   recovery-hardening:
@@ -325,6 +330,11 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/current-library-open-publication-ack.yml)" = "$LIBRARY_OPEN_ACK_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_PUBLICATION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/library_export_service.py)" = "$LIBRARY_EXPORT_SERVICE_BLOB"
+          test "$(git rev-parse HEAD:acs/library_export_webview_projection.py)" = "$LIBRARY_EXPORT_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = "$LIBRARY_WEBVIEW_BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_library_export.py)" = "$WINDOWS_LIBRARY_EXPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/js/library_export_surface_dom_test.js)" = "$LIBRARY_EXPORT_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
@@ -443,6 +453,10 @@ jobs:
           run_accessible_chess_v2.py
           acs/book_html_import.py
           acs/library_webview_projection.py
+          acs/library_export_service.py
+          acs/library_export_webview_projection.py
+          acs/library_webview_bridge.py
+          acs/version2_windows_library_export.py
           acs/notation.py
           acs/position_text.py
           acs/settings.py
