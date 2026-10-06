@@ -183,6 +183,42 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             any("block quote structure" in warning for warning in first.warnings)
         )
 
+    def test_heading_images_use_alt_text_without_destination_identity_churn(self):
+        first = import_text_book(
+            '# Before  ![Board position](https://one.invalid/board.png "first title")  after #',
+            source_name="heading-one.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        second = import_text_book(
+            '# Before  ![Board position](https://two.invalid/changed.png "second title")  after #',
+            source_name="heading-two.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        first_headings = [
+            block for block in first.document.blocks if type(block) is Heading
+        ]
+        second_headings = [
+            block for block in second.document.blocks if type(block) is Heading
+        ]
+        self.assertEqual(len(first_headings), 1)
+        self.assertEqual(len(second_headings), 1)
+        expected = "Before  Board position  after"
+        self.assertEqual(first_headings[0].text, expected)
+        self.assertEqual(second_headings[0].text, expected)
+        self.assertEqual(first_headings[0].block_id, second_headings[0].block_id)
+        self.assertEqual(first.document.title, expected)
+        self.assertEqual(second.document.title, expected)
+        self.assertNotIn("one.invalid", first_headings[0].text)
+        self.assertNotIn("first title", first_headings[0].text)
+        self.assertTrue(
+            any(
+                "image destination was excluded" in warning
+                and "heading" in warning
+                for warning in first.warnings
+            )
+        )
+
     def test_list_image_projection_keeps_flat_list_whitespace_normalization(self):
         book = import_text_book(
             "- Before  ![Board](https://example.invalid/board.png)   after\n- Plain   item",
