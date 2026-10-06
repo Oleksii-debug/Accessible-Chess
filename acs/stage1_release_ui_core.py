@@ -1223,7 +1223,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         self._reset_engine_game_state()
         session = EngineGameSessionCoordinator(
             self._engine_play_service,
-            fen_provider=self.board.fen,
+            # Board publication is transactional and may replace self.board.
+            # Resolve FEN at call time instead of binding the session forever to
+            # the Board object that happened to exist at game start.
+            fen_provider=lambda: self.board.fen(),
             side_to_move_provider=lambda: self.board.turn,
             commit_engine_move=self._commit_engine_move,
             history_node_provider=lambda: str(self.live_history_node),
