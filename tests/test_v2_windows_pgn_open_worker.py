@@ -983,5 +983,169 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertEqual(dialogs.open_calls, 1)
 
 
+    def test_owner_publication_rejects_same_session_persistence_generation_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-persistence-generation.pgn"
+            current_path = Path(tmp) / "current-persistence-generation.pgn"
+            source.write_text(PGN_TEXT.replace("Async open", "Replacement"), encoding="utf-8")
+            current_path.write_text(PGN_TEXT.replace("Async open", "Current"), encoding="utf-8")
+            current = PgnDocumentSession.open(current_path)
+            prepared = PgnDocumentSession.open(source)
+
+            controller, _, _, events, session_box, publications = self._controller(
+                source,
+                previous=current,
+            )
+            cancel_event = threading.Event()
+            generation = 1
+            worker = threading.Thread(target=lambda: None, name="owner-publication-generation-test")
+            expected_generation = controller._pgn_session_generation(current)
+
+            current._source_overwrite_safe = not current._source_overwrite_safe
+            with controller._lock:
+                controller._generation = generation
+                controller._worker = worker
+                controller._worker_started = False
+                controller._worker_kind = "pgn_open"
+                controller._cancel_event = cancel_event
+                controller._terminal_pending = None
+
+            controller._finish_pgn_open_on_owner(
+                generation,
+                prepared,
+                prepared.view(),
+                "",
+                "pgn-tree",
+                cancel_event,
+                current,
+                expected_generation,
+            )
+
+            self.assertIs(session_box["value"], current)
+            self.assertEqual(publications, [])
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_open_stale")
+            self.assertFalse(controller.pgn_open_running)
+
+
+    def test_owner_publication_cancellation_wins_before_session_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-cancel-before-publish.pgn"
+            current_path = Path(tmp) / "current-cancel-before-publish.pgn"
+            source.write_text(PGN_TEXT.replace("Async open", "Replacement"), encoding="utf-8")
+            current_path.write_text(PGN_TEXT.replace("Async open", "Current"), encoding="utf-8")
+            current = PgnDocumentSession.open(current_path)
+            prepared = PgnDocumentSession.open(source)
+            cancel_event = threading.Event()
+            events: list[FileWorkflowEvent] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": current}
+            reads = 0
+
+            def get_live_session() -> PgnDocumentSession:
+                nonlocal reads
+                reads += 1
+                if reads == 1:
+                    cancel_event.set()
+                return current
+
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=get_live_session,
+                set_pgn_session=lambda session: session_box.__setitem__("value", session),
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: None,
+            )
+            generation = 1
+            worker = threading.Thread(target=lambda: None, name="owner-cancel-before-publish-test")
+            with controller._lock:
+                controller._generation = generation
+                controller._worker = worker
+                controller._worker_started = False
+                controller._worker_kind = "pgn_open"
+                controller._cancel_event = cancel_event
+                controller._terminal_pending = None
+            expected_generation = controller._pgn_session_generation(current)
+
+            controller._finish_pgn_open_on_owner(
+                generation,
+                prepared,
+                prepared.view(),
+                "",
+                "pgn-tree",
+                cancel_event,
+                current,
+                expected_generation,
+            )
+
+            self.assertIs(session_box["value"], current)
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
+            self.assertEqual(terminal.action_id, "pgn.open")
+            self.assertEqual(publications := [], [])
+            self.assertFalse(controller.pgn_open_running)
+
+
+    def test_owner_publication_success_is_not_rewritten_by_cancel_after_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-cancel-after-publish.pgn"
+            current_path = Path(tmp) / "current-cancel-after-publish.pgn"
+            source.write_text(PGN_TEXT.replace("Async open", "Replacement"), encoding="utf-8")
+            current_path.write_text(PGN_TEXT.replace("Async open", "Current"), encoding="utf-8")
+            current = PgnDocumentSession.open(current_path)
+            prepared = PgnDocumentSession.open(source)
+            cancel_event = threading.Event()
+            events: list[FileWorkflowEvent] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": current}
+
+            def publish(session: PgnDocumentSession) -> None:
+                session_box["value"] = session
+                cancel_event.set()
+
+            controller = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: current,
+                set_pgn_session=publish,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _UnusedLibrary(), None, lambda: None
+                ),
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+                post_to_ui=lambda callback: None,
+            )
+            generation = 1
+            worker = threading.Thread(target=lambda: None, name="owner-cancel-after-publish-test")
+            with controller._lock:
+                controller._generation = generation
+                controller._worker = worker
+                controller._worker_started = False
+                controller._worker_kind = "pgn_open"
+                controller._cancel_event = cancel_event
+                controller._terminal_pending = None
+            expected_generation = controller._pgn_session_generation(current)
+
+            controller._finish_pgn_open_on_owner(
+                generation,
+                prepared,
+                prepared.view(),
+                "",
+                "pgn-tree",
+                cancel_event,
+                current,
+                expected_generation,
+            )
+
+            self.assertIs(session_box["value"], prepared)
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertEqual(terminal.action_id, "pgn.open")
+
+
 if __name__ == "__main__":
     unittest.main()
