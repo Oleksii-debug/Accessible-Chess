@@ -74,14 +74,6 @@ def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(DOWNLOAD_CHUNK), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _scan_comment_state(line: str, inside_brace: bool) -> bool:
     for character in line:
         if inside_brace:
@@ -364,18 +356,6 @@ def _download_verified(destination: Path) -> int:
     if actual != CORPUS_SHA256:
         raise AssertionError(f"Lichess corpus digest mismatch: {actual}")
     return total
-
-
-def _verify_local_source(path: Path) -> int:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    size = path.stat().st_size
-    if size > DOWNLOAD_LIMIT_BYTES:
-        raise RuntimeError("compressed Lichess corpus exceeds qualified download bound")
-    actual = _sha256_file(path)
-    if actual != CORPUS_SHA256:
-        raise AssertionError(f"Lichess corpus digest mismatch: {actual}")
-    return size
 
 
 def _read_verified_compressed_payload(path: Path) -> bytes:
