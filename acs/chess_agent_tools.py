@@ -12,6 +12,7 @@ from dataclasses import asdict
 from typing import Protocol
 
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
+from .agent_books_training_tools import AgentBooksTrainingTools
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
@@ -137,6 +138,7 @@ class ChessAgentToolRegistry:
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
+        application_snapshot_provider: Callable[[], Mapping[str, object]] | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
             raise TypeError("executor must be ToolExecutor")
@@ -148,8 +150,13 @@ class ChessAgentToolRegistry:
         self.board_provider = board_provider
         self.board_commands_provider = board_commands_provider
         self.analysis_service = analysis_service
+        if application_snapshot_provider is not None and not callable(
+            application_snapshot_provider
+        ):
+            raise TypeError("application_snapshot_provider must be callable or None")
         self.search_service = search_service
         self.media = media
+        self.application_snapshot_provider = application_snapshot_provider
 
     def register_all(self) -> tuple[ToolSpec, ...]:
         self._register_board()
@@ -159,6 +166,10 @@ class ChessAgentToolRegistry:
             self._register_library()
         if self.media is not None:
             self._register_media()
+        if self.application_snapshot_provider is not None:
+            AgentBooksTrainingTools(self.application_snapshot_provider).register(
+                self.executor
+            )
         return self.executor.specs()
 
     def _board(self) -> Board:
