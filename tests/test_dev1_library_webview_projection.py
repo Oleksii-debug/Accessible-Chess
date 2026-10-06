@@ -153,6 +153,78 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
         boundary = bridge.dispatch("library.move", {"delta": 1})
         self.assertEqual("error", boundary.kind)
 
+    def test_failed_search_render_restores_query_page_and_selection(self) -> None:
+        _service, presenter, projection, bridge, _calls = self.build()
+        projection.search(GameSearchQuery(player="Alpha", limit=2))
+        projection.select(2)
+        before_query = projection.query
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate search render rejected"),
+        ):
+            failed = bridge.dispatch(
+                "library.search",
+                {"player": "Gamma", "limit": "2"},
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(before_query, projection.query)
+        self.assertEqual(2, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(
+            {field["id"]: field["value"] for field in before["filters"]},
+            {field["id"]: field["value"] for field in after["filters"]},
+        )
+
+    def test_failed_selection_render_restores_previous_nvda_cursor(self) -> None:
+        _service, presenter, projection, bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+        self.assertEqual(1, before["selected_game_id"])
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate selection render rejected"),
+        ):
+            failed = bridge.dispatch("library.select", {"game_id": 2})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(1, presenter.selected_game_id)
+        after = projection.snapshot()
+        self.assertEqual(1, after["selected_game_id"])
+        self.assertEqual(before["focus_target"], after["focus_target"])
+
+    def test_failed_next_page_render_discards_unpublished_page_cache(self) -> None:
+        service, presenter, projection, bridge, _calls = self.build()
+        projection.search(GameSearchQuery(limit=2))
+        before = projection.snapshot()
+        self.assertEqual([None], [call.after_game_id for call in service.calls])
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate page render rejected"),
+        ):
+            failed = bridge.dispatch("library.next_page", {})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual([None, 2], [call.after_game_id for call in service.calls])
+        after = projection.snapshot()
+        self.assertEqual(before["rows"], after["rows"])
+        self.assertEqual(before["selected_game_id"], after["selected_game_id"])
+        self.assertEqual(1, presenter.selected_game_id)
+
+        committed = bridge.dispatch("library.next_page", {})
+        self.assertEqual("render", committed.kind)
+        self.assertEqual(3, committed.payload["snapshot"]["selected_game_id"])
+        self.assertEqual([None, 2, 2], [call.after_game_id for call in service.calls])
+
     def test_open_selected_delegates_only_neutral_identifiers_and_hides_return_value(self) -> None:
         _service, _presenter, projection, bridge, calls = self.build()
         projection.search(GameSearchQuery(limit=2))
@@ -280,6 +352,51 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             [row["dom_id"] for row in en["rows"]],
         )
         self.assertEqual(ua["focus_target"], en["focus_target"])
+
+    def test_failed_language_render_rolls_back_library_presenter_and_import_locale(self) -> None:
+        service = FakeSearchService()
+        service.pages[None] = GameSearchPage(
+            items=(
+                item(1, white=None, black=None),
+            ),
+            next_after_game_id=None,
+            has_more=False,
+        )
+        _service, presenter, projection, bridge, _calls = self.build(
+            service,
+            language=UILanguage.UA,
+        )
+        projection.search(GameSearchQuery(limit=25))
+        before = projection.snapshot()
+
+        with patch.object(
+            projection,
+            "_snapshot_from_view",
+            side_effect=ValueError("candidate library render rejected"),
+        ):
+            failed = bridge.dispatch("library.language", {"language": "en"})
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual(UILanguage.UA, projection.language)
+
+        # All three language owners must still describe the same previous
+        # locale after the failed browser transition.
+        after = projection.snapshot()
+        self.assertEqual(before["document"], after["document"])
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["import"]["document"], after["import"]["document"])
+        self.assertIn("невідомо", after["rows"][0]["label"])
+        self.assertIn("невідомо", presenter.view().rows[0].label)
+
+        # The rollback must be recoverable: a later valid transition can commit
+        # normally instead of inheriting a mixed or poisoned state.
+        committed = projection.set_language(UILanguage.EN).payload["snapshot"]
+        self.assertNotEqual(before["heading"], committed["heading"])
+        self.assertIn("unknown", committed["rows"][0]["label"])
+        self.assertNotEqual(
+            before["import"]["document"],
+            committed["import"]["document"],
+        )
 
     def test_presenter_subclass_is_rejected_before_presentation_hooks(self) -> None:
         service = FakeSearchService()
