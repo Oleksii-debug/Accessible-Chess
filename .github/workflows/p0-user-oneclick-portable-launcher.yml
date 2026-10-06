@@ -307,7 +307,8 @@ jobs:
                 'STATUS: FAILED_EARLY_EXIT',
                 "CHILD_EXIT_CODE: $($case.Code)",
                 "CHILD_EXIT_REASON: $($case.Reason)",
-                'USER_WINDOW_PROVEN: NO'
+                'USER_WINDOW_PROVEN: NO',
+                'USER_NVDA_PROVEN: NO'
               )) {
                 if (-not $text.Contains($required)) {
                   throw "Synthetic early exit $($case.Code) missing report evidence: $required"
