@@ -263,6 +263,9 @@
   const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
   const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
   const MAX_NATIVE_EVENT_BATCH = 64;
+  const MAX_NAVIGATION_ITEMS = 32;
+  const MAX_NAVIGATION_LABEL = 240;
+  const MAX_SCREEN_HEADING = 600;
   const MAX_ANNOUNCEMENT_TEXT = 1200;
   const NATIVE_EVENT_KINDS = new Set([
     "route",
@@ -318,11 +321,11 @@
 
   function productSurfaceFocusTarget(snapshot, routeId) {
     if (routeId === "pgn" && snapshot.pgn && typeof snapshot.pgn === "object") {
-      return String(snapshot.pgn.focus_target || "");
+      return validFocusId(snapshot.pgn.focus_target) ? snapshot.pgn.focus_target : "";
     }
     if (routeId === "books" && snapshot.books && typeof snapshot.books === "object") {
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
-      return String(block.dom_id || "");
+      return validFocusId(block.dom_id) ? block.dom_id : "";
     }
     if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
       return "training-answer";
@@ -334,7 +337,7 @@
       const sections = Array.isArray(snapshot.education.sections) ? snapshot.education.sections : [];
       for (let index = 0; index < sections.length; index += 1) {
         const items = Array.isArray(sections[index].items) ? sections[index].items : [];
-        if (items.length && items[0].dom_id) return String(items[0].dom_id);
+        if (items.length && validFocusId(items[0].dom_id)) return items[0].dom_id;
       }
     }
     return emptyStatusId(routeId);
@@ -407,19 +410,44 @@
   }
 
   function renderNavigation(snapshot) {
-    const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
+    if (!Array.isArray(snapshot.navigation) ||
+        snapshot.navigation.length < 1 ||
+        snapshot.navigation.length > MAX_NAVIGATION_ITEMS) {
+      throw new TypeError("V2 navigation schema is invalid");
+    }
+    const routeIds = new Set();
+    const currentRouteIds = new Set();
     const fragment = documentRef.createDocumentFragment();
-    items.forEach(function (item) {
+    snapshot.navigation.forEach(function (item) {
+      if (!plainObject(item)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      const routeId = item.route_id;
+      const actionId = item.action_id;
+      const label = boundedText(item.label, MAX_NAVIGATION_LABEL);
+      const current =
+        item.current === true || item.current === "true"
+          ? true
+          : item.current === false || item.current === "false"
+            ? false
+            : null;
+      if (!validRouteId(routeId) || !validActionId(actionId) || !label ||
+          current === null || routeIds.has(routeId)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      routeIds.add(routeId);
+      if (current) currentRouteIds.add(routeId);
+
       const row = documentRef.createElement("div");
       const button = documentRef.createElement("button");
       button.type = "button";
-      button.id = "v2-nav-" + String(item.route_id || "");
-      button.textContent = String(item.label || item.route_id || "");
-      if (String(item.current) === "true") button.setAttribute("aria-current", "page");
+      button.id = "v2-nav-" + routeId;
+      button.textContent = label;
+      if (current) button.setAttribute("aria-current", "page");
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", String(item.action_id || ""), {}).then(function (result) {
+        bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
           if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
           refresh(true);
         }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
@@ -427,7 +455,11 @@
       row.appendChild(button);
       fragment.appendChild(row);
     });
-    navList.replaceChildren(fragment);
+    return {
+      routeIds: routeIds,
+      currentRouteIds: currentRouteIds,
+      fragment: fragment
+    };
   }
 
   function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
@@ -515,7 +547,7 @@
   }
 
   function render(snapshot, restoreFocus) {
-    if (!snapshot || typeof snapshot !== "object") return;
+    if (!plainObject(snapshot)) return;
     const selectionSnapshot = captureWorkspaceSelection();
     const previousLanguage = currentLanguage;
     const previousDocumentLanguage = documentRef.documentElement.lang;
@@ -530,13 +562,20 @@
       documentRef.documentElement.lang = currentLanguage;
       nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
       navHeading.textContent = uiText("Розділи", "Sections");
-      renderNavigation(snapshot);
-      const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
-      const routeId = String(screen.route_id || "board");
+      const navigationState = renderNavigation(snapshot);
+      const screen = plainObject(snapshot.screen) ? snapshot.screen : {};
+      const routeId = screen.route_id;
+      const requestedFocus = validFocusId(screen.focus_target) ? screen.focus_target : "";
+      const heading = boundedText(screen.heading, MAX_SCREEN_HEADING);
+      if (!validRouteId(routeId) || !heading ||
+          !navigationState.routeIds.has(routeId) ||
+          navigationState.currentRouteIds.size !== 1 ||
+          !navigationState.currentRouteIds.has(routeId)) {
+        throw new TypeError("V2 screen schema is invalid");
+      }
+      navList.replaceChildren(navigationState.fragment);
       currentRouteId = routeId;
       if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
-      const requestedFocus = String(screen.focus_target || "");
-      const heading = String(screen.heading || "");
 
       if (productRoutes.has(routeId)) {
         renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
