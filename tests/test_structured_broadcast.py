@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.structured_broadcast import (
     BroadcastApplyKind,
@@ -157,6 +158,54 @@ class StructuredBroadcastTests(unittest.TestCase):
         self.assertEqual(second.changed_game_ids, ("g1",))
         self.assertEqual(third.changed_game_ids, ())
         self.assertEqual([item.provider_game_id for item in session.games], ["g1", "g2"])
+
+    def test_accumulated_game_bound_fails_before_session_mutation(self):
+        session = self.session()
+        with patch("acs.structured_broadcast.MAX_BROADCAST_GAMES", 2):
+            first = session.apply(
+                envelope(sequence=1),
+                Canonical((game("g1"), game("g2", "tree:g2", "r2"))),
+            )
+            self.assertEqual(first.changed_game_ids, ("g1", "g2"))
+            with self.assertRaises(BroadcastContractError) as overflow:
+                session.apply(
+                    envelope(
+                        sequence=2,
+                        observed=2000,
+                        pgn='[Event "new"]\\n\\n1. d4 *',
+                    ),
+                    Canonical((game("g3", "tree:g3", "r3"),)),
+                )
+        self.assertEqual(
+            overflow.exception.code,
+            BroadcastErrorCode.INVALID_CANONICAL_RESULT,
+        )
+        self.assertEqual(session.last_sequence, 1)
+        self.assertEqual(
+            tuple(item.provider_game_id for item in session.games),
+            ("g1", "g2"),
+        )
+
+    def test_uncheckpointable_candidate_fails_before_session_mutation(self):
+        session = self.session()
+        large = game(
+            "g" * 200,
+            "r" * 200,
+            "v" * 200,
+        )
+        with patch("acs.structured_broadcast.MAX_BROADCAST_CHECKPOINT_BYTES", 300):
+            with self.assertRaises(BroadcastContractError) as oversized:
+                session.apply(envelope(), Canonical((large,)))
+        self.assertEqual(
+            oversized.exception.code,
+            BroadcastErrorCode.INVALID_CANONICAL_RESULT,
+        )
+        self.assertIsNone(session.last_sequence)
+        self.assertEqual(session.games, ())
+        self.assertEqual(
+            session.connection_state,
+            BroadcastConnectionState.DISCONNECTED,
+        )
 
     def test_checkpoint_restores_replay_and_monotonic_guards_disconnected(self):
         session = self.session()
