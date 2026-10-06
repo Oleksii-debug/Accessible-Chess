@@ -14,7 +14,14 @@ from typing import Protocol
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
+from .chessbase_adapter import (
+    component_extensions,
+    primary_extensions,
+    recognized_extensions,
+)
+from .chessbase_decoder import PROTOCOL_ID as CHESSBASE_DECODER_PROTOCOL_ID
 from .chesscore import Board
+from .format_import_report_service import FormatImportReportService
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
@@ -48,6 +55,30 @@ def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
         raise ChessAgentToolsError(f"{name} must be text")
     value = value.strip()
     return value or None
+
+
+def _canonical_extension(arguments: Mapping[str, object]) -> str:
+    if frozenset(arguments) != frozenset({"extension"}):
+        raise ChessAgentToolsError(
+            "formats.chessbase_extension requires exactly the extension argument"
+        )
+    value = arguments.get("extension")
+    if type(value) is not str:
+        raise ChessAgentToolsError("extension must be text")
+    value = value.strip().lower()
+    if not value:
+        raise ChessAgentToolsError("extension must not be empty")
+    if not value.startswith("."):
+        value = "." + value
+    body = value[1:]
+    if (
+        len(value) > 16
+        or not body
+        or not body.isascii()
+        or not body.isalnum()
+    ):
+        raise ChessAgentToolsError("extension is invalid")
+    return value
 
 
 class MediaAgentBridge:
@@ -136,6 +167,7 @@ class ChessAgentToolRegistry:
         board_commands_provider: Callable[[], BoardCommandService],
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
+        format_report_service: FormatImportReportService | None = None,
         media: MediaAgentBridge | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
@@ -147,8 +179,15 @@ class ChessAgentToolRegistry:
         self.executor = executor
         self.board_provider = board_provider
         self.board_commands_provider = board_commands_provider
+        if format_report_service is not None and not isinstance(
+            format_report_service, FormatImportReportService
+        ):
+            raise TypeError(
+                "format_report_service must be FormatImportReportService or None"
+            )
         self.analysis_service = analysis_service
         self.search_service = search_service
+        self.format_report_service = format_report_service
         self.media = media
 
     def register_all(self) -> tuple[ToolSpec, ...]:
@@ -157,6 +196,7 @@ class ChessAgentToolRegistry:
             self._register_engine()
         if self.search_service is not None:
             self._register_library()
+        self._register_formats()
         if self.media is not None:
             self._register_media()
         return self.executor.specs()
@@ -365,6 +405,134 @@ class ChessAgentToolRegistry:
                 },
             ),
             search,
+        )
+
+    def _register_formats(self) -> None:
+        recognized = recognized_extensions()
+        primaries = primary_extensions()
+        components = component_extensions()
+        recognized_set = frozenset(recognized)
+        primary_set = frozenset(primaries)
+        component_set = frozenset(components)
+
+        async def capabilities(arguments: Mapping[str, object]) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "formats.capabilities accepts no arguments"
+                )
+            return {
+                "chessBase": {
+                    "recognizedExtensions": list(recognized),
+                    "primaryExtensions": list(primaries),
+                    "componentExtensions": list(components),
+                    "recognitionAuthority": "filename_and_component_layout_only",
+                    "sourceReadOnly": True,
+                    "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                    "decoderBackend": "external_not_bundled",
+                    "neutralOutputRequired": True,
+                }
+            }
+
+        async def chessbase_extension(arguments: Mapping[str, object]) -> object:
+            extension = _canonical_extension(arguments)
+            return {
+                "extension": extension,
+                "recognized": extension in recognized_set,
+                "primarySource": extension in primary_set,
+                "componentOnly": extension in component_set,
+                "recognitionAuthority": "filename_and_component_layout_only",
+                "sourceReadOnly": True,
+                "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                "decoderBackend": "external_not_bundled",
+                "builtInSafeToImport": False,
+            }
+
+        self.executor.register(
+            ToolSpec(
+                "formats.capabilities",
+                "Read canonical format-family capability metadata without reading a user file.",
+            ),
+            capabilities,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.chessbase_extension",
+                "Classify one ChessBase-family extension using the canonical read-only adapter contract.",
+                input_schema={"extension": "extension such as .cbh or cbv"},
+            ),
+            chessbase_extension,
+        )
+
+        reports = self.format_report_service
+        if reports is None:
+            return
+
+        async def import_report(arguments: Mapping[str, object]) -> object:
+            if frozenset(arguments) != frozenset({"attempt_id"}):
+                raise ChessAgentToolsError(
+                    "formats.import_report requires exactly attempt_id"
+                )
+            attempt_id = _exact_int(
+                arguments.get("attempt_id"),
+                name="attempt_id",
+                minimum=1,
+                maximum=(1 << 63) - 1,
+            )
+            report = reports.get(attempt_id)
+            return {
+                "attemptId": attempt_id,
+                "found": report is not None,
+                "report": None if report is None else report.as_dict(),
+            }
+
+        async def import_reports(arguments: Mapping[str, object]) -> object:
+            allowed = frozenset({"status", "before_id", "limit"})
+            if not frozenset(arguments).issubset(allowed):
+                raise ChessAgentToolsError(
+                    "formats.import_reports received an unsupported argument"
+                )
+            status = arguments.get("status")
+            if status is not None and type(status) is not str:
+                raise ChessAgentToolsError("status must be text")
+            before_id = arguments.get("before_id")
+            if before_id is not None:
+                before_id = _exact_int(
+                    before_id,
+                    name="before_id",
+                    minimum=1,
+                    maximum=(1 << 63) - 1,
+                )
+            limit = _exact_int(
+                arguments.get("limit", 20),
+                name="limit",
+                minimum=1,
+                maximum=100,
+            )
+            return reports.list(
+                status=status,
+                before_id=before_id,
+                limit=limit,
+            ).as_dict()
+
+        self.executor.register(
+            ToolSpec(
+                "formats.import_report",
+                "Read one persisted canonical Library import report by attempt id.",
+                input_schema={"attempt_id": "positive import attempt id"},
+            ),
+            import_report,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.import_reports",
+                "List bounded persisted Library import reports newest-first.",
+                input_schema={
+                    "status": "optional pending/full/warning/damaged/failed",
+                    "before_id": "optional positive keyset cursor",
+                    "limit": "1-100",
+                },
+            ),
+            import_reports,
         )
 
     def _register_media(self) -> None:
