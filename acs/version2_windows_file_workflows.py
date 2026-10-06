@@ -2351,6 +2351,11 @@ class Version2WindowsFileActionDelegate:
             with self._lock:
                 if self._recovery_open_cancel_focus == recovery_open_focus:
                     self._recovery_open_cancel_focus = None
+                # Owner-async presentation can re-enter native FormClosing. If
+                # that callback fenced the delegate again, the caller must not
+                # advertise this recovery attempt as live.
+                if self._shutdown_requested:
+                    return False
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
