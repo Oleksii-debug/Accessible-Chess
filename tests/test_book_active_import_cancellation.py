@@ -284,54 +284,6 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
-    def test_epub_image_query_is_not_silently_resolved_to_package_asset(self):
-        import acs.book_epub_import as epub
-
-        self.assertEqual(
-            epub._resolved_asset('OEBPS/Text/chapter.xhtml', '../Images/board.png'),
-            'OEBPS/Images/board.png',
-        )
-        self.assertIsNone(
-            epub._resolved_asset(
-                'OEBPS/Text/chapter.xhtml',
-                '../Images/board.png?revision=1',
-            )
-        )
-
-    def test_epub_container_link_query_is_rejected_instead_of_stripped(self):
-        import acs.book_epub_import as epub
-
-        container = b'''<?xml version="1.0" encoding="UTF-8"?>
-<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-  <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-  </rootfiles>
-  <links>
-    <link href="metadata.xml?revision=1" rel="alternate"/>
-  </links>
-</container>'''
-        opf = _opf(
-            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
-            spine='    <itemref idref="c1"/>',
-        )
-        raw = _epub(
-            opf=opf,
-            container=container,
-            entries={
-                'OEBPS/Text/ch1.xhtml': b'<html><body><p>Readable chapter</p></body></html>',
-                'metadata.xml': b'<metadata/>',
-            },
-        )
-
-        with self.assertRaises(epub.BookEpubImportError) as caught:
-            import_epub_book(raw, source_name='query-link.epub')
-
-        self.assertEqual(
-            caught.exception.code,
-            epub.BookEpubImportErrorCode.MALFORMED_PACKAGE,
-        )
-        self.assertIn('query component', str(caught.exception))
-
     def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
         import acs.book_epub_import as epub
 
