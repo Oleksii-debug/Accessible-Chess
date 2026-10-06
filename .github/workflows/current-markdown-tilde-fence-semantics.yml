@@ -1,0 +1,78 @@
+name: Current Markdown Tilde Fence Semantics
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'acs/book_text_import.py'
+      - 'tests/test_markdown_library_journey.py'
+      - '.github/workflows/current-markdown-tilde-fence-semantics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-markdown-tilde-fence-semantics-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  SOURCE_BLOB: ef6f311ae430d894f30d976483e24cae30edcc6a
+  TEST_BLOB: 9632b62fa4f098e23dd087da9a4f4422d69c3672
+
+jobs:
+  qualify:
+    name: semantic-contract-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove live shipping base and exact bounded delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin "refs/heads/$BASE_REF"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test -n "$live_base"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            test "${{ github.event.pull_request.base.sha }}" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          mapfile -t actual < <(git diff --name-only "$live_base"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-markdown-tilde-fence-semantics.yml"
+            "acs/book_text_import.py"
+            "tests/test_markdown_library_journey.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:acs/book_text_import.py)" = "$SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_markdown_library_journey.py)" = "$TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded Markdown surfaces
+        run: python -m compileall -q acs/book_text_import.py tests/test_markdown_library_journey.py
+
+      - name: Execute Markdown semantic regression
+        run: python -m unittest -v tests.test_markdown_library_journey
