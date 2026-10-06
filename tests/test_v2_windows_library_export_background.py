@@ -439,6 +439,60 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertTrue(destination.exists())
             self.assertEqual(len(open_pgn(destination)), 1)
 
+    def test_refused_shutdown_resume_reuses_owner_and_fences_stale_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            first_destination = Path(directory) / "before-refused-close.pgn"
+            second_destination = Path(directory) / "after-refused-close.pgn"
+            events: list[LibraryExportHostEvent] = []
+            posted: list[object] = []
+            delegate, dialogs = self._delegate(
+                first_destination,
+                self._worker_factory(database_path),
+                events,
+                posted,
+            )
+            request = LibraryExportRequest.selected([game_id]).browser_payload()
+
+            first_started = delegate("library.export", request)
+            self.assertEqual(first_started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertEqual(len(posted), 1)
+            stale_finish = posted.pop()
+            self.assertTrue(delegate.export_running)
+            self.assertTrue(first_destination.exists())
+
+            self.assertTrue(delegate.shutdown())
+            self.assertFalse(delegate.export_running)
+            unavailable = delegate("library.export", request)
+            self.assertEqual(unavailable.kind, LibraryExportHostEventKind.FAILED)
+            self.assertEqual(unavailable.error_code, "library_export_unavailable")
+
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            stale_finish()
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    LibraryExportHostEventKind.STARTED,
+                    LibraryExportHostEventKind.FAILED,
+                ],
+            )
+            self.assertFalse(delegate.export_running)
+
+            dialogs.destination = second_destination
+            second_started = delegate("library.export", request)
+            self.assertEqual(second_started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertEqual(len(posted), 1)
+            posted.pop()()
+
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events[-1].game_count, 1)
+            self.assertTrue(second_destination.exists())
+            self.assertEqual(len(open_pgn(second_destination)), 1)
+            self.assertTrue(delegate.shutdown())
+
     def test_export_scope_rejects_active_text_before_comparison_or_dialog(self) -> None:
         touched: list[str] = []
 
