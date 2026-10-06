@@ -105,6 +105,46 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
 
         self.assertEqual(session.workspace.to_text(), before)
 
+    def test_surrogate_edit_text_is_rejected_atomically_across_commands(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "Stable"]\n[Result "*"]\n\n1. e4 e5 *'
+        )
+        session.workspace.set_cursor(GameTreeCursor((), 1))
+        commands = Version2PgnCommands(lambda: session)
+
+        def snapshot():
+            view = session.workspace.view()
+            return (
+                session.workspace.to_text(),
+                view.content_revision,
+                view.content_digest,
+                session.workspace.cursor,
+                session.workspace.dirty,
+            )
+
+        for action_id, extra in (
+            ("pgn.comment_edit", {"text": "\ud800"}),
+            ("pgn.nag_edit", {"text": "$1 \udfff"}),
+            ("pgn.variation_add", {"text": "c5 {\ud800}"}),
+        ):
+            before = snapshot()
+            with self.subTest(action_id=action_id):
+                with self.assertRaises(ValueError):
+                    commands(
+                        action_id,
+                        {**command_target(session), **extra},
+                    )
+                self.assertEqual(before, snapshot())
+
+        session.workspace.line_end()
+        before = snapshot()
+        with self.assertRaises(ValueError):
+            commands(
+                "pgn.append_moves",
+                {**command_target(session), "text": "Nf3 {\ud800}"},
+            )
+        self.assertEqual(before, snapshot())
+
     def test_nag_edit_and_clear_round_trip(self):
         session = PgnDocumentSession.from_text("1. e4 e5 *")
         session.workspace.set_cursor(GameTreeCursor((), 1))
