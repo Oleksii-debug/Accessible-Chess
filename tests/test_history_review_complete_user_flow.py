@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 from acs.keybindings import ActionRegistry, BindingContext
@@ -111,6 +112,43 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), live_fen)
         self.assertFalse(api.get_state()["atHistoryEnd"])
 
+    def test_history_projection_fails_closed_when_metadata_outgrows_live_line(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5")
+        api.sans.append("Nf3")
+        api.move_sides.append("w")
+
+        self.assertEqual(api._history_items(), [])
+
+    def test_live_line_projection_rejects_cycle_instead_of_hanging(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        live = api.live_history_node
+        cycle_parent = live + 1000
+
+        class CyclicHistory:
+            @staticmethod
+            def tree_nodes():
+                return [
+                    SimpleNamespace(node_id=live, parent_id=cycle_parent),
+                    SimpleNamespace(node_id=cycle_parent, parent_id=live),
+                ]
+
+        with self.assertRaisesRegex(RuntimeError, "cyclic live review history"):
+            api._live_line_nodes(CyclicHistory())
+
+    def test_committed_review_and_live_end_are_distinct_semantic_states(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5", "Nf3")
+        reviewed = api.go_to_move("1")
+        self.assertTrue(reviewed["ok"])
+
+        items = reviewed["historyItems"]
+        self.assertTrue(items[0]["selected"])
+        self.assertFalse(items[0]["live"])
+        self.assertFalse(items[-1]["selected"])
+        self.assertTrue(items[-1]["live"])
+
     def test_history_list_is_keyboard_select_then_enter_commit(self) -> None:
         html = (
             Path(__file__).resolve().parents[1] / "web" / "index.html"
@@ -127,6 +165,12 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             "e.key==='Enter'",
             "apiAction('go_to_move',String(ply))",
             "setHistoryBrowsePly(Number(options[next].dataset.ply),true)",
+            "aria-current",
+            "current review position",
+            "live game end",
+            "const sequenceOk=plies.every((ply,i)=>ply===i+1)",
+            "const committedOk=cursor===0?committed.length===0",
+            "const liveOk=valid.length===0?live.length===0",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)

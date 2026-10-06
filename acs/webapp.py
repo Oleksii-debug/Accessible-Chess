@@ -218,6 +218,10 @@ class AccessibleChessAPI:
         except Exception:
             return []
         current_node = self.review_history.cursor_node_id
+        if len(lineage) != len(self.sans) + 1:
+            return []
+        if current_node not in set(lineage):
+            return []
         if len(self.sans) != len(self.move_sides):
             return []
         if any(type(san) is not str for san in self.sans):
@@ -398,11 +402,24 @@ class AccessibleChessAPI:
         source = self.review_history if history is None else history
         records = source.tree_nodes()
         by_id = {record.node_id: record for record in records}
+        if len(by_id) != len(records):
+            raise RuntimeError("duplicate review history node")
         lineage: list[int] = []
+        seen: set[int] = set()
         current: int | None = self.live_history_node
         while current is not None:
+            if current in seen:
+                raise RuntimeError("cyclic live review history")
+            record = by_id.get(current)
+            if record is None:
+                raise RuntimeError("live review history node is missing")
+            seen.add(current)
             lineage.append(current)
-            current = by_id[current].parent_id
+            if len(lineage) > len(records):
+                raise RuntimeError("live review history exceeds node inventory")
+            current = record.parent_id
+        if not lineage:
+            raise RuntimeError("live review history is empty")
         lineage.reverse()
         return lineage
 
