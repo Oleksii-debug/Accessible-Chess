@@ -336,7 +336,10 @@ class ChessAgentToolRegistry:
                 source_name=_optional_text(arguments, "source_name"),
                 limit=limit,
             )
-            page = await asyncio.to_thread(service.search, query)
+            # GameSearchService owns a thread-affine ACSDB connection. The host
+            # must create and execute this registry on the service owner thread;
+            # moving only the query to a worker thread violates that contract.
+            page = service.search(query)
             return {
                 "items": [asdict(item) for item in page.items],
                 "hasMore": page.has_more,
