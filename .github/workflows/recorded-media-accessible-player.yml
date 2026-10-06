@@ -51,7 +51,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_PARENT_BRANCH: work/recorded-media-canonical-application-adapter-20261005-sol56q8n4
-          EXPECTED_PARENT: 2a371bef8d475e1e1e8305d333651c061fce128f
+          EXPECTED_PARENT: 77a8ba72c899eada82859d377961d90dc8e037a4
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
