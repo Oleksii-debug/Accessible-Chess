@@ -67,7 +67,7 @@ class PgnWebViewBridge:
     def _text(value: object, *, name: str, limit: int) -> str:
         if type(value) is not str:
             raise TypeError(f"{name} must be text")
-        if _utf16_units(value) > limit or "\x00" in value:
+        if len(value) > limit or _utf16_units(value) > limit or "\x00" in value:
             raise ValueError(f"{name} is invalid")
         token = value.strip() if name != "comment text" else value
         if name != "comment text" and not token:
@@ -156,7 +156,7 @@ class PgnWebViewBridge:
                 value = data["value"]
                 if (
                     type(value) is not str
-                    or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                    or len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS\n                    or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
                     or "\x00" in value
                     or "\r" in value
                     or "\n" in value
@@ -224,7 +224,7 @@ class PgnWebViewBridge:
             if command_id == "pgn.nag_edit":
                 self._exact_fields(data, {"text"})
                 raw = data["text"]
-                if type(raw) is not str or _utf16_units(raw) > 512 or "\x00" in raw:
+                if type(raw) is not str or len(raw) > 512 or _utf16_units(raw) > 512 or "\x00" in raw:
                     raise ValueError("NAG text is invalid")
                 text = raw.strip()
                 guarded = presentation_guard()
