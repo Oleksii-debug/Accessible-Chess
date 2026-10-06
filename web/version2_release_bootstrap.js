@@ -79,7 +79,7 @@
     const text = boundedText(message, MAX_ANNOUNCEMENT_TEXT);
     if (!text) return;
     live.textContent = "";
-    global.setTimeout(function () { live.textContent = text.slice(0, 300); }, 20);
+    global.setTimeout(function () { live.textContent = text; }, 20);
   }
 
   const nav = documentRef.createElement("nav");
