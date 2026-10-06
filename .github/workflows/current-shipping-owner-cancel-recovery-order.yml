@@ -25,6 +25,7 @@ env:
   OPEN_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
   SAVE_TERMINAL_TEST_BLOB: 21c22aca52b4aa6fb3a1bab2509e0a89d19fb290
   SAVE_WORKER_TEST_BLOB: 5ddd7c4634dad4bd0e8c4d41b6f7549395220c04
+  APP_TEST_BLOB: 38c92f2c798e245a7faa078deb70d2b1ef1bf8c1
 jobs:
   cancel-recovery-order:
     strategy:
@@ -75,6 +76,7 @@ jobs:
             "tests/test_v2_windows_pgn_open_worker.py"
             "tests/test_v2_windows_pgn_save_terminal_truth.py"
             "tests/test_v2_windows_pgn_save_worker.py"
+            "tests/test_version2_application.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
@@ -86,6 +88,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_terminal_truth.py)" = "$SAVE_TERMINAL_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SAVE_WORKER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$APP_TEST_BLOB"
 
       - name: Compile runtime, semantic, package and receipt boundaries
         run: >-
@@ -112,6 +115,7 @@ jobs:
           tests/test_v2_windows_pgn_open_worker.py
           tests/test_v2_windows_pgn_save_worker.py
           tests/test_v2_windows_pgn_save_terminal_truth.py
+          tests/test_version2_application.py
 
       - name: Execute Books semantic navigation and recovery contracts
         run: >-
