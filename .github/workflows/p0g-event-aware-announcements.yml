@@ -15,6 +15,7 @@ on:
       - 'tests/js/p0_accessibility_runtime_test.js'
       - 'tests/test_accessible_webui.py'
       - 'tests/test_p0_dynamic_selection_action_delivery.py'
+      - 'tests/test_v2_board_analysis_hotkey_feedback.py'
       - '.github/workflows/p0g-event-aware-announcements.yml'
   workflow_dispatch:
 
