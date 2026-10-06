@@ -13,8 +13,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: pgn-save-generation-atomicity-${{ github.head_ref || github.ref_name }}
+  group: pgn-generation-import-apex-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  PRE_OWNER_APEX_SHA: 0a15bf52a7f5cab98edae8d04e12eca93c6701d6
+  OWNER_SOURCE_SHA: 06de5d9d4913af5ffb7d223c38605487c72e0c0f
 
 jobs:
   exact-composed-generation:
@@ -23,16 +28,8 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
-    env:
-      BASE_BRANCH: converge/current-windows-pgn-import-apex-20261006-c2m82
-      BASE_SHA: 4608b908142dce4a2b6a22f656d6b531533995c3
-      SOURCE_BRANCH: converge/pgn-save-generation-on-atomicity-20261006-ooxple7
-      SOURCE_SHA: fab71a2e3e8f4c2ba0522f9dfde5da5dbd2fe269
-      SOURCE_WORKFLOW_BLOB: 774f36206e3c85f5fc29755d2270bbcd7f0997c3
-      SOURCE_SNAPSHOT_BLOB: c7d592b4fbb2cae00777fd77c2f43c4928b5fe6e
-      SOURCE_SNAPSHOT_TEST_BLOB: f49afc2810cae452eac90d86627d68b6dbb62970
-      SOURCE_WORKER_TEST_BLOB: 012dd3e6acee8f6ee1d95b915f63d1055d124844
+    timeout-minutes: 60
+
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -55,62 +52,75 @@ jobs:
       - name: Install pinned test runner
         run: python -m pip install -q pytest==8.4.2
 
-      - name: Prove exact Windows apex and #2149 source authority
+      - name: Prove absorbed bounded owner commit and exact authority
         shell: bash
         run: |
           set -euo pipefail
-          head_sha="$(git rev-parse HEAD)"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
-          else
-            test "$head_sha" = "${{ github.sha }}"
-          fi
-          git fetch --no-tags origin \
-            "+refs/heads/$BASE_BRANCH:refs/remotes/origin/windows-apex-base" \
-            "+refs/heads/$SOURCE_BRANCH:refs/remotes/origin/pgn-generation-source"
-          live_base="$(git rev-parse refs/remotes/origin/windows-apex-base)"
-          test "$live_base" = "$BASE_SHA"
-          live_source="$(git rev-parse refs/remotes/origin/pgn-generation-source)"
-          test "$live_source" = "$SOURCE_SHA"
-          git cat-file -e "$BASE_SHA^{commit}"
-          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          git diff --check "$BASE_SHA"...HEAD
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$head"
+          git cat-file -e "$PRODUCT_SHA^{commit}"
+          git cat-file -e "$PRE_OWNER_APEX_SHA^{commit}"
+          git cat-file -e "$OWNER_SOURCE_SHA^{commit}"
+          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          test "$(git merge-base "$PRE_OWNER_APEX_SHA" HEAD)" = "$PRE_OWNER_APEX_SHA"
+          git merge-base --is-ancestor "$OWNER_SOURCE_SHA" HEAD
+          git diff --check "$PRE_OWNER_APEX_SHA"...HEAD
 
-          mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
-          printf '%s\n' "${paths[@]}"
-          expected=(
-            ".github/workflows/pgn-save-generation-on-atomicity.yml"
+          mapfile -t leaf_paths < <(git diff --name-only "$PRE_OWNER_APEX_SHA"..."$OWNER_SOURCE_SHA" | sort)
+          leaf_expected=(
+            ".github/workflows/pgn-owner-commit-bounded-checkpoint.yml"
             "acs/pgn_save_snapshot.py"
+            "acs/pgn_workspace.py"
             "tests/test_pgn_save_snapshot.py"
+            "tests/test_pgn_workspace.py"
             "tests/test_v2_windows_pgn_save_worker.py"
           )
-          test "${#paths[@]}" -eq "${#expected[@]}"
-          for i in "${!expected[@]}"; do
-            test "${paths[$i]}" = "${expected[$i]}"
+          test "${#leaf_paths[@]}" -eq "${#leaf_expected[@]}"
+          for i in "${!leaf_expected[@]}"; do
+            test "${leaf_paths[$i]}" = "${leaf_expected[$i]}"
           done
 
-          test "$(git rev-parse refs/remotes/origin/pgn-generation-source:.github/workflows/pgn-save-generation-on-atomicity.yml)" = "$SOURCE_WORKFLOW_BLOB"
-          test "$(git rev-parse HEAD:acs/pgn_save_snapshot.py)" = "$SOURCE_SNAPSHOT_BLOB"
-          test "$(git rev-parse HEAD:tests/test_pgn_save_snapshot.py)" = "$SOURCE_SNAPSHOT_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SOURCE_WORKER_TEST_BLOB"
-          test "$(git rev-parse HEAD:acs/pgn_save_snapshot.py)" = "$(git rev-parse refs/remotes/origin/pgn-generation-source:acs/pgn_save_snapshot.py)"
-          test "$(git rev-parse HEAD:tests/test_pgn_save_snapshot.py)" = "$(git rev-parse refs/remotes/origin/pgn-generation-source:tests/test_pgn_save_snapshot.py)"
-          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$(git rev-parse refs/remotes/origin/pgn-generation-source:tests/test_v2_windows_pgn_save_worker.py)"
+          mapfile -t expected < <(
+            {
+              git diff --name-only "$PRE_OWNER_APEX_SHA"..."$OWNER_SOURCE_SHA"
+              printf '%s\n' ".github/workflows/pgn-save-generation-on-atomicity.yml"
+            } | sort -u
+          )
+          mapfile -t actual < <(git diff --name-only "$PRE_OWNER_APEX_SHA"...HEAD | sort)
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
 
-      - name: Compile composed save transaction
+          mapfile -t integration_delta < <(git diff --name-only "$OWNER_SOURCE_SHA"...HEAD | sort)
+          test "${#integration_delta[@]}" -eq 1
+          test "${integration_delta[0]}" = ".github/workflows/pgn-save-generation-on-atomicity.yml"
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' || true)"
+
+      - name: Compile converged PGN and Windows boundaries
         run: >-
           python -m py_compile
+          acs/pgn_document.py
           acs/pgn_save_snapshot.py
-          tests/test_pgn_save_snapshot.py
-          tests/test_v2_windows_pgn_save_worker.py
-          tests/test_v2_windows_file_worker_shutdown_fence.py
+          acs/pgn_workspace.py
+          acs/chessbase_library_import.py
+          acs/library_webview_projection.py
+          acs/version2_application.py
+          acs/version2_release_app.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_windows_pgn_streaming_host.py
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_event_mailbox.py
+          acs/version2_windows_import_ui_pump.py
+          acs/version2_windows_library_import_observer.py
 
-      - name: Execute transaction and Windows save regressions
+      - name: Execute PGN persistence and Windows UI regressions
         run: >-
           python -m unittest -v
           tests.test_pgn_save_snapshot
           tests.test_pgn_document
           tests.test_pgn_workspace
+          tests.test_v2_windows_pgn_open_worker
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_file_worker_shutdown_fence
           tests.test_v2_windows_pgn_save_terminal_truth
@@ -128,12 +138,12 @@ jobs:
           tests.test_version2_composition_startup_cleanup_current
           tests.test_chessbase_library_import_report_passive
 
-      - name: Pytest focused composition
+      - name: Pytest focused owner-commit suite
         run: >-
           pytest -q
+          tests/test_pgn_workspace.py
           tests/test_pgn_save_snapshot.py
           tests/test_v2_windows_pgn_save_worker.py
-          tests/test_v2_windows_file_worker_shutdown_fence.py
 
       - name: Core selftest
         run: python -m acs.selftest
