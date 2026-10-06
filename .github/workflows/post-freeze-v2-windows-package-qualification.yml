@@ -21,6 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  SHIPPING_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   PRODUCT_PARENT_SHA: 6be0afe67366b62757baae53ab0eaae6b8bfafdf
   PREVIOUS_PACKAGE_SHA: c53a3c12c8e6c21fb53529f2aa7174c3450b66a9
   PREVIOUS_PUBLICATION_SHA: c53a3c12c8e6c21fb53529f2aa7174c3450b66a9
@@ -65,6 +66,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Prove exact W5 qualification child
         shell: bash
@@ -78,6 +80,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --no-tags origin "refs/heads/$SHIPPING_REF"
+          live_shipping="$(git rev-parse FETCH_HEAD)"
+          test -n "$live_shipping"
+          test "$live_shipping" = "$PRODUCT_PARENT_SHA" || {
+            printf 'W5 parent is stale: expected=%s live=%s\n' "$PRODUCT_PARENT_SHA" "$live_shipping" >&2
+            exit 1
+          }
           git cat-file -e "$PRODUCT_PARENT_SHA^{commit}"
           git cat-file -e "$PREVIOUS_PACKAGE_SHA^{commit}"
           git cat-file -e "$EXECUTOR_TEMPLATE_SHA^{commit}"
