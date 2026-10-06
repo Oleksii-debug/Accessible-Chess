@@ -15,6 +15,7 @@ from acs.book_epub_import import (
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
     _Warnings,
+    _xml_root,
 )
 from acs.bookdocument import (
     MAX_BOOK_DOCUMENT_WARNINGS,
@@ -58,6 +59,40 @@ def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
 {spine}
   </spine>
 </package>'''.encode("utf-8")
+
+
+class EpubXmlStructureBudgetTests(unittest.TestCase):
+    def test_package_xml_depth_is_bounded_before_elementtree_build(self) -> None:
+        payload = b"<root><a><b><c/></b></a></root>"
+        with patch("acs.book_epub_import.MAX_EPUB_XML_DEPTH", 3):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("XML structure limits", str(raised.exception))
+
+    def test_package_xml_element_count_is_bounded_before_elementtree_build(self) -> None:
+        payload = b"<root><a/><b/><c/></root>"
+        with patch("acs.book_epub_import.MAX_EPUB_XML_ELEMENTS", 3):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("XML structure limits", str(raised.exception))
+
+    def test_package_xml_structure_limit_accepts_exact_boundary(self) -> None:
+        payload = b"<root><a><b/></a></root>"
+        with (
+            patch("acs.book_epub_import.MAX_EPUB_XML_DEPTH", 3),
+            patch("acs.book_epub_import.MAX_EPUB_XML_ELEMENTS", 3),
+        ):
+            root = _xml_root(payload, "test package metadata")
+        self.assertEqual(root.tag, "root")
+        self.assertEqual(len(list(root.iter())), 3)
 
 
 class EpubWarningBudgetTests(unittest.TestCase):
