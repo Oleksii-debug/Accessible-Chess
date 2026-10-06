@@ -59,6 +59,11 @@ class EpdRecord:
             raise TypeError("EPD operations must contain EpdOperation values")
         if len(self.operations) > MAX_EPD_OPERATIONS:
             raise EpdParseError("EPD contains too many operations")
+        seen: set[str] = set()
+        for operation in self.operations:
+            if operation.opcode in seen:
+                raise EpdParseError(f"duplicate EPD {operation.opcode} operation")
+            seen.add(operation.opcode)
 
     def to_epd(self) -> str:
         return serialize_epd(self)
@@ -141,6 +146,7 @@ def serialize_epd(record: EpdRecord) -> str:
     if len(fields) != 6:
         raise EpdParseError("canonical position did not produce six FEN fields")
 
+    core = " ".join(fields[:4])
     rendered: list[str] = []
     seen_hmvc = False
     seen_fmvn = False
@@ -165,7 +171,9 @@ def serialize_epd(record: EpdRecord) -> str:
     if record.position.fullmove != 1 and not seen_fmvn:
         rendered.append(f"fmvn {record.position.fullmove};")
 
-    core = " ".join(fields[:4])
+    serialized_length = len(core) + sum(1 + len(item) for item in rendered)
+    if serialized_length > MAX_EPD_CHARS:
+        raise EpdParseError("serialized EPD is too long")
     return core if not rendered else core + " " + " ".join(rendered)
 
 
@@ -236,6 +244,12 @@ def _parse_counter(operation: EpdOperation) -> int:
 
 
 def _validate_operand(operand: str) -> None:
+    if len(operand) > MAX_EPD_CHARS:
+        raise EpdParseError("EPD operand is too long")
+    if operand == "":
+        raise EpdParseError("EPD operand text must not be empty")
+    if operand.startswith(" ") or operand.endswith(" "):
+        raise EpdParseError("EPD operand must not have leading or trailing spaces")
     if not operand.isascii():
         raise EpdParseError("EPD operands must use ASCII text")
 
