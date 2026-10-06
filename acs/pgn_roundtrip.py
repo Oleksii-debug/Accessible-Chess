@@ -22,6 +22,7 @@ from typing import Iterable
 from .gametree import (
     CanonicalPgnGameFramer,
     Comment,
+    CommentStyle,
     GameTreeContractError,
     GameTreeErrorCode,
     GameTreeSerializationError,
@@ -670,6 +671,11 @@ def _measure_comment(
     if type(comment.text) is not str:
         raise PgnRoundTripError(
             "PGN model contains an invalid comment",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if type(comment.style) is not CommentStyle:
+        raise PgnRoundTripError(
+            "PGN model contains an invalid comment style",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     if len(comment.text) > MAX_PGN_COMMENT_CHARS:

@@ -265,6 +265,32 @@ class D06PgnRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(touches, [])
 
+    def test_active_comment_style_fails_before_enum_coercion(self):
+        touches = []
+
+        class ActiveStyle:
+            def __eq__(self, other):
+                touches.append(("eq", other))
+                raise AssertionError("active comment-style comparison must not execute")
+
+            def __repr__(self):
+                touches.append(("repr", None))
+                raise AssertionError("active comment-style repr must not execute")
+
+        comment = Comment("safe text")
+        comment.style = ActiveStyle()
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(leading_comments=[comment], result="*"),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+        self.assertEqual(touches, [])
+
     def test_bytes_parse_runs_one_semantic_preflight_with_shared_budget(self):
         payload = b'[Result "*"]\n\n1. e4 *\n'
         with patch.object(
