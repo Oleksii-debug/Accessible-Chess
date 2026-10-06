@@ -7,7 +7,7 @@ canonical Board, AnalysisService, GameSearchService or media timeline boundary.
 """
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
 from typing import Protocol
 
@@ -28,6 +28,9 @@ class MediaPlaybackPort(Protocol):
 
 class ChessAgentToolsError(ValueError):
     pass
+
+
+OwnerThreadCall = Callable[[Callable[[], object]], Awaitable[object]]
 
 
 def _exact_int(value: object, *, name: str, minimum: int, maximum: int) -> int:
@@ -137,6 +140,7 @@ class ChessAgentToolRegistry:
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
+        owner_call: OwnerThreadCall | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
             raise TypeError("executor must be ToolExecutor")
@@ -144,12 +148,24 @@ class ChessAgentToolRegistry:
             raise TypeError("board_provider must be callable")
         if not callable(board_commands_provider):
             raise TypeError("board_commands_provider must be callable")
+        if owner_call is not None and not callable(owner_call):
+            raise TypeError("owner_call must be callable or None")
         self.executor = executor
         self.board_provider = board_provider
         self.board_commands_provider = board_commands_provider
         self.analysis_service = analysis_service
         self.search_service = search_service
         self.media = media
+        self.owner_call = owner_call
+
+    async def _on_owner(self, callback: Callable[[], object]) -> object:
+        """Run one canonical application operation on its owner thread."""
+
+        if not callable(callback):
+            raise TypeError("owner callback must be callable")
+        if self.owner_call is None:
+            return callback()
+        return await self.owner_call(callback)
 
     def register_all(self) -> tuple[ToolSpec, ...]:
         self._register_board()
@@ -179,25 +195,28 @@ class ChessAgentToolRegistry:
 
     def _register_board(self) -> None:
         async def current(_arguments: Mapping[str, object]) -> object:
-            board = self._board()
-            service = self._board_commands()
-            last_move = service.last_move()
-            return {
-                "fen": board.fen(),
-                "turn": service.board.turn,
-                "inCheck": board.in_check(),
-                "legalMoveCount": len(service.board.legal_moves),
-                "lastMove": (
-                    None
-                    if last_move is None
-                    else {
-                        "from": last_move.frm,
-                        "to": last_move.to,
-                        "san": last_move.san,
-                        "capture": last_move.is_capture,
-                    }
-                ),
-            }
+            def read() -> object:
+                board = self._board()
+                service = self._board_commands()
+                last_move = service.last_move()
+                return {
+                    "fen": board.fen(),
+                    "turn": service.board.turn,
+                    "inCheck": board.in_check(),
+                    "legalMoveCount": len(service.board.legal_moves),
+                    "lastMove": (
+                        None
+                        if last_move is None
+                        else {
+                            "from": last_move.frm,
+                            "to": last_move.to,
+                            "san": last_move.san,
+                            "capture": last_move.is_capture,
+                        }
+                    ),
+                }
+
+            return await self._on_owner(read)
 
         async def square(arguments: Mapping[str, object]) -> object:
             raw = arguments.get("square")
@@ -206,46 +225,56 @@ class ChessAgentToolRegistry:
                     "square must be algebraic text"
                 )
             name = raw.strip().lower()
-            service = self._board_commands()
-            view = service.current(name)
-            return {
-                "square": view.square,
-                "piece": view.piece,
-                "attackers": [
-                    {"square": item.square, "piece": item.piece}
-                    for item in service.attackers(name)
-                ],
-                "defenders": [
-                    {"square": item.square, "piece": item.piece}
-                    for item in service.defenders(name)
-                ],
-            }
+
+            def read() -> object:
+                service = self._board_commands()
+                view = service.current(name)
+                return {
+                    "square": view.square,
+                    "piece": view.piece,
+                    "attackers": [
+                        {"square": item.square, "piece": item.piece}
+                        for item in service.attackers(name)
+                    ],
+                    "defenders": [
+                        {"square": item.square, "piece": item.piece}
+                        for item in service.defenders(name)
+                    ],
+                }
+
+            return await self._on_owner(read)
 
         async def legal_moves(
             _arguments: Mapping[str, object],
         ) -> object:
-            service = self._board_commands()
-            moves = service.board.legal_moves
-            labels = [
-                move.san or f"{square_name(move.frm)}-{square_name(move.to)}"
-                for move in moves
-            ]
-            return {
-                "moves": labels,
-                "count": len(moves),
-            }
+            def read() -> object:
+                service = self._board_commands()
+                moves = service.board.legal_moves
+                labels = [
+                    move.san or f"{square_name(move.frm)}-{square_name(move.to)}"
+                    for move in moves
+                ]
+                return {
+                    "moves": labels,
+                    "count": len(moves),
+                }
+
+            return await self._on_owner(read)
 
         async def material(
             _arguments: Mapping[str, object],
         ) -> object:
-            view = self._board_commands().material()
-            return {
-                "white": dict(view.white),
-                "black": dict(view.black),
-                "whitePoints": view.white_points,
-                "blackPoints": view.black_points,
-                "balance": view.balance,
-            }
+            def read() -> object:
+                view = self._board_commands().material()
+                return {
+                    "white": dict(view.white),
+                    "black": dict(view.black),
+                    "whitePoints": view.white_points,
+                    "blackPoints": view.black_points,
+                    "balance": view.balance,
+                }
+
+            return await self._on_owner(read)
 
         self.executor.register(
             ToolSpec(
@@ -282,7 +311,6 @@ class ChessAgentToolRegistry:
         assert service is not None
 
         async def analyze(arguments: Mapping[str, object]) -> object:
-            board = self._board()
             multipv = _exact_int(
                 arguments.get("multipv", 3),
                 name="multipv",
@@ -295,9 +323,10 @@ class ChessAgentToolRegistry:
                 minimum=1,
                 maximum=40,
             )
+            fen = await self._on_owner(lambda: self._board().fen())
             result = await asyncio.to_thread(
                 service.analyze,
-                board.fen(),
+                fen,
                 multipv,
                 depth,
             )
@@ -339,12 +368,15 @@ class ChessAgentToolRegistry:
             # GameSearchService owns a thread-affine ACSDB connection. The host
             # must create and execute this registry on the service owner thread;
             # moving only the query to a worker thread violates that contract.
-            page = service.search(query)
-            return {
-                "items": [asdict(item) for item in page.items],
-                "hasMore": page.has_more,
-                "nextAfterGameId": page.next_after_game_id,
-            }
+            def search_on_owner() -> object:
+                page = service.search(query)
+                return {
+                    "items": [asdict(item) for item in page.items],
+                    "hasMore": page.has_more,
+                    "nextAfterGameId": page.next_after_game_id,
+                }
+
+            return await self._on_owner(search_on_owner)
 
         self.executor.register(
             ToolSpec(
@@ -372,16 +404,16 @@ class ChessAgentToolRegistry:
         assert media is not None
 
         async def status(_arguments: Mapping[str, object]) -> object:
-            return media.status()
+            return await self._on_owner(media.status)
 
         async def restore(_arguments: Mapping[str, object]) -> object:
-            return media.restore()
+            return await self._on_owner(media.restore)
 
         async def play(_arguments: Mapping[str, object]) -> object:
-            return media.play()
+            return await self._on_owner(media.play)
 
         async def pause(_arguments: Mapping[str, object]) -> object:
-            return media.pause()
+            return await self._on_owner(media.pause)
 
         async def seek(arguments: Mapping[str, object]) -> object:
             position = _exact_int(
@@ -390,7 +422,7 @@ class ChessAgentToolRegistry:
                 minimum=0,
                 maximum=24 * 60 * 60 * 1000,
             )
-            return media.seek(position)
+            return await self._on_owner(lambda: media.seek(position))
 
         self.executor.register(
             ToolSpec(
