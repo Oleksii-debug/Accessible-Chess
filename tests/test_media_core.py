@@ -459,6 +459,14 @@ class MediaCoreContractTests(unittest.TestCase):
         clock.resume(3500)
         self.assertEqual(clock.snapshot(4000).position_ms, 1000)
 
+    def test_clock_late_buffer_event_cannot_reopen_ended_media(self):
+        clock = MediaClock(duration_ms=1000)
+        clock.play(0)
+        ended = clock.end(500)
+        self.assertEqual(ended.state, MediaPlaybackState.ENDED)
+        buffered = clock.buffer(600)
+        self.assertEqual(buffered.state, MediaPlaybackState.ENDED)
+        self.assertEqual(buffered.position_ms, 1000)
     def test_clock_end_clamps_to_duration_and_stays_ended(self):
         clock = MediaClock(duration_ms=5000)
         clock.play(0)
