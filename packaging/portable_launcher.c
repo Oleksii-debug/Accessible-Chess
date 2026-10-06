@@ -279,9 +279,10 @@ static void ac_error_detail(DWORD code) {
 }
 
 static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
-    BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);
+    DWORD stable_code = code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : code;
+    BOOL child_stopped = ac_retire_owned_child(stable_code);
     BOOL has_report = report != NULL && report != INVALID_HANDLE_VALUE;
-    ac_error_detail(code);
+    ac_error_detail(stable_code);
     if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
         ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
@@ -291,7 +292,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         ac_write_line(report, stage);
         ac_write_utf8(report, L"WIN32_ERROR: ");
         g_message[0] = L'\0';
-        ac_append_u32(g_message, AC_PATH_CAP + 2048, code);
+        ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
         ac_write_line(report, g_message);
         ac_write_utf8(report, L"DETAIL: ");
         ac_write_line(report, g_error_text);
@@ -303,7 +304,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess не запустився.\r\n\r\nЕтап: ");
     ac_append(g_message, AC_PATH_CAP + 2048, stage);
     ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nКод Windows: ");
-    ac_append_u32(g_message, AC_PATH_CAP + 2048, code);
+    ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
     if (has_report) {
         ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт: ");
         ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
@@ -320,7 +321,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     ac_close_child_process_handle();
     MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     if (has_report) CloseHandle(report);
-    ExitProcess(code == 0 ? 1 : code);
+    ExitProcess(stable_code);
 }
 
 static BOOL ac_direct_directory(const WCHAR *path) {
@@ -574,13 +575,37 @@ static HANDLE ac_open_report(void) {
 
 static void ac_prepare_paths(void) {
     DWORD size = GetModuleFileNameW(NULL, g_module, AC_PATH_CAP);
-    if (size == 0 || size >= AC_PATH_CAP) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_parent_dir(g_root, AC_PATH_CAP, g_module)) ExitProcess(ERROR_BAD_PATHNAME);
-    if (!ac_path_join(g_app_dir, AC_PATH_CAP, g_root, L"App")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_core, AC_PATH_CAP, g_app_dir, L"AccessibleChess.exe")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_report_path, AC_PATH_CAP, g_root, L"launch-report.txt")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_instance_lock_path, AC_PATH_CAP, g_root, L".accessible-chess-instance.lock")) ExitProcess(ERROR_BUFFER_OVERFLOW);
+    DWORD error;
+
+    if (size == 0) {
+        error = GetLastError();
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"launcher executable path discovery",
+            error == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : error
+        );
+    }
+    if (size >= AC_PATH_CAP) {
+        ac_fail(INVALID_HANDLE_VALUE, L"launcher executable path discovery", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_parent_dir(g_root, AC_PATH_CAP, g_module)) {
+        ac_fail(INVALID_HANDLE_VALUE, L"package-root path derivation", ERROR_BAD_PATHNAME);
+    }
+    if (!ac_path_join(g_app_dir, AC_PATH_CAP, g_root, L"App")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"App path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_core, AC_PATH_CAP, g_app_dir, L"AccessibleChess.exe")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"core executable path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"package-local data path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_report_path, AC_PATH_CAP, g_root, L"launch-report.txt")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"launch report path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_instance_lock_path, AC_PATH_CAP, g_root, L".accessible-chess-instance.lock")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"single-instance lock path construction", ERROR_BUFFER_OVERFLOW);
+    }
 }
 
 static void ac_fail_startup_timeout(HANDLE report) {

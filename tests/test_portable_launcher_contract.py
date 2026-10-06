@@ -408,6 +408,45 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             failure,
         )
 
+    def test_path_preparation_failures_use_accessible_no_report_diagnostics(self):
+        start = self.source.index("static void ac_prepare_paths(void)")
+        end = self.source.index("static void ac_fail_startup_timeout", start)
+        prepare = self.source[start:end]
+
+        self.assertNotIn("ExitProcess(", prepare)
+        for token in (
+            "DWORD error;",
+            "error = GetLastError();",
+            'L"launcher executable path discovery"',
+            "error == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : error",
+            'L"package-root path derivation"',
+            'L"App path construction"',
+            'L"core executable path construction"',
+            'L"package-local data path construction"',
+            'L"launch report path construction"',
+            'L"single-instance lock path construction"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, prepare)
+        self.assertGreaterEqual(prepare.count("ac_fail(INVALID_HANDLE_VALUE"), 7)
+
+    def test_generic_failure_normalizes_zero_error_before_diagnostics(self):
+        start = self.source.index("static void ac_fail(HANDLE report")
+        end = self.source.index("static BOOL ac_direct_directory", start)
+        failure = self.source[start:end]
+
+        for token in (
+            "DWORD stable_code = code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : code;",
+            "ac_retire_owned_child(stable_code)",
+            "ac_error_detail(stable_code);",
+            "ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);",
+            "ExitProcess(stable_code);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, failure)
+        self.assertNotIn("ac_error_detail(code);", failure)
+        self.assertNotIn("ExitProcess(code == 0 ? 1 : code);", failure)
+
     def test_report_open_retries_only_bounded_sharing_violation(self):
         for token in (
             "#define AC_REPORT_RETRY_MS 100",
