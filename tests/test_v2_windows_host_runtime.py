@@ -327,6 +327,53 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_refused_close_resume_delivers_terminal_from_cooperative_shutdown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "cooperative-shutdown-terminal.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+
+            # Worker retirement succeeds, but the application may still refuse
+            # the native close later because progress/database publication fails.
+            # The cancellation terminal produced while shutdown() joins must
+            # survive runtime/pump close for that recovery path.
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.import_running)
+            self.assertEqual(imported_events, [])
+            self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.IMPORT_CANCELLED],
+            )
+
+            # A wakeup posted by the worker before pump.close() may still be in
+            # the WinForms queue. After recovery it must see an empty mailbox
+            # and cannot announce the retained terminal a second time.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.IMPORT_CANCELLED],
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_refused_close_keeps_running_cancelled_import_runtime_usable(self) -> None:
         class BlockingLibrary(_Library):
             def __init__(self) -> None:
