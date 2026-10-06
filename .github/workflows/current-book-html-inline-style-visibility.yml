@@ -1,0 +1,93 @@
+name: Current Book HTML Inline Style Visibility
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - "acs/book_html_import.py"
+      - "tests/test_v2_book_html_import.py"
+      - ".github/workflows/current-book-html-inline-style-visibility.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-book-html-inline-style-visibility-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  SOURCE_BLOB: 0dc6e07bfc410e612488908ccfebb7f97ffc9a2c
+  TEST_BLOB: a08111a809e9181440132e8fc21b8ff81786bb6f
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove live shipping base and exact child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "refs/heads/$BASE_REF"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test -n "$live_base"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            event_base="${{ github.event.pull_request.base.sha }}"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+          fi
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          mapfile -t actual < <(git diff --name-only "$live_base"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-book-html-inline-style-visibility.yml"
+            "acs/book_html_import.py"
+            "tests/test_v2_book_html_import.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$TEST_BLOB"
+
+      - name: Compile bounded Book HTML surface
+        run: >-
+          python -m compileall -q
+          acs/book_html_import.py
+          tests/test_v2_book_html_import.py
+
+      - name: Run focused and adjacent semantic contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_html_import
+          tests.test_v2_book_html_head_metadata_semantics
+          tests.test_book_html_pgn_loss_accounting
+          tests.test_v2_book_game_content
+          tests.test_bookdocument
+
+      - name: Core selftest
+        run: python -m acs.selftest
