@@ -119,13 +119,21 @@ class MediaClock:
                 )
         else:
             duration = None
-        try:
-            normalized_state = MediaPlaybackState(state)
-        except (TypeError, ValueError) as exc:
+        if type(state) is MediaPlaybackState:
+            normalized_state = state
+        elif type(state) is str:
+            try:
+                normalized_state = MediaPlaybackState(state)
+            except ValueError as exc:
+                raise MediaContractError(
+                    f"unsupported media playback state: {state!r}",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
             raise MediaContractError(
                 f"unsupported media playback state: {state!r}",
                 code=MediaErrorCode.INVALID_CONTAINER,
-            ) from exc
+            )
         self._playback_rate = self._require_rate(playback_rate)
         self._fractional_ms = 0.0
         self._duration_ms = duration
@@ -444,15 +452,37 @@ class MediaPositionTimeline:
         links: Iterable[MediaChessLink] = (),
     ) -> None:
         self.source_id = _require_text(source_id, "source_id")
-        materialized = tuple(links)
+        try:
+            iterator = iter(links)
+        except BaseException as exc:
+            raise MediaContractError(
+                "timeline links must be safely iterable",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+
+        materialized: list[MediaChessLink] = []
+        try:
+            for _ in range(MAX_MEDIA_LINKS + 1):
+                try:
+                    materialized.append(next(iterator))
+                except StopIteration:
+                    break
+        except BaseException as exc:
+            raise MediaContractError(
+                "timeline links must be safely iterable",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+
         if len(materialized) > MAX_MEDIA_LINKS:
             raise MediaContractError(
                 f"media timeline exceeds {MAX_MEDIA_LINKS} links",
                 code=MediaErrorCode.LINK_LIMIT,
             )
+        materialized = tuple(materialized)
+
         seen: set[tuple[int, str]] = set()
         for link in materialized:
-            if not isinstance(link, MediaChessLink):
+            if type(link) is not MediaChessLink:
                 raise MediaContractError(
                     "timeline links must be MediaChessLink values",
                     code=MediaErrorCode.INVALID_CONTAINER,
@@ -703,7 +733,7 @@ class MediaChessSession:
     chess_ref: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.media_cursor, MediaCursor):
+        if type(self.media_cursor) is not MediaCursor:
             raise MediaContractError(
                 "media_cursor must be a MediaCursor",
                 code=MediaErrorCode.INVALID_CONTAINER,
@@ -764,7 +794,7 @@ class MediaChessSession:
         return replace(self, media_cursor=MediaCursor(timeline.source_id, target))
 
     def _require_timeline_source(self, timeline: MediaPositionTimeline) -> None:
-        if not isinstance(timeline, MediaPositionTimeline):
+        if type(timeline) is not MediaPositionTimeline:
             raise MediaContractError(
                 "timeline must be a MediaPositionTimeline",
                 code=MediaErrorCode.INVALID_CONTAINER,
@@ -822,7 +852,7 @@ def serialize_media_state(
 ) -> str:
     """Serialize a bounded, versioned media state snapshot."""
 
-    if not isinstance(source, MediaSource):
+    if type(source) is not MediaSource:
         raise MediaContractError(
             "source must be a MediaSource",
             code=MediaErrorCode.INVALID_CONTAINER,
@@ -832,7 +862,7 @@ def serialize_media_state(
             "timeline must be a MediaPositionTimeline",
             code=MediaErrorCode.INVALID_CONTAINER,
         )
-    if not isinstance(session, MediaChessSession):
+    if type(session) is not MediaChessSession:
         raise MediaContractError(
             "session must be a MediaChessSession",
             code=MediaErrorCode.INVALID_CONTAINER,
