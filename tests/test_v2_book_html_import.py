@@ -870,6 +870,54 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_cascade_dependent_css_wide_values_cannot_resurrect_hidden_semantics(self) -> None:
+        display_sources = (
+            "inherit",
+            "revert",
+            "revert-layer",
+        )
+        for index, value in enumerate(display_sources):
+            with self.subTest(property="display", value=value):
+                result = import_html_book(
+                    f"""<html><body>
+<section style="display:none; display:{value}">
+  <div data-acs-fen="{Board.START}">Hidden display cascade value</div>
+</section>
+<p>Visible display tail {index}</p>
+</body></html>""",
+                    source_name=f"display-cascade-dependent-{index}.html",
+                )
+                self.assertFalse(
+                    any(isinstance(block, Position) for block in result.document.blocks)
+                )
+                self.assertTrue(
+                    any(
+                        isinstance(block, Paragraph)
+                        and block.text == f"Visible display tail {index}"
+                        for block in result.document.blocks
+                    )
+                )
+
+        result = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden; content-visibility:inherit">
+  <div data-acs-fen="{Board.START}">Hidden content-visibility inherit</div>
+</section>
+<p>Visible content tail</p>
+</body></html>""",
+            source_name="content-visibility-cascade-dependent.html",
+        )
+        self.assertFalse(
+            any(isinstance(block, Position) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible content tail"
+                for block in result.document.blocks
+            )
+        )
+
     def test_inline_display_comments_cannot_smuggle_hidden_semantics(self) -> None:
         hidden_sources = (
             f'''<html><body>
