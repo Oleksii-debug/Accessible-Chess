@@ -65,9 +65,15 @@ function event(key, mods = {}, tag = 'INPUT') {
   await shell.apiAction('make_move','nf9');
   assert.equal(spoken.length,0);
   assert.deepEqual(rendered.pop(),['move-input-error',response.announcement]);
+  delete response.announceMoveErrors;
+  await shell.apiAction('make_move','nf9');
+  assert.equal(spoken.length,0,'missing preference must fail closed');
+  response.announceMoveErrors='true';
+  await shell.apiAction('make_move','nf9');
+  assert.equal(spoken.length,0,'non-boolean preference must fail closed');
   response.announceMoveErrors=true;
   await shell.apiAction('make_move','nf9');
-  assert.equal(spoken.length,1);
+  assert.equal(spoken.length,1,'only explicit boolean true may speak a move error');
   throwMove=true;
   spoken.length=0;
   await shell.apiAction('make_move','nf9');
