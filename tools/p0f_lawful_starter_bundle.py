@@ -470,6 +470,7 @@ def _publish_staged_bundle(
     )
     backed_up: list[str] = []
     published: list[str] = []
+    cleanup_backup = True
     try:
         if overwrite:
             for name in BUNDLE_FILENAMES:
@@ -510,12 +511,15 @@ def _publish_staged_bundle(
                 pass
 
         if rollback_errors:
+            cleanup_backup = False
             raise RuntimeError(
-                "starter bundle publication failed and rollback was incomplete"
+                "starter bundle publication failed and rollback was incomplete; "
+                "rollback recovery files were preserved"
             ) from publish_error
         raise
     finally:
-        shutil.rmtree(backup, ignore_errors=True)
+        if cleanup_backup:
+            shutil.rmtree(backup, ignore_errors=True)
 
 
 def _licensed_file(payload: bytes, *, license_id: str) -> dict[str, object]:

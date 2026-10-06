@@ -579,3 +579,56 @@ def test_staged_bundle_publication_rolls_back_mid_replace_failure(tmp_path):
         for name in lawful_bundle.BUNDLE_FILENAMES
     } == previous
 
+def test_incomplete_rollback_preserves_recovery_backup(tmp_path):
+    destination = tmp_path / "bundle"
+    staging = tmp_path / "staging"
+    destination.mkdir()
+    staging.mkdir()
+    previous = {}
+    for index, name in enumerate(lawful_bundle.BUNDLE_FILENAMES, start=1):
+        old_payload = f"old-{index}-{name}".encode("utf-8")
+        new_payload = f"new-{index}-{name}".encode("utf-8")
+        (destination / name).write_bytes(old_payload)
+        (staging / name).write_bytes(new_payload)
+        previous[name] = old_payload
+
+    real_replace = lawful_bundle.os.replace
+    publication_failed = False
+
+    def replace_with_publish_and_rollback_failures(source, target):
+        nonlocal publication_failed
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not publication_failed
+            and source_path.parent == staging
+            and source_path.name == "stress_uk.pgn"
+            and target_path.parent == destination
+        ):
+            publication_failed = True
+            raise OSError("forced staged publication failure")
+        if (
+            publication_failed
+            and source_path.parent.name.startswith(".bundle.rollback-")
+            and source_path.name == "starter_uk.pgn"
+            and target_path.parent == destination
+        ):
+            raise OSError("forced rollback restore failure")
+        return real_replace(source, target)
+
+    with patch.object(
+        lawful_bundle.os,
+        "replace",
+        side_effect=replace_with_publish_and_rollback_failures,
+    ):
+        with _raises(RuntimeError, match="rollback recovery files were preserved"):
+            lawful_bundle._publish_staged_bundle(
+                staging,
+                destination,
+                overwrite=True,
+            )
+
+    backups = sorted(tmp_path.glob(".bundle.rollback-*"))
+    assert len(backups) == 1
+    assert (backups[0] / "starter_uk.pgn").read_bytes() == previous["starter_uk.pgn"]
+
