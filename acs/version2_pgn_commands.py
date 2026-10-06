@@ -190,6 +190,37 @@ class Version2PgnCommands:
     def __call__(self, action_id, payload):
         session = self._session()
         workspace = session.workspace
+        if action_id in {"pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"}:
+            if type(payload) is not dict:
+                raise TypeError("PGN metadata command payload must be a built-in dictionary")
+            value_fields = {
+                "pgn.tag_edit": {"name", "value"},
+                "pgn.tag_delete": {"name"},
+                "pgn.result_set": {"result"},
+            }[action_id]
+            if set(payload) != _NAVIGATION_TARGET_FIELDS | value_fields:
+                raise ValueError("invalid PGN metadata command payload")
+            self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
+            if action_id == "pgn.tag_edit":
+                name = payload["name"]
+                value = payload["value"]
+                if type(name) is not str or type(value) is not str:
+                    raise TypeError("PGN tag name and value must be text")
+                return session.edit_tag(name, value)
+            if action_id == "pgn.tag_delete":
+                name = payload["name"]
+                if type(name) is not str:
+                    raise TypeError("PGN tag name must be text")
+                return session.delete_tag(name)
+            result = payload["result"]
+            if type(result) is not str:
+                raise TypeError("PGN result must be text")
+            return session.set_result(result)
         if action_id in {"pgn.previous_game", "pgn.next_game"}:
             if payload:
                 if set(payload) != _NAVIGATION_TARGET_FIELDS:
