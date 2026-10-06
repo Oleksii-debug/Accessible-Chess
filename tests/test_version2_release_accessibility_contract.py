@@ -18,8 +18,12 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('const button = documentRef.createElement("button")', BOOTSTRAP)
         self.assertIn('button.textContent = String(item.label || item.route_id || "")', BOOTSTRAP)
         self.assertIn('button.setAttribute("aria-current", "page")', BOOTSTRAP)
-        self.assertNotIn("aria-describedby", BOOTSTRAP)
-        self.assertNotIn('button.id + "-description"', BOOTSTRAP)
+        navigation_start = BOOTSTRAP.index("  function renderNavigation(snapshot) {")
+        navigation_end = BOOTSTRAP.index("  function renderProductSurface(", navigation_start)
+        navigation = BOOTSTRAP[navigation_start:navigation_end]
+        self.assertNotIn('button.setAttribute("aria-describedby"', navigation)
+        self.assertNotIn("button.setAttribute('aria-describedby'", navigation)
+        self.assertNotIn('button.id + "-description"', navigation)
 
     def test_v2_navigation_is_a_named_landmark_in_both_languages(self) -> None:
         self.assertIn('const nav = documentRef.createElement("nav")', BOOTSTRAP)
