@@ -109,6 +109,24 @@ class Version2ApplicationTests(unittest.TestCase):
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
+    def test_shutdown_failure_announcement_is_localized_path_free_and_actionable(self):
+        self.app.announce_shutdown_failure()
+        event = self.app.drain_events()[-1]
+        self.assertEqual(event["kind"], "error")
+        ukrainian = event["payload"]["message"]
+        self.assertIn("Вікно залишено відкритим", ukrainian)
+        self.assertIn("спробуйте вийти ще раз", ukrainian)
+        self.assertNotIn(str(self.root), ukrainian)
+
+        self.app.shell.set_language(UILanguage.EN)
+        self.app.announce_shutdown_failure()
+        event = self.app.drain_events()[-1]
+        self.assertEqual(event["kind"], "error")
+        english = event["payload"]["message"]
+        self.assertIn("window remains open", english)
+        self.assertIn("try exiting again", english)
+        self.assertNotIn(str(self.root), english)
+
     def test_file_event_rejects_derived_event_before_hooks(self):
         touched = []
 
