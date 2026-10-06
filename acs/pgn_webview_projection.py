@@ -53,12 +53,18 @@ _LABELS = {
         "parent": "До батьківського варіанта",
         "comment_edit": "Додати або змінити коментар",
         "comment_delete": "Видалити коментар",
+        "nag_edit": "Змінити NAG",
+        "variation_add": "Додати варіант",
         "variation_delete": "Видалити варіант",
         "variation_promote": "Підняти варіант",
         "copy": "Копіювати вибране",
         "export": "Експортувати вибране",
         "comment_title": "Коментар PGN",
         "comment_label": "Текст коментаря",
+        "nag_title": "Анотації NAG",
+        "nag_label": "NAG, наприклад ! ? $1 $2",
+        "variation_title": "Новий варіант",
+        "variation_label": "Ходи варіанта у PGN/SAN",
         "save": "Зберегти",
         "cancel": "Скасувати",
         "multiple_comments": "На цьому вузлі кілька коментарів. Редагування вимкнено, доки канонічний API не надасть однозначний вибір коментаря.",
@@ -80,12 +86,18 @@ _LABELS = {
         "parent": "Return to parent variation",
         "comment_edit": "Add or edit comment",
         "comment_delete": "Delete comment",
+        "nag_edit": "Edit NAG",
+        "variation_add": "Add variation",
         "variation_delete": "Delete variation",
         "variation_promote": "Promote variation",
         "copy": "Copy selection",
         "export": "Export selection",
         "comment_title": "PGN comment",
         "comment_label": "Comment text",
+        "nag_title": "NAG annotations",
+        "nag_label": "NAGs, for example ! ? $1 $2",
+        "variation_title": "New variation",
+        "variation_label": "Variation moves in PGN/SAN",
         "save": "Save",
         "cancel": "Cancel",
         "multiple_comments": "This node has multiple comments. Editing is disabled until the canonical API exposes an unambiguous comment selection.",
@@ -452,6 +464,8 @@ class PgnWebViewProjection:
                 {"action": "pgn.parent", "label": labels["parent"], "enabled": bool(selected and selected.parent_id)},
                 {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": has_selection and not ambiguous_comments},
                 {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": single_comment},
+                {"action": "pgn.nag_edit", "label": labels["nag_edit"], "enabled": bool(selected and selected.kind == "move")},
+                {"action": "pgn.variation_add", "label": labels["variation_add"], "enabled": bool(selected and selected.kind == "move")},
                 {"action": "pgn.variation_delete", "label": labels["variation_delete"], "enabled": selected_is_variation},
                 {"action": "pgn.variation_promote", "label": labels["variation_promote"], "enabled": selected_is_variation},
                 {"action": "pgn.copy_selection", "label": labels["copy"], "enabled": has_selection},
@@ -607,6 +621,16 @@ class PgnWebViewProjection:
 
     def delete_comment(self) -> PgnWebViewEvent:
         return self._dispatch_selected("pgn.comment_delete")
+
+    def edit_nags(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or len(text) > 512 or "\x00" in text:
+            raise ValueError("PGN NAG text is invalid")
+        return self._dispatch_selected("pgn.nag_edit", extra={"text": text})
+
+    def add_variation(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("PGN variation text is invalid")
+        return self._dispatch_selected("pgn.variation_add", extra={"text": text})
 
     def delete_variation(self) -> PgnWebViewEvent:
         return self._dispatch_selected("pgn.variation_delete")
