@@ -1013,6 +1013,30 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         )
         self.assertEqual(self.app.drain_events(), ())
 
+    def test_saturated_event_recovery_preserves_urgent_refused_close_diagnostic(self) -> None:
+        self.app._focus = self.app.shell.open_route("library")
+        for index in range(65):
+            self.app._events.append(
+                {
+                    "kind": "status",
+                    "payload": {"announcement": f"overflow-{index}"},
+                }
+            )
+        urgent = {
+            "kind": "error",
+            "payload": {"message": "refused-close-diagnostic"},
+        }
+        self.app._urgent_events.append(urgent)
+
+        self.assertEqual(
+            self.app.drain_events(),
+            (
+                {"kind": "route", "payload": {"route_id": "library"}},
+                urgent,
+            ),
+        )
+        self.assertEqual(self.app.drain_events(), ())
+
     def test_saturated_event_recovery_stays_deferred_until_publication_resolves(self) -> None:
         _prior_session, _prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("overflow-replacement.pgn", "Replacement")
