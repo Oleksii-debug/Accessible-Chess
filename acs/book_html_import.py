@@ -498,10 +498,23 @@ def _asset_name(value: str) -> str:
     return "/".join(segments)
 
 
-def _explicit_pgn_pre(raw: str) -> bool:
+def _explicit_pgn_pre(
+    raw: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
     """Return whether a ``pre`` starts with an explicit PGN marker and Event tag."""
+
+    meaningful: list[str] = []
     lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    meaningful = [line.strip() for line in lines if line.strip()]
+    for line_index, line in enumerate(lines, start=1):
+        if control_checkpoint is not None and line_index % 128 == 0:
+            control_checkpoint()
+        stripped = line.strip()
+        if not stripped:
+            continue
+        meaningful.append(stripped)
+        if len(meaningful) == 2:
+            break
     return (
         len(meaningful) >= 2
         and _PGN_MARKER_RE.fullmatch(meaningful[0]) is not None
@@ -1472,7 +1485,10 @@ class _SemanticHtmlParser(HTMLParser):
         if (
             capture.kind == "pre"
             and requires_semantic_split
-            and not _explicit_pgn_pre(raw)
+            and not _explicit_pgn_pre(
+                raw,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
         ):
             self._finish_inline_paragraph(
                 capture,
@@ -1493,7 +1509,10 @@ class _SemanticHtmlParser(HTMLParser):
             if not self._warned_table_flatten:
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
-        elif capture.kind == "pre" and _explicit_pgn_pre(raw):
+        elif capture.kind == "pre" and _explicit_pgn_pre(
+            raw,
+            self._checkpoint if self.control_checkpoint is not None else None,
+        ):
             # Keep a bounded placeholder at the exact semantic source location.
             # Canonical PGN validation still happens only after parsing through
             # the existing D06 round-trip authority; rejected candidates remain
