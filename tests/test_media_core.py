@@ -510,7 +510,7 @@ class MediaCoreContractTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(MediaContractError) as caught:
                     MediaClock(playback_rate=value)
-                self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+                self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_PLAYBACK_RATE)
         with self.assertRaises(MediaContractError) as caught:
             MediaClock(position_ms=100, duration_ms=99)
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
