@@ -293,6 +293,20 @@ class Version2PgnCommands:
                     allow_root=True,
                 )
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
+        if action_id in {"pgn.tag_edit", "pgn.tag_delete"}:
+            expected = {*_TARGET_FIELDS, "name"} | ({"value"} if action_id == "pgn.tag_edit" else set())
+            if set(payload) not in (expected, expected | {"expected_content_digest"}):
+                raise ValueError("invalid PGN tag payload")
+            _request, _cursor = self._target(payload, require_current=True, workspace=workspace)
+            name = payload.get("name")
+            if type(name) is not str:
+                raise ValueError("invalid PGN tag name")
+            if action_id == "pgn.tag_delete":
+                return workspace.edit_tag(name, None)
+            value = payload.get("value")
+            if type(value) is not str:
+                raise ValueError("invalid PGN tag value")
+            return workspace.edit_tag(name, value)
         if action_id == "pgn.append_moves":
             if set(payload) not in ({*_TARGET_FIELDS, "text"}, {*_TARGET_FIELDS, "expected_content_digest", "text"}):
                 raise ValueError("invalid PGN continuation payload")
