@@ -1,0 +1,54 @@
+name: History Review Complete User Flow
+
+on:
+  pull_request:
+    paths:
+      - 'acs/webapp.py'
+      - 'web/index.html'
+      - 'tests/test_history_review_complete_user_flow.py'
+      - '.github/workflows/history-review-completion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: history-review-completion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile changed history surface
+        run: >-
+          python -m compileall -q
+          acs/webapp.py
+          tests/test_history_review_complete_user_flow.py
+      - name: History and review regressions
+        run: >-
+          python -m unittest -v
+          tests.test_history_review_complete_user_flow
+          tests.test_history_review_ui
+          tests.test_stage1_review_navigation_atomicity_current
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_keybindings
+          tests.test_version2_external_review_live_state_isolation
+          tests.test_release_stockfish_composition
+      - name: Core chess selftest
+        run: python -m acs.selftest
