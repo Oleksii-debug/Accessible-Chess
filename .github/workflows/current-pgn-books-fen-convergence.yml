@@ -13,8 +13,13 @@ on:
       - 'acs/pgn_workspace.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'acs/version2_pgn_commands.py'
+      - 'acs/webapp.py'
+      - 'tests/test_dev1_pgn_webview_projection.py'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_fen_editor_turn_and_visible_status.py'
       - 'tests/test_pgn_complete_editing_user_flow.py'
       - 'web/full_product_pgn.js'
+      - 'web/index.html'
   workflow_dispatch:
 
 permissions:
@@ -62,11 +67,16 @@ jobs:
             'acs/pgn_workspace.py' \
             'acs/pgn_workspace_webview_adapter.py' \
             'acs/version2_pgn_commands.py' \
+            'acs/webapp.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_fen_editor_turn_and_visible_status.py' \
             'tests/test_pgn_complete_editing_user_flow.py' \
-            'web/full_product_pgn.js' | sort)"
+            'web/full_product_pgn.js' \
+            'web/index.html' | sort)"
           test "$changed" = "$expected"
 
-      - name: Lock converged PGN authority blobs
+      - name: Lock converged authority blobs
         shell: bash
         run: |
           set -euo pipefail
@@ -77,17 +87,22 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          .github/workflows/d01-pgn-workspace-webview.yml=0c557edc52a67837d88413b89f46d6859ac58a66
+          .github/workflows/d01-pgn-workspace-webview.yml=a40c127cd7ad31ca082cd993ece1f9f1f6ce92a6
           .github/workflows/pgn-complete-editing-current.yml=0008b054ad4b19b4d5e99c996fa9a7dbc156b458
           acs/full_product_actions.py=3979e7a3b978715fd1ddfbb9e613f5f889675e8c
           acs/full_product_presenters.py=07c68e56666bcb37f866d91a6317490b83d8a454
           acs/pgn_webview_bridge.py=597c46effb1da535d1c61aeb88f1a03465b762c1
-          acs/pgn_webview_projection.py=2d92a32c40ad0c532725105e443288bb646a819b
+          acs/pgn_webview_projection.py=0af49d422c4995c166c49d85569c156a93d08106
           acs/pgn_workspace.py=8208afe46c734035db23e66b4f4e9c59d6524cf5
-          acs/pgn_workspace_webview_adapter.py=d35e68c56f0ed38842e9f4c6d50ba75ec055998f
+          acs/pgn_workspace_webview_adapter.py=ba3879d033a2b2a297b4d37318341e6a76150d03
           acs/version2_pgn_commands.py=6e2a86ffd7204f601ed21973c7ab4eb00b955d57
+          acs/webapp.py=51cc882511c3a874f7bce3dfa97eda01df1501c6
+          tests/test_dev1_pgn_webview_projection.py=f7e6f052816c0b2ffcd161d8899c3d225f406a2c
+          tests/test_dev1_pgn_workspace_webview_adapter.py=3f47c86fc6b451f0b2791b838025eb87068d8dc4
+          tests/test_fen_editor_turn_and_visible_status.py=ccea833f59cbca7639aebb5d4c7c682bd7032cf8
           tests/test_pgn_complete_editing_user_flow.py=18359190f5e4724c6c2ec7a3ba4567039d6f1844
-          web/full_product_pgn.js=98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6
+          web/full_product_pgn.js=2a81d303d18440f60da7c38ab1eb8668e7f9e92b
+          web/index.html=f70aac53dc60ffaacca222ecccd7799741f480cd
           LOCKS
 
       - name: Compile and parse converged surfaces
@@ -100,6 +115,10 @@ jobs:
           acs/pgn_workspace.py
           acs/pgn_workspace_webview_adapter.py
           acs/version2_pgn_commands.py
+          acs/webapp.py
+          tests/test_dev1_pgn_webview_projection.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_fen_editor_turn_and_visible_status.py
           tests/test_pgn_complete_editing_user_flow.py
       - name: Parse browser PGN surface
         run: node --check web/full_product_pgn.js
@@ -115,9 +134,10 @@ jobs:
           tests.test_pgn_document
           tests.test_d06_pgn_roundtrip
 
-      - name: Exercise current whole-product adjacency
+      - name: Exercise FEN and whole-product adjacency
         run: >-
           python -m unittest -v
+          tests.test_fen_editor_turn_and_visible_status
           tests.test_fen_position_editor_complete_user_flow
           tests.test_book_html_runtime_correctness
           tests.test_book_epub_runtime_correctness
