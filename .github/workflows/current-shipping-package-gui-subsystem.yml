@@ -76,12 +76,15 @@ jobs:
           python -m py_compile
           acs/version2_package_preflight.py
           tests/test_version2_package_preflight.py
+          tests/test_v2_package_required_resources.py
+          tests/test_portable_launcher_window_readiness.py
 
       - name: Execute package preflight contracts
         run: >-
           python -m unittest -v
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
 
       - name: Execute package and shipping consumers
         run: >-
@@ -90,6 +93,7 @@ jobs:
           tests.test_version2_release_payload
           tests.test_version2_portable_package
           tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
           tests.test_portable_localappdata_persistence_binding
           tests.test_version2_release_receipt
           tests.test_finalize_owner_final_receipt
