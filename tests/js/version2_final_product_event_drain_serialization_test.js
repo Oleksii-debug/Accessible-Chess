@@ -95,6 +95,7 @@ assert(
 );
 
 const canonicalPublicationFunctions = [
+  "uiTextFor",
   "areaInvoke",
   "shellPublicationToken",
   "nextShellPublicationRequestId",
@@ -107,6 +108,7 @@ const canonicalPublicationFunctions = [
   "recoverOutstandingShellPublication",
   "startPublishedBrowserTransition",
   "runPublishedBrowserTransition",
+  "commitShellChrome",
   "snapshotShellPublicationToken",
   "refresh",
   "waitForEventDrainIdle",
@@ -472,14 +474,10 @@ assert.strictEqual(
   "valid bounded announcement was not published"
 );
 
-// Product presentation is a transaction too. A renderer may reject malformed
-// content after touching its candidate DOM; the previously committed screen,
-// exact nodes and keyboard focus must survive that rejection.
-const productRenderBlock = extract(
-  "  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {",
-  "  function render(snapshot, restoreFocus) {",
-  "final-product presentation transaction"
-);
+// Product presentation is a transaction too. Candidate rendering may touch
+// workspace DOM, but shell route/language/visibility must remain uncommitted
+// until the candidate validates successfully.
+const productRenderBlock = extractFunctionFrom(source, "renderProductSurface");
 
 class TxElement {
   constructor(id) {
@@ -496,15 +494,12 @@ const txWorkspace = new TxElement("v2-workspace");
 txWorkspace.hidden = true;
 const committedNode = { id: "committed-book", hidden: false };
 txWorkspace.replaceChildren(committedNode);
-const txOriginalMain = { hidden: false };
 const previousFocus = {
   id: "board-launcher",
   hidden: false,
   focus() { txDocument.activeElement = this; }
 };
 const txDocument = { activeElement: previousFocus };
-let restoreProductFocusCalls = 0;
-let libraryDeactivateCalls = 0;
 const candidateNode = { id: "partial-book", hidden: false };
 const renderFailure = new Error("malformed Book candidate");
 let failBookRender = true;
@@ -513,15 +508,9 @@ const presentationContext = vm.createContext({
   Array,
   documentRef: txDocument,
   workspace: txWorkspace,
-  originalMain: txOriginalMain,
   global: {
     AccessibleChessBookSurface: {
       render(root) {
-        assert.strictEqual(
-          txOriginalMain.hidden,
-          false,
-          "Stage 1 was hidden before Book candidate validation completed"
-        );
         assert.strictEqual(
           txWorkspace.hidden,
           true,
@@ -536,9 +525,7 @@ const presentationContext = vm.createContext({
   areaInvoke: () => () => Promise.resolve(),
   announce: () => {},
   renderEmptyProduct: () => {},
-  uiText: (_uk, en) => en,
-  restoreProductFocus: () => { restoreProductFocusCalls += 1; },
-  deactivateLibrarySurface: () => { libraryDeactivateCalls += 1; },
+  uiTextFor: (_language, _uk, en) => en,
   hiddenByAncestor: (target) => !!target.hidden
 });
 vm.runInContext(
@@ -550,7 +537,7 @@ const renderProductSurface = presentationContext.__renderProductSurface;
 
 let observedRenderFailure = null;
 try {
-  renderProductSurface({ books: {} }, "books", "", true, "Books");
+  renderProductSurface({ books: {} }, "books", "", "Books", "en");
 } catch (error) {
   observedRenderFailure = error;
 }
@@ -564,83 +551,89 @@ assert.strictEqual(
   renderFailure,
   "renderer failure cause identity was not retained inside passive rollback marker"
 );
-assert.strictEqual(txOriginalMain.hidden, false, "failed candidate hid committed Stage 1 UI");
-assert.strictEqual(txWorkspace.hidden, true, "failed candidate exposed uncommitted workspace");
 assert.deepStrictEqual(
   txWorkspace.children,
   [committedNode],
   "failed candidate did not restore exact committed workspace node"
 );
+assert.strictEqual(txWorkspace.hidden, true, "failed candidate exposed uncommitted workspace");
 assert.strictEqual(txDocument.activeElement, previousFocus, "failed candidate did not restore prior focus");
-assert.strictEqual(restoreProductFocusCalls, 0, "failed candidate ran post-commit focus restoration");
-assert.strictEqual(libraryDeactivateCalls, 0, "failed candidate retired committed Library authority");
 
 failBookRender = false;
-renderProductSurface({ books: {} }, "books", "", false, "Books");
-assert.strictEqual(txOriginalMain.hidden, true, "successful Book candidate did not commit Stage 1 visibility");
-assert.strictEqual(txWorkspace.hidden, false, "successful Book candidate did not expose workspace");
-assert.deepStrictEqual(txWorkspace.children, [candidateNode], "successful Book candidate was not committed");
-assert.strictEqual(libraryDeactivateCalls, 1, "successful route change did not retire Library authority");
+const returnedBookFocus = renderProductSurface(
+  { books: {} },
+  "books",
+  "book-block-1",
+  "Books",
+  "en"
+);
+assert.strictEqual(returnedBookFocus, "book-block-1", "candidate renderer lost requested Book focus");
+assert.deepStrictEqual(txWorkspace.children, [candidateNode], "successful candidate was not staged");
 assert.strictEqual(
-  restoreProductFocusCalls,
-  1,
-  "first product commit did not re-establish focus after hidden-workspace render"
+  txWorkspace.hidden,
+  true,
+  "successful candidate renderer published visibility before shell commit"
 );
 
-// The surrounding shell transaction must also roll back candidate language,
-// navigation and route identity if product presentation fails.
-const renderBlock = extract(
-  "  function render(snapshot, restoreFocus) {",
-  "  function refresh(restoreFocus) {",
-  "final-product shell transaction"
-);
+// The surrounding shell transaction now commits route/navigation/language only
+// after product rendering succeeds. A rejected candidate must never need a
+// compensating shell rollback because nothing was published yet.
+const renderBlock = extractFunctionFrom(source, "render");
 const oldNavNode = { id: "v2-nav-board" };
 const candidateNavNode = { id: "v2-nav-books" };
 const shellNavList = new TxElement("v2-navigation-list");
 shellNavList.replaceChildren(oldNavNode);
-const shellNav = {
-  attributes: {},
-  setAttribute(name, value) { this.attributes[name] = value; }
-};
-const shellNavHeading = { textContent: "Sections" };
 const shellDocument = { documentElement: { lang: "en" } };
+const shellWorkspace = new TxElement("v2-workspace");
+shellWorkspace.hidden = true;
+const shellOriginalMain = { hidden: false };
 const shownRoutes = [];
 const shellFailure = new Error("candidate presentation rejected");
-const shellWorkspace = new TxElement("v2-workspace");
-const shellOriginalMain = { hidden: false };
+let failShellRender = true;
+let shellCommitCalls = 0;
+let libraryDeactivateCalls = 0;
+let shellFocusRestores = 0;
+let selectionRestores = 0;
+let shellContext;
 
-const shellContext = vm.createContext({
+shellContext = vm.createContext({
   Array,
   Set,
-  String,
   MAX_SCREEN_HEADING: 600,
   currentLanguage: "en",
   currentRouteId: "board",
   documentRef: shellDocument,
-  navList: shellNavList,
-  nav: shellNav,
-  navHeading: shellNavHeading,
   workspace: shellWorkspace,
   originalMain: shellOriginalMain,
   productRoutes: new Set(["books"]),
   plainObject: (value) => !!value && typeof value === "object" && !Array.isArray(value),
   validRouteId: (value) => typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value),
   validFocusId: (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value),
-  boundedText: (value, limit) => typeof value === "string" && value.length <= limit && !value.includes("\\0") ? value : "",
-  captureWorkspaceSelection: () => null,
-  restoreWorkspaceSelection: () => false,
-  uiText: (_uk, en) => en,
+  boundedText: (value, limit) =>
+    typeof value === "string" && value.length <= limit && !value.includes("\\0") ? value : "",
+  captureWorkspaceSelection: () => ({ marker: "selection" }),
   renderNavigation: () => ({
     routeIds: new Set(["books"]),
     currentRouteIds: new Set(["books"]),
     fragment: candidateNavNode
   }),
-  renderProductSurface: () => { throw shellFailure; },
-  restoreStage1Focus: () => false,
-  deactivateLibrarySurface: () => {},
-  global: {
-    showStage1Route(routeId) { shownRoutes.push(routeId); }
-  }
+  renderProductSurface: () => {
+    if (failShellRender) throw shellFailure;
+    shellWorkspace.replaceChildren(candidateNode);
+    return "book-block-1";
+  },
+  commitShellChrome: (navigationState, language, routeId) => {
+    shellCommitCalls += 1;
+    shellContext.currentLanguage = language;
+    shellContext.currentRouteId = routeId;
+    shellDocument.documentElement.lang = language;
+    shellNavList.replaceChildren(navigationState.fragment);
+    shownRoutes.push(routeId);
+  },
+  deactivateLibrarySurface: () => { libraryDeactivateCalls += 1; },
+  restoreProductFocus: () => { shellFocusRestores += 1; return true; },
+  restoreWorkspaceSelection: () => { selectionRestores += 1; return true; },
+  restoreStage1Focus: () => false
 });
 vm.runInContext(
   renderBlock + "\nthis.__render = render;",
@@ -653,24 +646,43 @@ try {
   shellContext.__render(
     {
       document: { lang: "uk" },
-      screen: { route_id: "books", focus_target: "", heading: "Books" }
+      screen: { route_id: "books", focus_target: "book-block-1", heading: "Books" }
     },
     true
   );
 } catch (error) {
   observedShellFailure = error;
 }
-assert.strictEqual(observedShellFailure, shellFailure, "shell rollback replaced the presentation failure");
+assert.strictEqual(observedShellFailure, shellFailure, "candidate failure identity changed");
+assert.strictEqual(shellCommitCalls, 0, "failed candidate published shell chrome");
 assert.strictEqual(shellContext.currentLanguage, "en", "failed candidate leaked language state");
 assert.strictEqual(shellDocument.documentElement.lang, "en", "failed candidate leaked document language");
 assert.strictEqual(shellContext.currentRouteId, "board", "failed candidate leaked route identity");
 assert.deepStrictEqual(shellNavList.children, [oldNavNode], "failed candidate leaked navigation tree");
-assert.strictEqual(shellNavHeading.textContent, "Sections", "failed candidate leaked navigation heading");
-assert.deepStrictEqual(
-  shownRoutes,
-  ["books", "board"],
-  "shell route was not restored after candidate presentation failure"
+assert.deepStrictEqual(shownRoutes, [], "failed candidate reached route publication");
+assert.strictEqual(libraryDeactivateCalls, 0, "failed candidate retired committed Library authority");
+assert.strictEqual(shellOriginalMain.hidden, false, "failed candidate hid committed Stage 1 surface");
+assert.strictEqual(shellWorkspace.hidden, true, "failed candidate exposed workspace");
+
+failShellRender = false;
+shellContext.__render(
+  {
+    document: { lang: "uk" },
+    screen: { route_id: "books", focus_target: "book-block-1", heading: "Books" }
+  },
+  true
 );
+assert.strictEqual(shellCommitCalls, 1, "successful candidate did not commit shell exactly once");
+assert.strictEqual(shellContext.currentLanguage, "uk", "successful candidate did not commit language");
+assert.strictEqual(shellDocument.documentElement.lang, "uk", "successful candidate did not commit document language");
+assert.strictEqual(shellContext.currentRouteId, "books", "successful candidate did not commit route");
+assert.deepStrictEqual(shellNavList.children, [candidateNavNode], "successful candidate did not commit navigation");
+assert.deepStrictEqual(shownRoutes, ["books"], "successful candidate did not publish one route");
+assert.strictEqual(libraryDeactivateCalls, 1, "successful route change did not retire Library authority");
+assert.strictEqual(shellOriginalMain.hidden, true, "successful product commit left Stage 1 visible");
+assert.strictEqual(shellWorkspace.hidden, false, "successful product commit left workspace hidden");
+assert.strictEqual(shellFocusRestores, 1, "first product commit did not restore product focus");
+assert.strictEqual(selectionRestores, 1, "successful product commit did not restore semantic selection");
 
 assert(!source.includes('String(item.route_id || "")'), "navigation route id still uses coercion");
 assert(!source.includes('String(screen.route_id || "board")'), "screen route id still uses coercion");
@@ -683,6 +695,7 @@ const hostileScreenRoute = {
   }
 };
 const shownRouteCountBeforeHostile = shownRoutes.length;
+const shellCommitCountBeforeHostile = shellCommitCalls;
 let hostileScreenFailure = null;
 try {
   shellContext.__render(
@@ -698,9 +711,10 @@ try {
 }
 assert(hostileScreenFailure instanceof Error || hostileScreenFailure, "hostile screen route was not rejected");
 assert.strictEqual(hostileScreenTouched, false, "hostile screen route reached toString()");
-assert.strictEqual(shellContext.currentRouteId, "board", "hostile screen route changed route identity");
-assert.strictEqual(shellDocument.documentElement.lang, "en", "hostile screen route changed document language");
-assert.deepStrictEqual(shellNavList.children, [oldNavNode], "hostile screen route changed navigation");
+assert.strictEqual(shellContext.currentRouteId, "books", "hostile screen route changed route identity");
+assert.strictEqual(shellDocument.documentElement.lang, "uk", "hostile screen route changed document language");
+assert.deepStrictEqual(shellNavList.children, [candidateNavNode], "hostile screen route changed navigation");
+assert.strictEqual(shellCommitCalls, shellCommitCountBeforeHostile, "hostile screen route committed shell chrome");
 assert.strictEqual(
   shownRoutes.length,
   shownRouteCountBeforeHostile,
