@@ -269,11 +269,44 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
                     action()
 
     def test_tampered_clock_fields_fail_before_render(self) -> None:
-        clock = _clock()
-        object.__setattr__(clock, "position_ms", "bad")
+        cases = [
+            ("position_ms", "bad"),
+            ("playback_rate", float("nan")),
+            ("revision", -1),
+        ]
+        for field_name, value in cases:
+            with self.subTest(field=field_name):
+                clock = _clock()
+                object.__setattr__(clock, field_name, value)
+                bridge = RecordedMediaAccessibilityBridge()
+                with self.assertRaises(RecordedMediaAccessibilityError):
+                    bridge.snapshot(clock=clock)
+
+    def test_cross_source_snapshots_fail_closed(self) -> None:
         bridge = RecordedMediaAccessibilityBridge()
+        foreign_source = MediaSource(
+            source_id="recorded-2",
+            title="Foreign",
+            kind=MediaSourceKind.LOCAL_FILE,
+            duration_ms=120_000,
+        )
+        foreign_sync = RecordedSyncSnapshot(
+            source_revision="revision-2",
+            cache_fingerprint="cache-2",
+            plan_digest="plan-2",
+            source=foreign_source,
+            timeline=MediaPositionTimeline("recorded-2", (_link(20_000, "node:foreign"),)),
+            session=MediaChessSession(
+                MediaCursor("recorded-2", 20_500),
+                "opaque:foreign",
+            ),
+        )
         with self.assertRaises(RecordedMediaAccessibilityError):
-            bridge.snapshot(clock=clock)
+            bridge.snapshot(
+                clock=_clock(),
+                sync_snapshot=foreign_sync,
+                preprocess=_checkpoint(PreprocessStatus.RUNNING, 1, 3),
+            )
 
     def test_tampered_checkpoint_fields_fail_before_render(self) -> None:
         checkpoint = _checkpoint(PreprocessStatus.RUNNING, 2, 8)
