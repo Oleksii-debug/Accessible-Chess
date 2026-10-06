@@ -744,6 +744,7 @@ def _validate_windows_pe_executable(
     expected_machine: int | None = None,
     expected_optional_magic: int | None = None,
     require_clr: bool = False,
+    expected_subsystem: int | None = None,
 ) -> None:
     """Require a bounded PE image plus requested CPU/managed-runtime identity."""
     try:
@@ -755,7 +756,14 @@ def _validate_windows_pe_executable(
         if expected_optional_magic is not None:
             if expected_optional_magic not in {0x10B, 0x20B}:
                 raise TypeError("expected_optional_magic must be PE32, PE32+, or null")
-        if expected_machine is not None or expected_optional_magic is not None:
+        if expected_subsystem is not None:
+            if type(expected_subsystem) is not int or not 0 < expected_subsystem <= 0xFFFF:
+                raise TypeError("expected_subsystem must be a positive 16-bit integer or null")
+        if (
+            expected_machine is not None
+            or expected_optional_magic is not None
+            or expected_subsystem is not None
+        ):
             with path.open("rb") as handle:
                 dos_header = handle.read(64)
                 pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
@@ -763,12 +771,22 @@ def _validate_windows_pe_executable(
                 machine_bytes = handle.read(2)
                 handle.seek(pe_offset + 24)
                 optional_magic_bytes = handle.read(2)
+                if expected_subsystem is not None:
+                    if optional_header_size < 70:
+                        _fail(f"{label} optional header is truncated before subsystem")
+                    handle.seek(pe_offset + 24 + 68)
+                    subsystem_bytes = handle.read(2)
+                else:
+                    subsystem_bytes = b""
             if len(machine_bytes) != 2:
                 _fail(f"{label} machine header is truncated")
             if len(optional_magic_bytes) != 2:
                 _fail(f"{label} optional header is truncated")
+            if expected_subsystem is not None and len(subsystem_bytes) != 2:
+                _fail(f"{label} subsystem field is truncated")
             actual_machine = int.from_bytes(machine_bytes, "little")
             actual_optional_magic = int.from_bytes(optional_magic_bytes, "little")
+            actual_subsystem = int.from_bytes(subsystem_bytes, "little") if expected_subsystem is not None else None
             if expected_machine is not None and actual_machine != expected_machine:
                 _fail(
                     f"{label} has unexpected Windows PE machine "
@@ -782,6 +800,14 @@ def _validate_windows_pe_executable(
                     f"{label} has unexpected Windows PE optional magic "
                     f"0x{actual_optional_magic:04x}; "
                     f"expected 0x{expected_optional_magic:04x}"
+                )
+            if (
+                expected_subsystem is not None
+                and actual_subsystem != expected_subsystem
+            ):
+                _fail(
+                    f"{label} has unexpected Windows PE subsystem "
+                    f"0x{actual_subsystem:04x}; expected 0x{expected_subsystem:04x}"
                 )
         if type(require_clr) is not bool:
             raise TypeError("require_clr must be bool")
@@ -1378,6 +1404,7 @@ def _validate_required_runtime_resources(
         label="packaged AccessibleChess executable",
         expected_machine=0x8664,
         expected_optional_magic=0x20B,
+        expected_subsystem=2,
     )
 
     app_config = _require_package_file(
