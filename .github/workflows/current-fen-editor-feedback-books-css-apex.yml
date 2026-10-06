@@ -1,0 +1,67 @@
+name: Current FEN Editor Feedback on Books CSS Apex
+
+on:
+  pull_request:
+    branches:
+      - fix/html-css-declaration-partition-apex-20261006-hy6ez0h113
+    paths:
+      - '.github/workflows/current-fen-editor-feedback-books-css-apex.yml'
+      - 'web/index.html'
+      - 'tests/test_fen_position_editor_complete_user_flow.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-fen-editor-feedback-books-css-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  INDEX_BLOB: 71418a756ef120509542bf44873e9f01b033e4ae
+  FEN_FLOW_TEST_BLOB: 4d3d1d7b308de9b925f50d919108c9e856b03ef9
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-fen-editor-feedback-books-css-apex.yml' \
+            'tests/test_fen_position_editor_complete_user_flow.py' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/index.html)" = "$INDEX_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Complete FEN editor user flow
+        run: python -m unittest tests.test_fen_position_editor_complete_user_flow
+
+      - name: Webapp accessibility and analysis regression
+        run: python -m unittest tests.test_ui_analysis_webapp
+
+      - name: Release UI regression
+        run: python -m unittest tests.test_version2_release_ui
