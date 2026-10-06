@@ -57,8 +57,9 @@ jobs:
           }
           test "$(git rev-parse HEAD:acs/agent_gametree_tools.py)" = '2ec6cb4a4d5f85cecfacdfdb9eac130795526eca'
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'de58e9d0232ee5432d76b991fa94bec36ad4a905'
-          test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '7b32f0d5916a060e2ccb9e5a6a787d39995bc0a8'
+          test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '71fc25f62b144eda4063ea863c495d34041697f3'
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = 'b59e6bfff9806dff2092e5c7f93b68daff6407ef'
+          test "$(git rev-parse HEAD:acs/gametree_editing.py)" = '74e4ed4f7178277c2c8ede1c2027d96d79fa26ed'
           test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = '6209c29382105153ae4b22d4d70f9675a931826d'
           echo 'AGENT_GAMETREE_AUTHORITY=PASS'
 
@@ -71,6 +72,8 @@ jobs:
           python -m compileall -q
           acs/agent_gametree_tools.py
           acs/chess_agent_tools.py
+          acs/gametree_editing.py
+          acs/pgn_workspace.py
           tests/test_agent_gametree_tools.py
 
       - name: Execute Agent and canonical workspace navigation/edit regressions

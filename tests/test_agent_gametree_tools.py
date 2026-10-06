@@ -173,7 +173,7 @@ class AgentGameTreeToolsTests(unittest.TestCase):
         self.assertFalse(result.output["insideVariation"])
         self.assertEqual(result.output["currentMove"]["san"], "c5")
         root = self.workspace.current_game().line
-        self.assertEqual([move.san for move in root.moves[:4]], ["e4", "c5", "Nf3", "Nf3"])
+        self.assertEqual([move.san for move in root.moves], ["e4", "c5", "Nf3"])
 
     def test_reorder_current_variation_tracks_same_semantic_branch(self) -> None:
         self.assertTrue(self.execute("gametree.next_move").ok)
