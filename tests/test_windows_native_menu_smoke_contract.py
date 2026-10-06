@@ -50,6 +50,16 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
             "native_window_handle": handle,
         },
         "menu_from_handle_error": "",
+        "exact_menu_bars": [
+            {
+                "automation_id": "AccessibleChessFullProductMenu",
+                "control_type": "ControlType.MenuBar",
+                "process_id": pid,
+                "enabled": True,
+                "offscreen": False,
+                "native_window_handle": handle,
+            }
+        ],
     }
     assert all(
         _uia_menu_handle_binding_checks(canonical, pid=pid, menu_handle=handle).values()
@@ -64,6 +74,22 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     }
     checks = _uia_menu_handle_binding_checks(stale, pid=pid, menu_handle=handle)
     assert checks["uia_handle_native_handle_matches"] is False
+
+    stale_exact = {
+        **canonical,
+        "exact_menu_bars": [
+            {
+                **canonical["exact_menu_bars"][0],
+                "native_window_handle": handle + 1,
+            }
+        ],
+    }
+    checks = _uia_menu_handle_binding_checks(
+        stale_exact,
+        pid=pid,
+        menu_handle=handle,
+    )
+    assert checks["uia_exact_row_binds_same_handle"] is False
 
     wrong_identity = {
         **canonical,
@@ -86,6 +112,7 @@ def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_err
     missing = _uia_menu_handle_binding_checks({}, pid=1, menu_handle=7)
     assert missing["uia_handle_element_present"] is False
     assert missing["uia_handle_native_handle_matches"] is False
+    assert missing["uia_exact_row_binds_same_handle"] is False
 
     errored = _uia_menu_handle_binding_checks(
         {
@@ -98,6 +125,16 @@ def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_err
                 "native_window_handle": 7,
             },
             "menu_from_handle_error": "ElementNotAvailableException",
+            "exact_menu_bars": [
+                {
+                    "automation_id": "AccessibleChessFullProductMenu",
+                    "control_type": "ControlType.MenuBar",
+                    "process_id": 1,
+                    "enabled": True,
+                    "offscreen": False,
+                    "native_window_handle": 7,
+                }
+            ],
         },
         pid=1,
         menu_handle=7,
