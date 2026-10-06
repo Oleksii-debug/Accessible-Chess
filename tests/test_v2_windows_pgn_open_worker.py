@@ -1188,7 +1188,6 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 current_focus_provider=lambda: "pgn-tree",
                 post_to_ui=lambda callback: None,
             )
-            controller_box["value"] = controller
             generation = 1
             worker = threading.Thread(
                 target=lambda: None,
@@ -1261,6 +1260,7 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 current_focus_provider=lambda: "pgn-tree",
                 post_to_ui=lambda callback: None,
             )
+            controller_box["value"] = controller
             generation = 1
             worker = threading.Thread(
                 target=lambda: None,
