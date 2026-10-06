@@ -456,6 +456,128 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(parser.blocks, [])
 
+    def test_html_css_comment_scan_observes_control_inside_long_comment(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS comment scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        style = "/*" + ("x" * 12_000) + "*/display:none"
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._inline_style_without_comments(style, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_css_declaration_partition_observes_control_inside_long_prefix(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS declaration partition")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._css_partition_declaration(("x" * 12_000) + ":none", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_css_edge_whitespace_scan_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS edge whitespace scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._css_strip_whitespace((" " * 12_000) + "display", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_css_important_reverse_scan_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS important suffix scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._css_strip_important("none" + (" " * 12_000) + "!important", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_css_display_tokenization_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS display tokenization")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._deterministic_display_value(
+                "block" + (" " * 12_000) + "flow",
+                cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_css_controlled_suffix_and_display_semantics_match_uncontrolled(self):
+        import acs.book_html_import as html
+
+        for value in (
+            "none!important",
+            "none ! important",
+            "none  !important",
+            "none!importantx",
+            "none ! important extra",
+            "none",
+        ):
+            with self.subTest(kind="important", value=value):
+                self.assertEqual(
+                    html._css_strip_important(value),
+                    html._css_strip_important(value, lambda: None),
+                )
+
+        for value in (
+            "none",
+            "block flow",
+            "inline flow-root",
+            "list-item",
+            "block flow list-item",
+            "block grid",
+            "block block",
+            "not-a-display",
+        ):
+            with self.subTest(kind="display", value=value):
+                self.assertEqual(
+                    html._deterministic_display_value(value),
+                    html._deterministic_display_value(value, lambda: None),
+                )
+
     def test_html_starttag_attribute_normalization_observes_control(self):
         failure = SourceReadCancelledError("cancelled during HTML attribute normalization")
         calls = 0
