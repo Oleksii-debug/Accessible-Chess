@@ -568,7 +568,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def append_moves(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS or "\x00" in text:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _utf16_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
             raise ValueError("PGN continuation text is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -578,7 +584,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def search(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > MAX_PGN_SEARCH_TEXT_UNITS or "\x00" in text:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _utf16_units(text) > MAX_PGN_SEARCH_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
             raise ValueError("PGN search text is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
