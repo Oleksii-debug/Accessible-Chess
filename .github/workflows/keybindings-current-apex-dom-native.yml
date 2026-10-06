@@ -92,6 +92,7 @@ jobs:
           PLUS_MINUS_WEB_INDEX_BLOB: a148d4414c378c3952ff273071e4ebfb0648721a
           KEYMAP_CONTEXT_WEB_INDEX_BLOB: 0b7cbf84cfe7b038084d2de9014594d6a45da548
           BILINGUAL_WEB_INDEX_BLOB: 75d8365df092de52d8ea48df76ab68fb7199faa6
+          SHIPPING_DIALOG_WEB_INDEX_BLOB: 28ed39d9cea7b93a791928f84a08b2ed1f5fbd2b
         run: |
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -120,7 +121,7 @@ jobs:
             *) echo 'Unqualified terminal keymap test identity' >&2; exit 1 ;;
           esac
           case "$(git rev-parse HEAD:web/index.html)" in
-            "$PLUS_MINUS_WEB_INDEX_BLOB"|"$KEYMAP_CONTEXT_WEB_INDEX_BLOB"|"$BILINGUAL_WEB_INDEX_BLOB") ;;
+            "$PLUS_MINUS_WEB_INDEX_BLOB"|"$KEYMAP_CONTEXT_WEB_INDEX_BLOB"|"$BILINGUAL_WEB_INDEX_BLOB"|"$SHIPPING_DIALOG_WEB_INDEX_BLOB") ;;
             *) echo 'Unqualified shared keymap document identity' >&2; exit 1 ;;
           esac
 
