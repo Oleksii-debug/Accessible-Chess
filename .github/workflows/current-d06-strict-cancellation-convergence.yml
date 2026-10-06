@@ -3,7 +3,7 @@ name: Current D06 Strict Cancellation Convergence
 on:
   pull_request:
     branches:
-      - converge/book-pgn-epub-bounds-20261006-zftrkmo118
+      - fix/d06-current-safety-convergence-20261006-zftrkmo119
     paths:
       - '.github/workflows/current-d06-strict-cancellation-convergence.yml'
       - 'acs/pgn_roundtrip.py'
@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_SOURCE_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
-  D06_TEST_BLOB: 06e184390eb8b3957063ab8480ce707aec4da4fe
+  D06_SOURCE_BLOB: df137b20e6d84d882b02d28d87d35016fcbb8282
+  D06_TEST_BLOB: 506150f6fb28bc935a29dcf9fa7c7caf127832d3
 
 jobs:
   exact-head:
