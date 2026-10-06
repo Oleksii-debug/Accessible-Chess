@@ -95,6 +95,38 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 3)
         materialize.assert_not_called()
 
+    def test_epub_package_metadata_validation_observes_control_before_id_walk(self):
+        import acs.book_epub_import as epub
+
+        metadata = '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Cancelable package</dc:title>
+    <dc:language>uk</dc:language>
+''' + '\n'.join(
+            f'    <ext:note xmlns:ext="urn:test:ext" id="foreign-{index}">x</ext:note>'
+            for index in range(300)
+        )
+        package = epub.ET.fromstring(
+            _opf(
+                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+                metadata=metadata,
+            )
+        )
+        failure = SourceReadCancelledError('cancelled during EPUB package metadata validation')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 6:
+                raise failure
+
+        with patch.object(epub, '_validate_package_ids_unique') as id_walk:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._validate_package_document(package, cancel)
+        self.assertIs(caught.exception, failure)
+        id_walk.assert_not_called()
+
     def test_epub_manifest_scan_observes_control_before_full_metadata_walk(self):
         import acs.book_epub_import as epub
 
