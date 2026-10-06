@@ -73,6 +73,12 @@ def _pgn_edit_text_units(value: str) -> int:
     return len(value.encode("utf-16-le", "surrogatepass")) // 2
 
 
+def _contains_unicode_surrogate(value: str) -> bool:
+    """Reject lone UTF-16 surrogate code points before PGN publication."""
+
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+
+
 class PgnWorkspaceErrorCode(str, Enum):
     INVALID_DOCUMENT = "invalid_document"
     EMPTY_DOCUMENT = "empty_document"
@@ -516,6 +522,7 @@ class PgnWorkspace:
             type(name) is not str
             or _pgn_edit_text_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
             or "\x00" in name
+            or _contains_unicode_surrogate(name)
             or TAG_NAME_RE.fullmatch(name) is None
         ):
             raise ValueError("PGN tag name is invalid")
@@ -527,6 +534,7 @@ class PgnWorkspace:
                 or "\x00" in value
                 or "\r" in value
                 or "\n" in value
+                or _contains_unicode_surrogate(value)
             ):
                 raise ValueError("PGN tag value is invalid")
         if name in {"SetUp", "FEN"}:
