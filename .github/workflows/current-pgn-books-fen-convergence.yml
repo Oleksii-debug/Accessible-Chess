@@ -96,14 +96,14 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          .github/workflows/d01-pgn-workspace-webview.yml=2518ab08a831fe962bc5420841d443da02660008
+          .github/workflows/d01-pgn-workspace-webview.yml=0d1989a8811c5fd1e12e386f843e9d1c8afcceb9
           .github/workflows/pgn-complete-editing-current.yml=0008b054ad4b19b4d5e99c996fa9a7dbc156b458
           acs/full_product_actions.py=3979e7a3b978715fd1ddfbb9e613f5f889675e8c
           acs/full_product_presenters.py=07c68e56666bcb37f866d91a6317490b83d8a454
           acs/epd.py=eed2fabbb0b3fd7663ba36dfa1f30adc5b3315c5
           acs/move_entry.py=30bd6fd478638030d0042a1418b69a3eb600dc66
           acs/position_text.py=e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
-          acs/pgn_webview_bridge.py=15a83d8bf171f8ad914c434c61442040ed734547
+          acs/pgn_webview_bridge.py=1949082c3eb7e7af4f540daf595ae4be2c404604
           acs/pgn_webview_projection.py=8562ba21156466a915d1e72ca89e0029cd04fe44
           acs/pgn_workspace.py=8208afe46c734035db23e66b4f4e9c59d6524cf5
           acs/pgn_workspace_webview_adapter.py=2819643bfaeb4e14dbb50b14defce3f48e25df17
