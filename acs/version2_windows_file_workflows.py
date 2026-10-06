@@ -1073,6 +1073,7 @@ class Version2WindowsFileActionDelegate:
 
     def _cancel_pgn_open(self) -> FileWorkflowEvent:
         pending: tuple[object, ...] | None = None
+        first_cancel = False
         with self._lock:
             worker = self._worker
             cancel_event = self._cancel_event
@@ -1087,6 +1088,7 @@ class Version2WindowsFileActionDelegate:
                 # result now: successful preparation is still cancellable, while
                 # an already-fixed worker failure keeps its failure truth.
                 candidate = self._pending_open_result
+                first_cancel = not cancel_event.is_set()
                 cancel_event.set()
                 if candidate is not None and candidate[0] == self._generation:
                     pending = candidate
@@ -1103,13 +1105,12 @@ class Version2WindowsFileActionDelegate:
                 "no_pgn_open_running",
                 focus_target="pgn-game-list",
             )
-        return self._emit(
-            FileWorkflowEvent(
-                FileWorkflowEventKind.PGN_OPEN_CANCELLING,
-                "pgn.cancel_open",
-                focus_target="pgn-open-cancel",
-            )
+        cancelling = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+            "pgn.cancel_open",
+            focus_target="pgn-open-cancel",
         )
+        return self._emit(cancelling) if first_cancel else cancelling
 
     def _clear_worker_locked(self) -> None:
         self._worker = None
@@ -1745,6 +1746,7 @@ class Version2WindowsFileActionDelegate:
 
     def _cancel_pgn_save(self) -> FileWorkflowEvent:
         pending: tuple[object, ...] | None = None
+        first_cancel = False
         with self._lock:
             worker = self._worker
             cancel_event = self._cancel_event
@@ -1764,6 +1766,7 @@ class Version2WindowsFileActionDelegate:
                     # contradictory new cancellation request.
                     pending = candidate
                 else:
+                    first_cancel = not cancel_event.is_set()
                     cancel_event.set()
         if pending is not None:
             terminal = self._finish_pgn_save_on_owner(
@@ -1778,13 +1781,12 @@ class Version2WindowsFileActionDelegate:
                 "no_pgn_save_running",
                 focus_target="pgn-game-list",
             )
-        return self._emit(
-            FileWorkflowEvent(
-                FileWorkflowEventKind.PGN_SAVE_CANCELLING,
-                "pgn.cancel_save",
-                focus_target="pgn-save-cancel",
-            )
+        cancelling = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_SAVE_CANCELLING,
+            "pgn.cancel_save",
+            focus_target="pgn-save-cancel",
         )
+        return self._emit(cancelling) if first_cancel else cancelling
 
     def _start_import(self) -> FileWorkflowEvent:
         previous_focus = self._focus()
@@ -1900,6 +1902,7 @@ class Version2WindowsFileActionDelegate:
         return started
 
     def _cancel_import(self) -> FileWorkflowEvent:
+        first_cancel = False
         with self._lock:
             if self._worker_kind != "import":
                 no_import_running = True
@@ -1912,6 +1915,7 @@ class Version2WindowsFileActionDelegate:
                 cancel_event = self._cancel_event
                 no_import_running = self._worker is None or cancel_event is None
                 if not no_import_running:
+                    first_cancel = not cancel_event.is_set()
                     cancel_event.set()
         if no_import_running:
             return self._failed(
@@ -1919,13 +1923,12 @@ class Version2WindowsFileActionDelegate:
                 "no_import_running",
                 focus_target="library-import-file",
             )
-        return self._emit(
-            FileWorkflowEvent(
-                FileWorkflowEventKind.IMPORT_CANCELLING,
-                "library.cancel_import",
-                focus_target="library-import-cancel",
-            )
+        cancelling = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_CANCELLING,
+            "library.cancel_import",
+            focus_target="library-import-cancel",
         )
+        return self._emit(cancelling) if first_cancel else cancelling
 
     def _run_import(
         self,

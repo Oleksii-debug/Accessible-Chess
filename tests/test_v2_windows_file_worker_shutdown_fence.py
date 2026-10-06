@@ -588,12 +588,17 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             source.write_text(PGN_TEXT, encoding="utf-8")
             events = []
             cancel_results = []
+            nested_cancel_results = []
             holder = {}
 
             def sink(event):
                 events.append(event)
                 if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     cancel_results.append(
+                        holder["delegate"]("library.cancel_import", {})
+                    )
+                elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING:
+                    nested_cancel_results.append(
                         holder["delegate"]("library.cancel_import", {})
                     )
 
@@ -610,6 +615,10 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             start.assert_not_called()
             self.assertEqual(
                 [event.kind for event in cancel_results],
+                [FileWorkflowEventKind.IMPORT_CANCELLING],
+            )
+            self.assertEqual(
+                [event.kind for event in nested_cancel_results],
                 [FileWorkflowEventKind.IMPORT_CANCELLING],
             )
             self.assertEqual(result.kind, FileWorkflowEventKind.IMPORT_CANCELLED)
@@ -1070,6 +1079,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             source.write_text(PGN_TEXT, encoding="utf-8")
             events = []
             cancel_results = []
+            nested_cancel_results = []
             posted = []
             holder = {}
 
@@ -1077,6 +1087,10 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 events.append(event)
                 if event.kind is FileWorkflowEventKind.PGN_OPEN_STARTED:
                     cancel_results.append(
+                        holder["delegate"]("pgn.cancel_open", {})
+                    )
+                elif event.kind is FileWorkflowEventKind.PGN_OPEN_CANCELLING:
+                    nested_cancel_results.append(
                         holder["delegate"]("pgn.cancel_open", {})
                     )
 
@@ -1094,6 +1108,10 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(posted, [])
             self.assertEqual(
                 [event.kind for event in cancel_results],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLING],
+            )
+            self.assertEqual(
+                [event.kind for event in nested_cancel_results],
                 [FileWorkflowEventKind.PGN_OPEN_CANCELLING],
             )
             self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
@@ -1133,6 +1151,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                     session = PgnDocumentSession.open(source)
                     events = []
                     cancel_results = []
+                    nested_cancel_results = []
                     posted = []
                     holder = {}
 
@@ -1140,6 +1159,10 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                         events.append(event)
                         if event.kind is FileWorkflowEventKind.PGN_SAVE_STARTED:
                             cancel_results.append(
+                                holder["delegate"]("pgn.cancel_save", {})
+                            )
+                        elif event.kind is FileWorkflowEventKind.PGN_SAVE_CANCELLING:
+                            nested_cancel_results.append(
                                 holder["delegate"]("pgn.cancel_save", {})
                             )
 
@@ -1166,6 +1189,10 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                     self.assertEqual(posted, [])
                     self.assertEqual(
                         [event.kind for event in cancel_results],
+                        [FileWorkflowEventKind.PGN_SAVE_CANCELLING],
+                    )
+                    self.assertEqual(
+                        [event.kind for event in nested_cancel_results],
                         [FileWorkflowEventKind.PGN_SAVE_CANCELLING],
                     )
                     self.assertEqual(

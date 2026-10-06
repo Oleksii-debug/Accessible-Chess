@@ -416,6 +416,41 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             write_version2_release_receipt(output, receipt)
             self.assertEqual(read_version2_release_receipt(output), receipt)
 
+    def test_final_readback_in_place_mutation_is_rejected_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_read = release_receipt_module.read_version2_release_receipt
+            injected = False
+
+            def read_then_mutate(path):
+                nonlocal injected
+                value = real_read(path)
+                candidate = Path(path)
+                if candidate == output and not injected:
+                    with candidate.open("ab") as handle:
+                        handle.write(b" ")
+                        handle.flush()
+                    injected = True
+                return value
+
+            with patch(
+                "acs.version2_release_receipt.read_version2_release_receipt",
+                side_effect=read_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed after final readback",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
     def test_post_link_durability_failure_cleans_owned_receipt_and_retry_succeeds(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)

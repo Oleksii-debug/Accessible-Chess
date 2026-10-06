@@ -660,9 +660,9 @@ def write_version2_release_receipt(
                 "release receipt bytes changed after staging cleanup"
             )
         final_after = _safe_receipt_lstat(path)
-        if not _same_file_identity(staging_identity, final_after):
+        if not _same_file_snapshot(final_info, final_after):
             raise Version2ReleaseReceiptError(
-                "release receipt canonical pathname changed after final readback"
+                "release receipt changed after final readback"
             )
     except Version2ReleaseReceiptError:
         _remove_private_staging_file(path, staging_identity)

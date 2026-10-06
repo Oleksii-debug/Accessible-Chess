@@ -285,6 +285,44 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertIsNone(self.app._progress)
             self.assertIsNone(self.app._result)
 
+    def test_book_commit_reentrant_application_shutdown_is_refused_atomically(self):
+        callbacks = []
+        shutdown_results = []
+
+        def commit(_prepared):
+            shutdown_results.append(self.app.shutdown(timeout=0.0))
+            self.assertFalse(worker.closed)
+            self.assertFalse(self.files.shutdown_requested)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commit,
+            post_to_ui=callbacks.append,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while not callbacks and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(len(callbacks), 1)
+
+        callbacks.pop(0)()
+
+        self.assertEqual(shutdown_results, [False])
+        self.assertFalse(worker.closed)
+        self.assertFalse(worker.active)
+        self.assertFalse(self.files.shutdown_requested)
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "status"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown(timeout=0.0))
+
     def test_book_open_worker_exact_unbind_makes_failed_startup_retryable(self):
         worker = Version2BookOpenWorker(
             prepare=lambda *_args, **_kwargs: object(),
@@ -299,6 +337,52 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertTrue(self.app.unbind_book_open_worker(worker))
         self.assertIsNone(self.app._book_open_worker)
         self.assertFalse(self.app.unbind_book_open_worker(worker))
+
+    def test_book_cancel_recovers_retained_terminal_without_no_running_error(self):
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+        self.assertTrue(worker.terminal_pending)
+
+        self.assertIsNone(self.app._delegate("book.cancel_open", {}))
+
+        self.assertFalse(worker.terminal_pending)
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_book_cancel_without_active_or_retained_open_still_fails(self):
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+
+        with self.assertRaisesRegex(ValueError, "no Book Open is running"):
+            self.app._delegate("book.cancel_open", {})
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
 
     def test_new_book_open_recovers_retained_terminal_before_file_picker(self):
         def reject_post(_callback):

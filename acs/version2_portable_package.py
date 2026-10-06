@@ -692,11 +692,17 @@ def validate_portable_oneclick_tree(
     for name in doc_names:
         _safe_info(root / name, label="portable Word document", directory=False)
 
-    root_docx = tuple(
-        path.name
-        for path in root.iterdir()
-        if path.is_file() and path.name.casefold().endswith(".docx")
-    )
+    root_docx_items: list[str] = []
+    for path in root.iterdir():
+        if not path.name.casefold().endswith(".docx"):
+            continue
+        info = _safe_info(
+            path,
+            label="portable root Word document candidate",
+        )
+        if stat.S_ISREG(info.st_mode):
+            root_docx_items.append(path.name)
+    root_docx = tuple(root_docx_items)
     if {name.casefold() for name in root_docx} != {name.casefold() for name in doc_names}:
         _fail("portable package root must contain exactly the declared two Word documents")
     _validate_root_topology(root, doc_names)
