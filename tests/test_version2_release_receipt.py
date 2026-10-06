@@ -919,5 +919,37 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 ):
                     read_version2_release_receipt(output)
 
+
+    def test_write_rejects_active_mutated_scalar_without_comparison_or_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            touched: list[str] = []
+
+            class ActiveRepository(str):
+                def __eq__(self, other):
+                    touched.append("eq")
+                    raise AssertionError("active receipt scalar comparison executed")
+
+                def __ne__(self, other):
+                    touched.append("ne")
+                    raise AssertionError("active receipt scalar comparison executed")
+
+            object.__setattr__(
+                receipt,
+                "repository",
+                ActiveRepository(REPOSITORY_FULL_NAME),
+            )
+            output = Path(td) / "receipt.json"
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "repository identity mismatch",
+            ):
+                write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(touched, [])
+            self.assertFalse(output.exists())
+
 if __name__ == "__main__":
     unittest.main()
