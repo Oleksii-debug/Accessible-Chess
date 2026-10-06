@@ -33,6 +33,7 @@ from .book_html_import import (
 from .bookdocument import (
     MAX_BOOK_DOCUMENT_BLOCKS,
     MAX_BOOK_SOURCE_ANCHOR_CHARS,
+    MAX_BOOK_TEXT_FIELD_CHARS,
     BookDocument,
     Heading,
     block_from_dict,
@@ -159,7 +160,17 @@ def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
 
 
 def _required_text(value: object, field: str) -> str:
-    if type(value) is not str or not value.strip():
+    if type(value) is not str:
+        raise _error(
+            f"{field} must be non-empty text",
+            BookEpubImportErrorCode.INVALID_ARGUMENT,
+        )
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise _error(
+            f"{field} exceeds the canonical BookDocument text field limit",
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+    if not value.strip():
         raise _error(
             f"{field} must be non-empty text",
             BookEpubImportErrorCode.INVALID_ARGUMENT,
