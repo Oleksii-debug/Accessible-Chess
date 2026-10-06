@@ -758,6 +758,7 @@ class Version2WindowsFileActionDelegate:
             )
         )
         shutdown_before_start = False
+        cancelled_before_start = False
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
@@ -765,6 +766,9 @@ class Version2WindowsFileActionDelegate:
                 if self._shutdown_requested:
                     self._clear_worker_locked()
                     shutdown_before_start = True
+                elif cancel_event.is_set():
+                    self._clear_worker_locked()
+                    cancelled_before_start = True
                 else:
                     worker.start()
                     if self._worker is worker:
@@ -779,6 +783,14 @@ class Version2WindowsFileActionDelegate:
         if shutdown_before_start:
             return self._failed(
                 "pgn.open", "file_workflow_closed", focus_target=previous_focus
+            )
+        if cancelled_before_start:
+            return self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                    "pgn.open",
+                    focus_target=previous_focus,
+                )
             )
         return started
 
@@ -1483,6 +1495,7 @@ class Version2WindowsFileActionDelegate:
             )
         )
         shutdown_before_start = False
+        cancelled_before_start = False
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
@@ -1490,6 +1503,9 @@ class Version2WindowsFileActionDelegate:
                 if self._shutdown_requested:
                     self._clear_worker_locked()
                     shutdown_before_start = True
+                elif cancel_event.is_set():
+                    self._clear_worker_locked()
+                    cancelled_before_start = True
                 else:
                     worker.start()
                     if self._worker is worker:
@@ -1506,6 +1522,14 @@ class Version2WindowsFileActionDelegate:
         if shutdown_before_start:
             return self._failed(
                 action_id, "file_workflow_closed", focus_target=previous_focus
+            )
+        if cancelled_before_start:
+            return self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+                    action_id,
+                    focus_target=previous_focus,
+                )
             )
         return started
 
@@ -1830,6 +1854,7 @@ class Version2WindowsFileActionDelegate:
             )
         )
         shutdown_before_start = False
+        cancelled_before_start = False
         try:
             with self._lock:
                 if generation != self._generation or self._worker is not worker:
@@ -1837,6 +1862,9 @@ class Version2WindowsFileActionDelegate:
                 if self._shutdown_requested:
                     self._clear_worker_locked()
                     shutdown_before_start = True
+                elif cancel_event.is_set():
+                    self._clear_worker_locked()
+                    cancelled_before_start = True
                 else:
                     worker.start()
                     if self._worker is worker:
@@ -1853,6 +1881,14 @@ class Version2WindowsFileActionDelegate:
         if shutdown_before_start:
             return self._failed(
                 "library.import", "file_workflow_closed", focus_target=previous_focus
+            )
+        if cancelled_before_start:
+            return self._emit(
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                    "library.import",
+                    focus_target="library-import-file",
+                )
             )
         return started
 
