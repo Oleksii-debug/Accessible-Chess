@@ -650,6 +650,18 @@ class Version2Application:
         focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("books")
+            # Focus derived from the Book reader is part of candidate publication,
+            # not a post-commit observer. Resolve it while the candidate owners
+            # are still staged so a host/focus failure rolls the route back and
+            # cannot produce a FAILED terminal after the Book already opened.
+            if type(route_focus) is str and (
+                route_focus == "book-reader"
+                or route_focus.startswith("book-block-")
+            ):
+                canonical_focus = f"book-block-{reader.index}"
+                if route_focus != canonical_focus:
+                    self.shell.record_focus(canonical_focus)
+                    route_focus = canonical_focus
             try:
                 self._persist_book_progress(prepared.book_key, reader)
             except BookProgressStoreError as error:
@@ -691,7 +703,6 @@ class Version2Application:
         )
         self.training_workspace = self.training = None
         self._focus = route_focus
-        self._repair_book_block_focus_after_rebind()
         warning_count = len(prepared.warnings)
         if warning_count:
             announcement = (

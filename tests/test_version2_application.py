@@ -1332,6 +1332,52 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_book_open_focus_failure_rolls_back_before_owner_or_progress_publication(self):
+        candidate = self.root / "book-open-focus-failure.md"
+        candidate.write_text(
+            "# Candidate\n\nFocus publication must remain transactional.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_key = self.app.book_key
+        origin_workflow = self.app.book_workflow
+        origin_delegate = self.app.book_delegate
+        origin_books = self.app.books
+
+        class FocusAbort(BaseException):
+            pass
+
+        primary = FocusAbort("PRIMARY_BOOK_FOCUS_PUBLICATION")
+        original_record_focus = self.app.shell.record_focus
+
+        def reject_candidate_focus(focus_id):
+            if focus_id == "book-block-0":
+                raise primary
+            return original_record_focus(focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "record_focus",
+            side_effect=reject_candidate_focus,
+        ):
+            with self.assertRaises(FocusAbort) as caught:
+                self.app.commit_prepared_book_open(prepared)
+
+        self.assertIs(caught.exception, primary)
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertEqual(self.app.book_key, origin_key)
+        self.assertIs(self.app.book_workflow, origin_workflow)
+        self.assertIs(self.app.book_delegate, origin_delegate)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
     def test_book_open_persistence_failure_keeps_primary_when_route_rollback_aborts(self):
         candidate = self.root / "book-open-primary-failure.md"
         candidate.write_text(
