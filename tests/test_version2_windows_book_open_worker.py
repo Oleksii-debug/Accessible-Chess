@@ -328,6 +328,75 @@ class BookOpenWorkerTests(unittest.TestCase):
             ],
         )
 
+    def test_reentrant_cancel_is_refused_after_book_commit_boundary(self) -> None:
+        callbacks = []
+        commits = []
+        events = []
+        holder = {}
+
+        def commit(value):
+            commits.append(value)
+            self.assertFalse(
+                holder["worker"].cancel(focus_target="late-book-cancel")
+            )
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commit,
+            post_to_ui=callbacks.append,
+            event_sink=lambda event: events.append(event.kind),
+        )
+        holder["worker"] = worker
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+
+        self.assertEqual(commits, ["prepared-book"])
+        self.assertFalse(worker.active)
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.COMPLETED,
+            ],
+        )
+
+    def test_reentrant_shutdown_is_refused_until_book_commit_finishes(self) -> None:
+        callbacks = []
+        shutdown_results = []
+        events = []
+        holder = {}
+
+        def commit(_value):
+            shutdown_results.append(holder["worker"].shutdown(timeout=0.0))
+            self.assertFalse(holder["worker"].closed)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commit,
+            post_to_ui=callbacks.append,
+            event_sink=lambda event: events.append(event.kind),
+        )
+        holder["worker"] = worker
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+
+        self.assertEqual(shutdown_results, [False])
+        self.assertFalse(worker.active)
+        self.assertFalse(worker.closed)
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.COMPLETED,
+            ],
+        )
+        self.assertTrue(worker.shutdown(timeout=0.0))
+        self.assertTrue(worker.closed)
+
     def test_cancelled_terminal_observer_failure_is_retained_for_retry(self) -> None:
         callbacks = []
         commits = []
