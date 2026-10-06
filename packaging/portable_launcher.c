@@ -657,9 +657,13 @@ static void ac_fail_startup_timeout(HANDLE report) {
 
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
+    HANDLE root_guard = INVALID_HANDLE_VALUE;
+    HANDLE app_guard = INVALID_HANDLE_VALUE;
     HANDLE core_guard = INVALID_HANDLE_VALUE;
     HANDLE data_guard = INVALID_HANDLE_VALUE;
     HANDLE child_instance_lock = NULL;
+    HANDLE child_root_guard = NULL;
+    HANDLE child_app_guard = NULL;
     HANDLE child_data_guard = NULL;
     DWORD error;
     DWORD wait_result;
@@ -674,6 +678,15 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
         ac_fail(INVALID_HANDLE_VALUE, L"package-root validation", ERROR_DIRECTORY);
+    }
+    root_guard = ac_open_direct_directory_guard(g_root);
+    if (root_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"package-root directory guard",
+            error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error
+        );
     }
 
     g_instance_lock = ac_open_instance_lock();
@@ -697,6 +710,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"HUMAN_TESTED: NO");
     ac_write_line(report, L"NVDA_VERIFIED: NO");
     ac_write_line(report, L"PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE");
+    ac_write_line(report, L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
     ac_write_utf8(report, L"PACKAGE_ROOT: ");
     ac_write_line(report, g_root);
     ac_write_utf8(report, L"CORE: ");
@@ -705,6 +719,16 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, g_data);
 
     if (!ac_direct_directory(g_app_dir)) ac_fail(report, L"App directory validation", ERROR_PATH_NOT_FOUND);
+    app_guard = ac_open_direct_directory_guard(g_app_dir);
+    if (app_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"App runtime directory guard",
+            error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error
+        );
+    }
+    ac_write_line(report, L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
     core_guard = ac_open_direct_private_file(g_core);
     if (core_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -770,6 +794,32 @@ void WINAPI wWinMainCRTStartup(void) {
 
     if (!DuplicateHandle(
             GetCurrentProcess(),
+            root_guard,
+            g_process.hProcess,
+            &child_root_guard,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        CloseHandle(g_process.hThread);
+        ac_fail(report, L"package-root directory guard transfer", error);
+    }
+
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
+            app_guard,
+            g_process.hProcess,
+            &child_app_guard,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        CloseHandle(g_process.hThread);
+        ac_fail(report, L"App runtime directory guard transfer", error);
+    }
+
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
             data_guard,
             g_process.hProcess,
             &child_data_guard,
@@ -790,8 +840,14 @@ void WINAPI wWinMainCRTStartup(void) {
     CloseHandle(g_process.hThread);
     CloseHandle(g_instance_lock);
     g_instance_lock = INVALID_HANDLE_VALUE;
+    CloseHandle(root_guard);
+    root_guard = INVALID_HANDLE_VALUE;
+    CloseHandle(app_guard);
+    app_guard = INVALID_HANDLE_VALUE;
     CloseHandle(data_guard);
     data_guard = INVALID_HANDLE_VALUE;
+    ac_write_line(report, L"PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD");
+    ac_write_line(report, L"APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD");
     ac_write_line(report, L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD");
 
     ac_write_line(report, L"PROCESS_CREATED: YES");
