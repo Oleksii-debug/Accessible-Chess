@@ -140,3 +140,12 @@ def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_err
         menu_handle=7,
     )
     assert errored["uia_handle_probe_clean"] is False
+
+
+def test_source_uia_oracle_preserves_the_exact_handle_used_for_probe() -> None:
+    source = Path("scripts/p0_native_menubar_uia_oracle.py").read_text(encoding="utf-8")
+
+    assert 'result["probed_menu_handle"] = probed_menu_handle' in source
+    assert "menu_handle=int(result[\"winforms\"].get(\"menu_handle\") or 0)" not in source
+    assert 'menu_handle = int(result.get("probed_menu_handle") or 0)' in source
+    assert '"menu_handle_stable_after_uia"' in source
