@@ -166,6 +166,44 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertIsNone(self.app._progress)
             self.assertIsNone(self.app._result)
 
+    def test_import_observers_store_detached_revalidated_snapshots(self):
+        progress = LibraryImportProgress(91, 1, 2)
+        result = LibraryImportResult(91, 17, 2, 3, 101, 102)
+
+        self.app.observe_progress(progress)
+        self.app.observe_result(result)
+
+        with self.app._observation_lock:
+            stored_progress = self.app._progress
+            stored_result = self.app._result
+
+        self.assertEqual(stored_progress, progress)
+        self.assertEqual(stored_result, result)
+        self.assertIsNot(stored_progress, progress)
+        self.assertIsNot(stored_result, result)
+
+        object.__setattr__(progress, "processed_games", 2)
+        object.__setattr__(result, "warning_count", 99)
+
+        with self.app._observation_lock:
+            self.assertEqual(self.app._progress.processed_games, 1)
+            self.assertEqual(self.app._result.warning_count, 3)
+
+    def test_import_observers_revalidate_mutated_exact_dto_scalars(self):
+        progress = LibraryImportProgress(92, 1, 2)
+        result = LibraryImportResult(92, 18, 2, 0, 201, 202)
+        object.__setattr__(progress, "processed_games", True)
+        object.__setattr__(result, "reused", 1)
+
+        with self.assertRaises(TypeError):
+            self.app.observe_progress(progress)
+        with self.assertRaises(TypeError):
+            self.app.observe_result(result)
+
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
     def test_set_document_rejects_active_session_subclass_before_hooks(self):
         touched = []
 
@@ -210,7 +248,7 @@ class Version2ApplicationTests(unittest.TestCase):
             with self.assertRaises(RouteAbort):
                 self.app.set_document(candidate)
 
-        self.assertEqual(calls, ["pgn", "library"])
+        self.assertEqual(calls, ["pgn"])
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
         self.assertEqual(self.app._focus, before_focus)
         self.assertIs(self.app.session, before_session)
@@ -704,8 +742,10 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(ui.snapshot(), before)
         self.assertEqual(self.mailbox.pending_count, 1)
         with self.app._observation_lock:
-            self.assertIs(self.app._progress, stale_progress)
-            self.assertIs(self.app._result, stale_result)
+            self.assertEqual(self.app._progress, stale_progress)
+            self.assertEqual(self.app._result, stale_result)
+            self.assertIsNot(self.app._progress, stale_progress)
+            self.assertIsNot(self.app._result, stale_result)
 
         self.app.import_ui_ready(self.mailbox)
 
