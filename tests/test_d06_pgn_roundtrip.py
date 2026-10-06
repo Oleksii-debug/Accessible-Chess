@@ -599,5 +599,70 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertEqual(observed, ["invalid"])
 
 
+    def test_game_count_limit_fails_before_parser_materialization(self):
+        source = (
+            '[Event "One"]\n[Result "*"]\n\n1. e4 *\n\n'
+            '[Event "Two"]\n[Result "*"]\n\n1. d4 *\n'
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1),
+            patch(
+                "acs.pgn_roundtrip.parse_games",
+                side_effect=AssertionError("parser materialization must not run"),
+            ) as parser,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            parser.assert_not_called()
+
+    def test_compact_move_number_token_budget_fails_before_parser(self):
+        source = '[Result "*"]\n\n1.e4 *'
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_LEXICAL_TOKENS", 3),
+            patch(
+                "acs.pgn_roundtrip.parse_games",
+                side_effect=AssertionError("parser token materialization must not run"),
+            ) as parser,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            parser.assert_not_called()
+
+    def test_game_preflight_preserves_multiline_nested_comment_frame_state(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 {outer\n'
+            '{inner\n'
+            '} inner close\n'
+            '[Event "comment text, not a boundary"]\n'
+            '} *\n'
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_GAMES", 1):
+            games = parse_pgn_text(source, strict=False)
+        self.assertEqual(len(games), 1)
+
+    def test_recovery_span_cannot_hide_next_game_header_field_limit(self):
+        source = (
+            '[Result "*"]\n\n'
+            '1. e4 {{literal}\n'
+            '[Event "abcdef"]\n'
+            '[Result "*"]\n\n'
+            '1. d4 } *\n'
+        )
+        with patch("acs.pgn_roundtrip.MAX_PGN_TAG_VALUE_CHARS", 5):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+                strict=False,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
