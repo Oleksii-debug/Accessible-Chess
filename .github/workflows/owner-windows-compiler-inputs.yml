@@ -22,13 +22,13 @@ env:
   ZSTANDARD_VERSION: 0.25.0
 jobs:
   compile:
-    runs-on: windows-2025
+    runs-on: windows-2022
     timeout-minutes: 80
     steps:
     - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       with:
         fetch-depth: 0
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        ref: f411837e9c81ca4800456be0cd62b83e51dec86f
     - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
       with:
         python-version: ${{ env.PYTHON_VERSION }}
@@ -123,7 +123,8 @@ jobs:
       shell: pwsh
       run: |
         $ErrorActionPreference='Stop'
-        $sha=(git rev-parse HEAD).Trim()
+        $sha='f411837e9c81ca4800456be0cd62b83e51dec86f'
+        if((git rev-parse HEAD).Trim() -ne $sha){throw 'Checked-out source differs from exact compiler input'}
         $exe=Get-Item run_accessible_chess_v2.dist/AccessibleChess.exe
         $launcher=Get-Item build/AccessibleChess.exe
         @{schema_version=1;source_sha=$sha;kind='intermediate-build-inputs';human_tested=$false;nvda_verified=$false;exe_sha256=(Get-FileHash $exe).Hash.ToLowerInvariant();launcher_sha256=(Get-FileHash $launcher).Hash.ToLowerInvariant()} | ConvertTo-Json | Set-Content build/build-inputs.json -Encoding utf8
@@ -132,7 +133,7 @@ jobs:
     - name: Upload intermediate compiler outputs (not a release)
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
-        name: owner-windows-build-inputs-${{ github.sha }}
+        name: owner-windows-build-inputs-f411837e9c81ca4800456be0cd62b83e51dec86f
         path: |-
           run_accessible_chess_v2.dist/
           build/AccessibleChess.exe
