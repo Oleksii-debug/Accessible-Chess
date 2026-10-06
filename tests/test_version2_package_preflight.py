@@ -610,6 +610,73 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_package_preflight_bounds_declared_sound_frames_before_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sound_root = root / "AccessibleChess" / "assets" / "sounds"
+            manifest = json.loads(
+                (sound_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            event = SoundEvent.LOW_TIME
+            sound_path = sound_root / manifest["files"][event.value]
+
+            # A tiny RIFF/WAVE can claim a multi-gigabyte data chunk.  The
+            # standard wave reader then exposes a huge frame count despite the
+            # physically tiny stable snapshot.  Reject before readframes().
+            malicious = (
+                b"RIFF"
+                + (0x7FFFFFF8).to_bytes(4, "little")
+                + b"WAVE"
+                + b"fmt "
+                + (16).to_bytes(4, "little")
+                + (1).to_bytes(2, "little")
+                + (1).to_bytes(2, "little")
+                + (8000).to_bytes(4, "little")
+                + (16000).to_bytes(4, "little")
+                + (2).to_bytes(2, "little")
+                + (16).to_bytes(2, "little")
+                + b"data"
+                + (0x7FFFFFF0).to_bytes(4, "little")
+                + b"\x00\x00"
+            )
+            sound_path.write_bytes(malicious)
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][event.value]["sha256"] = _sha256(sound_path)
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            real_readframes = wave.Wave_read.readframes
+            requested_frames: list[int] = []
+
+            def bounded_readframes(reader, frame_count):
+                requested_frames.append(frame_count)
+                if frame_count > len(malicious):
+                    raise AssertionError("preflight issued an unbounded PCM read")
+                return real_readframes(reader, frame_count)
+
+            with patch.object(
+                wave.Wave_read,
+                "readframes",
+                autospec=True,
+                side_effect=bounded_readframes,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    r"packaged sound asset is truncated: low_time",
+                ):
+                    _validate_tree(root)
+
+            self.assertTrue(requested_frames)
+            self.assertLessEqual(max(requested_frames), len(malicious))
+
     def test_sound_manifest_allows_provenance_verified_semantic_alias(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
