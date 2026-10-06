@@ -328,6 +328,54 @@ class BookOpenWorkerTests(unittest.TestCase):
             ],
         )
 
+    def test_cancelling_observer_reentrant_cancel_is_single_delivery(self) -> None:
+        callbacks = []
+        commits = []
+        events = []
+        reentrant_results = []
+        holder = {}
+
+        def sink(event):
+            events.append(event.kind)
+            if event.kind is BookOpenWorkerEventKind.CANCELLING:
+                reentrant_results.append(
+                    holder["worker"].cancel(focus_target="reentrant-book-cancel")
+                )
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        holder["worker"] = worker
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+
+        self.assertTrue(worker.cancel(focus_target="book-cancel"))
+        self.assertTrue(worker.cancel(focus_target="duplicate-book-cancel"))
+        self.assertEqual(reentrant_results, [True])
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+            ],
+        )
+
+        callbacks.pop(0)()
+        self.assertFalse(worker.active)
+        self.assertEqual(commits, [])
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+                BookOpenWorkerEventKind.CANCELLED,
+            ],
+        )
+
     def test_reentrant_cancel_is_refused_after_book_commit_boundary(self) -> None:
         callbacks = []
         commits = []
