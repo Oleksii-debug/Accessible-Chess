@@ -8,7 +8,7 @@ from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
 
 class BookWebViewBridge:
     def __init__(self, projection: BookWebViewProjection) -> None:
-        if not isinstance(projection, BookWebViewProjection):
+        if type(projection) is not BookWebViewProjection:
             raise TypeError("projection must be BookWebViewProjection")
         self._projection = projection
 
@@ -56,35 +56,35 @@ class BookWebViewBridge:
             command_id = command.strip()
             if not command_id:
                 raise ValueError("invalid book browser command")
-            data = self._payload(payload)
+            data = BookWebViewBridge._payload(payload)
 
             no_payload = {
-                "book.previous": self._projection.previous,
-                "book.next": self._projection.next,
-                "book.previous_heading": self._projection.previous_heading,
-                "book.next_heading": self._projection.next_heading,
-                "book.previous_position": self._projection.previous_position,
-                "book.next_position": self._projection.next_position,
-                "book.previous_game": self._projection.previous_game,
-                "book.next_game": self._projection.next_game,
-                "book.open_position": self._projection.open_position,
-                "book.open_game": self._projection.open_game,
-                "book.return_from_board": self._projection.return_from_board,
+                "book.previous": BookWebViewProjection.previous,
+                "book.next": BookWebViewProjection.next,
+                "book.previous_heading": BookWebViewProjection.previous_heading,
+                "book.next_heading": BookWebViewProjection.next_heading,
+                "book.previous_position": BookWebViewProjection.previous_position,
+                "book.next_position": BookWebViewProjection.next_position,
+                "book.previous_game": BookWebViewProjection.previous_game,
+                "book.next_game": BookWebViewProjection.next_game,
+                "book.open_position": BookWebViewProjection.open_position,
+                "book.open_game": BookWebViewProjection.open_game,
+                "book.return_from_board": BookWebViewProjection.return_from_board,
             }
             callback = no_payload.get(command_id)
             if callback is not None:
-                self._exact(data, set())
-                return callback()
+                BookWebViewBridge._exact(data, set())
+                return callback(self._projection)
             if command_id == "book.bookmark.save":
-                self._exact(data, {"name"})
-                return self._projection.save_bookmark(data["name"])
+                BookWebViewBridge._exact(data, {"name"})
+                return BookWebViewProjection.save_bookmark(self._projection, data["name"])
             if command_id == "book.bookmark.restore":
-                self._exact(data, {"name"})
-                return self._projection.restore_bookmark(data["name"])
+                BookWebViewBridge._exact(data, {"name"})
+                return BookWebViewProjection.restore_bookmark(self._projection, data["name"])
             if command_id == "book.language":
-                self._exact(data, {"language"})
-                return self._projection.set_language(data["language"])
+                BookWebViewBridge._exact(data, {"language"})
+                return BookWebViewProjection.set_language(self._projection, data["language"])
             raise ValueError("unsupported book browser command")
         except BaseException:
             # Do not echo FEN, bookmark input, local paths, source data or internals.
-            return self._projection.generic_error()
+            return BookWebViewProjection.generic_error(self._projection)
