@@ -416,7 +416,12 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             require_current=True,
             extra={key: value for key, value in payload.items() if key not in {"game_index", "node_id"}},
         )
-        if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+        if action_id in {
+            "pgn.variation_move_up",
+            "pgn.variation_move_down",
+            "pgn.variation_delete",
+            "pgn.variation_promote",
+        }:
             if not cursor.line_path:
                 raise ValueError("main line is not a variation target")
             step = cursor.line_path[-1]
@@ -611,6 +616,12 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
                 index=index,
             )
         )
+
+    def move_variation_up(self) -> PgnWebViewEvent:
+        return self._mutate_and_render(super().move_variation_up)
+
+    def move_variation_down(self) -> PgnWebViewEvent:
+        return self._mutate_and_render(super().move_variation_down)
 
     def delete_variation(self) -> PgnWebViewEvent:
         return self._mutate_and_render(super().delete_variation)
