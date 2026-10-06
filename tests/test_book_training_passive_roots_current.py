@@ -196,6 +196,48 @@ class BookTrainingPassiveRootsTests(unittest.TestCase):
 
         self.assertFalse(HostilePayload.touched)
 
+    def test_exact_reader_instance_shadows_cannot_replace_current_material_authority(self) -> None:
+        book = self._book()
+        reader = BookReader(book)
+        shadow_calls: list[str] = []
+
+        def poison(name: str):
+            def fail(*_args, **_kwargs):
+                shadow_calls.append(name)
+                raise AssertionError(f"instance {name} shadow executed")
+            return fail
+
+        reader.location = poison("location")  # type: ignore[method-assign]
+        reader.document_snapshot = poison("document_snapshot")  # type: ignore[method-assign]
+        reader.block_snapshot = poison("block_snapshot")  # type: ignore[method-assign]
+
+        material = build_current_book_training_material(reader)
+
+        self.assertEqual(shadow_calls, [])
+        self.assertEqual(material.origin.block_id, "exercise")
+        self.assertEqual(material.origin.source_anchor, "chapter:1:exercise")
+
+    def test_exact_reader_instance_shadows_cannot_replace_origin_return_authority(self) -> None:
+        book = self._book()
+        reader = BookReader(book)
+        material = build_book_training_material(book, "block:exercise")
+        shadow_calls: list[str] = []
+
+        def poison(name: str):
+            def fail(*_args, **_kwargs):
+                shadow_calls.append(name)
+                raise AssertionError(f"instance {name} shadow executed")
+            return fail
+
+        reader.document_snapshot = poison("document_snapshot")  # type: ignore[method-assign]
+        reader.go_to = poison("go_to")  # type: ignore[method-assign]
+
+        returned = return_reader_to_book_training_origin(reader, material.origin)
+
+        self.assertEqual(shadow_calls, [])
+        self.assertEqual(returned.block_id, "exercise")
+        self.assertEqual(reader.index, 0)
+
     def test_current_material_uses_indexed_document_and_rechecks_live_revision(self) -> None:
         book = self._book()
         reader = BookReader(book)
