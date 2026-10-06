@@ -141,6 +141,26 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 3)
         materialize.assert_not_called()
 
+    def test_epub_xml_tree_materialization_observes_control_between_chunks(self):
+        import acs.book_epub_import as epub
+
+        data = ("<root>" + ("x" * (192 * 1024)) + "</root>").encode("utf-8")
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB XML tree materialization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._materialize_xml_root(data, "test metadata", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
     def test_epub_package_metadata_validation_observes_control_before_id_walk(self):
         import acs.book_epub_import as epub
 
