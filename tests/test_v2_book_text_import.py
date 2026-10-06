@@ -520,6 +520,75 @@ Starting board
             import_text_book("text", source_name="book.rtf", source_format="rtf")
         self.assertEqual(format_error.exception.code, BookTextImportErrorCode.UNSUPPORTED_FORMAT)
 
+    def test_markdown_list_inline_image_keeps_list_semantics_and_alt_text(self) -> None:
+        result = import_text_book(
+            "- Before ![Board](images/board.png) after\n- Plain item\n",
+            source_name="list-image.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before Board after", "Plain item"])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+        self.assertTrue(
+            any(
+                "image inside a list item" in warning
+                and "accessible list-item text" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_markdown_ordered_list_inline_images_keep_one_canonical_list(self) -> None:
+        result = import_text_book(
+            "3. ![First board](one.png) opening\n"
+            "9. middle ![Second board](two.png)\n"
+            "1. final\n",
+            source_name="ordered-list-images.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertTrue(lists[0].ordered)
+        self.assertEqual(lists[0].start, 3)
+        self.assertEqual(
+            lists[0].items,
+            ["First board opening", "middle Second board", "final"],
+        )
+
+    def test_markdown_list_literal_image_syntax_stays_literal(self) -> None:
+        result = import_text_book(
+            "- \\![escaped](asset.png) stays literal\n"
+            "- `![code](asset.png)` stays code text\n",
+            source_name="literal-list-images.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(
+            lists[0].items,
+            [
+                "\\![escaped](asset.png) stays literal",
+                "`![code](asset.png)` stays code text",
+            ],
+        )
+        self.assertFalse(
+            any("image inside a list item" in warning for warning in result.warnings)
+        )
+
     def test_markdown_ordered_list_uses_first_marker_as_canonical_start(self) -> None:
         result = import_text_book(
             "3. Third item\n9. Fourth item\n0. Fifth item\n",
