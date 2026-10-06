@@ -365,7 +365,7 @@ def _fsync_file_snapshot(
             opened = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened.st_mode)
-                or not _same_identity_and_size(expected, opened)
+                or not _same_file_snapshot(expected, opened)
             ):
                 _fail(f"{label} changed before durability confirmation")
             handle.flush()
@@ -377,8 +377,8 @@ def _fsync_file_snapshot(
         _fail(f"{label} could not be synchronized: {type(exc).__name__}")
     after = _safe_info(path, label=label, directory=False)
     if (
-        not _same_identity_and_size(expected, flushed)
-        or not _same_identity_and_size(expected, after)
+        not _same_file_snapshot(expected, flushed)
+        or not _same_file_snapshot(expected, after)
     ):
         _fail(f"{label} changed during durability confirmation")
     return after
@@ -414,7 +414,7 @@ def _sync_published_zip_namespace(
         if descriptor >= 0:
             os.close(descriptor)
     after = _safe_info(path, label="portable ZIP publication", directory=False)
-    if not _same_identity_and_size(expected, after):
+    if not _same_file_snapshot(expected, after):
         _fail("portable ZIP publication changed during durability confirmation")
     return after
 
@@ -979,6 +979,11 @@ def write_portable_oneclick_zip(
                 with source.open("rb") as source_handle, archive.open(info, "w", force_zip64=True) as target_handle:
                     shutil.copyfileobj(source_handle, target_handle, length=_COPY_CHUNK_BYTES)
 
+        readback_before = _safe_info(
+            temporary,
+            label="portable ZIP archive readback",
+            directory=False,
+        )
         with zipfile.ZipFile(temporary, "r") as archive:
             infos = archive.infolist()
             names = tuple(item.filename for item in infos)
@@ -999,15 +1004,19 @@ def write_portable_oneclick_zip(
                 if expected_digest is None or digest.hexdigest() != expected_digest:
                     _fail("portable ZIP byte readback failed")
 
+        readback_after = _safe_info(
+            temporary,
+            label="portable ZIP archive readback",
+            directory=False,
+        )
+        if not _same_file_snapshot(readback_before, readback_after):
+            _fail("portable ZIP archive changed during readback")
+
         # Bind the archive readback to one durable temp-file snapshot before
         # creating the public hard link.  The final digest must later equal
         # these exact bytes; hashing only the public pathname after os.link()
         # would otherwise accept a same-inode post-link rewrite.
-        prepared = _safe_info(
-            temporary,
-            label="verified portable ZIP archive",
-            directory=False,
-        )
+        prepared = readback_after
         prepared = _fsync_file_snapshot(
             temporary,
             expected=prepared,
