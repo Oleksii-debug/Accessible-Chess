@@ -358,6 +358,7 @@ class Version2WindowsFileActionDelegate:
         self._worker_kind = ""
         self._cancel_event: threading.Event | None = None
         self._terminal_pending: tuple[int, FileWorkflowEvent] | None = None
+        self._pending_open_result: tuple[object, ...] | None = None
         self._pending_save_result: tuple[object, ...] | None = None
         self._generation = 0
         self._shutdown_requested = False
@@ -743,6 +744,7 @@ class Version2WindowsFileActionDelegate:
             self._worker_kind = "pgn_open"
             self._cancel_event = cancel_event
             self._terminal_pending = None
+            self._pending_open_result = None
 
         started = self._emit(
             FileWorkflowEvent(
@@ -805,17 +807,22 @@ class Version2WindowsFileActionDelegate:
             _safe_warning("Version 2 PGN Open preparation failed")
             error_code = "pgn_open_failed"
 
+        pending = (
+            generation,
+            session,
+            view,
+            error_code,
+            previous_focus,
+            cancel_event,
+            expected_session,
+            expected_generation,
+        )
+        with self._lock:
+            if generation == self._generation and self._worker_kind == "pgn_open":
+                self._pending_open_result = pending
+
         def finish_on_owner() -> None:
-            self._finish_pgn_open_on_owner(
-                generation,
-                session,
-                view,
-                error_code,
-                previous_focus,
-                cancel_event,
-                expected_session,
-                expected_generation,
-            )
+            self._finish_pgn_open_on_owner(*pending)
 
         try:
             assert self._post_to_ui is not None
@@ -850,7 +857,7 @@ class Version2WindowsFileActionDelegate:
         cancel_event: threading.Event,
         expected_session: PgnDocumentSession | None,
         expected_generation: tuple[PgnWorkspace, int, int, str, SourceFingerprint | None, bool, str | None, tuple[str, ...]] | None,
-    ) -> None:
+    ) -> FileWorkflowEvent | None:
         with self._lock:
             current = (
                 generation == self._generation
@@ -1009,9 +1016,10 @@ class Version2WindowsFileActionDelegate:
             ):
                 return
             self._clear_worker_locked()
-        self._emit_owner_async(terminal)
+        return self._emit_owner_async(terminal)
 
     def _cancel_pgn_open(self) -> FileWorkflowEvent:
+        pending: tuple[object, ...] | None = None
         with self._lock:
             worker = self._worker
             cancel_event = self._cancel_event
@@ -1021,7 +1029,18 @@ class Version2WindowsFileActionDelegate:
                 and cancel_event is not None
             )
             if running:
+                # Once background preparation has completed, owner publication
+                # is the only remaining transition. Resolve that exact pending
+                # result now: successful preparation is still cancellable, while
+                # an already-fixed worker failure keeps its failure truth.
+                candidate = self._pending_open_result
                 cancel_event.set()
+                if candidate is not None and candidate[0] == self._generation:
+                    pending = candidate
+        if pending is not None:
+            terminal = self._finish_pgn_open_on_owner(*pending)
+            if terminal is not None:
+                return terminal
         if not running:
             return self._failed(
                 "pgn.cancel_open",
@@ -1042,6 +1061,7 @@ class Version2WindowsFileActionDelegate:
         self._worker_kind = ""
         self._cancel_event = None
         self._terminal_pending = None
+        self._pending_open_result = None
         self._pending_save_result = None
 
     def _session_or_failure(
