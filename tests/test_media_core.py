@@ -4,6 +4,9 @@ import unittest
 
 from acs.media_core import (
     MEDIA_STATE_SCHEMA,
+    MediaClock,
+    MediaClockSnapshot,
+    MediaPlaybackState,
     MAX_MEDIA_LINKS,
     MediaChessLink,
     MediaChessSession,
@@ -379,6 +382,103 @@ class MediaCoreContractTests(unittest.TestCase):
     def test_schema_identifier_is_stable(self):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")
 
+
+    def test_clock_starts_unstarted_and_snapshot_is_deterministic(self):
+        clock = MediaClock()
+        first = clock.snapshot(0)
+        second = clock.snapshot(1000)
+        self.assertIsInstance(first, MediaClockSnapshot)
+        self.assertEqual(first.position_ms, 0)
+        self.assertEqual(first.state, MediaPlaybackState.UNSTARTED)
+        self.assertEqual(first.revision, 0)
+        self.assertEqual(second.position_ms, 0)
+        self.assertEqual(second.revision, 0)
+
+    def test_clock_play_advances_at_explicit_rate(self):
+        clock = MediaClock()
+        started = clock.play(100)
+        self.assertEqual(started.state, MediaPlaybackState.PLAYING)
+        self.assertEqual(started.position_ms, 0)
+        advanced = clock.snapshot(1100)
+        self.assertEqual(advanced.position_ms, 1000)
+        self.assertEqual(advanced.state, MediaPlaybackState.PLAYING)
+
+    def test_clock_pause_freezes_materialized_position(self):
+        clock = MediaClock()
+        clock.play(0)
+        paused = clock.pause(1500)
+        self.assertEqual(paused.position_ms, 1500)
+        self.assertEqual(paused.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(clock.snapshot(3000).position_ms, 1500)
+
+    def test_clock_buffering_freezes_until_resume(self):
+        clock = MediaClock()
+        clock.play(0)
+        buffering = clock.buffer(1200)
+        self.assertEqual(buffering.position_ms, 1200)
+        self.assertEqual(buffering.state, MediaPlaybackState.BUFFERING)
+        self.assertEqual(clock.snapshot(5000).position_ms, 1200)
+        resumed = clock.resume(5000)
+        self.assertEqual(resumed.state, MediaPlaybackState.PLAYING)
+        self.assertEqual(clock.snapshot(5600).position_ms, 1800)
+
+    def test_clock_rate_change_reanchors_without_position_jump(self):
+        clock = MediaClock()
+        clock.play(0)
+        changed = clock.set_playback_rate(2.0, 1000)
+        self.assertEqual(changed.position_ms, 1000)
+        self.assertEqual(changed.playback_rate, 2.0)
+        self.assertEqual(clock.snapshot(1500).position_ms, 2000)
+
+    def test_clock_seek_reanchors_and_allows_rewind_after_end(self):
+        clock = MediaClock(duration_ms=2000)
+        clock.play(0)
+        ended = clock.snapshot(3000)
+        self.assertEqual(ended.position_ms, 2000)
+        self.assertEqual(ended.state, MediaPlaybackState.ENDED)
+        rewound = clock.seek(500, 3000)
+        self.assertEqual(rewound.position_ms, 500)
+        self.assertEqual(rewound.state, MediaPlaybackState.PLAYING)
+        self.assertEqual(clock.snapshot(3500).position_ms, 1000)
+
+    def test_clock_end_clamps_to_duration_and_stays_ended(self):
+        clock = MediaClock(duration_ms=5000)
+        clock.play(0)
+        ended = clock.end(1200)
+        self.assertEqual(ended.position_ms, 5000)
+        self.assertEqual(ended.state, MediaPlaybackState.ENDED)
+        self.assertEqual(clock.snapshot(9000).position_ms, 5000)
+
+    def test_clock_rejects_non_monotonic_host_time(self):
+        clock = MediaClock()
+        clock.play(10)
+        with self.assertRaises(MediaContractError) as caught:
+            clock.snapshot(9)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_clock_rejects_invalid_rate_and_duration(self):
+        for value in (0, -1, math.nan, math.inf, True, "2.0"):
+            with self.subTest(value=value):
+                with self.assertRaises(MediaContractError) as caught:
+                    MediaClock(playback_rate=value)
+                self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClock(position_ms=100, duration_ms=99)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_clock_revision_changes_on_control_events_not_read_only_advance(self):
+        clock = MediaClock()
+        self.assertEqual(clock.revision, 0)
+        clock.snapshot(100)
+        self.assertEqual(clock.revision, 0)
+        started = clock.play(100)
+        self.assertEqual(started.revision, 1)
+        clock.snapshot(200)
+        self.assertEqual(clock.revision, 1)
+        changed = clock.set_playback_rate(1.5, 200)
+        self.assertEqual(changed.revision, 2)
+        repeated = clock.set_playback_rate(1.5, 300)
+        self.assertEqual(repeated.revision, 2)
 
 if __name__ == "__main__":
     unittest.main()
