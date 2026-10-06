@@ -277,10 +277,11 @@ class Version2WindowsLibraryExportDelegate:
             )
         )
         shutdown_before_start = False
+        cancelled_before_start = False
         try:
-            # STARTED observers run on the owner thread and may re-enter shutdown.
-            # Linearize the final ownership/closed check with Thread.start() so a
-            # worker reserved before that callback cannot start after teardown.
+            # STARTED observers run on the owner thread and may re-enter shutdown
+            # or cancellation. Linearize those decisions with Thread.start() so
+            # work accepted as cancelled never opens worker-local database state.
             with self._lock:
                 current = (
                     generation == self._generation
@@ -293,6 +294,10 @@ class Version2WindowsLibraryExportDelegate:
                         raise RuntimeError(
                             "Library export worker ownership changed before start"
                         )
+                elif cancel.is_set():
+                    self._cancel = None
+                    self._thread = None
+                    cancelled_before_start = True
                 else:
                     thread.start()
         except BaseException:
@@ -303,6 +308,13 @@ class Version2WindowsLibraryExportDelegate:
             return self._failed("library_export_worker_failed", previous_focus)
         if shutdown_before_start:
             return self._failed("library_export_unavailable", previous_focus)
+        if cancelled_before_start:
+            return self._emit(
+                LibraryExportHostEvent(
+                    LibraryExportHostEventKind.DIALOG_CANCELLED,
+                    focus_target=previous_focus,
+                )
+            )
         return started
 
     def _run_export(
