@@ -42,7 +42,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          MEDIA_APPLICATION_PARENT: 97dadde3b9bc0f48486399ebbdde4570e0bf9875
+          MEDIA_APPLICATION_PARENT: 919c6988d504266481136337fbb75639bd1110e4
           MEDIA_APPLICATION_BRANCH: work/media-application-restore-position-20261005-sol56
         run: |
           set -euo pipefail
