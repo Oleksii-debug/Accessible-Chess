@@ -1,0 +1,129 @@
+name: Classroom Join Identity Mapping
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-media-policy-authority-20261002
+    paths:
+      - 'acs/classroom_media_policy_authority.py'
+      - 'tests/test_classroom_media_policy_authority.py'
+      - '.github/workflows/classroom-join-identity-mapping.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-join-identity-mapping-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  identity-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact successor scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          QUALIFIED_SERIALIZATION_SHA: f6d3df934b59b9fdac1bd917017982d87734daf6
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_BASE_REF" = "feature/classroom-media-policy-authority-20261002"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git cat-file -e "${QUALIFIED_SERIALIZATION_SHA}^{commit}" || git fetch --no-tags origin "$QUALIFIED_SERIALIZATION_SHA"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_BASE_REF:refs/remotes/origin/$EXPECTED_BASE_REF"
+          live_base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git merge-base --is-ancestor "$QUALIFIED_SERIALIZATION_SHA" HEAD
+
+          git diff --check "$live_base...HEAD"
+          changed="$(git diff --name-only "$live_base...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-distinct-moderation-serialization.yml' \
+            '.github/workflows/classroom-join-identity-mapping.yml' \
+            '.github/workflows/p0-packaged-release-probe-convergence.yml' \
+            '.github/workflows/p0-release-critical-triad-convergence.yml' \
+            '.github/workflows/ui-semantic-gate.yml' \
+            '.github/workflows/v2-html-current-d06-recovery.yml' \
+            '.github/workflows/v2-library-acsdb-search-v4.yml' \
+            '.github/workflows/version2-windows-composition.yml' \
+            'acs/classroom_media_policy_authority.py' \
+            'tests/test_classroom_effect_lock_cross_process.py' \
+            'tests/test_classroom_media_policy_authority.py' \
+            'tests/test_classroom_provider_cancellation_atomicity.py' \
+            'tests/test_p0_packaged_release_probe_convergence.py' \
+            'tests/test_p0_release_critical_triad_convergence.py' \
+            'tests/test_ui_semantic_gate_workflow.py' \
+            'tests/test_v2_html_current_d06_recovery_workflow.py' \
+            'tests/test_version2_windows_composition_workflow.py' | sort)"
+          test "$changed" = "$allowed"
+
+          # The 16 inherited paths are the exact, already-qualified #1108 source-owner overlay.
+          test "$(git rev-parse HEAD:.github/workflows/classroom-distinct-moderation-serialization.yml)" = "da0aee6819590b82b451fc8dd0a98b1330a21557"
+          test "$(git rev-parse HEAD:.github/workflows/p0-packaged-release-probe-convergence.yml)" = "8d873bb97e3a974a56b166a1f357ab871a6a1113"
+          test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
+          test "$(git rev-parse HEAD:.github/workflows/ui-semantic-gate.yml)" = "0bb0e9f062e8e1055a530ac60e587aec8ac35b23"
+          test "$(git rev-parse HEAD:.github/workflows/v2-html-current-d06-recovery.yml)" = "949dc34fca4683f6c6fc4792ff54a0b191d5e0c3"
+          test "$(git rev-parse HEAD:.github/workflows/v2-library-acsdb-search-v4.yml)" = "6895292a92a50ed381abe1281a01fe88a28e3bb2"
+          test "$(git rev-parse HEAD:.github/workflows/version2-windows-composition.yml)" = "1154a1d2e5b93957a79a928e89f5e5d31798bec3"
+          test "$(git rev-parse HEAD:acs/classroom_media_policy_authority.py)" = "59fd6eade694c6f78ca05eccaa3ce7a7beb7c50f"
+          test "$(git rev-parse HEAD:tests/test_classroom_effect_lock_cross_process.py)" = "7c92c1c2bf3239f34e85c57c62b2fba70e79819f"
+          test "$(git rev-parse HEAD:tests/test_classroom_media_policy_authority.py)" = "3b7d45a511a199793b344ab1afa2fbaae2212895"
+          test "$(git rev-parse HEAD:tests/test_classroom_provider_cancellation_atomicity.py)" = "f831b650260cfaa2df4674e7ac6d9f6fccb53b1a"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_release_probe_convergence.py)" = "407d45698536421032dd20df7904778252166f09"
+          test "$(git rev-parse HEAD:tests/test_p0_release_critical_triad_convergence.py)" = "2eccbebb111e34c4530e75f37494579ffc5734ce"
+          test "$(git rev-parse HEAD:tests/test_ui_semantic_gate_workflow.py)" = "1fec1a66c1126a831fbd448ff74ef30113e54259"
+          test "$(git rev-parse HEAD:tests/test_v2_html_current_d06_recovery_workflow.py)" = "64f34de8477f5c76cf6f54bb939641c7784969fe"
+          test "$(git rev-parse HEAD:tests/test_version2_windows_composition_workflow.py)" = "723448d08238dd055e9b0d6ffb0ceeac4277a193"
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile identity boundary
+        run: >-
+          python -m py_compile
+          acs/classroom_media_policy_authority.py
+          tests/test_classroom_media_policy_authority.py
+
+      - name: Run media-policy and join contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_media_policy_authority
+          tests.test_classroom_join_credentials
+          tests.test_classroom_realtime_media
+
+      - name: Prove caller and room participant remain distinct authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'class ClassroomJoinIdentityResolverPort' acs/classroom_media_policy_authority.py
+          grep -Fq 'participant_for_caller' acs/classroom_media_policy_authority.py
+          grep -Fq 'canonical join identity lookup failed' acs/classroom_media_policy_authority.py
+          grep -Fq 'requested participant is not authorized for caller' acs/classroom_media_policy_authority.py
+          ! grep -Fq 'if caller != participant' acs/classroom_media_policy_authority.py
+          grep -Fq 'trusted_caller_identity="account-17"' tests/test_classroom_media_policy_authority.py
+          grep -Fq 'requested_participant_id="student-1"' tests/test_classroom_media_policy_authority.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
