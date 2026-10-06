@@ -107,6 +107,18 @@ class Version2BookOpenWorker:
             self._thread = thread
         try:
             self._emit(BookOpenWorkerEventKind.STARTED, focus_target)
+            # STARTED is an observer boundary and may re-enter native FormClosing.
+            # Revalidate exact ownership after the callback before launching the
+            # non-daemon thread; shutdown may already have fenced this generation.
+            with self._lock:
+                may_start = (
+                    generation == self._generation
+                    and not self._closed
+                    and self._thread is thread
+                    and self._cancel is cancel
+                )
+            if not may_start:
+                return False
             thread.start()
         except BaseException:
             with self._lock:

@@ -584,12 +584,16 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             source.write_text(PGN_TEXT, encoding="utf-8")
             events = []
             shutdown_results = []
+            reentrant_resume_results = []
             holder = {}
 
             def sink(event):
                 events.append(event)
                 if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     shutdown_results.append(holder["delegate"].shutdown(0.0))
+                    reentrant_resume_results.append(
+                        holder["delegate"].resume_after_refused_shutdown()
+                    )
 
             delegate = self._delegate(source, event_sink=sink, post_to_ui=lambda cb: None)
             holder["delegate"] = delegate
@@ -598,6 +602,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 result = delegate("library.import", {})
 
             self.assertEqual(shutdown_results, [False])
+            self.assertEqual(reentrant_resume_results, [False])
             self.assertEqual(start.call_count, 0)
             self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(result.error_code, "file_workflow_closed")
@@ -606,6 +611,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 [FileWorkflowEventKind.IMPORT_STARTED, FileWorkflowEventKind.FAILED],
             )
             self.assertFalse(delegate.import_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            resumed = delegate("pgn.save", {})
+            self.assertEqual(resumed.error_code, "no_pgn_document")
 
     def test_import_cleanup_base_exception_releases_shared_worker_slot(self) -> None:
         class CleanupAbort(BaseException):
@@ -1015,6 +1023,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             source.write_text(PGN_TEXT, encoding="utf-8")
             events = []
             shutdown_results = []
+            pgn_open_reentrant_resume_results = []
             posted = []
             holder = {}
 
@@ -1022,6 +1031,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 events.append(event)
                 if event.kind is FileWorkflowEventKind.PGN_OPEN_STARTED:
                     shutdown_results.append(holder["delegate"].shutdown(0.0))
+                    pgn_open_reentrant_resume_results.append(
+                        holder["delegate"].resume_after_refused_shutdown()
+                    )
 
             delegate = self._delegate(source, event_sink=sink, post_to_ui=posted.append)
             holder["delegate"] = delegate
@@ -1030,6 +1042,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 result = delegate("pgn.open", {})
 
             self.assertEqual(shutdown_results, [False])
+            self.assertEqual(pgn_open_reentrant_resume_results, [False])
             self.assertEqual(start.call_count, 0)
             self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(result.error_code, "file_workflow_closed")
@@ -1039,6 +1052,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 [FileWorkflowEventKind.PGN_OPEN_STARTED, FileWorkflowEventKind.FAILED],
             )
             self.assertFalse(delegate.pgn_open_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            resumed = delegate("pgn.save", {})
+            self.assertEqual(resumed.error_code, "no_pgn_document")
 
     def test_direct_file_actions_contain_base_exceptions_without_raw_escape(self) -> None:
         class DirectAbort(BaseException):

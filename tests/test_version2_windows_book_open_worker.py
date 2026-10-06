@@ -144,6 +144,34 @@ class BookOpenWorkerTests(unittest.TestCase):
             [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
         )
 
+    def test_started_event_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
+        events = []
+        shutdown_results = []
+        holder = {}
+
+        def sink(event):
+            events.append(event.kind)
+            if event.kind is BookOpenWorkerEventKind.STARTED:
+                shutdown_results.append(holder["worker"].shutdown(0.0))
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "must-not-run",
+            commit=lambda value: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=sink,
+        )
+        holder["worker"] = worker
+
+        with unittest.mock.patch.object(threading.Thread, "start", autospec=True) as start:
+            self.assertFalse(worker.start(Path("book.md"), focus_target="book-open"))
+
+        self.assertEqual(shutdown_results, [True])
+        start.assert_not_called()
+        self.assertEqual(events, [BookOpenWorkerEventKind.STARTED])
+        self.assertTrue(worker.closed)
+        self.assertFalse(worker.active)
+        self.assertTrue(worker.resume_after_refused_shutdown())
+
     def test_started_event_failure_does_not_leave_worker_busy(self) -> None:
         def reject_event(_event):
             raise RuntimeError("event sink failed")
