@@ -231,6 +231,48 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
         self.assertIs(application._native_close_shutdown_error, primary)
         application.announce_shutdown_failure.assert_called_once_with()
 
+    def test_dirty_confirmation_failure_announces_but_user_decline_stays_quiet(self) -> None:
+        class ClosingEvent:
+            def __init__(self) -> None:
+                self.handlers = []
+
+            def __iadd__(self, handler):
+                self.handlers.append(handler)
+                return self
+
+        class ConfirmationAbort(BaseException):
+            pass
+
+        for label, confirmation, expected_announcements in (
+            ("failure", mock.Mock(side_effect=ConfirmationAbort("CONFIRMATION")), 1),
+            ("decline", mock.Mock(return_value=False), 0),
+        ):
+            with self.subTest(label=label):
+                application = SimpleNamespace(
+                    session=SimpleNamespace(dirty=True),
+                    shutdown=mock.Mock(return_value=True),
+                    announce_shutdown_failure=mock.Mock(),
+                    _native_unsaved_close_guard=None,
+                )
+                owner = SimpleNamespace(FormClosing=ClosingEvent())
+                dialogs = SimpleNamespace(
+                    confirm_discard_unsaved_pgn_on_exit=confirmation
+                )
+                release_app._install_unsaved_pgn_close_guard(
+                    application,
+                    owner,
+                    dialogs,
+                )
+                event = SimpleNamespace(Cancel=False)
+                owner.FormClosing.handlers[0](None, event)
+
+                self.assertTrue(event.Cancel)
+                application.shutdown.assert_not_called()
+                self.assertEqual(
+                    application.announce_shutdown_failure.call_count,
+                    expected_announcements,
+                )
+
     def test_pre_shutdown_abort_announces_and_keeps_native_close_retryable(self) -> None:
         class ClosingEvent:
             def __init__(self) -> None:
