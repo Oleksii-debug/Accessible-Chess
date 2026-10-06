@@ -1095,17 +1095,31 @@ class _SemanticHtmlParser(HTMLParser):
         self._parser_event_checkpoint()
         if self._suppressed_depth or self._hidden_tags:
             return
-        if self._head_depth or any(capture.kind == "title" for capture in self._captures):
+        title_capture_present = False
+        if self._head_depth:
+            title_capture_present = True
+        else:
+            for capture_index, capture in enumerate(self._captures, start=1):
+                if self.control_checkpoint is not None and capture_index % 128 == 0:
+                    self._checkpoint()
+                if capture.kind == "title":
+                    title_capture_present = True
+                    break
+        if title_capture_present:
             # HTML title still supplies the book title; it and all other
             # non-rendered HEAD text are excluded from the visible stream that
             # owns explicit {PGN N} markers. Do not fan metadata into an
             # unclosed outer Paragraph/Heading capture either.
-            for capture in self._captures:
+            for capture_index, capture in enumerate(self._captures, start=1):
+                if self.control_checkpoint is not None and capture_index % 128 == 0:
+                    self._checkpoint()
                 if capture.kind == "title":
                     capture.parts.append(data)
             return
         self._append_visible(data)
-        for capture in self._captures:
+        for capture_index, capture in enumerate(self._captures, start=1):
+            if self.control_checkpoint is not None and capture_index % 128 == 0:
+                self._checkpoint()
             pending_boundaries = self._text_boundary_count - capture.boundary_count
             if pending_boundaries > 0:
                 capture.parts.append("\n" * pending_boundaries)
