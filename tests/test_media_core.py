@@ -7,6 +7,8 @@ from acs.media_core import (
     MediaClock,
     MediaClockSnapshot,
     MediaPlaybackState,
+    MediaSession,
+    MediaTimelineIdentity,
     CanonicalChessReconciliationPort,
     ChessStateReconciler,
     MediaEvidence,
@@ -24,7 +26,9 @@ from acs.media_core import (
     MediaPositionTimeline,
     MediaSource,
     MediaSourceKind,
+    deserialize_media_session,
     deserialize_media_state,
+    serialize_media_session,
     serialize_media_state,
 )
 
@@ -697,6 +701,151 @@ class MediaCoreContractTests(unittest.TestCase):
         with self.assertRaises(MediaContractError) as caught:
             ChessStateReconciler(UnboundPort()).reconcile(evidence)
         self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+
+
+    def session_identity(self, *, provider_revision="provider-v1"):
+        return MediaTimelineIdentity(
+            source_id="lesson-1",
+            source_revision="source-v1",
+            recognizer_revision="vision-v1",
+            reconciliation_revision="reconcile-v1",
+            provider_revision=provider_revision,
+            cache_version=1,
+        )
+
+    def media_session(self):
+        identity = self.session_identity()
+        return MediaSession(
+            session_id="session-1",
+            source_id="lesson-1",
+            source_kind=MediaSourceKind.PROVIDER,
+            source_revision="source-v1",
+            source_ref="opaque-provider-media-id",
+            clock=MediaClockSnapshot(
+                position_ms=12_500,
+                state=MediaPlaybackState.PAUSED,
+                playback_rate=1.25,
+                duration_ms=120_000,
+                revision=7,
+            ),
+            timeline_identity=identity,
+            media_chess_ref="canonical:media-node",
+            analysis_chess_ref="canonical:analysis-node",
+            revision=11,
+        )
+
+    def test_media_session_keeps_media_and_analysis_cursors_independent(self):
+        session = self.media_session()
+        changed = session.select_analysis_cursor("canonical:variation-node")
+        self.assertEqual(changed.media_chess_ref, "canonical:media-node")
+        self.assertEqual(changed.analysis_chess_ref, "canonical:variation-node")
+        self.assertEqual(changed.clock.position_ms, 12_500)
+        self.assertEqual(changed.revision, 12)
+
+    def test_source_revision_change_invalidates_media_timeline_but_preserves_analysis(self):
+        session = self.media_session()
+        changed = session.with_source_revision("source-v2")
+        self.assertEqual(changed.source_revision, "source-v2")
+        self.assertIsNone(changed.timeline_identity)
+        self.assertIsNone(changed.media_chess_ref)
+        self.assertEqual(changed.analysis_chess_ref, "canonical:analysis-node")
+        self.assertEqual(changed.clock, session.clock)
+        self.assertEqual(changed.timeline_invalidated_reason, "source revision changed")
+        self.assertEqual(changed.revision, 12)
+
+    def test_recognizer_or_provider_revision_mismatch_invalidates_fail_closed(self):
+        session = self.media_session()
+        expected = MediaTimelineIdentity(
+            source_id="lesson-1",
+            source_revision="source-v1",
+            recognizer_revision="vision-v2",
+            reconciliation_revision="reconcile-v1",
+            provider_revision="provider-v2",
+            cache_version=1,
+        )
+        self.assertFalse(session.timeline_compatible(expected))
+        invalidated = session.invalidate_if_timeline_changed(expected)
+        self.assertIsNone(invalidated.timeline_identity)
+        self.assertIsNone(invalidated.media_chess_ref)
+        self.assertEqual(
+            invalidated.timeline_invalidated_reason,
+            "timeline dependency revision changed",
+        )
+        self.assertEqual(
+            invalidated.analysis_chess_ref,
+            "canonical:analysis-node",
+        )
+
+    def test_media_cursor_binding_rejects_stale_or_cross_source_timeline(self):
+        session = self.media_session().invalidate_timeline("rebuild required")
+        stale = MediaTimelineIdentity(
+            source_id="lesson-1",
+            source_revision="source-v0",
+            recognizer_revision="vision-v1",
+            reconciliation_revision="reconcile-v1",
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            session.bind_media_cursor(stale, "canonical:new-media-node")
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        cross_source = MediaTimelineIdentity(
+            source_id="other-source",
+            source_revision="source-v1",
+            recognizer_revision="vision-v1",
+            reconciliation_revision="reconcile-v1",
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            session.bind_media_cursor(cross_source, "canonical:new-media-node")
+        self.assertEqual(caught.exception.code, MediaErrorCode.SOURCE_MISMATCH)
+
+    def test_media_session_restart_round_trip_preserves_clock_and_timeline_identity(self):
+        session = self.media_session()
+        encoded = serialize_media_session(session)
+        restored = deserialize_media_session(encoded)
+        self.assertEqual(restored, session)
+        self.assertEqual(restored.clock.position_ms, 12_500)
+        self.assertEqual(restored.clock.playback_rate, 1.25)
+        self.assertEqual(restored.media_chess_ref, "canonical:media-node")
+        self.assertEqual(restored.analysis_chess_ref, "canonical:analysis-node")
+        self.assertTrue(restored.timeline_compatible(self.session_identity()))
+
+    def test_media_session_persistence_rejects_unknown_fields_and_duplicate_keys(self):
+        session = self.media_session()
+        payload = json.loads(serialize_media_session(session))
+        payload["unexpected"] = True
+        with self.assertRaises(MediaContractError) as caught:
+            deserialize_media_session(json.dumps(payload))
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_SCHEMA)
+
+        duplicate = (
+            '{"schema":"accessible-chess.media-session",'
+            '"schema":"attacker",'
+            '"version":1,"session":{}}'
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            deserialize_media_session(duplicate)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_SCHEMA)
+
+    def test_direct_clock_snapshot_construction_is_fail_closed(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClockSnapshot(
+                position_ms=101,
+                state=MediaPlaybackState.PAUSED,
+                playback_rate=1.0,
+                duration_ms=100,
+                revision=0,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClockSnapshot(
+                position_ms=0,
+                state="not-a-state",
+                playback_rate=1.0,
+                duration_ms=None,
+                revision=0,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
 
     def test_schema_identifier_is_stable(self):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")

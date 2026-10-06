@@ -22,6 +22,8 @@ from typing import Any, Iterable, Protocol
 
 MEDIA_STATE_SCHEMA = "accessible-chess.media-state"
 MEDIA_STATE_VERSION = 1
+MEDIA_SESSION_SCHEMA = "accessible-chess.media-session"
+MEDIA_SESSION_VERSION = 1
 MAX_MEDIA_LINKS = 100_000
 MAX_MEDIA_STATE_BYTES = 8 * 1024 * 1024
 MAX_MEDIA_EVIDENCE_FIELDS = 64
@@ -229,6 +231,45 @@ class MediaClockSnapshot:
     playback_rate: float
     duration_ms: int | None
     revision: int
+
+    def __post_init__(self) -> None:
+        position = _require_nonnegative_int(self.position_ms, "position_ms")
+        if type(self.state) is MediaPlaybackState:
+            state = self.state
+        elif type(self.state) is str:
+            try:
+                state = MediaPlaybackState(self.state)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media playback state",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported media playback state",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "state", state)
+        object.__setattr__(
+            self,
+            "playback_rate",
+            MediaClock._require_rate(self.playback_rate),
+        )
+        if self.duration_ms is not None:
+            try:
+                duration = _require_nonnegative_int(self.duration_ms, "duration_ms")
+            except MediaContractError as exc:
+                raise MediaContractError(
+                    str(exc),
+                    code=MediaErrorCode.INVALID_DURATION,
+                ) from exc
+            if position > duration:
+                raise MediaContractError(
+                    "clock position exceeds media duration",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
+            object.__setattr__(self, "duration_ms", duration)
+        _require_nonnegative_int(self.revision, "revision")
 
 
 class MediaClock:
@@ -568,6 +609,70 @@ class MediaSource:
                     str(exc), code=MediaErrorCode.INVALID_DURATION
                 ) from exc
             object.__setattr__(self, "duration_ms", duration)
+
+
+
+@dataclass(frozen=True, slots=True)
+class MediaTimelineIdentity:
+    """Dependency identity for one reusable MediaPositionTimeline cache."""
+
+    source_id: str
+    source_revision: str
+    recognizer_revision: str
+    reconciliation_revision: str
+    provider_revision: str | None = None
+    cache_version: int = 1
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "source_id",
+            _require_bounded_text(self.source_id, "source_id", max_chars=512),
+        )
+        object.__setattr__(
+            self,
+            "source_revision",
+            _require_bounded_text(
+                self.source_revision, "source_revision", max_chars=512
+            ),
+        )
+        object.__setattr__(
+            self,
+            "recognizer_revision",
+            _require_bounded_text(
+                self.recognizer_revision, "recognizer_revision", max_chars=512
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reconciliation_revision",
+            _require_bounded_text(
+                self.reconciliation_revision,
+                "reconciliation_revision",
+                max_chars=512,
+            ),
+        )
+        if self.provider_revision is not None:
+            object.__setattr__(
+                self,
+                "provider_revision",
+                _require_bounded_text(
+                    self.provider_revision,
+                    "provider_revision",
+                    max_chars=512,
+                ),
+            )
+        cache_version = _require_nonnegative_int(self.cache_version, "cache_version")
+        if cache_version < 1:
+            raise MediaContractError(
+                "cache_version must be a positive integer",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+
+    def compatible_with(self, other: "MediaTimelineIdentity") -> bool:
+        if type(other) is not MediaTimelineIdentity:
+            return False
+        return self == other
 
 
 @dataclass(frozen=True, slots=True)
@@ -1112,6 +1217,245 @@ class MediaCursor:
         )
 
 
+
+@dataclass(frozen=True, slots=True)
+class MediaSession:
+    """Durable provider-neutral media session state.
+
+    The media-synchronized chess cursor and the user's analysis cursor are
+    explicit independent opaque references. This type owns no chess semantics
+    and performs no Restore Media Position mutation.
+    """
+
+    session_id: str
+    source_id: str
+    source_kind: MediaSourceKind
+    source_revision: str
+    clock: MediaClockSnapshot
+    source_ref: str | None = None
+    timeline_identity: MediaTimelineIdentity | None = None
+    media_chess_ref: str | None = None
+    analysis_chess_ref: str | None = None
+    timeline_invalidated_reason: str | None = None
+    revision: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "session_id",
+            _require_bounded_text(self.session_id, "session_id", max_chars=512),
+        )
+        object.__setattr__(
+            self,
+            "source_id",
+            _require_bounded_text(self.source_id, "source_id", max_chars=512),
+        )
+        if type(self.source_kind) is MediaSourceKind:
+            source_kind = self.source_kind
+        elif type(self.source_kind) is str:
+            try:
+                source_kind = MediaSourceKind(self.source_kind)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media source kind",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported media source kind",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "source_kind", source_kind)
+        object.__setattr__(
+            self,
+            "source_revision",
+            _require_bounded_text(
+                self.source_revision, "source_revision", max_chars=512
+            ),
+        )
+        if type(self.clock) is not MediaClockSnapshot:
+            raise MediaContractError(
+                "clock must be an exact MediaClockSnapshot",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if self.source_ref is not None:
+            object.__setattr__(
+                self,
+                "source_ref",
+                _require_bounded_text(self.source_ref, "source_ref", max_chars=4096),
+            )
+        if self.timeline_identity is not None:
+            if type(self.timeline_identity) is not MediaTimelineIdentity:
+                raise MediaContractError(
+                    "timeline_identity must be MediaTimelineIdentity",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            if self.timeline_identity.source_id != self.source_id:
+                raise MediaContractError(
+                    "timeline identity source does not match media session",
+                    code=MediaErrorCode.SOURCE_MISMATCH,
+                )
+            if self.timeline_identity.source_revision != self.source_revision:
+                raise MediaContractError(
+                    "timeline identity source revision is stale",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+        if self.media_chess_ref is not None:
+            if self.timeline_identity is None:
+                raise MediaContractError(
+                    "media chess cursor requires a valid timeline identity",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            object.__setattr__(
+                self,
+                "media_chess_ref",
+                _require_bounded_text(
+                    self.media_chess_ref, "media_chess_ref", max_chars=2048
+                ),
+            )
+        if self.analysis_chess_ref is not None:
+            object.__setattr__(
+                self,
+                "analysis_chess_ref",
+                _require_bounded_text(
+                    self.analysis_chess_ref, "analysis_chess_ref", max_chars=2048
+                ),
+            )
+        if self.timeline_invalidated_reason is not None:
+            if self.timeline_identity is not None or self.media_chess_ref is not None:
+                raise MediaContractError(
+                    "invalidated timeline cannot retain timeline identity/media cursor",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            object.__setattr__(
+                self,
+                "timeline_invalidated_reason",
+                _require_bounded_text(
+                    self.timeline_invalidated_reason,
+                    "timeline_invalidated_reason",
+                    max_chars=4096,
+                ),
+            )
+        _require_nonnegative_int(self.revision, "revision")
+
+    def with_clock(self, clock: MediaClockSnapshot) -> "MediaSession":
+        if type(clock) is not MediaClockSnapshot:
+            raise MediaContractError(
+                "clock must be an exact MediaClockSnapshot",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if clock == self.clock:
+            return self
+        return replace(self, clock=clock, revision=self.revision + 1)
+
+    def select_analysis_cursor(self, chess_ref: str | None) -> "MediaSession":
+        ref = (
+            None
+            if chess_ref is None
+            else _require_bounded_text(
+                chess_ref, "analysis_chess_ref", max_chars=2048
+            )
+        )
+        if ref == self.analysis_chess_ref:
+            return self
+        return replace(self, analysis_chess_ref=ref, revision=self.revision + 1)
+
+    def bind_media_cursor(
+        self,
+        timeline_identity: MediaTimelineIdentity,
+        chess_ref: str,
+    ) -> "MediaSession":
+        if type(timeline_identity) is not MediaTimelineIdentity:
+            raise MediaContractError(
+                "timeline_identity must be MediaTimelineIdentity",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if timeline_identity.source_id != self.source_id:
+            raise MediaContractError(
+                "timeline identity source does not match media session",
+                code=MediaErrorCode.SOURCE_MISMATCH,
+            )
+        if timeline_identity.source_revision != self.source_revision:
+            raise MediaContractError(
+                "cannot bind a stale timeline identity",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        ref = _require_bounded_text(chess_ref, "media_chess_ref", max_chars=2048)
+        if (
+            timeline_identity == self.timeline_identity
+            and ref == self.media_chess_ref
+            and self.timeline_invalidated_reason is None
+        ):
+            return self
+        return replace(
+            self,
+            timeline_identity=timeline_identity,
+            media_chess_ref=ref,
+            timeline_invalidated_reason=None,
+            revision=self.revision + 1,
+        )
+
+    def invalidate_timeline(self, reason: str) -> "MediaSession":
+        normalized_reason = _require_bounded_text(
+            reason, "timeline invalidation reason", max_chars=4096
+        )
+        if (
+            self.timeline_identity is None
+            and self.media_chess_ref is None
+            and self.timeline_invalidated_reason == normalized_reason
+        ):
+            return self
+        return replace(
+            self,
+            timeline_identity=None,
+            media_chess_ref=None,
+            timeline_invalidated_reason=normalized_reason,
+            revision=self.revision + 1,
+        )
+
+    def with_source_revision(self, source_revision: str) -> "MediaSession":
+        revision = _require_bounded_text(
+            source_revision, "source_revision", max_chars=512
+        )
+        if revision == self.source_revision:
+            return self
+        return replace(
+            self,
+            source_revision=revision,
+            timeline_identity=None,
+            media_chess_ref=None,
+            timeline_invalidated_reason="source revision changed",
+            revision=self.revision + 1,
+        )
+
+    def timeline_compatible(self, expected: MediaTimelineIdentity) -> bool:
+        if type(expected) is not MediaTimelineIdentity:
+            return False
+        return (
+            self.timeline_invalidated_reason is None
+            and self.timeline_identity is not None
+            and self.timeline_identity.compatible_with(expected)
+        )
+
+    def invalidate_if_timeline_changed(
+        self,
+        expected: MediaTimelineIdentity,
+    ) -> "MediaSession":
+        if type(expected) is not MediaTimelineIdentity:
+            raise MediaContractError(
+                "expected timeline identity must be MediaTimelineIdentity",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if expected.source_id != self.source_id:
+            raise MediaContractError(
+                "expected timeline source does not match media session",
+                code=MediaErrorCode.SOURCE_MISMATCH,
+            )
+        if self.timeline_compatible(expected):
+            return self
+        return self.invalidate_timeline("timeline dependency revision changed")
+
+
 @dataclass(frozen=True, slots=True)
 class MediaChessSession:
     """Separate media/chess cursors; synchronization is always explicit."""
@@ -1236,6 +1580,194 @@ def _reject_nonfinite_json(value: str) -> object:
     raise MediaContractError(
         f"media state contains non-finite JSON number: {value}",
         code=MediaErrorCode.INVALID_SCHEMA,
+    )
+
+
+
+def _timeline_identity_to_dict(
+    identity: MediaTimelineIdentity | None,
+) -> dict[str, Any] | None:
+    if identity is None:
+        return None
+    return {
+        "source_id": identity.source_id,
+        "source_revision": identity.source_revision,
+        "recognizer_revision": identity.recognizer_revision,
+        "reconciliation_revision": identity.reconciliation_revision,
+        "provider_revision": identity.provider_revision,
+        "cache_version": identity.cache_version,
+    }
+
+
+def _timeline_identity_from_dict(data: object) -> MediaTimelineIdentity | None:
+    if data is None:
+        return None
+    if type(data) is not dict or set(data) != {
+        "source_id",
+        "source_revision",
+        "recognizer_revision",
+        "reconciliation_revision",
+        "provider_revision",
+        "cache_version",
+    }:
+        raise MediaContractError(
+            "timeline identity payload is invalid",
+            code=MediaErrorCode.INVALID_SCHEMA,
+        )
+    return MediaTimelineIdentity(
+        source_id=data["source_id"],
+        source_revision=data["source_revision"],
+        recognizer_revision=data["recognizer_revision"],
+        reconciliation_revision=data["reconciliation_revision"],
+        provider_revision=data["provider_revision"],
+        cache_version=data["cache_version"],
+    )
+
+
+def serialize_media_session(session: MediaSession) -> str:
+    """Serialize one durable provider-neutral MediaSession snapshot."""
+
+    if type(session) is not MediaSession:
+        raise MediaContractError(
+            "session must be an exact MediaSession",
+            code=MediaErrorCode.INVALID_CONTAINER,
+        )
+    payload = {
+        "schema": MEDIA_SESSION_SCHEMA,
+        "version": MEDIA_SESSION_VERSION,
+        "session": {
+            "session_id": session.session_id,
+            "source_id": session.source_id,
+            "source_kind": session.source_kind.value,
+            "source_revision": session.source_revision,
+            "source_ref": session.source_ref,
+            "clock": {
+                "position_ms": session.clock.position_ms,
+                "state": session.clock.state.value,
+                "playback_rate": session.clock.playback_rate,
+                "duration_ms": session.clock.duration_ms,
+                "revision": session.clock.revision,
+            },
+            "timeline_identity": _timeline_identity_to_dict(
+                session.timeline_identity
+            ),
+            "media_chess_ref": session.media_chess_ref,
+            "analysis_chess_ref": session.analysis_chess_ref,
+            "timeline_invalidated_reason": session.timeline_invalidated_reason,
+            "revision": session.revision,
+        },
+    }
+    try:
+        text = json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        encoded_length = len(text.encode("utf-8", errors="strict"))
+    except (UnicodeEncodeError, ValueError) as exc:
+        raise MediaContractError(
+            "media session contains invalid serialized values",
+            code=MediaErrorCode.INVALID_SCHEMA,
+        ) from exc
+    if encoded_length > MAX_MEDIA_STATE_BYTES:
+        raise MediaContractError(
+            "serialized media session exceeds the safety limit",
+            code=MediaErrorCode.STATE_TOO_LARGE,
+        )
+    return text
+
+
+def deserialize_media_session(text: str) -> MediaSession:
+    """Load one durable MediaSession snapshot with closed-schema validation."""
+
+    if type(text) is not str:
+        raise MediaContractError(
+            "media session state must be text",
+            code=MediaErrorCode.INVALID_TEXT,
+        )
+    try:
+        encoded_length = len(text.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            "media session state must be valid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
+    if encoded_length > MAX_MEDIA_STATE_BYTES:
+        raise MediaContractError(
+            "media session state exceeds the safety limit",
+            code=MediaErrorCode.STATE_TOO_LARGE,
+        )
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json,
+        )
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise MediaContractError(
+            "media session state is not valid JSON",
+            code=MediaErrorCode.INVALID_SCHEMA,
+        ) from exc
+    if (
+        type(payload) is not dict
+        or set(payload) != {"schema", "version", "session"}
+        or payload.get("schema") != MEDIA_SESSION_SCHEMA
+        or payload.get("version") != MEDIA_SESSION_VERSION
+    ):
+        raise MediaContractError(
+            "unsupported media session schema/version",
+            code=MediaErrorCode.INVALID_SCHEMA,
+        )
+    data = payload.get("session")
+    if type(data) is not dict or set(data) != {
+        "session_id",
+        "source_id",
+        "source_kind",
+        "source_revision",
+        "source_ref",
+        "clock",
+        "timeline_identity",
+        "media_chess_ref",
+        "analysis_chess_ref",
+        "timeline_invalidated_reason",
+        "revision",
+    }:
+        raise MediaContractError(
+            "media session payload fields are invalid",
+            code=MediaErrorCode.INVALID_SCHEMA,
+        )
+    clock_data = data["clock"]
+    if type(clock_data) is not dict or set(clock_data) != {
+        "position_ms",
+        "state",
+        "playback_rate",
+        "duration_ms",
+        "revision",
+    }:
+        raise MediaContractError(
+            "media session clock payload is invalid",
+            code=MediaErrorCode.INVALID_SCHEMA,
+        )
+    return MediaSession(
+        session_id=data["session_id"],
+        source_id=data["source_id"],
+        source_kind=data["source_kind"],
+        source_revision=data["source_revision"],
+        source_ref=data["source_ref"],
+        clock=MediaClockSnapshot(
+            position_ms=clock_data["position_ms"],
+            state=clock_data["state"],
+            playback_rate=clock_data["playback_rate"],
+            duration_ms=clock_data["duration_ms"],
+            revision=clock_data["revision"],
+        ),
+        timeline_identity=_timeline_identity_from_dict(data["timeline_identity"]),
+        media_chess_ref=data["media_chess_ref"],
+        analysis_chess_ref=data["analysis_chess_ref"],
+        timeline_invalidated_reason=data["timeline_invalidated_reason"],
+        revision=data["revision"],
     )
 
 
