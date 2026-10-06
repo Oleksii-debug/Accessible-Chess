@@ -2423,6 +2423,17 @@ class Version2Application:
             # still-live native owner itself and must reach NVDA even when the
             # publication transaction is the reason shutdown was refused.
             return urgent
+        if self._events.overflowed:
+            # Do not publish a truncated causal sequence. Re-read canonical route
+            # state instead, while still delivering presentation-independent
+            # refused-close diagnostics retained by the shipping recovery line.
+            self._events.clear()
+            return (
+                {
+                    "kind": "route",
+                    "payload": {"route_id": self.shell.current_route.route_id},
+                },
+            ) + urgent
         events = tuple(self._events)
         self._events.clear()
         return events + urgent
@@ -2683,9 +2694,51 @@ class Version2Application:
                         self._result = None
 
     def _native_file_error_message(self, event):
-        if type(event) is not FileWorkflowEvent:
+        if type(event) not in (FileWorkflowEvent, LibraryExportHostEvent):
             return concise_user_error("", language=self.shell.language)
-        language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
+        language = (
+            self.library.projection.language
+            if event.action_id in {"library.import", "library.cancel_import", "library.export"}
+            else self.shell.language
+        )
+        if type(event) is LibraryExportHostEvent:
+            export_messages = {
+                "invalid_export_request": (
+                    "Не вдалося почати експорт: вибір ігор або фільтр більше не є чинними. Оновіть Бібліотеку та повторіть експорт.",
+                    "Export could not start because the game selection or filter is no longer valid. Refresh the Library and retry the export.",
+                ),
+                "library_export_busy": (
+                    "Інша операція експорту Бібліотеки ще завершується. Дочекайтеся завершення або скасуйте її та повторіть дію.",
+                    "Another Library export operation is still finishing. Let it finish or cancel it, then retry.",
+                ),
+                "library_export_unavailable": (
+                    "Експорт Бібліотеки зараз недоступний. Файл не створено. Повторіть дію після завершення поточної файлової операції.",
+                    "Library export is currently unavailable. No file was created. Retry after the current file operation finishes.",
+                ),
+                "file_dialog_failed": (
+                    "Не вдалося відкрити системне вікно вибору файла для експорту. Експорт не розпочато.",
+                    "The system file picker for export could not be opened. Export was not started.",
+                ),
+                "library_export_worker_failed": (
+                    "Не вдалося запустити фоновий експорт Бібліотеки. Файл не опубліковано. Повторіть експорт.",
+                    "Background Library export could not be started. No file was published. Retry the export.",
+                ),
+                "library_export_failed": (
+                    "Не вдалося завершити експорт Бібліотеки. Перевірте поточний вибір або фільтр і повторіть дію.",
+                    "Library export could not be completed. Check the current selection or filter and retry.",
+                ),
+                "no_library_export_running": (
+                    "Експорт Бібліотеки вже завершився або не був розпочатий.",
+                    "Library export has already finished or was not started.",
+                ),
+            }
+            code = event.error_code
+            if type(code) is str and len(code) <= 64:
+                message = export_messages.get(code)
+                if message is not None:
+                    return message[language is UILanguage.EN]
+            return concise_user_error("", language=language)
+
         messages = {
             "unsupported_import_source": (
                 "Імпорт підтримує PGN, EPUB, HTML, Markdown та CBH/CBV з підтримуваним декодером. Інші формати не можна імпортувати.",
@@ -2832,7 +2885,7 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _file_event(self, event):
-        if type(event) is not FileWorkflowEvent:
+        if type(event) not in (FileWorkflowEvent, LibraryExportHostEvent):
             self._events.append(
                 {
                     "kind": "error",
@@ -2844,6 +2897,123 @@ class Version2Application:
                 }
             )
             return
+
+        kind = getattr(event.kind, "value", "")
+        action_id = getattr(event, "action_id", "")
+        error_code = getattr(event, "error_code", "")
+        projection = getattr(getattr(self, "library", None), "projection", None)
+        stale_export_cancel = (
+            type(event) is FileWorkflowEvent
+            and kind == "failed"
+            and action_id == "library.cancel_import"
+            and error_code == "no_import_running"
+            and getattr(projection, "export_running", False) is True
+        )
+        library_export = (
+            type(event) is LibraryExportHostEvent
+            or action_id == "library.export"
+            or stale_export_cancel
+        )
+        if library_export:
+            active_worker_failure = (
+                kind == "failed"
+                and error_code in {"library_export_failed", "library_export_worker_failed"}
+            )
+            inactive_host_failure = (
+                kind == "failed"
+                and error_code in {
+                    "file_dialog_failed",
+                    "library_export_unavailable",
+                    "no_library_export_running",
+                }
+            )
+            terminal_export = (
+                kind in {"exported", "dialog_cancelled"}
+                or active_worker_failure
+                or inactive_host_failure
+            )
+            transition_name = {
+                "export_started": "host_export_started",
+                "export_cancelling": "host_export_cancelling",
+            }.get(kind)
+            if terminal_export:
+                transition_name = "host_export_finished"
+            transition = (
+                getattr(projection, transition_name, None)
+                if transition_name
+                else None
+            )
+            if callable(transition):
+                try:
+                    operation_event = transition()
+                    operation_kind = getattr(operation_event, "kind", "")
+                    operation_payload = getattr(operation_event, "payload", None)
+                    if (
+                        operation_kind == "render-import"
+                        and type(operation_payload) is dict
+                    ):
+                        self._events.append(
+                            {
+                                "kind": operation_kind,
+                                "payload": dict(operation_payload),
+                            }
+                        )
+                except Exception:
+                    # Presentation observes host authority and cannot change export
+                    # publication/cancellation truth.
+                    pass
+
+            focus_target = ""
+            if terminal_export:
+                candidate = getattr(event, "focus_target", "")
+                if (
+                    type(candidate) is str
+                    and 0 < len(candidate) <= 160
+                    and all(
+                        char in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+                        for char in candidate
+                    )
+                ):
+                    focus_target = candidate
+
+            if kind == "failed":
+                if stale_export_cancel:
+                    announcement = (
+                        "Операція бібліотеки вже завершилася.",
+                        "The Library operation has already finished.",
+                    )[self.shell.language is UILanguage.EN]
+                    payload = {"announcement": announcement}
+                    if focus_target:
+                        payload["focus_target"] = focus_target
+                    self._events.append({"kind": "status", "payload": payload})
+                    return
+                payload = {"message": self._native_file_error_message(event)}
+                if focus_target:
+                    payload["focus_target"] = focus_target
+                self._events.append({"kind": "error", "payload": payload})
+                return
+
+            export_messages = {
+                "export_started": (
+                    "Експорт розпочато. Операцію можна скасувати.",
+                    "Export started. You can cancel the operation.",
+                ),
+                "export_cancelling": ("Скасовуємо експорт.", "Cancelling export."),
+                "exported": ("Експорт завершено.", "Export completed."),
+                "dialog_cancelled": ("Скасовано.", "Cancelled."),
+            }
+            message = export_messages.get(kind)
+            if message:
+                payload = {
+                    "announcement": message[
+                        self.shell.language is UILanguage.EN
+                    ],
+                }
+                if focus_target:
+                    payload["focus_target"] = focus_target
+                self._events.append({"kind": "status", "payload": payload})
+            return
+
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
             self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
