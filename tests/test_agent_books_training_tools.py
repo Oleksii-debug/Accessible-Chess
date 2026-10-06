@@ -140,7 +140,7 @@ class AgentBooksTrainingToolsTests(unittest.TestCase):
         AgentBooksTrainingTools(lambda: self.snapshot).register(executor)
         result = _execute(executor, "books.current", {"path": "secret"})
         self.assertFalse(result.ok)
-        self.assertIn("accepts no arguments", result.error)
+        self.assertEqual(result.error, "tool failed")
 
     def test_registry_composes_books_training_without_new_semantics(self):
         board = Board()
