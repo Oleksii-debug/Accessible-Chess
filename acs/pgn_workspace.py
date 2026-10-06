@@ -261,6 +261,35 @@ class PgnWorkspace:
     def to_bytes(self) -> bytes:
         return serialize_pgn_bytes(tuple(self._games))
 
+    def _saved_checkpoint_values(
+        self,
+        saved_digest: object,
+    ) -> tuple[str | None, bool]:
+        """Validate one persistence generation without building presentation data."""
+
+        if saved_digest is not None and (
+            type(saved_digest) is not str
+            or len(saved_digest) != 64
+            or any(character not in "0123456789abcdef" for character in saved_digest)
+        ):
+            raise TypeError("PGN saved digest must be lowercase SHA-256 hex or None")
+        dirty = saved_digest is None or self._content_digest != saved_digest
+        return saved_digest, dirty
+
+    def _checkpoint_saved_digest(self, saved_digest: object) -> bool:
+        """Commit only persistence authority, without record-identity rendering.
+
+        Background Save/Save As owner commits already prepare their complete
+        user-facing document projection before mutating persistence authority.
+        They therefore need a bounded checkpoint primitive that does not call
+        identity_for_game() on the Windows owner thread.
+        """
+
+        saved_digest, dirty = self._saved_checkpoint_values(saved_digest)
+        self._baseline_digest = saved_digest
+        self._dirty = dirty
+        return dirty
+
     def _rebase_saved_digest(self, saved_digest: object) -> PgnWorkspaceView:
         """Rebase dirty tracking to one verified persisted document generation.
 
@@ -271,14 +300,8 @@ class PgnWorkspace:
         semantic identity failure cannot leave a partially rebased workspace.
         """
 
-        if saved_digest is not None and (
-            type(saved_digest) is not str
-            or len(saved_digest) != 64
-            or any(character not in "0123456789abcdef" for character in saved_digest)
-        ):
-            raise TypeError("PGN saved digest must be lowercase SHA-256 hex or None")
+        saved_digest, dirty = self._saved_checkpoint_values(saved_digest)
         game = self._current_game_ref()
-        dirty = saved_digest is None or self._content_digest != saved_digest
         next_view = PgnWorkspaceView(
             game_count=self.game_count,
             selected_game_index=self._selected_game_index,
