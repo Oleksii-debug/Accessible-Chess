@@ -95,6 +95,9 @@ jobs:
       PASSIVE_MAPPING_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
       PASSIVE_MAPPING_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
       PASSIVE_MAPPING_INGRESS_TEST_BLOB: fdc34f0637c2b26c2e5e70bab63c973204bb6481
+      CANONICAL_SNAPSHOT_DISPATCH_STORE_BLOB: f110939f4cfda4bb24a76d01ea35ffbba7ad2b79
+      CANONICAL_SNAPSHOT_DISPATCH_BASE_TEST_BLOB: 1f455848712768454117081514adb3bfa0dc3102
+      CANONICAL_SNAPSHOT_DISPATCH_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -146,7 +149,10 @@ jobs:
           passive_mapping_feature=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             allowed="$(printf '%s\n' \
+              '.github/workflows/current-book-progress-passive-ingress.yml' \
               '.github/workflows/v2-book-progress-production-repair.yml' \
+              '.github/workflows/v2-data-upgrade-tracked-writer.yml' \
+              '.github/workflows/v2-data-upgrade-v6.yml' \
               'acs/book_progress_store.py' \
               'acs/version2_application.py' \
               'tests/test_v2_book_progress_store.py' \
@@ -538,6 +544,10 @@ jobs:
             && [ "$candidate_base_test" = "$PASSIVE_MAPPING_BASE_TEST_BLOB" ] \
             && [ "$candidate_production_test" = "$PASSIVE_MAPPING_PRODUCTION_TEST_BLOB" ]; then
             echo 'BOOK_PROGRESS_BLOB_SET=PASSIVE_MAPPING_FEATURE'
+          elif [ "$candidate_store" = "$CANONICAL_SNAPSHOT_DISPATCH_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$CANONICAL_SNAPSHOT_DISPATCH_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$CANONICAL_SNAPSHOT_DISPATCH_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CANONICAL_READER_SNAPSHOT_DISPATCH'
           elif { [ "$owner_composition" = true ] \
               || [ "$owner_descendant_convergence" = true ]; } \
             && [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
