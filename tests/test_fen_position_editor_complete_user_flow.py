@@ -209,6 +209,16 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
             with self.subTest(control_id=control_id):
                 self.assertIn(f"'{control_id}'", html)
 
+    def test_rejected_fen_and_metadata_inputs_remain_available_for_keyboard_correction(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("function captureRejectedEditorInput(name)", html)
+        self.assertIn("function restoreRejectedEditorInput(name,snapshot)", html)
+        self.assertIn("if(r&&!r.ok)restoreRejectedEditorInput(name,rejectedEditorInput)", html)
+        self.assertIn("if(name==='set_fen')return{fen:el('fen-input').value}", html)
+        self.assertIn("if(name==='edit_position_metadata')return{turn:el('position-turn').value", html)
+
     def test_editor_feedback_is_visible_and_plain_enter_is_keyboard_first(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"
