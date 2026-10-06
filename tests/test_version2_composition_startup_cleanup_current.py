@@ -196,6 +196,36 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
         self.assertIs(caught.exception, primary)
         runtime.shutdown.assert_called_once_with()
 
+    def test_abort_class_close_guard_failure_preserves_primary_when_runtime_cleanup_aborts(self) -> None:
+        class GuardAbort(BaseException):
+            pass
+
+        class CleanupAbort(BaseException):
+            pass
+
+        runtime = mock.Mock()
+        runtime.shutdown.side_effect = CleanupAbort("cleanup abort")
+        application = mock.Mock()
+        owner = mock.Mock()
+        dialogs = mock.Mock()
+        primary = GuardAbort("guard abort")
+
+        with mock.patch.object(
+            release_app,
+            "_install_unsaved_pgn_close_guard",
+            side_effect=primary,
+        ):
+            with self.assertRaises(GuardAbort) as caught:
+                release_app._install_close_guard_or_shutdown(
+                    runtime,
+                    application,
+                    owner,
+                    dialogs,
+                )
+
+        self.assertIs(caught.exception, primary)
+        runtime.shutdown.assert_called_once_with()
+
     def test_database_construction_failure_closes_engine_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
