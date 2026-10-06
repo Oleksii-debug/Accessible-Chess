@@ -652,6 +652,25 @@ class _SemanticHtmlParser(HTMLParser):
                 return index
         return None
 
+    def _inline_requires_split(self, capture: _Capture) -> bool:
+        for event_index, event in enumerate(capture.inline_semantics, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
+            if (not event.structural) or event.forces_split:
+                return True
+        return False
+
+    def _blocks_have_pgn_slot_from(self, start_index: int) -> bool:
+        for block_offset, block_index in enumerate(
+            range(start_index, len(self.blocks)),
+            start=1,
+        ):
+            if self.control_checkpoint is not None and block_offset % 128 == 0:
+                self._checkpoint()
+            if isinstance(self.blocks[block_index], _PgnSlot):
+                return True
+        return False
+
     @staticmethod
     def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
         if "start" not in attrs:
@@ -882,7 +901,9 @@ class _SemanticHtmlParser(HTMLParser):
             # must never publish a position/image note or a PGN game.
             return
         attrs: dict[str, str] = {}
-        for name, value in attrs_list:
+        for attr_index, (name, value) in enumerate(attrs_list, start=1):
+            if self.control_checkpoint is not None and attr_index % 128 == 0:
+                self._checkpoint()
             normalized_name = name.lower()
             if normalized_name in attrs:
                 if normalized_name == "data-acs-fen":
@@ -1097,7 +1118,9 @@ class _SemanticHtmlParser(HTMLParser):
                     self._finish_capture_and_record_parent(capture, recovered=True)
             captured = self._lists.pop()
             if captured.nested:
-                for capture in self._captures:
+                for capture_index, capture in enumerate(self._captures, start=1):
+                    if self.control_checkpoint is not None and capture_index % 128 == 0:
+                        self._checkpoint()
                     if capture.kind == "list_item" and capture.list_depth == len(self._lists):
                         capture.parts.append(" ")
                 # Text from a nested list is already retained by the enclosing
@@ -1274,9 +1297,7 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor: str | None,
     ) -> None:
         """Flatten one rich list item without reordering its semantic blocks."""
-        events = list(capture.inline_semantics)
-        if not any((not event.structural) or event.forces_split for event in events):
-            return
+        events = capture.inline_semantics
 
         self._list_warning(
             "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
@@ -1402,10 +1423,7 @@ class _SemanticHtmlParser(HTMLParser):
                 self.title = text
             return
         source_anchor = capture.attrs.get("id") or None
-        requires_semantic_split = any(
-            (not event.structural) or event.forces_split
-            for event in capture.inline_semantics
-        )
+        requires_semantic_split = self._inline_requires_split(capture)
         if capture.kind == "list_item" and requires_semantic_split:
             active_list = (
                 self._lists[-1]
@@ -1516,7 +1534,7 @@ class _SemanticHtmlParser(HTMLParser):
         if (
             parent is None
             or part_index is None
-            or not any(candidate is parent for candidate in self._captures)
+            or self._find_capture_index(lambda candidate: candidate is parent) is None
             or len(self.blocks) <= capture.block_start_index
         ):
             return
@@ -1525,12 +1543,9 @@ class _SemanticHtmlParser(HTMLParser):
         # A child that itself had to split around rich semantics propagates that
         # requirement upward; otherwise its already-published subtree would be
         # duplicated by a parent's flat text projection.
-        child_forces_split = any(
-            (not event.structural) or event.forces_split
-            for event in capture.inline_semantics
-        ) or any(
-            isinstance(block, _PgnSlot)
-            for block in self.blocks[capture.block_start_index:]
+        child_forces_split = (
+            self._inline_requires_split(capture)
+            or self._blocks_have_pgn_slot_from(capture.block_start_index)
         )
         self._record_inline_semantic(
             self.blocks[capture.block_start_index],
