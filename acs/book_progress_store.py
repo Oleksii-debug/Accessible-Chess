@@ -313,7 +313,10 @@ def _canonical_json_bytes(value: object) -> bytes:
 
 
 def _snapshot_copy(value: object) -> dict[str, object]:
-    if not isinstance(value, Mapping):
+    # Persisted snapshots are JSON objects and must cross this boundary as exact
+    # built-in dictionaries.  Reject Mapping subclasses before iteration so
+    # provider-defined hooks cannot execute inside progress validation.
+    if type(value) is not dict:
         raise BookProgressStoreError(
             "book progress snapshot must be an object",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
@@ -347,7 +350,10 @@ def _empty_payload() -> dict[str, object]:
 
 
 def _validate_payload(value: object) -> dict[str, object]:
-    if not isinstance(value, Mapping):
+    # The JSON decoder and all store-owned payload builders produce exact dicts.
+    # Keep ingress passive: arbitrary Mapping implementations may execute code
+    # from membership, indexing, length, or iteration hooks.
+    if type(value) is not dict:
         raise BookProgressStoreError(
             "book progress store root must be an object",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
@@ -379,7 +385,7 @@ def _validate_payload(value: object) -> dict[str, object]:
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
     raw_entries = value["entries"]
-    if not isinstance(raw_entries, Mapping):
+    if type(raw_entries) is not dict:
         raise BookProgressStoreError(
             "book progress entries must be an object",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
@@ -844,7 +850,7 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
             ) from None
         validated = _validate_payload(parsed)
-        assert isinstance(parsed, Mapping)
+        assert type(parsed) is dict
         source_schema_version = parsed["schema_version"]
         assert type(source_schema_version) is int
         return validated, source_schema_version
