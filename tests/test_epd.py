@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.epd import (
     EpdOperation,
@@ -203,6 +204,62 @@ class EpdFormatTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["announcement"], "Некоректний EPD.")
         self.assertEqual(api.board.fen(), before)
+
+    def test_malformed_numeric_epd_tail_is_not_misrouted_as_a_move(self):
+        malformed = START_EPD + " 12"
+        self.assertTrue(looks_like_epd(malformed))
+
+        with self.assertRaisesRegex(ValueError, "^Invalid EPD\\.$"):
+            parse_position_text(malformed, language="en")
+
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+        result = api.make_move(malformed)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Invalid EPD.")
+        self.assertTrue(result["announceMoveErrors"])
+        self.assertEqual(api.board.fen(), before)
+
+    def test_ordinary_six_field_fen_is_never_classified_as_epd(self):
+        for fen in (
+            START_FEN,
+            f"{START_BOARD} b KQkq - 999 123456",
+        ):
+            with self.subTest(fen=fen):
+                self.assertFalse(looks_like_epd(fen))
+
+    def test_epd_move_input_history_recovery_failure_is_atomic(self):
+        api = AccessibleChessAPI(lang="uk")
+        self.assertTrue(api.make_move("e4")["ok"])
+        before_fen = api.board.fen()
+        before_start_fen = api.start_fen
+        before_sans = list(api.sans)
+        before_sides = list(api.move_sides)
+        before_history = api.review_history
+        before_adapter = api.review_adapter
+        before_live_node = api.live_history_node
+
+        epd = START_EPD + ' hmvc 2; fmvn 3; id "atomic";'
+        with patch(
+            "acs.webapp.ReviewHistory",
+            side_effect=RuntimeError("private history failure"),
+        ):
+            result = api.make_move(epd)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["announcement"],
+            "Не вдалося підготувати історію нової позиції.",
+        )
+        self.assertTrue(result["announceMoveErrors"])
+        self.assertNotIn("private history failure", result["announcement"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.start_fen, before_start_fen)
+        self.assertEqual(api.sans, before_sans)
+        self.assertEqual(api.move_sides, before_sides)
+        self.assertIs(api.review_history, before_history)
+        self.assertIs(api.review_adapter, before_adapter)
+        self.assertEqual(api.live_history_node, before_live_node)
 
     def test_actual_web_move_input_accepts_epd_and_replaces_live_root(self):
         api = AccessibleChessAPI(lang="uk")
