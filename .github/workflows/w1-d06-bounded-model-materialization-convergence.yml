@@ -51,7 +51,8 @@ jobs:
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
+          W1_WORKSPACE_BLOB: 680349f68480df43e23b094df4709deed275f01d
+          W1_TEST_BLOB: a5de2d703f61cc599717e9ae5325ad1652e854e0
           D06_SOURCE_BLOB: 4098053291b4611f4aa9152ceb65b432554b3d5f
           D06_TEST_BLOB: c898e3b5ea4c514ebf86008339118e6fb124d9b3
         run: |
@@ -61,16 +62,13 @@ jobs:
             base="$(git rev-parse HEAD^)"
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
-          git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
           git merge-base --is-ancestor "$base" HEAD
-          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
-          for path in \
-            acs/pgn_workspace.py \
-            tests/test_w1_d06_bounded_model_materialization.py
-          do
-            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
-          done
+          test "$(git rev-parse "$base:acs/pgn_workspace.py")" = "$W1_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$W1_WORKSPACE_BLOB"
+          test "$(git rev-parse "$base:tests/test_w1_d06_bounded_model_materialization.py")" = "$W1_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_w1_d06_bounded_model_materialization.py)" = "$W1_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_SOURCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_pgn_roundtrip.py)" = "$D06_TEST_BLOB"
 
