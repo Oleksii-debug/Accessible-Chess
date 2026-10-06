@@ -747,18 +747,30 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
+            # A heading is itself the structural owner of the line. Project any
+            # recognized inline image through its accessible alt text before
+            # publication so destination URLs/titles never become heading text,
+            # document title, or deterministic reading-progress identity.
+            heading_text, heading_had_image = _accessible_inline_text(
+                heading.group(2)
+            )
             legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
-            identity_text = (
+            identity_source = (
                 legacy_heading.group(2)
                 if legacy_heading is not None
                 else heading.group(2)
             )
+            identity_text, _ = _accessible_inline_text(identity_source)
             builder.heading(
-                heading.group(2),
+                heading_text,
                 len(heading.group(1)),
                 number,
                 identity_text=identity_text,
             )
+            if heading_had_image:
+                builder.warning(
+                    "Markdown image inside a heading was preserved as accessible heading text; no asset was fetched and the image destination was excluded from reading text"
+                )
             index += 1
             continue
 
