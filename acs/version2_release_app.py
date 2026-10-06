@@ -557,11 +557,15 @@ def create_version2_release_application(
             )
         except BaseException:
             # Startup publication failed before the native runtime became a
-            # usable product owner. Retire every newly acquired native worker
-            # best-effort and preserve the original startup failure even if a
-            # cleanup callback itself aborts. Runtime shutdown is idempotent.
+            # usable product owner. Retire every newly acquired native worker,
+            # release only this unpublished Book-worker binding, and preserve
+            # the original startup failure even if cleanup itself aborts.
             try:
                 book_open_worker.shutdown()
+            except BaseException:
+                pass
+            try:
+                application.unbind_book_open_worker(book_open_worker)
             except BaseException:
                 pass
             try:
