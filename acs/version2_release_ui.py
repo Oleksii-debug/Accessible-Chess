@@ -790,8 +790,22 @@ def run_version2_release_window(
             owner = getattr(window, "_accessible_chess_native_menu_host", None)
             if owner is None:
                 raise RuntimeError("Accessible Version 2 native Windows owner could not be resolved.")
-            native_files = file_runtime_factory(owner)
-            application.bind_files(native_files)
+            candidate_files = file_runtime_factory(owner)
+            try:
+                application.bind_files(candidate_files)
+            except BaseException:
+                # The application does not own the native runtime until bind_files
+                # completes. Retire an unpublished candidate here so an abort-class
+                # affinity/binding failure cannot orphan its worker/pump. Cleanup is
+                # best effort and must never replace the binding failure.
+                try:
+                    shutdown_candidate = getattr(candidate_files, "shutdown", None)
+                    if callable(shutdown_candidate):
+                        shutdown_candidate()
+                except BaseException:
+                    pass
+                raise
+            native_files = candidate_files
 
         def start_native_host(*_args: Any) -> None:
             try:
