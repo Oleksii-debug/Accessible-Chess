@@ -139,6 +139,45 @@ class BookProgressPassiveIngressCurrentTests(unittest.TestCase):
         )
         self.assertFalse(entries.touched)
 
+    def test_active_progress_field_keys_are_rejected_before_hash_or_equality(self) -> None:
+        touched: list[str] = []
+
+        class ActiveKey(str):
+            def __hash__(self):
+                touched.append("hash")
+                return str.__hash__(self)
+
+            def __eq__(self, other):
+                touched.append("eq")
+                return str.__eq__(self, other)
+
+        snapshot_key = ActiveKey("schema_version")
+        snapshot = {
+            snapshot_key: 2,
+            "current_target": "block:chapter",
+            "return_points": {},
+            "fallback_digests": {},
+        }
+        touched.clear()
+        with self.assertRaises(BookProgressStoreError) as snapshot_error:
+            _snapshot_copy(snapshot)
+        self.assertEqual(
+            snapshot_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertEqual(touched, [])
+
+        root_key = ActiveKey("schema_version")
+        root = {root_key: 2, "generation": 0, "entries": {}}
+        touched.clear()
+        with self.assertRaises(BookProgressStoreError) as root_error:
+            _validate_payload(root)
+        self.assertEqual(
+            root_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertEqual(touched, [])
+
     def test_snapshot_nested_active_mappings_are_rejected_before_json_hooks(self) -> None:
         class ActiveNestedDict(dict):
             touched = False
