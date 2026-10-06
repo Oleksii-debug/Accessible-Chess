@@ -94,6 +94,21 @@ class OwnerGameplayFeedbackTests(unittest.TestCase):
         self.assertTrue(self.api.set_move_error_announcements(False)['ok'])
         self.assertFalse(Settings(self.root / 'settings.json').get('announce_move_errors'))
 
+    def test_move_feedback_settings_fail_closed_without_backing_store(self):
+        settings = self.api._settings
+        try:
+            self.api._settings = None
+            self.assertEqual(
+                self.api.get_move_feedback_settings(),
+                {'ok': False, 'enabled': False},
+            )
+            self.assertEqual(
+                self.api.set_move_error_announcements(True),
+                {'ok': False, 'enabled': False},
+            )
+        finally:
+            self.api._settings = settings
+
     def test_new_position_dispatch_resets_and_plays_start_sound(self):
         self.api.make_move('e4')
         result = self.api.dispatch_action('file.new')
