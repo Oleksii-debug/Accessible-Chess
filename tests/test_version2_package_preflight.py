@@ -428,6 +428,59 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         label="package path",
                     )
 
+    def test_read_stable_bytes_file_uses_one_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            payload = b"stable-metadata"
+            path.write_bytes(payload)
+
+            self.assertEqual(
+                preflight._read_stable_bytes_file(
+                    path,
+                    label="metadata",
+                    max_bytes=1024,
+                ),
+                payload,
+            )
+
+    def test_read_stable_bytes_file_fails_closed_on_open_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            path.write_bytes(b"stable-metadata")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "metadata changed while being opened",
+                ):
+                    preflight._read_stable_bytes_file(
+                        path,
+                        label="metadata",
+                        max_bytes=1024,
+                    )
+
+    def test_winforms_accessibility_config_reads_from_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                return_value=_VALID_WINFORMS_CONFIG.encode("utf-8"),
+            ) as reader:
+                validate_winforms_accessibility_app_config(path)
+
+            reader.assert_called_once_with(
+                path,
+                label="WinForms accessibility app-config",
+                max_bytes=64 * 1024,
+            )
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
@@ -887,6 +940,37 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertGreaterEqual(len(wrapped.call_args_list), 2)
             for call in wrapped.call_args_list:
                 self.assertFalse(isinstance(call.args[0], (str, Path)))
+
+    def test_release_metadata_uses_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=preflight._read_stable_bytes_file,
+            ) as reader:
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            labels = {
+                call.kwargs["label"]
+                for call in reader.call_args_list
+                if "label" in call.kwargs
+            }
+            self.assertTrue(
+                {
+                    "sound provenance notice",
+                    "packaged sound inventory",
+                    "sound inventory audit notice",
+                    "WinForms accessibility app-config",
+                    "packaged sound manifest",
+                    "Stockfish GPL notice",
+                    "checksum inventory",
+                }.issubset(labels)
+            )
 
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
