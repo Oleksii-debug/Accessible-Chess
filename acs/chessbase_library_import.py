@@ -225,13 +225,31 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+def _backend_fingerprint_cancel_check(
+    control_checkpoint: Callable[[], None] | None,
+) -> Callable[[], bool] | None:
+    if control_checkpoint is None:
+        return None
+
+    def poll() -> bool:
+        control_checkpoint()
+        return False
+
+    return poll
+
+
 def _capture_decoder_backend(
     config: ExternalChessBaseDecoderConfig,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> SourceFingerprint:
     """Fingerprint the exact external decoder before consuming its output."""
 
     try:
-        return fingerprint(config.executable)
+        return fingerprint(
+            config.executable,
+            cancel_check=_backend_fingerprint_cancel_check(control_checkpoint),
+        )
     except (OSError, ValueError) as exc:
         raise ChessBaseDecodeError(
             "ChessBase decoder backend failed read-only validation",
@@ -239,11 +257,19 @@ def _capture_decoder_backend(
         ) from exc
 
 
-def _verify_decoder_backend_unchanged(before: SourceFingerprint) -> None:
+def _verify_decoder_backend_unchanged(
+    before: SourceFingerprint,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     """Reject decoded data if the executable changed during the operation."""
 
     try:
-        unchanged = verify_source_unchanged(before, before.path)
+        after = fingerprint(
+            before.path,
+            cancel_check=_backend_fingerprint_cancel_check(control_checkpoint),
+        )
+        unchanged = before.size == after.size and before.sha256 == after.sha256
     except (OSError, ValueError):
         unchanged = False
     if not unchanged:
@@ -285,7 +311,10 @@ class ChessBaseLibraryImportService:
         *,
         control_checkpoint: Callable[[], None] | None = None,
     ):
-        backend = _capture_decoder_backend(self._decoder_config)
+        backend = _capture_decoder_backend(
+            self._decoder_config,
+            control_checkpoint=control_checkpoint,
+        )
         control = (
             {}
             if control_checkpoint is None
@@ -296,7 +325,10 @@ class ChessBaseLibraryImportService:
             self._decoder_config,
             **control,
         )
-        _verify_decoder_backend_unchanged(backend)
+        _verify_decoder_backend_unchanged(
+            backend,
+            control_checkpoint=control_checkpoint,
+        )
         return decoded
 
     def _decode_source(self, path: str | Path, *, cancel_check: CancelCheck | None = None):
