@@ -185,10 +185,13 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
                     commands(action_id, {**command_target(session), **extra})
                 self.assertEqual(before, snapshot())
 
-        with patch(
-            "acs.version2_pgn_commands.parse_pgn_text",
-            side_effect=AssertionError("oversized fragment must fail before parsing"),
-        ) as parser:
+        with patch.object(
+            commands,
+            "_selected_move_origin_fen",
+            side_effect=AssertionError(
+                "oversized variation must fail before canonical origin lookup"
+            ),
+        ) as origin:
             before = snapshot()
             with self.assertRaises(ValueError):
                 commands(
@@ -196,9 +199,16 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
                     {**command_target(session), "text": oversized_fragment},
                 )
             self.assertEqual(before, snapshot())
-            parser.assert_not_called()
+            origin.assert_not_called()
 
-            session.workspace.line_end()
+        session.workspace.line_end()
+        with patch.object(
+            commands,
+            "current_fen",
+            side_effect=AssertionError(
+                "oversized continuation must fail before canonical FEN lookup"
+            ),
+        ) as current_fen:
             before = snapshot()
             with self.assertRaises(ValueError):
                 commands(
@@ -206,7 +216,7 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
                     {**command_target(session), "text": oversized_fragment},
                 )
             self.assertEqual(before, snapshot())
-            parser.assert_not_called()
+            current_fen.assert_not_called()
 
     def test_nag_edit_and_clear_round_trip(self):
         session = PgnDocumentSession.from_text("1. e4 e5 *")
