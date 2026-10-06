@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EPUB_IMPORT_BLOB: c74fb21729c3fd35c0ec3f991997f7651d6b5069
-  ACTIVE_CANCEL_TEST_BLOB: 7fb91183108c368842e92990bbeb38efa159a5fe
+  EPUB_IMPORT_BLOB: 7d5022ca7722ea6bf68e103f1a8e6bf24e242844
+  ACTIVE_CANCEL_TEST_BLOB: e56460e44988454bac9a2abb4ddefae3a31a6e1f
 
 jobs:
   exact-head:
