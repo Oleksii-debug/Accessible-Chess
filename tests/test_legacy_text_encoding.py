@@ -55,6 +55,20 @@ class LegacyTextEncodingTests(unittest.TestCase):
         self.assertFalse(decoded.legacy)
         self.assertEqual(decoded.text, text)
 
+    def test_utf8_bom_overrides_conflicting_html_cp1251_declaration(self) -> None:
+        html = (
+            '<html><head><meta charset="windows-1251"></head>'
+            '<body><p>Українська книга — позиції та аналіз</p></body></html>'
+        )
+        decoded = decode_book_text_bytes(
+            b"\xef\xbb\xbf" + html.encode("utf-8"),
+            html=True,
+        )
+
+        self.assertEqual(decoded.encoding, "utf-8")
+        self.assertFalse(decoded.legacy)
+        self.assertEqual(decoded.text, html)
+
     def test_malformed_utf8_bom_never_falls_through_to_cp1251(self) -> None:
         cases = (
             (
