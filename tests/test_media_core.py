@@ -430,12 +430,14 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(paused.state, MediaPlaybackState.PAUSED)
         self.assertEqual(paused.position_ms, 1000)
         self.assertEqual(clock.resume(1200).state, MediaPlaybackState.PLAYING)
+
     def test_clock_fractional_rate_progress_is_not_lost_between_snapshots(self):
         clock = MediaClock()
         clock.play(0)
         self.assertEqual(clock.snapshot(1).position_ms, 1)
         self.assertEqual(clock.snapshot(2).position_ms, 3)
         self.assertEqual(clock.snapshot(3).position_ms, 4)
+
     def test_clock_rate_change_reanchors_without_position_jump(self):
         clock = MediaClock()
         clock.play(0)
@@ -452,8 +454,10 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(ended.state, MediaPlaybackState.ENDED)
         rewound = clock.seek(500, 3000)
         self.assertEqual(rewound.position_ms, 500)
-        self.assertEqual(rewound.state, MediaPlaybackState.PLAYING)
-        self.assertEqual(clock.snapshot(3500).position_ms, 1000)
+        self.assertEqual(rewound.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(clock.snapshot(3500).position_ms, 500)
+        clock.resume(3500)
+        self.assertEqual(clock.snapshot(4000).position_ms, 1000)
 
     def test_clock_end_clamps_to_duration_and_stays_ended(self):
         clock = MediaClock(duration_ms=5000)
@@ -478,6 +482,7 @@ class MediaCoreContractTests(unittest.TestCase):
         with self.assertRaises(MediaContractError) as caught:
             clock.snapshot(10**1000)
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
     def test_clock_rejects_non_monotonic_host_time(self):
         clock = MediaClock()
         clock.play(10)
