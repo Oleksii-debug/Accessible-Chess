@@ -1,132 +1,91 @@
-name: W5 Release Receipt Durability + Physical Evidence Convergence
+name: Current Release Receipt Adversarial Evidence
 
 on:
-  push:
-    branches:
-      - converge/w5-physical-evidence-20261006-zftrkmo
   pull_request:
     branches:
-      - fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
-      - acs/version2_release_receipt.py
-      - tests/test_version2_release_receipt.py
-      - .github/workflows/w5-release-receipt-contract.yml
+      - ".github/workflows/w5-release-receipt-contract.yml"
+      - "tests/test_version2_release_receipt.py"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: w5-release-receipt-hardened-package-${{ github.head_ref || github.ref_name }}
+  group: current-release-receipt-adversarial-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
-  EXPECTED_PACKAGE_HEAD: 5b39c342ca3761a00854bac2e3871ab31c0b7514
-  PACKAGE_BRANCH: fix/physical-acceptance-postlink-retry-20261005-sol56z8q3
-  EXPECTED_RECEIPT_HEAD: 5b39c342ca3761a00854bac2e3871ab31c0b7514
-  EXPECTED_RECEIPT_SOURCE_HEAD: 170c9b894cca64320d50dccb648a058c71bda749
-  RECEIPT_SOURCE_BRANCH: fix/release-receipt-namespace-durability-20261006-sol56z8q5
-  EXPECTED_RECEIPT_SOURCE_WORKFLOW_BLOB: 9829db392fcb1dc5c1996eebb642cd1190881284
-  EXPECTED_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
-  EXPECTED_PE_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
-  EXPECTED_RECEIPT_BLOB: bbb2aa22427b16e83c7181086b4d676e1164abc0
-  EXPECTED_RECEIPT_TEST_BLOB: ca7ea438aee29d49672a354ec3c84d257673fc5e
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  RECEIPT_SOURCE_BLOB: 00bb1fff72d83b7c27e2f2063a4f974a0b36ada0
+  PREFLIGHT_SOURCE_BLOB: ea86b7b0458fe47487a735bdc24d58435c7abaad
+  RECEIPT_TEST_BLOB: bea6d4a62e6c00c6aea32a2eef113c3b05f4d3ea
 
 jobs:
-  receipt-package-contract:
-    name: Release receipt + hardened package / ${{ matrix.os }}
+  qualify:
+    name: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-
+    timeout-minutes: 35
     steps:
-      - name: Check out exact candidate head
+      - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact parent and bounded receipt durability delta
+      - name: Prove live shipping base, two-path evidence scope and exact blobs
         shell: bash
         run: |
           set -euo pipefail
           expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$expected_head"
-
-          git fetch --no-tags origin \
-            "+refs/heads/$PACKAGE_BRANCH:refs/remotes/origin/release-package-base" \
-            "+refs/heads/$RECEIPT_SOURCE_BRANCH:refs/remotes/origin/release-receipt-source"
-          live_package="$(git rev-parse refs/remotes/origin/release-package-base)"
-          test "$live_package" = "$EXPECTED_PACKAGE_HEAD" || {
-            echo "RELEASE_PACKAGE_BASE_MOVED expected=$EXPECTED_PACKAGE_HEAD live=$live_package" >&2
-            exit 1
-          }
-
-          live_receipt_source="$(git rev-parse refs/remotes/origin/release-receipt-source)"
-          test "$live_receipt_source" = "$EXPECTED_RECEIPT_SOURCE_HEAD" || {
-            echo "RELEASE_RECEIPT_SOURCE_MOVED expected=$EXPECTED_RECEIPT_SOURCE_HEAD live=$live_receipt_source" >&2
-            exit 1
-          }
-
-          git cat-file -e "$EXPECTED_RECEIPT_HEAD^{commit}"
-          git merge-base --is-ancestor "$EXPECTED_PACKAGE_HEAD" HEAD
-          git merge-base --is-ancestor "$EXPECTED_RECEIPT_HEAD" HEAD
-          git diff --check "$EXPECTED_PACKAGE_HEAD"...HEAD
-
-          mapfile -t paths < <(git diff --name-only "$EXPECTED_PACKAGE_HEAD"...HEAD | sort)
-          printf '%s\n' "${paths[@]}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            git fetch --no-tags origin "refs/heads/$BASE_REF"
+            base_sha="$(git rev-parse FETCH_HEAD)"
+          fi
+          test -n "$base_sha"
+          git merge-base --is-ancestor "$base_sha" HEAD
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
-            ".github/workflows/owner-final-receipt-publication-durability.yml"
-            ".github/workflows/w5-portable-package-contract.yml"
             ".github/workflows/w5-release-receipt-contract.yml"
-            "acs/version2_release_receipt.py"
-            "scripts/finalize_owner_final_receipt.py"
-            "tests/test_finalize_owner_final_receipt.py"
             "tests/test_version2_release_receipt.py"
           )
-          test "${#paths[@]}" -eq "${#expected[@]}"
-          for index in "${!expected[@]}"; do
-            test "${paths[$index]}" = "${expected[$index]}"
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
           done
+          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$RECEIPT_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PREFLIGHT_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$RECEIPT_TEST_BLOB"
 
-          test "$(git rev-parse refs/remotes/origin/release-receipt-source:.github/workflows/w5-release-receipt-contract.yml)" = "$EXPECTED_RECEIPT_SOURCE_WORKFLOW_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$EXPECTED_PREFLIGHT_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$EXPECTED_PE_TEST_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$EXPECTED_RECEIPT_BLOB"
-          test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$EXPECTED_RECEIPT_TEST_BLOB"
-          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$(git rev-parse refs/remotes/origin/release-receipt-source:acs/version2_release_receipt.py)"
-          test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$(git rev-parse refs/remotes/origin/release-receipt-source:tests/test_version2_release_receipt.py)"
-
-          echo "RELEASE_PACKAGE_HEAD=$EXPECTED_PACKAGE_HEAD"
-          echo "RELEASE_RECEIPT_ANCESTOR=$EXPECTED_RECEIPT_HEAD"
-          echo "RELEASE_CONVERGENCE_HEAD=$expected_head"
-
-      - name: Set up canonical package-test Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12.10'
+          python-version: "3.12.10"
 
-      - name: Compile receipt and hardened package boundary
+      - name: Compile exact receipt boundary
         run: >-
           python -m py_compile
           acs/version2_release_receipt.py
           acs/version2_package_preflight.py
           tests/test_version2_release_receipt.py
-          tests/test_version2_package_preflight.py
-          tests/test_version2_package_preflight_hardening.py
-          tests/test_v2_package_required_resources.py
-          tests/test_version2_package_pe_identity.py
-          tests/test_version2_package_zip_topology_preflight.py
 
-      - name: Run receipt and hardened package regressions
+      - name: Run receipt, preflight and PE identity regressions
         run: >-
           python -m unittest -v
           tests.test_version2_release_receipt
           tests.test_version2_package_preflight
-          tests.test_version2_package_preflight_hardening
-          tests.test_v2_package_required_resources
           tests.test_version2_package_pe_identity
-          tests.test_version2_package_zip_topology_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest

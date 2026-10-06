@@ -852,5 +852,72 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             )
 
 
+
+    def test_writer_revalidates_direct_receipt_instances_before_io(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            payload = json.loads(receipt.to_json())
+            output = Path(td) / "receipt.json"
+
+            payload["workflow_run_id"] = True
+            malformed = Version2ReleaseReceipt(**payload)
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "workflow_run_id must be a positive signed 64-bit integer",
+            ):
+                write_version2_release_receipt(output, malformed)
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+            class ActiveReceipt(Version2ReleaseReceipt):
+                def to_json(self):
+                    raise AssertionError("subclass method must not execute")
+
+            active = ActiveReceipt(**json.loads(receipt.to_json()))
+            with self.assertRaisesRegex(
+                TypeError,
+                "exact Version2ReleaseReceipt",
+            ):
+                write_version2_release_receipt(output, active)
+            self.assertFalse(output.exists())
+
+    def test_readback_rejects_nonfinite_json_and_contains_parser_recursion(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            canonical = receipt.to_json()
+            needle = '"workflow_run_id":37139145605'
+            self.assertIn(needle, canonical)
+
+            for constant in ("NaN", "Infinity", "-Infinity"):
+                with self.subTest(constant=constant):
+                    raw = canonical.replace(
+                        needle,
+                        f'"workflow_run_id":{constant}',
+                        1,
+                    )
+                    output.write_text(raw, encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        Version2ReleaseReceiptError,
+                        "non-finite JSON number",
+                    ):
+                        read_version2_release_receipt(output)
+
+            output.write_text(canonical, encoding="utf-8")
+            with patch(
+                "acs.version2_release_receipt.json.loads",
+                side_effect=RecursionError("simulated parser depth exhaustion"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "not valid JSON",
+                ):
+                    read_version2_release_receipt(output)
+
 if __name__ == "__main__":
     unittest.main()
