@@ -162,6 +162,7 @@ def _install_unsaved_pgn_close_guard(
                 try:
                     discard = confirmation() is True
                 except BaseException:
+                    announce_close_failure()
                     cancel_close(event)
                     return
                 if not discard:
