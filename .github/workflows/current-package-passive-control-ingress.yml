@@ -72,12 +72,12 @@ jobs:
           mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
             ".github/workflows/current-package-passive-control-ingress.yml"
+            "acs/version2_package_assembler.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
-            "acs/version2_package_assembler.py"
+            "tests/test_version2_package_assembler.py"
             "tests/test_version2_package_preflight.py"
             "tests/test_version2_portable_package.py"
-            "tests/test_version2_package_assembler.py"
           )
           test "${#actual[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
