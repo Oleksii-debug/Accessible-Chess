@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -188,6 +189,136 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                     "changed while being read",
                 ):
                     read_version2_release_receipt(output)
+
+    def test_receipt_snapshot_metadata_is_platform_fail_closed(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+
+        with patch.object(
+            release_receipt_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            with patch.object(release_receipt_module.os, "name", "nt"):
+                self.assertTrue(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        ctime_drift,
+                    )
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        missing_mtime,
+                    )
+                )
+
+            with patch.object(release_receipt_module.os, "name", "posix"):
+                self.assertTrue(
+                    release_receipt_module._same_file_snapshot(base, base)
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        ctime_drift,
+                    )
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        missing_ctime,
+                    )
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        bool_size,
+                    )
+                )
+
+    def test_receipt_publication_snapshot_ignores_ctime_but_requires_mtime(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+
+        with patch.object(
+            release_receipt_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            self.assertTrue(
+                release_receipt_module._same_publication_snapshot(
+                    base,
+                    ctime_drift,
+                )
+            )
+            self.assertFalse(
+                release_receipt_module._same_publication_snapshot(
+                    base,
+                    mtime_drift,
+                )
+            )
+            self.assertFalse(
+                release_receipt_module._same_publication_snapshot(
+                    base,
+                    missing_mtime,
+                )
+            )
 
     def test_receipt_write_fsyncs_and_rechecks_staging_identity(self):
         with tempfile.TemporaryDirectory() as td:
