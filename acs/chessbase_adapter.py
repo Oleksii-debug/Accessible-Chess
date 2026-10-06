@@ -19,8 +19,10 @@ from .report_paths import report_safe_name
 _PRIMARY_EXTENSIONS = {
     ".cbh": "ChessBase database header/component set",
     ".cbv": "ChessBase archive/container",
+    ".cbz": "ChessBase encrypted archive/container",
     ".cbf": "legacy ChessBase database",
     ".2cbh": "ChessBase 2CBH database",
+    ".2cbz": "ChessBase encrypted 2CBH-family archive/container",
     ".cbone": "ChessBase single-file database",
 }
 
@@ -214,6 +216,12 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
     if extension == ".cbv":
         source_kind = "archive_container"
         components: tuple[ChessBaseComponent, ...] = ()
+    elif extension == ".cbz":
+        source_kind = "encrypted_archive_container"
+        components = ()
+    elif extension == ".2cbz":
+        source_kind = "encrypted_archive_container_unqualified_payload"
+        components = ()
     elif extension == ".cbh":
         source_kind = "component_set"
         try:
@@ -266,6 +274,24 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
         if extension == ".cbv":
             warnings.append(
                 "CBV is treated as an archive/container, distinct from the classic CBH component family."
+            )
+        elif extension == ".cbz":
+            warnings.append(
+                "CBZ is a password-protected encrypted ChessBase archive; recognition and "
+                "immutable source hashing do not establish decrypt, extraction, or semantic import support."
+            )
+            warnings.append(
+                "Encrypted archive import remains blocked until password transport, secret handling, "
+                "temporary-file cleanup, backend identity, and real semantic acceptance are qualified."
+            )
+        elif extension == ".2cbz":
+            warnings.append(
+                "2CBZ is recognized from real-world commercial 2CBH-family archive evidence only; "
+                "its general payload/decrypt contract is not independently qualified."
+            )
+            warnings.append(
+                "2CBZ recognition does not imply 2CBH decoder support; encrypted extraction and "
+                "semantic import remain blocked until evidence-backed password and decoder paths exist."
             )
         elif extension == ".cbh":
             if topology_error:
