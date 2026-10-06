@@ -321,12 +321,18 @@ def _snapshot_copy(value: object) -> dict[str, object]:
             "book progress snapshot must be an object",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
-    if set(value) != _READER_SNAPSHOT_FIELDS:
+    snapshot_fields = tuple(value)
+    if any(type(field) is not str for field in snapshot_fields):
+        raise BookProgressStoreError(
+            "book progress snapshot has invalid field names",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+    if set(snapshot_fields) != _READER_SNAPSHOT_FIELDS:
         raise BookProgressStoreError(
             "book progress snapshot has unsupported fields",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
-    snapshot = dict(value)
+    snapshot = value.copy()
     try:
         validated = BookReader.validate_snapshot_contract(snapshot)
     except (TypeError, ValueError):
@@ -360,6 +366,12 @@ def _validate_payload(value: object) -> dict[str, object]:
     if type(value) is not dict:
         raise BookProgressStoreError(
             "book progress store root must be an object",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+    root_fields = tuple(value)
+    if any(type(field) is not str for field in root_fields):
+        raise BookProgressStoreError(
+            "book progress store has invalid field names",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
     if "schema_version" not in value:
@@ -412,7 +424,7 @@ def _validate_payload(value: object) -> dict[str, object]:
         entries[key] = _snapshot_copy(raw_snapshot)
 
     expected_fields = _STORE_V1_FIELDS if schema_version == 1 else _STORE_V2_FIELDS
-    if set(value) != expected_fields:
+    if set(root_fields) != expected_fields:
         raise BookProgressStoreError(
             "book progress store has unsupported fields",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
