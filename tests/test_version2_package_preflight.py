@@ -72,7 +72,7 @@ def _write_checksums(root: Path) -> None:
     (root / CHECKSUMS_NAME).write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> bytes:
+def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False, subsystem: int = 3) -> bytes:
     """Return a structurally valid minimal PE image for package fixtures."""
     data = bytearray(1024)
     data[0:2] = b"MZ"
@@ -86,6 +86,9 @@ def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> byte
     data[coff + 16:coff + 18] = optional_size.to_bytes(2, "little")
     data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
     optional = coff + 20
+    if not 0 < subsystem <= 0xFFFF:
+        raise ValueError("test PE subsystem must be a positive 16-bit integer")
+    data[optional + 68:optional + 70] = subsystem.to_bytes(2, "little")
     pe32_plus = machine == 0x8664
     data[optional:optional + 2] = (
         (0x20B if pe32_plus else 0x10B).to_bytes(2, "little")
@@ -121,7 +124,7 @@ def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> byte
 def _make_tree(root: Path) -> None:
     product = root / "AccessibleChess"
     product.mkdir(parents=True)
-    (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
+    (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe(subsystem=2))
     (product / "AccessibleChess.exe.config").write_text(
         _VALID_WINFORMS_CONFIG, encoding="utf-8"
     )
@@ -469,6 +472,20 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.inventory, tree.inventory)
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
+
+    def test_product_executable_requires_windows_gui_subsystem(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            product = root / "AccessibleChess" / "AccessibleChess.exe"
+            product.write_bytes(_minimal_windows_pe(subsystem=3))
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "unexpected Windows PE subsystem 0x0003; expected 0x0002",
+            ):
+                _validate_tree(root)
 
     def test_package_preflight_accepts_8bit_pcm_sound_asset(self):
         with tempfile.TemporaryDirectory() as td:
