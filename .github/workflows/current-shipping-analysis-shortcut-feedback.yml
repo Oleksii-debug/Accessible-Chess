@@ -1,0 +1,79 @@
+name: Current Shipping Analysis Shortcut Feedback
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-analysis-shortcut-feedback-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PARENT_SHA: f277f68c0985f2a745301e949c99af5e025f49e9
+  FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
+
+jobs:
+  analysis-shortcut-feedback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact parent, scope and test blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+          git cat-file -e "$PARENT_SHA^{commit}"
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          mapfile -t paths < <(git diff --name-only "$PARENT_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-shipping-analysis-shortcut-feedback.yml"
+            "tests/test_v2_board_analysis_hotkey_feedback.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$FEEDBACK_TEST_BLOB"
+
+      - name: Compile accessibility regression
+        run: python -m py_compile tests/test_v2_board_analysis_hotkey_feedback.py
+
+      - name: Execute shortcut feedback and release UI contracts
+        run: >-
+          python -m unittest -v
+          tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_version2_release_ui
+          tests.test_whole_product_user_journey
