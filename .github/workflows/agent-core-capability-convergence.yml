@@ -1,0 +1,124 @@
+name: Agent Core Capability Convergence
+
+on:
+  pull_request:
+    branches:
+      - fix/media-agent-intake-safety-20261006-sol56x1
+    paths:
+      - .github/workflows/agent-core-capability-convergence.yml
+      - acs/agent_gametree_tools.py
+      - acs/agent_library_tools.py
+      - acs/chess_agent_tools.py
+      - tests/test_agent_capability_convergence.py
+      - tests/test_agent_continuous_analysis.py
+      - tests/test_agent_gametree_tools.py
+      - tests/test_agent_library_open_game.py
+  push:
+    branches:
+      - converge/agent-core-capabilities-20261006-sol56x1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-core-capability-convergence-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact convergence candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact repair parent and bounded Agent scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PARENT_REF: fix/media-agent-intake-safety-20261006-sol56x1
+          PARENT_SHA: bcca18571b2169cc72845da36772a3b29ec4a868
+          CONTINUOUS_SOURCE_HEAD: 43f1419dd424bc8dd12fb884ddf4c016304bb357
+          GAMETREE_SOURCE_HEAD: 00ec2ed2e9355e908a7e37ee3ae197c214261ab1
+          LIBRARY_SOURCE_HEAD: 9ea0e17066636dbffaa71aeae83aa0187e906d78
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/agent-core-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/agent-core-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'AGENT_CORE_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$PARENT_REF"
+          fi
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$PARENT_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/agent-core-capability-convergence.yml' \
+            'acs/agent_gametree_tools.py' \
+            'acs/agent_library_tools.py' \
+            'acs/chess_agent_tools.py' \
+            'tests/test_agent_capability_convergence.py' \
+            'tests/test_agent_continuous_analysis.py' \
+            'tests/test_agent_gametree_tools.py' \
+            'tests/test_agent_library_open_game.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent core capability scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'c36edeb7883de1f107194e80638c862742a15f50'
+          test "$(git rev-parse HEAD:acs/agent_gametree_tools.py)" = '0af2ad011b68c73c99c1645652fa60870c9c8c9d'
+          test "$(git rev-parse HEAD:acs/agent_library_tools.py)" = 'c9fcbe58bbfd1b65626970b17568a16146d886aa'
+          test "$(git rev-parse HEAD:tests/test_agent_continuous_analysis.py)" = 'e90f25468ef3562a3364a734c771f59bcab405f6'
+          test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '65e6445dd04d3dc3c7d75c36e0186203a3607d8b'
+          test "$(git rev-parse HEAD:tests/test_agent_library_open_game.py)" = '34eb1b9629cdbde21d2e20f6ebd35234f2f9b001'
+          test "$(git rev-parse HEAD:tests/test_agent_capability_convergence.py)" = 'd01c910b5fa311bfaf82694c1f14f47411e2e401'
+          echo "AGENT_CONTINUOUS_SOURCE_HEAD=$CONTINUOUS_SOURCE_HEAD"
+          echo "AGENT_GAMETREE_SOURCE_HEAD=$GAMETREE_SOURCE_HEAD"
+          echo "AGENT_LIBRARY_SOURCE_HEAD=$LIBRARY_SOURCE_HEAD"
+          echo 'AGENT_CORE_CAPABILITY_GEOMETRY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile converged Agent capability boundary
+        run: >-
+          python -m compileall -q
+          acs/agent_gametree_tools.py
+          acs/agent_library_tools.py
+          acs/chess_agent_tools.py
+          tests/test_agent_capability_convergence.py
+          tests/test_agent_continuous_analysis.py
+          tests/test_agent_gametree_tools.py
+          tests/test_agent_library_open_game.py
+
+      - name: Execute converged Agent capability contracts
+        run: >-
+          python -m unittest -v
+          tests.test_agent_capability_convergence
+          tests.test_agent_continuous_analysis
+          tests.test_agent_gametree_tools
+          tests.test_agent_library_open_game
+
+      - name: Execute retained canonical service regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chess_agent_tools_crossrepo
+          tests.test_continuous_analysis
+          tests.test_pgn_workspace
+          tests.test_version2_application
+
+      - name: Execute core selftest
+        run: python -m acs.selftest
