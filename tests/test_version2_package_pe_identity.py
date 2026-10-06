@@ -492,6 +492,20 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
                     limits,
                 )
 
+    def test_checksum_line_splitter_matches_python_splitlines_boundaries(self):
+        text = "a\r\nb\rc\nd\ve\f\x1cf\x1dg\x1eh\x85i\u2028j\u2029k\n"
+        self.assertEqual(
+            preflight._bounded_checksum_lines(text, max_lines=11),
+            text.splitlines(),
+        )
+
+    def test_checksum_line_splitter_rejects_newline_amplification(self):
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "checksum inventory contains too many entries",
+        ):
+            preflight._bounded_checksum_lines("\n" * 100_000, max_lines=2)
+
     def test_checksum_inventory_snapshot_failure_is_authoritative(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
