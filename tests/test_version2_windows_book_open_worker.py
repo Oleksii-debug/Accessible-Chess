@@ -171,6 +171,10 @@ class BookOpenWorkerTests(unittest.TestCase):
         self.assertTrue(worker.closed)
         self.assertFalse(worker.active)
         self.assertTrue(worker.resume_after_refused_shutdown())
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLED],
+        )
 
     def test_started_event_failure_does_not_leave_worker_busy(self) -> None:
         def reject_event(_event):
@@ -209,6 +213,48 @@ class BookOpenWorkerTests(unittest.TestCase):
         self.assertIn("UI thread", str(errors[0]))
 
 
+    def test_refused_close_reconciles_retired_pending_book_terminal(self) -> None:
+        callbacks = []
+        events = []
+        commits = []
+        prepared = threading.Event()
+
+        def prepare(source, *, cancel_check):
+            prepared.set()
+            return "must-not-commit-after-shutdown"
+
+        worker = Version2BookOpenWorker(
+            prepare=prepare,
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=lambda event: events.append(event.kind),
+        )
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self.assertTrue(prepared.wait(2.0))
+        self._wait(lambda: len(callbacks) == 1)
+
+        # Preparation finished, but publication still belongs to a queued owner
+        # callback. Shutdown retires that candidate and fences its generation.
+        self.assertTrue(worker.shutdown())
+        self.assertTrue(worker.closed)
+        self.assertTrue(worker.resume_after_refused_shutdown())
+        self.assertFalse(worker.closed)
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLED],
+        )
+
+        # A WinForms callback queued before shutdown may still arrive. It must
+        # stay stale and cannot duplicate the recovery terminal or commit Book.
+        callbacks.pop(0)()
+        self.assertEqual(commits, [])
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLED],
+        )
+        self.assertFalse(worker.active)
+        self.assertTrue(worker.shutdown())
     def test_refused_close_can_reopen_fully_retired_worker(self) -> None:
         callbacks = []
         commits = []
