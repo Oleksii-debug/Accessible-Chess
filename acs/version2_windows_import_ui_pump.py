@@ -365,10 +365,9 @@ class Version2ImportUiWakeupPump:
                 return False
             self._closed = False
 
-        # A worker terminal may have reached the mailbox immediately before the
-        # close fence. The owner Form is alive again, so republish that exact
-        # retained batch through the existing transactional presentation path.
-        self.request_pending_wakeup()
+        # Delivery is resumed by the owning runtime only after its own closed
+        # fence has been cleared. This keeps retained terminal presentation behind
+        # the full delegate+pump+runtime recovery transaction.
         return True
 
     def close(self) -> None:
