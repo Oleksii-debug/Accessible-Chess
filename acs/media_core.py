@@ -360,13 +360,21 @@ class MediaSource:
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _require_text(self.source_id, "source_id"))
         object.__setattr__(self, "title", _require_text(self.title, "title"))
-        try:
-            kind = MediaSourceKind(self.kind)
-        except (TypeError, ValueError) as exc:
+        if type(self.kind) is MediaSourceKind:
+            kind = self.kind
+        elif type(self.kind) is str:
+            try:
+                kind = MediaSourceKind(self.kind)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media source kind",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
             raise MediaContractError(
-                f"unsupported media source kind: {self.kind!r}",
+                "unsupported media source kind",
                 code=MediaErrorCode.INVALID_CONTAINER,
-            ) from exc
+            )
         object.__setattr__(self, "kind", kind)
         object.__setattr__(
             self,
@@ -407,13 +415,21 @@ class MediaChessLink:
             _require_nonnegative_int(self.timestamp_ms, "timestamp_ms"),
         )
         object.__setattr__(self, "chess_ref", _require_text(self.chess_ref, "chess_ref"))
-        try:
-            status = MediaLinkStatus(self.status)
-        except (TypeError, ValueError) as exc:
+        if type(self.status) is MediaLinkStatus:
+            status = self.status
+        elif type(self.status) is str:
+            try:
+                status = MediaLinkStatus(self.status)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media link status",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
             raise MediaContractError(
-                f"unsupported media link status: {self.status!r}",
+                "unsupported media link status",
                 code=MediaErrorCode.INVALID_CONTAINER,
-            ) from exc
+            )
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "confidence", _require_confidence(self.confidence))
         object.__setattr__(
@@ -863,7 +879,7 @@ def serialize_media_state(
             "source must be a MediaSource",
             code=MediaErrorCode.INVALID_CONTAINER,
         )
-    if not isinstance(timeline, MediaPositionTimeline):
+    if type(timeline) is not MediaPositionTimeline:
         raise MediaContractError(
             "timeline must be a MediaPositionTimeline",
             code=MediaErrorCode.INVALID_CONTAINER,
