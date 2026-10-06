@@ -34,6 +34,7 @@ _FOCUS_TARGETS = frozenset(
 _ACTIONS = frozenset({"play", "pause", "seek", "restore", "cancel"})
 _MAX_TEXT = 4096
 _MAX_PROGRESS = 100_000_000
+_MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
 
 class RecordedMediaAccessibilityError(ValueError):
@@ -59,6 +60,12 @@ def _text(value: object, name: str, *, limit: int = _MAX_TEXT) -> str:
 
 def _nonnegative_int(value: object, name: str) -> int:
     if type(value) is not int or value < 0:
+        raise RecordedMediaAccessibilityError(f"invalid {name}")
+    return value
+
+
+def _safe_nonnegative_int(value: object, name: str) -> int:
+    if type(value) is not int or value < 0 or value > _MAX_SAFE_INTEGER:
         raise RecordedMediaAccessibilityError(f"invalid {name}")
     return value
 
@@ -184,15 +191,15 @@ def _validate_clock_values(
     playback_state: object,
     revision: object,
 ) -> tuple[int | None, int | None, str, int | None]:
-    position = _optional_nonnegative_int(position_ms, "media position")
-    duration = _optional_nonnegative_int(duration_ms, "media duration")
+    position = None if position_ms is None else _safe_nonnegative_int(position_ms, "media position")
+    duration = None if duration_ms is None else _safe_nonnegative_int(duration_ms, "media duration")
     if duration is not None and position is not None and position > duration:
         raise RecordedMediaAccessibilityError("media position exceeds duration")
     if type(playback_state) is not str or playback_state not in _PLAYBACK_STATES:
         raise RecordedMediaAccessibilityError("invalid media playback state")
     safe_revision = None
     if revision is not None:
-        safe_revision = _nonnegative_int(revision, "media clock revision")
+        safe_revision = _safe_nonnegative_int(revision, "media clock revision")
     return position, duration, playback_state, safe_revision
 
 
@@ -242,7 +249,7 @@ class RecordedMediaPlayerCommand:
         if self.action == "seek":
             if self.position_ms is None:
                 raise RecordedMediaAccessibilityError("seek requires a position")
-            position = _nonnegative_int(self.position_ms, "seek position")
+            position = _safe_nonnegative_int(self.position_ms, "seek position")
             object.__setattr__(self, "position_ms", position)
         elif self.position_ms is not None:
             raise RecordedMediaAccessibilityError(
@@ -292,9 +299,11 @@ class RecordedMediaPlayerState:
         if type(self.ok) is not bool:
             raise RecordedMediaAccessibilityError("invalid player ok flag")
         if self.revision is not None:
-            _nonnegative_int(self.revision, "player revision")
-        _optional_nonnegative_int(self.position_ms, "player position")
-        _optional_nonnegative_int(self.duration_ms, "player duration")
+            _safe_nonnegative_int(self.revision, "player revision")
+        if self.position_ms is not None:
+            _safe_nonnegative_int(self.position_ms, "player position")
+        if self.duration_ms is not None:
+            _safe_nonnegative_int(self.duration_ms, "player duration")
         _text(self.position_text, "position text", limit=64)
         for name, value in ((
             "region label", self.region_label),
@@ -521,7 +530,7 @@ class RecordedMediaAccessibilityBridge:
             ) from None
 
     def error_state(self, *, position_ms: int | None = None) -> dict[str, object]:
-        position = None if position_ms is None else _nonnegative_int(position_ms, "position")
+        position = None if position_ms is None else _safe_nonnegative_int(position_ms, "position")
         labels = _LABELS[self._language]
         state = RecordedMediaPlayerState(
             ok=False,
