@@ -697,7 +697,6 @@ async function loadMoveFeedbackSettings() {
 }
 
 async function loadSoundState() {
-    await loadMoveFeedbackSettings();
     const a = api();
     const enabled = byId('sound-enabled');
     const newGameAnimation = byId('sound-newgame-animation');
@@ -707,21 +706,21 @@ async function loadSoundState() {
     const lowTimePolicy = byId('sound-low-time-policy');
     const lowTimeSeconds = byId('sound-low-time-seconds');
     const status = byId('sound-settings-status');
+    const controls = [enabled, newGameAnimation, volume, tickPolicy, tickLastSeconds, lowTimePolicy, lowTimeSeconds];
+    // Never expose mutable sound controls before their canonical persisted state
+    // is known. This runs before the first await and also fail-closes reloads.
+    for (const control of controls) {
+        if (control) control.disabled = true;
+    }
+    await loadMoveFeedbackSettings();
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
-        if (enabled) enabled.disabled = true;
-        if (newGameAnimation) newGameAnimation.disabled = true;
-        if (volume) volume.disabled = true;
-        if (tickPolicy) tickPolicy.disabled = true;
-        if (tickLastSeconds) tickLastSeconds.disabled = true;
-        if (lowTimePolicy) lowTimePolicy.disabled = true;
-        if (lowTimeSeconds) lowTimeSeconds.disabled = true;
         return;
     }
     try {
         const state = await a.get_sound_settings();
         currentSoundState = state;
-        for (const control of [enabled, newGameAnimation, volume, tickPolicy, tickLastSeconds, lowTimePolicy, lowTimeSeconds]) {
+        for (const control of controls) {
             if (control) control.disabled = false;
         }
         if (enabled) enabled.checked = !!state.enabled;
