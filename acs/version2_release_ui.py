@@ -709,10 +709,10 @@ def run_version2_release_window(
             # A production native FormClosing guard shuts application-owned state
             # down while the owner Form is still alive.  The release loop only
             # records that completed shutdown here; it must never run it twice.
-            if getattr(application, "_native_close_shutdown_complete", False):
+            if getattr(application, "_native_close_shutdown_complete", False) is True:
                 application_closed = True
             else:
-                if not api._invoke_ui(application.shutdown):
+                if api._invoke_ui(application.shutdown) is not True:
                     return False
                 application_closed = True
         api._ui_closed = True
@@ -844,7 +844,10 @@ def run_version2_release_window(
     # failure.  This closes the exact failure-precedence gap proven by #588.
     try:
         if application is not None and not application_closed:
-            close_application()
+            if close_application() is not True:
+                cleanup_error = RuntimeError(
+                    "Version 2 application shutdown did not complete."
+                )
     except BaseException as error:
         cleanup_error = error
 
