@@ -1278,6 +1278,42 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.pgn_open_running)
 
 
+    def test_refused_close_reconciles_retired_pending_pgn_open_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-retired-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=posted.append,
+            )
+
+            started = delegate("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(delegate.wait_for_pgn_open(2.0))
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.pgn_open_running)
+
+            self.assertTrue(delegate.shutdown())
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+
+            event_count = len(events)
+            posted.pop(0)()
+            self.assertEqual(len(events), event_count)
+            self.assertFalse(delegate.pgn_open_running)
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(delegate.shutdown())
     def test_refused_close_reopens_running_cancelled_pgn_open_until_terminal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "refused-close-running-open.pgn"
