@@ -20,15 +20,18 @@ import re
 from typing import Callable, Iterable
 
 from .gametree import (
+    CanonicalPgnGameFramer,
     Comment,
     GameTreeContractError,
     GameTreeErrorCode,
     GameTreeSerializationError,
     MAX_TREE_NODES,
     MAX_VARIATION_DEPTH,
+    MOVE_NUMBER_RE,
     MoveNode,
     NAG_SYMBOLS,
     PgnGame,
+    RESULTS,
     TAG_RE,
     VariationLine,
     _scan_brace_comment_span,
@@ -306,6 +309,25 @@ def _preflight_text(
     seen_movetext = False
     comment_until = 0
     line_start = 0
+    game_framer = CanonicalPgnGameFramer()
+    preflight_games = 0
+
+    def claim_framed_line(line: str) -> None:
+        nonlocal preflight_games
+        if control_checkpoint is not None:
+            control_checkpoint()
+        completed_frame = game_framer.feed_line(line)
+        if control_checkpoint is not None:
+            control_checkpoint()
+        if completed_frame is None:
+            return
+        preflight_games += 1
+        if preflight_games > MAX_PGN_GAMES:
+            _raise_limit(
+                "PGN contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+        source_budget.claim_games(1)
 
     lines = normalized.split("\n")
     if control_checkpoint is not None:
@@ -314,12 +336,13 @@ def _preflight_text(
         if control_checkpoint is not None and line_index % 128 == 1:
             control_checkpoint()
         line_end = line_start + len(line)
-        starts_inside_comment = comment_until > line_start
+        starts_inside_recovered_comment = comment_until > line_start
+        starts_inside_framing_comment = game_framer.inside_brace_comment
 
-        # Match the same header grammar as gametree while outside a
-        # brace-comment span. A line that starts inside recovered
-        # comment text cannot become a tag boundary after its close.
-        if not starts_inside_comment and line.lstrip().startswith("["):
+        # Canonical game boundaries follow CanonicalPgnGameFramer. Recovery
+        # brace scanning intentionally differs for historical "{{ ... }" text,
+        # so it cannot be the authority for whether a later tag starts a game.
+        if not starts_inside_framing_comment and line.lstrip().startswith("["):
             match = TAG_RE.match(line)
             if match is None:
                 raise PgnRoundTripError(
@@ -329,6 +352,7 @@ def _preflight_text(
             if seen_movetext:
                 tags_in_game = 0
                 seen_movetext = False
+                comment_until = 0
             tags_in_game += 1
             if tags_in_game > MAX_PGN_TAGS_PER_GAME:
                 _raise_limit(
@@ -346,23 +370,35 @@ def _preflight_text(
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
             _claim_token(token_count, source_budget)
+            claim_framed_line(line)
             line_start = line_end + 1
             continue
 
-        if line.strip() and not starts_inside_comment:
+        if line.strip() and not starts_inside_recovered_comment:
             seen_movetext = True
 
         token_length = 0
+        token_start = -1
 
         def flush_token() -> None:
-            nonlocal token_length
+            nonlocal token_length, token_start
             if token_length:
+                value = line[token_start : token_start + token_length]
                 _claim_token(token_count, source_budget)
+                if (
+                    value not in RESULTS
+                    and MOVE_NUMBER_RE.fullmatch(value) is None
+                    and value not in NAG_SYMBOLS
+                    and re.match(r"^(\d+\.{1,3})(.+)$", value) is not None
+                ):
+                    _claim_token(token_count, source_budget)
                 token_length = 0
+                token_start = -1
 
         index = 0
-        if starts_inside_comment:
+        if starts_inside_recovered_comment:
             if comment_until > line_end:
+                claim_framed_line(line)
                 line_start = line_end + 1
                 continue
             index = comment_until - line_start
@@ -378,16 +414,17 @@ def _preflight_text(
             character = line[index]
             if character == "{":
                 flush_token()
-                span_end, _nested, _unterminated = _scan_brace_comment_span(
+                span_end, nested, unterminated = _scan_brace_comment_span(
                     normalized,
                     line_start + index,
                     control_checkpoint,
                 )
-                # The canonical recovery tokenizer publishes one
-                # Comment token for this whole shared span. Count that
-                # same unit here instead of interpreting content after
-                # an inner recovered close as movetext.
+                # Match recovery tokenizer allocation before parse_games().
                 _claim_token(token_count, source_budget)
+                if nested:
+                    _claim_token(token_count, source_budget)
+                if unterminated:
+                    _claim_token(token_count, source_budget)
                 if span_end > line_end:
                     comment_until = span_end
                     break
@@ -412,12 +449,26 @@ def _preflight_text(
                 _claim_token(token_count, source_budget)
                 index += 1
                 continue
+            if character == "}":
+                flush_token()
+                _claim_token(token_count, source_budget)
+                index += 1
+                continue
+            if character == "$":
+                flush_token()
+                index += 1
+                while index < len(line) and line[index].isdigit():
+                    index += 1
+                _claim_token(token_count, source_budget)
+                continue
             if character == "[" and token_length == 0:
                 raise PgnRoundTripError(
                     "PGN tag marker appears inside movetext",
                     code=PgnRoundTripErrorCode.MALFORMED_HEADER,
                 )
 
+            if token_length == 0:
+                token_start = index
             token_length += 1
             if token_length > MAX_PGN_TOKEN_CHARS:
                 _raise_limit(
@@ -427,7 +478,22 @@ def _preflight_text(
             index += 1
 
         flush_token()
+        claim_framed_line(line)
         line_start = line_end + 1
+
+    if control_checkpoint is not None:
+        control_checkpoint()
+    completed_frame = game_framer.finish()
+    if control_checkpoint is not None:
+        control_checkpoint()
+    if completed_frame is not None:
+        preflight_games += 1
+        if preflight_games > MAX_PGN_GAMES:
+            _raise_limit(
+                "PGN contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+        source_budget.claim_games(1)
     return normalized
 
 
@@ -610,7 +676,6 @@ def parse_pgn_text(
             "PGN contains too many games",
             PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
         )
-    source_budget.claim_games(len(games))
     if strict and not games:
         raise PgnRoundTripError(
             "PGN contains no game",
