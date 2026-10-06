@@ -102,6 +102,55 @@ class UIAnalysisWebAppTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertFalse(result["engineEnabled"])
 
+    def test_analysis_refuses_incomplete_editor_position_without_touching_engine(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.clear_board()["ok"])
+
+        result = api.start_analysis()
+
+        self.assertFalse(result["ok"])
+        self.assertIn("коректною", result["announcement"])
+        self.assertEqual(fake.started, [])
+        self.assertFalse(result["engineEnabled"])
+
+    def test_enabled_analysis_stops_before_invalid_cleared_root_reaches_engine(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+        self.assertEqual(len(fake.started), 1)
+
+        cleared = api.clear_board()
+
+        self.assertTrue(cleared["ok"])
+        self.assertFalse(cleared["engineEnabled"])
+        self.assertEqual(fake.stopped, 1)
+        self.assertEqual(fake.updated, [])
+        self.assertIn("Stockfish зупинено", cleared["announcement"])
+
+    def test_piece_editor_stops_analysis_instead_of_forwarding_invalid_fen(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+
+        edited = api.edit_position_piece("e8", "-")
+
+        self.assertTrue(edited["ok"])
+        self.assertFalse(edited["positionComplete"])
+        self.assertFalse(edited["engineEnabled"])
+        self.assertEqual(fake.stopped, 1)
+        self.assertEqual(fake.updated, [])
+        self.assertIn("Stockfish зупинено", edited["announcement"])
+
+    def test_valid_piece_editor_reanchors_running_analysis(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+
+        edited = api.edit_position_piece("a3", "N")
+
+        self.assertTrue(edited["ok"])
+        self.assertTrue(edited["positionComplete"])
+        self.assertTrue(edited["engineEnabled"])
+        self.assertEqual(fake.stopped, 0)
+        self.assertEqual(fake.updated[-1], edited["fen"])
+
     def test_engine_enable_starts_real_service_with_multipv_five(self):
         api, fake = self.make_api()
         result = api.toggle_engine()
