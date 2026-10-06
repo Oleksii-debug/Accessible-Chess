@@ -115,6 +115,40 @@ class BookBoardWorkflowTests(unittest.TestCase):
 
         self.assertFalse(HostileReader.touched)
 
+    def test_constructor_rejects_engine_service_subclass_before_hooks(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Passive engine ingress",
+                blocks=[Position(fen=Board.START)],
+            )
+        )
+        engine = _FakeAnalysisEngine()
+        analysis = AnalysisService(lambda: engine)
+        self.addCleanup(analysis.close)
+
+        class HostileAssisted(EngineAssistedWorkflowService):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"analyze_teacher", "invalidate"}:
+                    type(self).touched = True
+                    raise AssertionError(
+                        "rejected assisted-service subclass hook must not execute"
+                    )
+                return super().__getattribute__(name)
+
+        assisted = HostileAssisted(analysis)
+        HostileAssisted.armed = True
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^engine_assistance must be EngineAssistedWorkflowService$",
+        ):
+            BookBoardWorkflow(reader, assisted)
+
+        self.assertFalse(HostileAssisted.touched)
+
     def test_exact_reader_instance_method_shadows_cannot_replace_book_board_authority(self) -> None:
         reader = BookReader(
             BookDocument(
