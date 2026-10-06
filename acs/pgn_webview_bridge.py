@@ -157,7 +157,10 @@ class PgnWebViewBridge:
                 return self._projection.delete_comment()
             if command_id == "pgn.nag_edit":
                 self._exact_fields(data, {"text"})
-                text = self._text(data["text"], name="NAG text", limit=512)
+                raw = data["text"]
+                if type(raw) is not str or len(raw) > 512 or "\x00" in raw:
+                    raise ValueError("NAG text is invalid")
+                text = raw.strip()
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
