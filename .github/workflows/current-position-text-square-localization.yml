@@ -3,7 +3,7 @@ name: Current Position Text Square Localization
 on:
   pull_request:
     branches:
-      - fix/position-editor-ascii-fen-20261006-sol56q7n4
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - "acs/position_editor.py"
       - "acs/position_text.py"
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
-          test "$EVENT_BASE_REF" = "fix/position-editor-ascii-fen-20261006-sol56q7n4"
+          test "$EVENT_BASE_REF" = "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb"
           git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
           live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
           test "$EVENT_BASE_SHA" = "$live_base"
