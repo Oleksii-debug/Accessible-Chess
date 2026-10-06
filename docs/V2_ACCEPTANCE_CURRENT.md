@@ -1,3 +1,34 @@
+# Live close override — 2026-10-06 18:20 Europe/Bratislava
+
+Live GitHub refs, exact heads and attributable Actions supersede every older snapshot retained below. This section is descriptive audit state only; it does not create a new queue or priority order.
+
+- Default `main`: use the live GitHub ref. This file is itself committed on `main`, so an embedded self-SHA would become stale by construction.
+- Canonical shipping PR #2184: `6be0afe67366b62757baae53ab0eaae6b8bfafdf`; open, draft and mergeable at this audit boundary.
+- Exact-head shipping Actions observed: 58 PR-triggered runs, with 53 queued and 5 pending. Nonterminal is not GREEN.
+- #2221, #2222 and #2223 are no longer pending children. All three were merged at common merge commit `79414184c998eb7beffc89aaf8383ad8ef3537a5`, and that commit is a confirmed ancestor of current #2184 (shipping is 36 commits ahead, behind=0).
+- Current bounded shipping children preserved without intake:
+  - #2226 `8063e1e0f2e91d4be1aaa3c506d6527f3cd4d1cc`: P0-F verified-consumed-byte starter-corpus hardening; clean ahead-only, behind=0, exactly 3 changed paths; exact-head Actions queued.
+  - #2232 `aa32b963c9828fac5b8ec7133386cf5b040184a9`: native MenuBar/UIA exact-handle binding; clean ahead-only, behind=0, exactly 4 changed paths; exact-head Actions queued.
+  - #2233 `00b484922be34ea4a2ef7b09e76e74c440d1e054`: Markdown tilde-fence semantic opacity repair; clean ahead-only, behind=0, exactly 3 changed paths; exact-head Actions queued/pending.
+- Those three children are integration-ready only after fresh live geometry and terminal attributable CI; this audit does not merge them.
+- Separate Media / Universal Chess Agent / Classroom stacks remain outside the current shipping ancestry. Their existence is required product scope, not evidence that their runtime bytes are in #2184.
+- Binding physical acceptance remains open in #22, #691, #730 and #1601. Machine UIA, packaged smoke, unit/integration CI and sound dispatch evidence cannot set human/NVDA acceptance.
+- Full CBF/CBI semantic compatibility remains intentionally unclaimed until lawful authentic fixtures and an independent semantic oracle exist. Existing adapters/safety gates and PR #660 do not promote that claim.
+- The current Drive Project Plan was re-read and is subordinate to later live GitHub / Issue #14 when snapshots differ. The Drive AUTOPILOT Work Ledger explicitly marks itself SUPERSEDED and must not schedule or override live work.
+
+Whole-product audit observations remain non-binding: current shipping carries the established chess/SAN/FEN/PGN authorities; Book/position semantic reading and deterministic navigation; malformed/resource fail-closed behavior; lawful starter-content/provenance constraints; persistence/recovery transactions; keyboard/WebView/native accessibility contracts; Windows packaging/preflight/portable/receipt integrity; and Web-reusable application boundaries. Remaining gaps are integration/qualification/physical-acceptance gaps, plus explicitly unproven format/media/agent/classroom surfaces, not permission to create parallel authorities.
+
+Release truth:
+
+- `HUMAN_TESTED=NO`
+- `HUMAN_ACCEPTED=NO`
+- `NVDA_VERIFIED=NO`
+- `FINAL_WINDOWS_ZIP=NO`
+
+[APSTEP:scenario-work%3Ascenario-murtbnuw-c2mbezb%3Achat%3Ageneration-3:107]
+
+---
+
 # Live close override — 2026-10-06 execution-run audit
 
 Live GitHub exact refs supersede historical SHA/status snapshots in this file.
