@@ -448,6 +448,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "foreach ($guardedDirectory in @($root, $app, $data))",
             "$probeError -ne 32",
             "Transferred directory guard missing",
+            "$reportedChild.Kill()",
+            "$reportedChild.WaitForExit()",
+            "$probeError -ne 0",
+            "Directory guard leaked after child exit",
             "Start-Sleep -Seconds 7",
         ):
             with self.subTest(token=token):
