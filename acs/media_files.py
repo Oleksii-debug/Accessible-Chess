@@ -114,4 +114,3 @@ def promote_partial_file(
         sha256=checksum,
         size_bytes=size,
     )
-
