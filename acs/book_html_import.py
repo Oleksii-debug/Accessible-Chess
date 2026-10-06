@@ -168,7 +168,7 @@ _CSS_DISPLAY_SINGLE_VALUES = frozenset(
         "table-header-group", "table-footer-group", "table-row", "table-cell",
         "table-column-group", "table-column", "table-caption", "ruby-base",
         "ruby-text", "ruby-base-container", "ruby-text-container", "inherit",
-        "initial", "revert", "revert-layer", "unset",
+        "initial", "unset",
     }
 )
 _CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
@@ -206,7 +206,7 @@ def _deterministic_display_value(value: str) -> str | None:
 
 
 _CSS_CONTENT_VISIBILITY_VALUES = frozenset(
-    {"visible", "auto", "hidden", "initial", "unset", "inherit"}
+    {"visible", "auto", "hidden", "initial", "unset"}
 )
 
 
