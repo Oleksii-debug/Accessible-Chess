@@ -188,6 +188,16 @@ class Version2Application:
             raise ValueError("invalid shell publication acknowledgement")
         return token
 
+    @staticmethod
+    def _passive_browser_payload_keys(payload):
+        """Return exact text keys without executing caller-controlled key hooks."""
+        if type(payload) is not dict:
+            return None
+        keys = tuple(payload)
+        if any(type(key) is not str for key in keys):
+            raise ValueError("browser payload keys must be exact text")
+        return keys
+
     def _finish_shell_publication(self, token: int, *, commit: bool):
         """Commit or roll back one browser route only after DOM publication."""
         pending = self._pending_shell_publication
@@ -331,8 +341,11 @@ class Version2Application:
         return projected
 
     def _authorize_book_browser_payload(self, payload):
-        token_present = type(payload) is dict and "presentation_token" in payload
-        if type(payload) is dict:
+        payload_keys = self._passive_browser_payload_keys(payload)
+        token_present = (
+            payload_keys is not None and "presentation_token" in payload_keys
+        )
+        if payload_keys is not None:
             forwarded = dict(payload)
             token = forwarded.pop("presentation_token", None)
         else:
@@ -1794,8 +1807,9 @@ class Version2Application:
             if type(area) is not str or len(area) > 16:
                 raise ValueError("invalid browser surface")
             area_id = area
+            payload_keys = self._passive_browser_payload_keys(payload)
             empty_authority_payload = payload is None or (
-                type(payload) is dict and len(payload) == 0
+                payload_keys is not None and len(payload_keys) == 0
             )
             if (
                 self._pending_shell_publication is not None
@@ -1844,12 +1858,13 @@ class Version2Application:
 
                 publication_protocol = False
                 publication_request_id = None
-                if type(payload) is dict and "publication_protocol" in payload:
-                    keys = tuple(payload)
+                if (
+                    payload_keys is not None
+                    and "publication_protocol" in payload_keys
+                ):
                     if (
-                        len(keys) != 2
-                        or any(type(key) is not str for key in keys)
-                        or "request_id" not in payload
+                        len(payload_keys) != 2
+                        or "request_id" not in payload_keys
                     ):
                         raise ValueError("invalid shell publication request")
                     value = payload["publication_protocol"]
@@ -2025,8 +2040,8 @@ class Version2Application:
                 and not pgn_refresh
                 and self._pgn_browser_lease_required
                 and (
-                    type(payload) is not dict
-                    or "presentation_token" not in payload
+                    payload_keys is None
+                    or "presentation_token" not in payload_keys
                 )
             ):
                 # A rendered PGN surface has an opaque lease. Missing it is
@@ -2037,8 +2052,8 @@ class Version2Application:
             if area_id == "pgn" and (
                 pgn_refresh
                 or (
-                    type(payload) is dict
-                    and "presentation_token" in payload
+                    payload_keys is not None
+                    and "presentation_token" in payload_keys
                 )
             ):
                 self._pgn_browser_lease_required = True
