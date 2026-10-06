@@ -42,6 +42,7 @@ from .webapp_keymap import (
 
 
 _LOG = logging.getLogger(__name__)
+_ENGINE_GAME_SETTING_TEXT_CHARS = 32
 
 
 class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
@@ -658,14 +659,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
     @staticmethod
     def _bounded_int(value: Any, *, low: int, high: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("boolean is not an integer setting")
-        if isinstance(value, str):
+        # Browser/API scalar ingress is passive: reject subclasses and arbitrary
+        # objects before invoking overridable string/number conversion hooks.
+        if type(value) is str:
+            if len(value) > _ENGINE_GAME_SETTING_TEXT_CHARS:
+                raise ValueError("setting text is too long")
             text = value.strip()
-            if not text or not text.isdecimal():
-                raise ValueError("setting must be an integer")
+            if not text or not text.isascii() or not text.isdecimal():
+                raise ValueError("setting must be an ASCII integer")
             value = int(text)
-        if not isinstance(value, int) or not low <= value <= high:
+        if type(value) is not int or not low <= value <= high:
             raise ValueError("setting is outside supported bounds")
         return value
 
@@ -1186,7 +1189,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 "Stockfish play is unavailable.",
             )
         try:
-            selected_side = str(human_side or "").strip().lower()
+            if type(human_side) is not str or len(human_side) > _ENGINE_GAME_SETTING_TEXT_CHARS:
+                raise ValueError("invalid side")
+            selected_side = human_side.strip().lower()
             if selected_side not in {"white", "black", "random", "w", "b"}:
                 raise ValueError("invalid side")
             selected_side = {"w": "white", "b": "black"}.get(selected_side, selected_side)
