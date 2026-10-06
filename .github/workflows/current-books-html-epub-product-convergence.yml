@@ -10,6 +10,7 @@ on:
       - 'acs/book_epub_import.py'
       - 'tests/test_book_active_import_current_html_epub.py'
       - 'tests/test_book_html_runtime_correctness.py'
+      - 'tests/test_book_epub_runtime_correctness.py'
       - 'tests/test_v2_book_html_import.py'
       - 'tests/test_v2_book_epub_import.py'
   workflow_dispatch:
@@ -23,10 +24,11 @@ concurrency:
 
 env:
   HTML_IMPORT_BLOB: 00add608990e5ed200340c86be7587148140a48a
-  EPUB_IMPORT_BLOB: c2a97f750871f4b1336cd33bb05ad4281220cbde
+  EPUB_IMPORT_BLOB: ed09ce0c61d088de0051834e737acff1b7368a17
   RETAINED_ACTIVE_CANCEL_BLOB: 0a4d7f6eb369aca5640fbffa7319baf02307eaac
   CURRENT_ACTIVE_CANCEL_BLOB: d107470d0c12e940ba741e43dddf936e9a55cda4
   HTML_RUNTIME_TEST_BLOB: 7faf3fd0f71bf7627c09ae8483fd4cf548061ff1
+  EPUB_RUNTIME_TEST_BLOB: 8fab3e9717e2193f5d6cbbaf8a36c68ed18ac3eb
   V2_HTML_TEST_BLOB: 00bfd09f8201d12104901d17b4078179ba8b6ad3
   V2_EPUB_TEST_BLOB: 851299de1bb5727f8c180128485d8a37e4d3c75c
 
@@ -70,6 +72,7 @@ jobs:
             'acs/book_epub_import.py' \
             'acs/book_html_import.py' \
             'tests/test_book_active_import_current_html_epub.py' \
+            'tests/test_book_epub_runtime_correctness.py' \
             'tests/test_book_html_runtime_correctness.py' \
             'tests/test_v2_book_epub_import.py' \
             'tests/test_v2_book_html_import.py' | sort)"
@@ -79,6 +82,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$RETAINED_ACTIVE_CANCEL_BLOB"
           test "$(git rev-parse HEAD:tests/test_book_active_import_current_html_epub.py)" = "$CURRENT_ACTIVE_CANCEL_BLOB"
           test "$(git rev-parse HEAD:tests/test_book_html_runtime_correctness.py)" = "$HTML_RUNTIME_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_epub_runtime_correctness.py)" = "$EPUB_RUNTIME_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$V2_HTML_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = "$V2_EPUB_TEST_BLOB"
 
@@ -94,6 +98,7 @@ jobs:
           tests/test_book_active_import_cancellation.py
           tests/test_book_active_import_current_html_epub.py
           tests/test_book_html_runtime_correctness.py
+          tests/test_book_epub_runtime_correctness.py
           tests/test_v2_book_html_import.py
           tests/test_v2_book_epub_import.py
 
@@ -103,6 +108,7 @@ jobs:
           tests.test_book_active_import_cancellation
           tests.test_book_active_import_current_html_epub
           tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
           tests.test_v2_book_html_import
           tests.test_v2_book_epub_import
           tests.test_bookdocument
