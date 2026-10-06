@@ -813,7 +813,14 @@ def run_version2_release_window(
             except BaseException as error:
                 startup_errors.append(error)
                 try:
-                    close_application()
+                    # If native FormClosing ownership is already installed,
+                    # destroying the host must be the one teardown authority.
+                    # Calling application.shutdown() first would preempt the
+                    # guard and let destroy trigger the same shutdown twice.
+                    if application is None or getattr(
+                        application, "_native_unsaved_close_guard", None
+                    ) is None:
+                        close_application()
                 finally:
                     window.destroy()
                 raise
