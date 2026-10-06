@@ -320,8 +320,12 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         assert store is not None
         store.path.write_bytes(b"{not-valid-json")
 
-        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
-            self._dispatch_chord("Ctrl+Alt+R")
+        # A read-only rebind probes durable integrity without adopting stale
+        # lesson state, so accessibility truth is available before Start/Resume.
+        self.app.bind_child_coaching_rotation_store(store)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
 
         status = self._dispatch_chord("Ctrl+Alt+S").value
         self.assertEqual("group-rotation", status["kind"])
