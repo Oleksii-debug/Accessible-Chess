@@ -1087,7 +1087,7 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             terminal = events[-1]
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
             self.assertEqual(terminal.action_id, "pgn.open")
-            self.assertEqual(publications := [], [])
+            self.assertEqual(events[-1], terminal)
             self.assertFalse(controller.pgn_open_running)
 
 
