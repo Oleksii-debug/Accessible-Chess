@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -178,6 +179,23 @@ class EpdFormatTests(unittest.TestCase):
             parse_epd(hostile)
         self.assertFalse(looks_like_epd(hostile))
         self.assertEqual(HostileEpd.length_calls, 0)
+
+    def test_position_editor_exposes_epd_format_guidance_to_screen_readers(self):
+        html = (
+            Path(__file__).resolve().parents[1] / "web" / "index.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '<textarea id="position-input" spellcheck="false" aria-describedby="position-format-hint"></textarea>',
+            html,
+        )
+        self.assertIn(
+            'id="position-format-hint">Підтримується формат W:/B: або EPD. Для FEN використовуйте поле FEN вище.</div>',
+            html,
+        )
+        self.assertIn(
+            "Supports W:/B: or EPD. Use the FEN field above for FEN.",
+            html,
+        )
 
     def test_position_text_adapter_makes_epd_reachable_in_accessible_flow(self):
         epd = START_EPD + ' hmvc 3; fmvn 8; id "lesson 1";'
