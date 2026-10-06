@@ -1,0 +1,128 @@
+name: Current PGN Books FEN Convergence
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/current-pgn-books-fen-convergence.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/pgn-complete-editing-current.yml'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'web/full_product_pgn.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-pgn-books-fen-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PARENT: 714d39d1a164212ad319a7a5656582d18c087ca3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact convergence geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PARENT" HEAD
+          git diff --check "$PARENT" HEAD
+          changed="$(git diff --name-only "$PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-pgn-books-fen-convergence.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/pgn-complete-editing-current.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_presenters.py' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'acs/version2_pgn_commands.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Lock converged PGN authority blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          .github/workflows/d01-pgn-workspace-webview.yml=0c557edc52a67837d88413b89f46d6859ac58a66
+          .github/workflows/pgn-complete-editing-current.yml=0008b054ad4b19b4d5e99c996fa9a7dbc156b458
+          acs/full_product_actions.py=3979e7a3b978715fd1ddfbb9e613f5f889675e8c
+          acs/full_product_presenters.py=07c68e56666bcb37f866d91a6317490b83d8a454
+          acs/pgn_webview_bridge.py=597c46effb1da535d1c61aeb88f1a03465b762c1
+          acs/pgn_webview_projection.py=2d92a32c40ad0c532725105e443288bb646a819b
+          acs/pgn_workspace.py=8208afe46c734035db23e66b4f4e9c59d6524cf5
+          acs/pgn_workspace_webview_adapter.py=d35e68c56f0ed38842e9f4c6d50ba75ec055998f
+          acs/version2_pgn_commands.py=6e2a86ffd7204f601ed21973c7ab4eb00b955d57
+          tests/test_pgn_complete_editing_user_flow.py=18359190f5e4724c6c2ec7a3ba4567039d6f1844
+          web/full_product_pgn.js=98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6
+          LOCKS
+
+      - name: Compile and parse converged surfaces
+        run: >-
+          python -m compileall -q
+          acs/full_product_actions.py
+          acs/full_product_presenters.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_pgn_commands.py
+          tests/test_pgn_complete_editing_user_flow.py
+      - name: Parse browser PGN surface
+        run: node --check web/full_product_pgn.js
+
+      - name: Exercise PGN editing and retained safety
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_document
+          tests.test_d06_pgn_roundtrip
+
+      - name: Exercise current whole-product adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+          tests.test_whole_product_user_journey
+          tests.test_version2_release_ui
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
