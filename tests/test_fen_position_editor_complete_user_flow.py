@@ -2,10 +2,31 @@ import unittest
 from pathlib import Path
 
 from acs.input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
+from acs.position_editor import PositionState, PositionValidationError
 from acs.webapp import AccessibleChessAPI
 
 
 class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
+    def test_direct_position_metadata_normalization_is_bounded_and_canonical(self):
+        position = PositionState.from_fen(
+            "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2"
+        )
+        changed = position.with_en_passant(" D6 ")
+        self.assertEqual(changed.en_passant, "d6")
+
+        with self.assertRaisesRegex(PositionValidationError, "too long"):
+            position.with_en_passant(" " * (MAX_SQUARE_TEXT_CHARS + 1))
+        with self.assertRaisesRegex(PositionValidationError, "too long"):
+            position.with_castling("K" * 257)
+
+        with self.assertRaisesRegex(PositionValidationError, "too long"):
+            PositionState(
+                position.pieces,
+                turn="w",
+                castling="K" * 257,
+                en_passant="-",
+            )
+
     def test_keyboard_editor_builds_complete_position_without_fen_typing(self):
         api = AccessibleChessAPI(lang="uk")
         self.assertTrue(api.clear_board()["ok"])
