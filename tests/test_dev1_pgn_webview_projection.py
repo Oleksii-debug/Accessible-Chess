@@ -103,6 +103,64 @@ class PgnWebViewProjectionTests(unittest.TestCase):
             calls[-1],
         )
 
+    def test_move_less_main_line_comment_uses_trusted_root_scope(self) -> None:
+        games = tuple(
+            parse_games('[Event "Root comments"]\n[Result "*"]\n\n{Opening note} *')
+        )
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def dispatch(action_id: str, payload: dict[str, object]):
+            calls.append((action_id, dict(payload)))
+            return None
+
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            dispatch,
+            lambda: len(games),
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+
+        snapshot = projection.snapshot()
+        self.assertEqual((), snapshot["tree"])
+        self.assertTrue(
+            next(
+                action["enabled"]
+                for action in snapshot["actions"]
+                if action["action"] == "pgn.comment_edit"
+            )
+        )
+        main_entries = [
+            entry for entry in snapshot["comment_editor"]["entries"] if entry["main"]
+        ]
+        self.assertEqual("Opening note", main_entries[0]["value"])
+
+        event = bridge.dispatch(
+            "pgn.comment_edit",
+            {
+                "text": "Updated opening",
+                "slot": "leading",
+                "index": 0,
+                "main": True,
+            },
+        )
+        self.assertEqual("delegated", event.kind)
+        self.assertEqual(
+            (
+                "pgn.comment_edit",
+                {
+                    "game_index": 0,
+                    "node_id": "g0:main",
+                    "text": "Updated opening",
+                    "slot": "leading",
+                    "index": 0,
+                },
+            ),
+            calls[-1],
+        )
+        self.assertNotIn("main", calls[-1][1])
+
     def test_move_tree_labels_use_shared_accessible_san_spacing(self) -> None:
         snapshot = self.projection.snapshot()
         move_items = [item for item in snapshot["tree"] if item["kind"] == "move"]
