@@ -110,7 +110,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         super().__init__(BookReaderPresenter(reader, language=language), dispatch, language=language)
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
-        mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        mode, game, workflow_warnings = BookBoardWorkflow.semantic_game_snapshot(
+            self._workflow,
+            index,
+        )
         if (
             type(workflow_warnings) is not tuple
             or len(workflow_warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
@@ -714,7 +717,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         snapshot = super()._snapshot_from_block(block)
         # Reuse the reader-owned detached revision. Never re-read the live mutable
         # BookDocument after the presenter has validated a ReadingLocation.
-        semantic, book_title, book_author, source_language = self._reader.block_reading_snapshot(block.index)
+        semantic, book_title, book_author, source_language = BookReader.block_reading_snapshot(
+            self._reader,
+            block.index,
+        )
         valid_source_language = (type(source_language) is str and len(source_language) <= 63
                                  and re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", source_language))
         def reading_metadata(value):
@@ -741,7 +747,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             # token only for narrative content; chess controls keep UI language.
             if valid_source_language:
                 snapshot["block"]["content_language"] = source_language
-        board_active, workflow_revision = self._workflow_presentation_state()
+        board_active, workflow_revision = Version2BookWebViewProjection._workflow_presentation_state(self)
         semantic_type = type(semantic)
         can_open_position = semantic_type in {
             Position,
@@ -753,7 +759,10 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         if semantic_type in {Game, VariationTree}:
             recovery_warning_count = 0
             try:
-                semantic_tree = self._semantic_tree_snapshot(block.index)
+                semantic_tree = Version2BookWebViewProjection._semantic_tree_snapshot(
+                    self,
+                    block.index,
+                )
                 if type(semantic_tree) is not dict:
                     raise _BookSemanticProjectionError("semantic GameTree snapshot is invalid")
                 recovery_warning_count = semantic_tree.pop(
@@ -805,7 +814,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                         language=self.language,
                         limit=1000,
                     )
-        final_board_active, final_workflow_revision = self._workflow_presentation_state()
+        final_board_active, final_workflow_revision = Version2BookWebViewProjection._workflow_presentation_state(self)
         if (
             final_board_active != board_active
             or final_workflow_revision != workflow_revision
@@ -864,7 +873,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         ):
             return False
         try:
-            workflow_active, workflow_revision = self._workflow_presentation_state()
+            workflow_active, workflow_revision = Version2BookWebViewProjection._workflow_presentation_state(self)
         except BaseException:
             # The action boundary must remain sanitized even if canonical
             # workflow state was low-level corrupted after dispatch.
@@ -882,9 +891,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         return True
 
     def open_position(self) -> BookWebViewEvent:
-        announcement = self._result_announcement("opened")
-        if not self._workflow_action("book.open_position", BookBoardUiEventKind.BOARD_OPENED):
-            return self.generic_error()
+        announcement = BookWebViewProjection._result_announcement(self, "opened")
+        if not Version2BookWebViewProjection._workflow_action(
+            self,
+            "book.open_position",
+            BookBoardUiEventKind.BOARD_OPENED,
+        ):
+            return BookWebViewProjection.generic_error(self)
         return BookWebViewEvent(
             "delegated",
             {
@@ -894,9 +907,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         )
 
     def open_game(self) -> BookWebViewEvent:
-        announcement = self._result_announcement("game_opened")
-        if not self._workflow_action("book.open_game", BookBoardUiEventKind.BOARD_OPENED):
-            return self.generic_error()
+        announcement = BookWebViewProjection._result_announcement(self, "game_opened")
+        if not Version2BookWebViewProjection._workflow_action(
+            self,
+            "book.open_game",
+            BookBoardUiEventKind.BOARD_OPENED,
+        ):
+            return BookWebViewProjection.generic_error(self)
         return BookWebViewEvent(
             "delegated",
             {
@@ -906,11 +923,16 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         )
 
     def return_from_board(self) -> BookWebViewEvent:
-        announcement = self._result_announcement("returned")
-        if not self._workflow_action("book.return", BookBoardUiEventKind.RETURNED_TO_BOOK):
-            return self.generic_error()
-        return self._render(
-            self._presenter.current(),
+        announcement = BookWebViewProjection._result_announcement(self, "returned")
+        if not Version2BookWebViewProjection._workflow_action(
+            self,
+            "book.return",
+            BookBoardUiEventKind.RETURNED_TO_BOOK,
+        ):
+            return BookWebViewProjection.generic_error(self)
+        return BookWebViewProjection._render(
+            self,
+            BookReaderPresenter.current(self._presenter),
             announcement=announcement,
         )
 
