@@ -554,7 +554,10 @@ def _mapping(value: object, label: str) -> Mapping[str, object]:
 
 
 def _exact_keys(data: Mapping[str, object], expected: set[str], label: str) -> None:
-    if set(data) != expected:
+    keys = tuple(data.keys())
+    if any(type(key) is not str for key in keys):
+        raise ChildCoachingRotationError(f"{label} fields are not canonical")
+    if set(keys) != expected:
         raise ChildCoachingRotationError(f"{label} fields are not canonical")
 
 
