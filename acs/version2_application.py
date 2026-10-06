@@ -2548,6 +2548,7 @@ class Version2Application:
         active = {LibraryImportPhase.RUNNING, LibraryImportPhase.CANCELLING}
         ui_checkpoint = ui._capture_presentation_state()
         application_events_checkpoint = tuple(self._events)
+        application_events_overflowed = self._events.overflowed
 
         with delivery_batch() as events:
             with self._observation_lock:
@@ -2683,6 +2684,7 @@ class Version2Application:
                 ui._restore_presentation_state(ui_checkpoint)
                 self._events.clear()
                 self._events.extend(application_events_checkpoint)
+                self._events.overflowed = application_events_overflowed
                 raise
             else:
                 # A newer worker observation may have arrived while this owner
