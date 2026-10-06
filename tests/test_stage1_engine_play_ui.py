@@ -621,6 +621,42 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertFalse(blocked["ok"])
         self.assertEqual(blocked["historyLength"], 0)
 
+    def test_engine_game_settings_reject_active_scalar_subclasses_without_hooks(self) -> None:
+        api, engine = self.make_api()
+        calls = []
+
+        class ActiveText(str):
+            def strip(self):
+                calls.append("strip")
+                raise AssertionError("active text hook must not run")
+
+            def __str__(self):
+                calls.append("str")
+                raise AssertionError("active text hook must not run")
+
+        for kwargs in (
+            {"human_side": ActiveText("white"), "level": 5, "initial_minutes": 0, "increment_seconds": 0},
+            {"human_side": "white", "level": ActiveText("5"), "initial_minutes": 0, "increment_seconds": 0},
+        ):
+            with self.subTest(kwargs=kwargs):
+                before = api.board.fen()
+                result = api.start_engine_game(**kwargs)
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.board.fen(), before)
+                self.assertEqual(engine.calls, [])
+
+        self.assertEqual(calls, [])
+
+    def test_engine_game_numeric_text_requires_bounded_ascii_digits(self) -> None:
+        api, engine = self.make_api()
+
+        unicode_digits = api.start_engine_game("white", "５", 0, 0)
+        oversized = api.start_engine_game("white", "5" * 33, 0, 0)
+
+        self.assertFalse(unicode_digits["ok"])
+        self.assertFalse(oversized["ok"])
+        self.assertEqual(engine.calls, [])
+
     def test_invalid_time_configuration_is_atomic_and_concise(self) -> None:
         api, engine = self.make_api()
         before = api.board.fen()
