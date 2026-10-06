@@ -1,0 +1,87 @@
+name: Current Shipping Physical Scenario Key Passive
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-physical-scenario-key-passive-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PARENT_SHA: 61460d755ef330029b55bba160aea64c7c9a21d2
+  RECORDER_BLOB: 91ffd7ef6c83f31c502f5fbe594caa49838f7150
+  HARDENING_TEST_BLOB: 146e403e4e89d08bfc225e46cc21f600d396f0ef
+
+jobs:
+  physical-scenario-key-passive:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact parent, scope and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+          git cat-file -e "$PARENT_SHA^{commit}"
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          mapfile -t paths < <(git diff --name-only "$PARENT_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-shipping-physical-scenario-key-passive.yml"
+            "scripts/record_owner_physical_acceptance.py"
+            "tests/test_owner_physical_acceptance_json_hardening.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$RECORDER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$HARDENING_TEST_BLOB"
+
+      - name: Compile physical acceptance boundary
+        run: >-
+          python -m py_compile
+          scripts/record_owner_physical_acceptance.py
+          tests/test_owner_physical_acceptance_json_hardening.py
+          tests/test_owner_physical_acceptance.py
+
+      - name: Execute physical acceptance hardening
+        run: >-
+          python -m unittest -v
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_owner_physical_acceptance
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
