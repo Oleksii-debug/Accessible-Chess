@@ -5,6 +5,8 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
+from acs.chesscore import Board
+from acs.history import PositionSnapshot
 from acs.keybindings import ActionRegistry, BindingContext
 from acs.webapp import AccessibleChessAPI
 from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
@@ -195,6 +197,56 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertFalse(items[0]["selected"])
         self.assertFalse(items[-1]["selected"])
         self.assertTrue(items[-1]["live"])
+
+    def _append_detached_branch(self, api: AccessibleChessAPI) -> tuple[int, int]:
+        branch_board = Board()
+        first_san = branch_board.push_text("d4")
+        first = PositionSnapshot(branch_board.fen(), san=first_san, side="w")
+        second_san = branch_board.push_text("d5")
+        second = PositionSnapshot(branch_board.fen(), san=second_san, side="b")
+        branch = api.review_history.append_branch(0, (first, second))
+        self.assertEqual(branch.created_count, 2)
+        return branch.node_ids
+
+    def test_history_previous_recovers_from_detached_gametree_branch(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5", "Nf3")
+        live_fen = api.board.fen()
+        branch_first, branch_second = self._append_detached_branch(api)
+
+        selected = api.review_history.select_node(branch_second)
+        self.assertEqual(selected.node_id, branch_second)
+        self.assertNotIn(branch_first, api._live_line_nodes())
+
+        result = api.review_previous()
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["atHistoryEnd"])
+        self.assertEqual(result["fen"], live_fen)
+        self.assertEqual(api.review_history.cursor_node_id, api.live_history_node)
+        self.assertTrue(result["historyItems"][-1]["selected"])
+        self.assertTrue(result["historyItems"][-1]["live"])
+
+    def test_history_direct_selection_rejects_detached_gametree_branch(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5", "Nf3")
+        live_fen = api.board.fen()
+        branch_first, _ = self._append_detached_branch(api)
+
+        result = api._select_review_node(branch_first)
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["atHistoryEnd"])
+        self.assertEqual(result["fen"], live_fen)
+        self.assertEqual(api.review_history.cursor_node_id, api.live_history_node)
+
+    def test_history_direct_selection_rejects_non_integer_node_ids(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+
+        for invalid in (True, 1.0, "1", None):
+            with self.subTest(invalid=invalid):
+                result = api._select_review_node(invalid)
+                self.assertFalse(result["ok"])
+                self.assertTrue(result["atHistoryEnd"])
 
     def test_history_list_is_keyboard_select_then_enter_commit(self) -> None:
         html = (

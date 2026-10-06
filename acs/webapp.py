@@ -430,12 +430,35 @@ class AccessibleChessAPI:
         lineage.reverse()
         return lineage
 
+    def _reject_off_live_review(
+        self,
+        candidate_history: ReviewHistory,
+        candidate_adapter: ReviewPresentationAdapter,
+    ) -> dict[str, Any]:
+        """Fail closed if History Review tries to expose a GameTree branch.
+
+        ReviewHistory intentionally owns the complete variation tree.  The
+        linear History Review surface, however, is a projection of the current
+        live game only.  Recover its cursor to the canonical live node instead
+        of letting a preserved variation silently become history authority.
+        """
+        candidate_history.select_node(self.live_history_node)
+        live_view = candidate_adapter.current()
+        self._validate_review_view(live_view)
+        self._publish_review_transaction(candidate_history, candidate_adapter)
+        return self._error(self._t("review_invalid"))
+
     def review_previous(self) -> dict[str, Any]:
         try:
             candidate_history, candidate_adapter = self._clone_review_transaction()
             result = candidate_adapter.previous()
             if not result.ok:
                 return self._error(result.announcement)
+            if result.view.node_id not in self._live_line_nodes(candidate_history):
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             self._validate_review_view(result.view)
         except Exception:
             return self._error(self._t("review_position_failed"))
@@ -451,11 +474,10 @@ class AccessibleChessAPI:
             if not result.ok:
                 return self._error(result.announcement)
             if result.view.node_id not in self._live_line_nodes(candidate_history):
-                candidate_history.select_node(self.live_history_node)
-                live_view = candidate_adapter.current()
-                self._validate_review_view(live_view)
-                self._publish_review_transaction(candidate_history, candidate_adapter)
-                return self._error(self._t("review_invalid"))
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             self._validate_review_view(result.view)
         except Exception:
             return self._error(self._t("review_position_failed"))
@@ -463,8 +485,15 @@ class AccessibleChessAPI:
         return self._ok(result.announcement)
 
     def _select_review_node(self, node_id: int) -> dict[str, Any]:
+        if type(node_id) is not int:
+            return self._error(self._t("review_invalid"))
         try:
             candidate_history, candidate_adapter = self._clone_review_transaction()
+            if node_id not in self._live_line_nodes(candidate_history):
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             result = candidate_adapter.select_node(node_id)
             if not result.ok:
                 return self._error(result.announcement)
