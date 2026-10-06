@@ -733,6 +733,8 @@ def _pe_section_table_is_file_backed(
         return False
 
     file_backed = False
+    minimum_raw_offset = section_table_offset + section_table_size
+    raw_ranges: list[tuple[int, int]] = []
     for index in range(section_count):
         offset = index * 40
         raw_size = int.from_bytes(
@@ -746,11 +748,18 @@ def _pe_section_table_is_file_backed(
         if raw_size == 0:
             continue
         if (
-            raw_pointer <= 0
+            raw_pointer < minimum_raw_offset
             or raw_pointer > file_size
             or raw_size > file_size - raw_pointer
         ):
             return False
+        raw_end = raw_pointer + raw_size
+        if any(
+            raw_pointer < existing_end and existing_start < raw_end
+            for existing_start, existing_end in raw_ranges
+        ):
+            return False
+        raw_ranges.append((raw_pointer, raw_end))
         file_backed = True
     return file_backed
 
