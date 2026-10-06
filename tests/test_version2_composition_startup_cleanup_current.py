@@ -226,6 +226,129 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
         self.assertIs(caught.exception, primary)
         runtime.shutdown.assert_called_once_with()
 
+    def test_book_worker_construction_abort_retires_existing_file_runtime(self) -> None:
+        class BookWorkerAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runtime = mock.Mock()
+            runtime.provider = mock.Mock()
+            analysis = mock.Mock()
+            continuous = mock.Mock()
+            settings = mock.Mock()
+            settings.data = {"language": "uk"}
+            settings.get.side_effect = lambda key, default=None: settings.data.get(key, default)
+            api = mock.Mock()
+            application = mock.Mock()
+            application.shell.language = release_app.UILanguage.UA
+            application.pgn_commands.export_selected = mock.Mock()
+            file_runtime = mock.Mock()
+            file_runtime.shutdown.return_value = True
+            resume = mock.Mock()
+            primary = BookWorkerAbort("book worker construction abort")
+
+            with (
+                mock.patch.object(
+                    release_app,
+                    "_prepare_version2_user_data",
+                    return_value=self._layout(root),
+                ),
+                mock.patch.object(release_app, "AnalysisService", return_value=analysis),
+                mock.patch.object(
+                    release_app,
+                    "ContinuousAnalysisService",
+                    return_value=continuous,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "EnginePlayService",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(release_app, "Settings", return_value=settings),
+                mock.patch.object(
+                    release_app,
+                    "PackagedSoundAssetResolver",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(
+                    release_app,
+                    "_sound_variant_provider",
+                    return_value=lambda: "default",
+                ),
+                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
+                mock.patch.object(
+                    release_app,
+                    "GameSoundRuntime",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(
+                    release_app,
+                    "LocalProfileStore",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(
+                    release_app,
+                    "Version2ProfileAccessibleChessAPI",
+                    return_value=api,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "Version2GameTreeResumeCoordinator",
+                    return_value=resume,
+                ),
+                mock.patch.object(release_app, "AcsDatabase", return_value=mock.Mock()),
+                mock.patch.object(
+                    release_app,
+                    "BookProgressStore",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(
+                    release_app,
+                    "EngineAssistedWorkflowService",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(
+                    release_app,
+                    "Version2Application",
+                    return_value=application,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "_share_v2_action_registry",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "Version2WindowsFileWorkflowRuntime",
+                    return_value=file_runtime,
+                ),
+                mock.patch.object(
+                    release_app,
+                    "Version2WinFormsUiPoster",
+                    return_value=mock.Mock(),
+                ),
+                mock.patch.object(
+                    release_app,
+                    "Version2BookOpenWorker",
+                    side_effect=primary,
+                ),
+            ):
+                _api, build_application, _engine, native_runtime_factory = (
+                    release_app.create_version2_release_application(
+                        runtime_factory=lambda _config: runtime,
+                        sound_playback=object(),
+                        defer_ui=True,
+                    )
+                )
+                build_application()
+                with self.assertRaises(BookWorkerAbort) as caught:
+                    native_runtime_factory(mock.Mock())
+
+            self.assertIs(caught.exception, primary)
+            file_runtime.shutdown.assert_called_once_with()
+            application.bind_book_open_worker.assert_not_called()
+
     def test_database_construction_failure_closes_engine_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
