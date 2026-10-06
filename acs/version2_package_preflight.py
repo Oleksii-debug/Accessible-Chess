@@ -572,6 +572,8 @@ def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]
                 info = _safe_lstat(path, label="package file")
                 if not stat.S_ISREG(info.st_mode):
                     _fail(f"package entry must be a regular file: {relative}")
+                if int(info.st_size) > limits.max_member_bytes:
+                    _fail(f"package file exceeds per-file byte limit: {relative}")
                 _validate_file_policy(relative)
                 files.append(relative)
                 total += int(info.st_size)
