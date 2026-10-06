@@ -709,6 +709,44 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(parser.blocks, [])
 
+    def test_html_css_declaration_partition_observes_control_inside_long_prefix(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS declaration partition")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._controlled_css_partition(("x" * 12_000) + ":none", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_css_declaration_partition_matches_builtin_semantics(self):
+        import acs.book_html_import as html
+
+        for declaration in (
+            "display:none",
+            "content-visibility : hidden",
+            "not-a-declaration",
+            ":leading",
+            "trailing:",
+            "a:b:c",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertEqual(
+                    html._controlled_css_partition(declaration),
+                    declaration.partition(":"),
+                )
+                self.assertEqual(
+                    html._controlled_css_partition(declaration, lambda: None),
+                    declaration.partition(":"),
+                )
+
     def test_html_starttag_attribute_normalization_observes_control(self):
         failure = SourceReadCancelledError("cancelled during HTML attribute normalization")
         calls = 0
