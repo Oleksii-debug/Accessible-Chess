@@ -1293,7 +1293,7 @@ class _SemanticHtmlParser(HTMLParser):
             attrs.get("style", ""),
             self._checkpoint if self.control_checkpoint is not None else None,
         )
-        if "hidden" in attrs or "inert" in attrs or aria_hidden == "true" or inline_style_hidden:
+        if "hidden" in attrs or "inert" in attrs or aria_hidden or inline_style_hidden:
             # HTML hidden/inert, ARIA-hidden=true and deterministic inline
             # display:none are boundaries for this accessibility-first semantic
             # import. Text,
@@ -1714,7 +1714,7 @@ class _SemanticHtmlParser(HTMLParser):
                 fallback = Paragraph(
                     text=fallback_text,
                     block_id=self._block_id("ListFallbackItem", fallback_text),
-                    source_anchor=captured_list.self._source_anchor(attrs),
+                    source_anchor=self._source_anchor(captured_list.attrs),
                 )
                 self._insert_block(
                     self._block_identity_index(first_event.block),
@@ -1815,7 +1815,7 @@ class _SemanticHtmlParser(HTMLParser):
             if text and not self.title:
                 self.title = text
             return
-        source_anchor = capture.self._source_anchor(attrs)
+        source_anchor = self._source_anchor(capture.attrs)
         requires_semantic_split = self._inline_requires_split(capture)
         if capture.kind == "list_item" and requires_semantic_split:
             active_list = (
@@ -2020,7 +2020,7 @@ def _pgn_candidates(
             if control_checkpoint is not None and (candidate_line_index - start) % 128 == 0:
                 control_checkpoint()
             candidate_line = lines[candidate_line_index][1]
-            stripped = candidate__controlled_strip(line, control_checkpoint)
+            stripped = _controlled_strip(candidate_line, control_checkpoint)
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
             chunk_lines.append(_controlled_rstrip(candidate_line, control_checkpoint))
