@@ -28,6 +28,7 @@ ROTATION_STORE_SCHEMA_VERSION = 1
 MAX_ROTATION_STORE_BYTES = 1_000_000
 MAX_WIRE_INTEGER = (1 << 53) - 1
 _ENVELOPE_FIELDS = frozenset({"schema_version", "plan", "state"})
+_PLATFORM_PATH_TYPE = type(Path())
 
 
 class ChildCoachingRotationStoreError(ValueError):
@@ -189,9 +190,13 @@ class ChildCoachingRotationStore:
     """Atomic file store with exact file-level compare-and-swap."""
 
     def __init__(self, path: str | Path) -> None:
-        if not isinstance(path, (str, Path)):
-            raise TypeError("path must be a filesystem path")
-        self.path = Path(path).expanduser()
+        if type(path) is str:
+            candidate = Path(path)
+        elif type(path) is _PLATFORM_PATH_TYPE:
+            candidate = path
+        else:
+            raise TypeError("path must be built-in text or an exact platform Path")
+        self.path = candidate.expanduser()
         if str(self.path) in {"", "."}:
             raise ValueError("path must identify a rotation session file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
