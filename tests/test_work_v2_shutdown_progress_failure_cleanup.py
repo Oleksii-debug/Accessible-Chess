@@ -183,6 +183,52 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_shell_publication_rollback_abort_skips_progress_but_closes_database(self) -> None:
+        class RollbackAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            primary = RollbackAbort("PRIMARY_SHELL_ROLLBACK")
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                application._pending_shell_publication = (17,)
+
+                with mock.patch.object(
+                    application,
+                    "_finish_shell_publication",
+                    side_effect=primary,
+                ) as rollback, mock.patch.object(
+                    application,
+                    "save_training_progress",
+                ) as training, mock.patch.object(
+                    application,
+                    "save_book_progress",
+                ) as book, mock.patch.object(
+                    database,
+                    "close",
+                    wraps=database.close,
+                ) as close:
+                    with self.assertRaises(RollbackAbort) as caught:
+                        application.shutdown()
+
+                self.assertIs(caught.exception, primary)
+                rollback.assert_called_once_with(17, commit=False)
+                training.assert_not_called()
+                book.assert_not_called()
+                close.assert_called_once_with()
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    database.conn.execute("SELECT 1")
+            finally:
+                database.close()
+                analysis.close()
+
     def test_progress_save_failure_does_not_skip_database_close(self) -> None:
         """Shutdown must release ACSDB even when durable Book progress fails."""
 
