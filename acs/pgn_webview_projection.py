@@ -448,8 +448,21 @@ class PgnWebViewProjection:
                 or "\x00" in item.node_id
             ):
                 raise ValueError("PGN presenter node id is invalid")
-            if type(item.comments) is not tuple or type(item.nags) is not tuple:
+            if (
+                type(item.comments) is not tuple
+                or type(item.nags) is not tuple
+                or type(item.trailing_comments) is not tuple
+                or type(item.comments_before) is not tuple
+                or type(item.comments_after) is not tuple
+            ):
                 raise TypeError("PGN presenter item collections must be canonical tuples")
+            if (
+                len(item.comments) > _MAX_PGN_COMMENTS_PER_ITEM
+                or len(item.trailing_comments) > _MAX_PGN_COMMENTS_PER_ITEM
+                or len(item.comments_before) > _MAX_PGN_COMMENTS_PER_ITEM
+                or len(item.comments_after) > _MAX_PGN_COMMENTS_PER_ITEM
+            ):
+                raise ValueError("PGN presenter item has too many comments")
         for tag in view.tags:
             if type(tag) is not tuple or len(tag) != 2:
                 raise TypeError("PGN presenter tag entry is invalid")
