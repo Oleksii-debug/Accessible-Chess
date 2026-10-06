@@ -250,7 +250,15 @@ class Version2BookOpenWorker:
             if self._closed or self._cancel is None:
                 return False
             self._cancel.set()
-        self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
+        try:
+            self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
+        except BaseException:
+            # Cancellation is the authoritative control decision; CANCELLING is
+            # only an intermediate accessibility observer. Never let a broken
+            # observer undo or escape the already-recorded cancel request. The
+            # exact CANCELLED/FAILED terminal remains responsible for returning
+            # the owner/NVDA surface to a stable state.
+            pass
         return True
 
     def _run(
