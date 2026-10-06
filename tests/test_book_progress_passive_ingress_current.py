@@ -188,6 +188,22 @@ class BookProgressPassiveIngressCurrentTests(unittest.TestCase):
         )
         self.assertIn("generation is missing", str(raised.exception))
 
+    def test_persisted_v2_missing_generation_never_leaks_key_error(self) -> None:
+        self.root.mkdir(parents=True)
+        (self.root / "book-progress.json").write_text(
+            '{"schema_version":2,"entries":{}}',
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(BookProgressStoreError) as raised:
+            self.store.restore("book:missing-generation", self._document())
+
+        self.assertEqual(
+            raised.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIn("generation is missing", str(raised.exception))
+
     def test_snapshot_nested_active_mappings_are_rejected_before_json_hooks(self) -> None:
         class ActiveNestedDict(dict):
             touched = False
