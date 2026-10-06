@@ -154,6 +154,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Source final-product native MenuBar UIA oracle failed'}
           $evidence=Get-Content -Raw p0-native-menubar-uia-source-summary.json | ConvertFrom-Json
           foreach($check in @(
+            'menu_handle_stable_after_uia',
             'uia_handle_element_present',
             'uia_handle_automation_id_canonical',
             'uia_handle_control_type_menubar',
