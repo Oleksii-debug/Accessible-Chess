@@ -343,9 +343,16 @@ class Version2WindowsFileWorkflowRuntime:
                 # action unwinds, matching the existing retryable-timeout contract.
                 return False
 
-        export_stopped = self._library_export_delegate.shutdown(timeout)
+        # The import delegate's shutdown is retryable and does not permanently
+        # retire the delegate. Library export shutdown, by contrast, closes its
+        # delegate after a successful join. Stop the retryable owner first so a
+        # refused/timeout close never leaves a still-visible runtime with Export
+        # irreversibly disabled.
         import_stopped = self._file_delegate.shutdown(timeout)
-        if not export_stopped or not import_stopped:
+        if not import_stopped:
+            return False
+        export_stopped = self._library_export_delegate.shutdown(timeout)
+        if not export_stopped:
             return False
 
         self._pump.close()
