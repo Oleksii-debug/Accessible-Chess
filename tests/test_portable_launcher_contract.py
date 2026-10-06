@@ -73,6 +73,97 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn(".accessible-chess-instance.lock", self.workflow)
         self.assertIn("[IO.File]::Open(", self.workflow)
 
+    def test_post_resume_fatal_paths_retire_unready_child_before_launcher_exit(self):
+        helper_start = self.source.index(
+            "static void ac_best_effort_retire_unready_child(DWORD exit_code)"
+        )
+        helper_end = self.source.index(
+            "static void ac_report_write_fail(HANDLE report, DWORD code)",
+            helper_start,
+        )
+        helper = self.source[helper_start:helper_end]
+        for token in (
+            "if (!g_child_cleanup_required) return;",
+            "TerminateProcess(g_process.hProcess, stable_code)",
+            "WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)",
+            "g_child_cleanup_required = FALSE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, helper)
+
+        report_fail_start = self.source.index(
+            "static void ac_report_write_fail(HANDLE report, DWORD code)"
+        )
+        report_fail_end = self.source.index(
+            "static void ac_write_utf8(HANDLE handle",
+            report_fail_start,
+        )
+        report_fail = self.source[report_fail_start:report_fail_end]
+        self.assertLess(
+            report_fail.index("ac_best_effort_retire_unready_child(stable_code);"),
+            report_fail.index("CloseHandle(report)"),
+        )
+
+        fail_start = self.source.index(
+            "static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code)"
+        )
+        fail_end = self.source.index("static BOOL ac_direct_directory", fail_start)
+        fatal = self.source[fail_start:fail_end]
+        self.assertLess(
+            fatal.index("ac_best_effort_retire_unready_child(code);"),
+            fatal.index('ac_write_line(report, L"STATUS: FAILED")'),
+        )
+
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        resume = main.index("resume_result = ResumeThread(g_process.hThread);")
+        armed = main.index("g_child_cleanup_required = TRUE;", resume)
+        first_post_resume_report = main.index(
+            'ac_write_line(report, L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD")',
+            resume,
+        )
+        self.assertLess(resume, armed)
+        self.assertLess(armed, first_post_resume_report)
+
+        early_exit = main.index("if (wait_result == WAIT_OBJECT_0)")
+        early_disarm = main.index("g_child_cleanup_required = FALSE;", early_exit)
+        early_report = main.index('ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT")')
+        self.assertLess(early_exit, early_disarm)
+        self.assertLess(early_disarm, early_report)
+
+        wait_failed = main[
+            main.index("if (wait_result == WAIT_FAILED)")
+            : main.index("if (wait_result != WAIT_TIMEOUT)")
+        ]
+        self.assertIn('ac_fail(report, L"startup window observation", error);', wait_failed)
+        self.assertNotIn("CloseHandle(g_process.hProcess)", wait_failed)
+
+        unexpected_wait = main[
+            main.index("if (wait_result != WAIT_TIMEOUT)")
+            : main.index("window_ready = ac_has_ready_window")
+        ]
+        self.assertIn(
+            'ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);',
+            unexpected_wait,
+        )
+        self.assertNotIn("CloseHandle(g_process.hProcess)", unexpected_wait)
+
+        ready_status = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")')
+        ready_disarm = main.rfind("g_child_cleanup_required = FALSE;", 0, ready_status)
+        self.assertGreater(ready_disarm, resume)
+        self.assertLess(ready_disarm, ready_status)
+
+        timeout_start = self.source.index(
+            "static void ac_fail_startup_timeout(HANDLE report)"
+        )
+        timeout_end = self.source.index(
+            "void WINAPI wWinMainCRTStartup(void)", timeout_start
+        )
+        timeout = self.source[timeout_start:timeout_end]
+        self.assertLess(
+            timeout.index("if (child_stopped) g_child_cleanup_required = FALSE;"),
+            timeout.index('ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT")'),
+        )
+
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
             (
