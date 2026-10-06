@@ -250,7 +250,7 @@
     help: "h-help"
   });
 
-  const productRoutes = new Set(["pgn", "library", "books", "training", "teacher", "classes"]);
+  const productRoutes = new Set(["pgn", "library", "books", "training", "teacher", "classes", "agent"]);
 
   function emptyStatusId(routeId) {
     return productRoutes.has(routeId) ? "v2-" + routeId + "-empty-status" : "";
@@ -302,6 +302,9 @@
         if (items.length && items[0].dom_id) return String(items[0].dom_id);
       }
     }
+    if (routeId === "agent" && snapshot.agent && typeof snapshot.agent === "object") {
+      return String(snapshot.agent.focus_target || "agent-input");
+    }
     return emptyStatusId(routeId);
   }
 
@@ -321,7 +324,8 @@
       books: uiText("Книги", "Books"),
       training: uiText("Тренування", "Training"),
       teacher: uiText("Режим викладача", "Teacher mode"),
-      classes: uiText("Класи й учні", "Classes and students")
+      classes: uiText("Класи й учні", "Classes and students"),
+      agent: uiText("Шаховий помічник", "Chess assistant")
     };
     title.textContent = String(heading || labels[routeId] || routeId);
     const message = documentRef.createElement("p");
@@ -348,6 +352,11 @@
       message.textContent = uiText(
         "Дані класів недоступні. Існуючий файл не буде перезаписано автоматично.",
         "Classes data is unavailable. Existing data will not be overwritten automatically."
+      );
+    } else if (routeId === "agent") {
+      message.textContent = uiText(
+        "Шаховий помічник недоступний.",
+        "The chess assistant is unavailable."
       );
     } else {
       message.textContent = uiText("Книгу ще не відкрито.", "No book is open yet.");
@@ -444,6 +453,19 @@
           announce,
           requestedFocus || "",
           uiText("Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
+        );
+      } else {
+        renderEmptyProduct(routeId, heading);
+      }
+    } else if (routeId === "agent") {
+      if (snapshot.agent && global.AccessibleChessAgentSurface) {
+        global.AccessibleChessAgentSurface.render(
+          workspace,
+          snapshot.agent,
+          areaInvoke("agent"),
+          announce,
+          requestedFocus || "agent-input",
+          uiText("Не вдалося виконати дію помічника.", "Could not complete the Assistant action.")
         );
       } else {
         renderEmptyProduct(routeId, heading);

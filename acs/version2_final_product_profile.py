@@ -29,7 +29,7 @@ from .version2_profile import (
 )
 
 FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS = frozenset(
-    {"screen.teacher", "screen.classes"}
+    {"screen.teacher", "screen.classes", "screen.agent"}
 )
 FINAL_PRODUCT_SAFE_EDUCATION_READ_ACTION_IDS = frozenset(
     {
@@ -128,11 +128,15 @@ _MENU_TEXT = {
         "top": "&Учитель/Клас",
         "teacher": "Режим викладача",
         "classes": "Класи та учні",
+        "agent_top": "П&омічник",
+        "agent": "Шаховий помічник",
     },
     UILanguage.EN: {
         "top": "&Teacher/Classroom",
         "teacher": "Teacher mode",
         "classes": "Classes and students",
+        "agent_top": "Assista&nt",
+        "agent": "Chess assistant",
     },
 }
 
@@ -153,7 +157,7 @@ def build_final_product_menu_spec(
     *,
     language: UILanguage | str,
 ) -> tuple[NativeTopMenuSpec, ...]:
-    """Keep the accepted V2 menu and add only safe Teacher/Classes navigation."""
+    """Keep the accepted V2 menu and add safe Teacher/Classes/Agent navigation."""
 
     validate_final_product_action_registry(registry)
     profile = registry.to_profile()
@@ -194,11 +198,16 @@ def build_final_product_menu_spec(
             action(text["classes"], "screen.classes"),
         ),
     )
+    agent = NativeTopMenuSpec(
+        "agent",
+        text["agent_top"],
+        (action(text["agent"], "screen.agent"),),
+    )
     insert_at = next(
         (index for index, menu in enumerate(base) if menu.menu_id == "settings"),
         len(base),
     )
-    base.insert(insert_at, teacher)
+    base[insert_at:insert_at] = [teacher, agent]
     return tuple(base)
 
 
@@ -216,7 +225,7 @@ def validate_final_product_profile() -> None:
     router = build_final_product_router(shell, lambda action_id, payload: None, registry=registry)
     adapter = build_final_product_webview_adapter(shell, router)
     navigation = tuple(item["route_id"] for item in adapter.snapshot()["navigation"])
-    for required in ("teacher", "classes"):
+    for required in ("teacher", "classes", "agent"):
         if required not in navigation:
             raise ValueError(f"full-product navigation is missing {required}")
     build_final_product_menu_spec(registry, language=shell.language)
