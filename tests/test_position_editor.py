@@ -187,6 +187,25 @@ class PositionEditorTests(unittest.TestCase):
             "8/8/8/8/8/8/8/K6k b - - 17 42",
         )
 
+    def test_fen_lexical_number_contract_matches_canonical_board(self):
+        invalid = (
+            "７1/8/8/8/8/8/8/K6k w - - 0 1",
+            "²6/8/8/8/8/8/8/K6k w - - 0 1",
+            "8/8/8/8/8/8/8/K6k w - - +0 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 +1",
+            "8/8/8/8/8/8/8/K6k w - - ٠ 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 ١",
+        )
+        for fen in invalid:
+            with self.subTest(fen=fen):
+                with self.assertRaises(ValueError):
+                    Board(fen)
+                with self.assertRaises(PositionValidationError):
+                    PositionState.from_fen(fen)
+
+        fen = "8/8/8/8/8/8/8/K6k b - - 00017 00042"
+        self.assertEqual(PositionState.from_fen(fen).to_fen(), Board(fen).fen())
+
     def test_clear_preserves_turn_but_resets_position_metadata(self):
         position = PositionState.from_fen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 17 22")
         cleared = position.cleared()
