@@ -13,6 +13,7 @@ from .gametree_insertion import variation_insert_target
 from .gametree_legality import validate_game_legality
 from .pgn_roundtrip import parse_pgn_text
 from .gametree_navigation import GameTreeCursor, MoveAddress, VariationStep, resolve_line, validate_cursor
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
 from .pgn_document import PgnDocumentSession
 from .pgn_service import export_game_atomic
 from .version2_windows_pgn_export import PgnSelectionExportRequest
@@ -166,6 +167,58 @@ class Version2PgnCommands:
         return self._selection_game(request, workspace)
 
     @staticmethod
+    def _line_search_targets(line: VariationLine, path: tuple[VariationStep, ...]):
+        line_text = " ".join(
+            [comment.text for comment in line.leading_comments]
+            + [comment.text for comment in line.trailing_comments]
+        )
+        if line_text.strip():
+            yield GameTreeCursor(path, 0), line_text
+        for index, move in enumerate(line.moves):
+            text = " ".join(
+                [move.san]
+                + list(move.nags)
+                + [comment.text for comment in move.comments_before]
+                + [comment.text for comment in move.comments_after]
+            )
+            yield GameTreeCursor(path, index + 1), text
+            for variation_index, variation in enumerate(move.variations):
+                child_path = path + (VariationStep(index, variation_index),)
+                yield from Version2PgnCommands._line_search_targets(variation, child_path)
+
+    @staticmethod
+    def _search_pgn(workspace, query: str):
+        normalized = normalize_search_term(query, name="PGN search")
+        if normalized is None:
+            raise ValueError("PGN search text must not be empty")
+        needle = search_fold(normalized)
+        assert needle is not None
+        games = workspace.games()
+        current_game = workspace.selected_game_index
+        current_cursor = workspace.cursor
+        targets = []
+        for game_index, game in enumerate(games):
+            tag_text = " ".join(
+                f"{name} {value}" for name, value in game.tags.items()
+            )
+            targets.append((game_index, GameTreeCursor(), tag_text))
+            for cursor, text in Version2PgnCommands._line_search_targets(game.line, ()):
+                targets.append((game_index, cursor, text))
+        if not targets:
+            raise ValueError("PGN contains no searchable content")
+        current_key = (current_game, current_cursor)
+        start = -1
+        for index, (game_index, cursor, _text) in enumerate(targets):
+            if (game_index, cursor) == current_key:
+                start = index
+        ordered = targets[start + 1 :] + targets[: start + 1]
+        for game_index, cursor, text in ordered:
+            folded = search_fold(normalize_search_text(text))
+            if folded is not None and needle in folded:
+                return workspace.select_game_cursor(game_index, cursor)
+        raise ValueError("PGN search found no match")
+
+    @staticmethod
     def _selected_move_origin_fen(workspace, cursor: GameTreeCursor) -> str:
         if cursor.next_move_index <= 0:
             raise ValueError("select a PGN move first")
@@ -240,6 +293,14 @@ class Version2PgnCommands:
                     allow_root=True,
                 )
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
+        if action_id == "pgn.search":
+            if set(payload) not in ({* _TARGET_FIELDS, "text"}, {* _TARGET_FIELDS, "expected_content_digest", "text"}):
+                raise ValueError("invalid PGN search payload")
+            request, _cursor = self._target(payload, require_current=True, workspace=workspace)
+            text = payload.get("text", "")
+            if type(text) is not str:
+                raise ValueError("invalid PGN search text")
+            return self._search_pgn(workspace, text)
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
         if action_id in {"pgn.comment_edit", "pgn.nag_edit", "pgn.variation_add"}:
