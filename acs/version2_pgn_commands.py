@@ -96,7 +96,7 @@ class _PgnNavigationTarget:
         )
 
 
-class Version2PgnCommands:
+def _utf16_units(value: str) -> int:\n    return len(value.encode("utf-16-le")) // 2\n\n\nclass Version2PgnCommands:
     def __init__(self, get_session, *, copy_text=lambda _: None):
         self._get_session = get_session
         self._copy_text = copy_text
@@ -188,7 +188,7 @@ class Version2PgnCommands:
 
     @staticmethod
     def _search_pgn(workspace, query: str):
-        normalized = normalize_search_term(query, name="PGN search")
+        if type(query) is not str or len(query) > 4096 or _utf16_units(query) > 4096 or "\x00" in query:\n            raise ValueError("PGN search text is invalid")\n        normalized = normalize_search_term(query, name="PGN search")
         if normalized is None:
             raise ValueError("PGN search text must not be empty")
         needle = search_fold(normalized)
@@ -231,7 +231,7 @@ class Version2PgnCommands:
 
     @staticmethod
     def _variation_from_text(text: str, *, origin_fen: str) -> VariationLine:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or _utf16_units(text) > 8192 or "\x00" in text:
             raise ValueError("invalid PGN variation text")
         fields = origin_fen.split()
         if len(fields) != 6 or fields[1] not in {"w", "b"}:
@@ -383,7 +383,7 @@ class Version2PgnCommands:
                 if index < -1:
                     raise ValueError("invalid PGN comment index")
                 text = payload.get("text", "")
-                if type(text) is not str or len(text) > 8000 or "\x00" in text:
+                if type(text) is not str or len(text) > 8000 or _utf16_units(text) > 8000 or "\x00" in text:
                     raise ValueError("invalid PGN comment")
                 game = workspace.current_game()
                 if request.move_index is None:
@@ -470,7 +470,7 @@ class Version2PgnCommands:
             if request.move_index is None:
                 raise ValueError("NAG editing requires a selected move")
             text = payload.get("text", "")
-            if type(text) is not str or len(text) > 512 or "\x00" in text:
+            if type(text) is not str or len(text) > 512 or _utf16_units(text) > 512 or "\x00" in text:
                 raise ValueError("invalid PGN NAG text")
             tokens = tuple(token for token in text.split() if token)
             if len(tokens) > 64:
