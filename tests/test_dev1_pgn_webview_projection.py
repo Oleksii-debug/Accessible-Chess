@@ -327,6 +327,36 @@ class PgnWebViewProjectionTests(unittest.TestCase):
 
         self.assertFalse(HostilePresenter.touched)
 
+    def test_detailed_comment_editor_collections_are_bounded_before_projection(self) -> None:
+        base = self.presenter.view()
+        variation = next(item for item in base.items if item.kind == "variation")
+
+        for replacement, error, message in (
+            (
+                replace(variation, trailing_comments=["not-a-tuple"]),
+                TypeError,
+                "canonical tuples",
+            ),
+            (
+                replace(variation, trailing_comments=("tail",) * 257),
+                ValueError,
+                "too many comments",
+            ),
+        ):
+            with self.subTest(error=error.__name__):
+                items = tuple(
+                    replacement if item.node_id == variation.node_id else item
+                    for item in base.items
+                )
+                hostile = replace(
+                    base,
+                    items=items,
+                    selected_node_id=variation.node_id,
+                )
+                with patch.object(self.presenter, "view", return_value=hostile):
+                    with self.assertRaisesRegex(error, message):
+                        self.projection.snapshot()
+
     def test_game_count_provider_rejects_false_green_or_coercive_values(self) -> None:
         for value in (True, -1, len(self.games) + 1):
             with self.subTest(value=value):
