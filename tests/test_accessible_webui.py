@@ -98,6 +98,10 @@ class AccessibleWebUiTests(unittest.TestCase):
             "el('open-help').addEventListener('click',()=>{el('help-dialog').showModal();el('help-title').focus()})",
             self.html,
         )
+        self.assertIn(
+            "el('help-dialog').addEventListener('close',()=>el('open-help').focus())",
+            self.html,
+        )
 
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
