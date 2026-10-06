@@ -161,6 +161,26 @@ class EpdFormatTests(unittest.TestCase):
         )
         self.assertEqual(parse_epd(record.to_epd()), record)
 
+    def test_serializer_rejects_enormous_direct_counters_before_string_conversion(self):
+        base = PositionState.from_fen(START_FEN)
+        position = PositionState(
+            base.pieces,
+            turn=base.turn,
+            castling=base.castling,
+            en_passant=base.en_passant,
+            halfmove=10 ** (MAX_EPD_CHARS + 1),
+            fullmove=1,
+        )
+        record = EpdRecord(position=position)
+
+        with patch.object(
+            PositionState,
+            "to_fen",
+            side_effect=AssertionError("oversized counter must fail before FEN text materialization"),
+        ):
+            with self.assertRaisesRegex(EpdParseError, "^serialized EPD is too long$"):
+                serialize_epd(record)
+
     def test_serializer_enforces_total_epd_line_budget(self):
         record = EpdRecord(
             position=PositionState.from_fen(START_FEN),
