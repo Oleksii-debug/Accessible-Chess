@@ -53,6 +53,7 @@ MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
 MAX_HTML_WARNINGS = 2_048
 MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS = MAX_HTML_SOURCE_BYTES * 2
 MAX_HTML_MARKUP_NAME_CHARS = 256
+MAX_HTML_LIST_START_CHARS = 128
 
 
 class BookHtmlImportErrorCode(str, Enum):
@@ -991,6 +992,8 @@ class _SemanticHtmlParser(HTMLParser):
             if raw_value
             else ""
         )
+        if len(raw) > MAX_HTML_LIST_START_CHARS:
+            return None, False
         if _HTML_INTEGER_RE.fullmatch(raw) is None:
             return None, False
         try:
