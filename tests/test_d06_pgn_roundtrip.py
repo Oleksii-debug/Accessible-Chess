@@ -849,6 +849,32 @@ class D06PgnRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(touches, [])
 
+    def test_active_san_text_fails_before_overrideable_text_hooks(self):
+        touches = []
+
+        class ActiveSan(str):
+            def strip(self, *args, **kwargs):
+                touches.append(("strip", None))
+                raise AssertionError("active SAN strip hook must not execute")
+
+            def __eq__(self, other):
+                touches.append(("eq", other))
+                raise AssertionError("active SAN equality hook must not execute")
+
+        node = MoveNode("e4", move_number="1.")
+        node.san = ActiveSan("e4")
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(moves=[node], result="*"),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+        self.assertEqual(touches, [])
+
     def test_active_comment_style_fails_before_enum_coercion(self):
         touches = []
 
