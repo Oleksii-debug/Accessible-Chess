@@ -12,7 +12,7 @@ here.
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-from io import BytesIO
+from io import BytesIO, StringIO
 import posixpath
 import re
 import stat
@@ -161,7 +161,42 @@ def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
     return BookEpubImportError(message, code=code)
 
 
-def _required_text(value: object, field: str) -> str:
+def _normalized_host_text(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Collapse Python whitespace while bounding trusted cancellation latency."""
+
+    if control_checkpoint is None:
+        return " ".join(value.strip().split())
+
+    output = StringIO()
+    wrote_text = False
+    pending_space = False
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        chunk = value[offset : offset + 4_096]
+        parts = chunk.split()
+        if not parts:
+            if wrote_text:
+                pending_space = True
+            continue
+        leading_space = chunk[0].isspace()
+        trailing_space = chunk[-1].isspace()
+        if wrote_text and (pending_space or leading_space):
+            output.write(" ")
+        output.write(" ".join(parts))
+        wrote_text = True
+        pending_space = trailing_space
+    control_checkpoint()
+    return output.getvalue()
+
+
+def _required_text(
+    value: object,
+    field: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     if type(value) is not str:
         raise _error(
             f"{field} must be non-empty text",
@@ -172,19 +207,23 @@ def _required_text(value: object, field: str) -> str:
             f"{field} exceeds the canonical BookDocument text field limit",
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
-    if not value.strip():
+    normalized = _normalized_host_text(value, control_checkpoint)
+    if not normalized:
         raise _error(
             f"{field} must be non-empty text",
             BookEpubImportErrorCode.INVALID_ARGUMENT,
         )
-    return " ".join(value.strip().split())
+    return normalized
 
 
-def _optional_text(value: object, field: str) -> str | None:
+def _optional_text(
+    value: object,
+    field: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
     if value is None:
         return None
-    return _required_text(value, field)
-
+    return _required_text(value, field, control_checkpoint)
 
 def _source_bytes(source: object) -> bytes:
     if type(source) is not bytes:
@@ -2270,10 +2309,12 @@ def import_epub_book(
     expected_archive_entries = _validate_single_disk_zip_end_records(
         raw, control_checkpoint
     )
-    display_source = _required_text(source_name, "source_name")
-    override_title = _optional_text(title, "title")
-    override_author = _optional_text(author, "author")
-    override_language = _optional_text(language, "language")
+    display_source = _required_text(
+        source_name, "source_name", control_checkpoint
+    )
+    override_title = _optional_text(title, "title", control_checkpoint)
+    override_author = _optional_text(author, "author", control_checkpoint)
+    override_language = _optional_text(language, "language", control_checkpoint)
     warnings = _Warnings()
 
     try:
