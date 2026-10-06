@@ -118,6 +118,7 @@ vm.runInContext(
 const drainEvents = context.__drainEvents;
 assert.strictEqual(typeof drainEvents, "function", "drainEvents was not executable");
 
+(async () => {
 // A second timer tick cannot start a concurrent native drain. It is remembered
 // and starts immediately after the first drain settles.
 nextDrain = "hold";
@@ -247,3 +248,7 @@ assert.strictEqual(
 );
 
 console.log("Version 2 final-product event drain serialization contract PASS");
+})().catch((error) => {
+  console.error(error && error.stack ? error.stack : error);
+  process.exitCode = 1;
+});
