@@ -42,6 +42,7 @@ from .version2_package_preflight import (
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
     Version2PackagePreflightError,
+    _passive_path,
     _relative_token,
     validate_version2_package_tree,
 )
@@ -637,7 +638,7 @@ def validate_portable_oneclick_tree(
 ) -> Version2PortablePackageReport:
     if type(require_user_seed) is not bool:
         raise TypeError("require_user_seed must be an exact bool")
-    root = Path(package_root)
+    root = _passive_path(package_root, label="portable package root")
     sha = _sha40(expected_integration_sha)
     _safe_info(root, label="portable package root", directory=True)
 
@@ -839,14 +840,17 @@ def assemble_portable_oneclick_tree(
     if type(require_user_seed) is not bool:
         raise TypeError("require_user_seed must be an exact bool")
     sha = _sha40(integration_sha)
-    canonical = Path(canonical_package_root)
-    launcher = Path(launcher_exe)
-    output = Path(output_root)
     # Reject tuple subclasses before len()/iteration: an active container can
     # override those hooks and execute caller code inside package assembly.
     if type(word_documents) is not tuple or len(word_documents) != 2:
         raise TypeError("word_documents must be an exact two-item tuple")
-    documents = tuple(Path(item) for item in word_documents)
+    canonical = _passive_path(canonical_package_root, label="canonical package root")
+    launcher = _passive_path(launcher_exe, label="portable launcher source")
+    output = _passive_path(output_root, label="portable package output")
+    documents = tuple(
+        _passive_path(item, label="portable Word document source")
+        for item in word_documents
+    )
 
     # The inner payload must already satisfy the canonical package authority.
     validate_version2_package_tree(canonical, expected_integration_sha=sha)
@@ -988,8 +992,8 @@ def write_portable_oneclick_zip(
 ) -> Version2PortablePackageReport:
     if type(require_user_seed) is not bool:
         raise TypeError("require_user_seed must be an exact bool")
-    root = Path(package_root)
-    target = Path(zip_path)
+    root = _passive_path(package_root, label="portable package root")
+    target = _passive_path(zip_path, label="portable ZIP output")
     expected_checksum = None
     if expected_checksum_sha256 is not None:
         if type(expected_checksum_sha256) is not str:
