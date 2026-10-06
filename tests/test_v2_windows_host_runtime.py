@@ -1110,6 +1110,63 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertTrue(runtime.closed)
 
 
+    def test_refused_close_pgn_terminal_observes_reopened_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "refused-close-pgn-terminal-runtime-state.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertTrue(owner.posted)
+            self.assertIsNone(session_box["value"])
+
+            observed_closed: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def observe_ui_ready():
+                observed_closed.append(runtime.closed)
+                return original_ui_ready()
+
+            runtime._pump._ui_ready = observe_ui_ready
+
+            # Retire the prepared-but-unpublished Open, then model a later
+            # application durability failure by reopening this runtime.
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(observed_closed, [False])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertIsNone(session_box["value"])
+
+            # The pre-shutdown WinForms callback is stale and cannot republish
+            # the discarded candidate or duplicate the recovery terminal.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertIsNone(session_box["value"])
+            self.assertTrue(runtime.shutdown())
+
     def test_failed_pump_recovery_keeps_runtime_closed(self) -> None:
         owner = _Owner()
         runtime = self._runtime(owner)
