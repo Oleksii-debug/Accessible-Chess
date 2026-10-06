@@ -264,20 +264,27 @@ class RecordedMediaTimelineBuilder:
             reason=reason,
         )
         existing = self.timeline.barrier_at(frame.timestamp_ms)
-        if existing == barrier:
+        links_without_timestamp = tuple(
+            link
+            for link in self.timeline.links
+            if link.timestamp_ms != frame.timestamp_ms
+        )
+        other_barriers = tuple(
+            item
+            for item in self.timeline.barriers
+            if item.timestamp_ms != frame.timestamp_ms
+        )
+        if (
+            existing == barrier
+            and len(links_without_timestamp) == len(self.timeline.links)
+        ):
             return
-        if existing is not None:
-            self.timeline = MediaPositionTimeline(
-                self.timeline.source_id,
-                self.timeline.links,
-                identity=self.timeline.identity,
-                barriers=tuple(
-                    item
-                    for item in self.timeline.barriers
-                    if item.timestamp_ms != frame.timestamp_ms
-                ),
-            )
-        self.timeline = self.timeline.with_barrier(barrier)
+        self.timeline = MediaPositionTimeline(
+            self.timeline.source_id,
+            links_without_timestamp,
+            identity=self.timeline.identity,
+            barriers=(*other_barriers, barrier),
+        )
 
     def _without_barrier_at(self, timestamp_ms: int) -> MediaPositionTimeline:
         if self.timeline.barrier_at(timestamp_ms) is None:
