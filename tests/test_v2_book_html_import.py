@@ -981,6 +981,38 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_css_comments_after_hex_escapes_cannot_join_display_tokens(self) -> None:
+        visible_sources = (
+            f"""<html><body>
+<section style="d\\69/**/splay:none">
+  <div data-acs-fen="{Board.START}">Visible split property escape</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:n\\6f/**/ne">
+  <div data-acs-fen="{Board.START}">Visible split value escape</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:none !\\69/**/mportant; display:block">
+  <div data-acs-fen="{Board.START}">Visible split important escape</div>
+</section>
+</body></html>""",
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-comment-after-hex-escape-{index}.html",
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
     def test_invalid_css_identifier_escapes_do_not_invent_display_none(self) -> None:
         visible_sources = (
             f"""<html><body>
