@@ -71,6 +71,38 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertNotIn("C:/Users/private", serialized)
         self.assertNotIn("/home/private", serialized)
 
+    def test_search_from_move_less_game_delegates_canonical_root_target(self) -> None:
+        games = tuple(parse_games('[Event "Needle Event"]\n[Result "*"]\n\n*'))
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def dispatch(action_id: str, payload: dict[str, object]):
+            calls.append((action_id, dict(payload)))
+            return None
+
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            dispatch,
+            lambda: len(games),
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+
+        snapshot = projection.snapshot()
+        self.assertEqual((), snapshot["tree"])
+        search = next(
+            action for action in snapshot["actions"] if action["action"] == "pgn.search"
+        )
+        self.assertTrue(search["enabled"])
+
+        event = bridge.dispatch("pgn.search", {"text": "needle"})
+        self.assertEqual("delegated", event.kind)
+        self.assertEqual("pgn.search", event.payload["action"])
+        self.assertEqual(
+            ("pgn.search", {"game_index": 0, "node_id": "", "text": "needle"}),
+            calls[-1],
+        )
+
     def test_move_tree_labels_use_shared_accessible_san_spacing(self) -> None:
         snapshot = self.projection.snapshot()
         move_items = [item for item in snapshot["tree"] if item["kind"] == "move"]
