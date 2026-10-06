@@ -321,6 +321,28 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             self.assertEqual(len(checksum_calls), 1)
             self.assertEqual(checksum_calls[0].kwargs["max_bytes"], 1024)
 
+    def test_checksum_inventory_rejects_more_entries_than_package_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "payload.bin").write_bytes(b"payload")
+            (root / preflight.CHECKSUMS_NAME).write_text(
+                "a" * 64 + "  payload.bin\n"
+                + "b" * 64
+                + "  unexpected.bin\n",
+                encoding="utf-8",
+            )
+
+            limits = preflight.PackageLimits()
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "checksum inventory contains too many entries",
+            ):
+                preflight._checksums(
+                    root,
+                    (preflight.CHECKSUMS_NAME, "payload.bin"),
+                    limits,
+                )
+
     def test_checksum_inventory_snapshot_failure_is_authoritative(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
