@@ -866,7 +866,7 @@ class PgnSaveSnapshotTests(unittest.TestCase):
 
         with patch.object(
             PgnWorkspace,
-            "mark_saved",
+            "_checkpoint_saved_digest",
             autospec=True,
             side_effect=CheckpointAbort("workspace checkpoint unavailable"),
         ):
@@ -913,6 +913,66 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(session.workspace._baseline_digest, baseline_before)
         self.assertEqual(session.workspace.dirty, dirty_before)
 
+    def test_commit_rejects_active_selected_game_index_without_comparison_hooks(self) -> None:
+        source = self.write_document("active-selection-after-publication.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Durable active selection generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+        baseline_before = session.workspace._baseline_digest
+        publication = publish_pgn_save_snapshot(snapshot)
+        touched: list[str] = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active selected index comparison executed")
+
+            def __ge__(self, other):
+                touched.append("ge")
+                raise AssertionError("active selected index comparison executed")
+
+        session.workspace._selected_game_index = ActiveInt(0)
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+        self.assertEqual([], touched)
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertEqual(session.workspace._baseline_digest, baseline_before)
+
+    def test_commit_rejects_out_of_range_selected_game_before_checkpoint_mutation(self) -> None:
+        source = self.write_document("out-of-range-selection-after-publication.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Durable invalid selection generation")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        source_before = session.source
+        saved_digest_before = session._saved_digest
+        revision_before = session.document_revision
+        baseline_before = session.workspace._baseline_digest
+        publication = publish_pgn_save_snapshot(snapshot)
+        session.workspace._selected_game_index = session.workspace.game_count
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            commit_pgn_save_publication(session, publication)
+
+        self.assertEqual(
+            caught.exception.code,
+            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+        )
+        self.assertEqual(session.source, source_before)
+        self.assertEqual(session._saved_digest, saved_digest_before)
+        self.assertEqual(session.document_revision, revision_before)
+        self.assertEqual(session.workspace._baseline_digest, baseline_before)
+
     def test_commit_rejects_malformed_live_warnings_before_checkpoint_mutation(self) -> None:
         source = self.write_document("malformed-warnings-after-publication.pgn")
         session = PgnDocumentSession.open(source)
@@ -944,33 +1004,34 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(session.workspace._baseline_digest, baseline_before)
         self.assertEqual(session.workspace.dirty, dirty_before)
 
-    def test_commit_does_not_rebuild_view_after_provenance_mutation(self) -> None:
-        source = self.write_document("no-post-mutation-view.pgn")
+    def test_commit_avoids_full_view_and_record_identity_on_owner_thread(self) -> None:
+        source = self.write_document("bounded-owner-commit.pgn")
         session = PgnDocumentSession.open(source)
         source_before = session.source
-        session.edit_tag("Event", "Prepared final view")
+        session.edit_tag("Event", "Prepared bounded final view")
         snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
         publication = publish_pgn_save_snapshot(snapshot)
-        real_view = PgnDocumentSession.view
-        observed_sources = []
 
-        def guarded_view(bound_session):
-            observed_sources.append(bound_session.source)
-            if bound_session.source != source_before:
-                raise AssertionError(
-                    "document presentation rebuilt after provenance mutation"
-                )
-            return real_view(bound_session)
-
-        with patch.object(
-            PgnDocumentSession,
-            "view",
-            autospec=True,
-            side_effect=guarded_view,
+        with (
+            patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=AssertionError(
+                    "background save owner commit must not build document view"
+                ),
+            ) as document_view,
+            patch(
+                "acs.pgn_workspace.identity_for_game",
+                side_effect=AssertionError(
+                    "background save owner commit must not build record identity"
+                ),
+            ) as identity,
         ):
             committed = commit_pgn_save_publication(session, publication)
 
-        self.assertEqual(len(observed_sources), 1)
+        document_view.assert_not_called()
+        identity.assert_not_called()
         self.assertNotEqual(session.source, source_before)
         self.assertFalse(session.dirty)
         self.assertFalse(committed.dirty)
@@ -978,6 +1039,37 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         self.assertEqual(committed.source_path, session.source.path)
         self.assertEqual(committed.source_sha256, session.source.sha256)
         self.assertEqual(committed, session.view())
+
+    def test_idempotent_replay_avoids_full_view_and_record_identity(self) -> None:
+        source = self.write_document("bounded-owner-replay.pgn")
+        session = PgnDocumentSession.open(source)
+        session.edit_tag("Event", "Replay bounded final view")
+        snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE)
+        publication = publish_pgn_save_snapshot(snapshot)
+        committed = commit_pgn_save_publication(session, publication)
+
+        with (
+            patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=AssertionError(
+                    "idempotent save replay must not build document view"
+                ),
+            ) as document_view,
+            patch(
+                "acs.pgn_workspace.identity_for_game",
+                side_effect=AssertionError(
+                    "idempotent save replay must not build record identity"
+                ),
+            ) as identity,
+        ):
+            replayed = commit_pgn_save_publication(session, publication)
+
+        document_view.assert_not_called()
+        identity.assert_not_called()
+        self.assertEqual(replayed, committed)
+        self.assertFalse(session.dirty)
 
     def test_older_snapshot_rebase_failure_preserves_all_precommit_authority(self) -> None:
         source = self.write_document("older-rebase-failure.pgn")
@@ -999,7 +1091,7 @@ class PgnSaveSnapshotTests(unittest.TestCase):
 
         with patch.object(
             PgnWorkspace,
-            "_rebase_saved_digest",
+            "_checkpoint_saved_digest",
             autospec=True,
             side_effect=RebaseAbort("checkpoint rebase unavailable"),
         ):
