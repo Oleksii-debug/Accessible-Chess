@@ -408,7 +408,10 @@ def _is_forbidden_ocf_name_character(character: str) -> bool:
     return False
 
 
-def _safe_entry_name(raw_name: object) -> str:
+def _safe_entry_name(
+    raw_name: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     if type(raw_name) is not str or not raw_name or "\x00" in raw_name or "\\" in raw_name:
         raise _error(
             "EPUB contains an unsafe package entry name",
@@ -438,7 +441,9 @@ def _safe_entry_name(raw_name: object) -> str:
             "EPUB contains an unsafe package entry name",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
-    for part in parts:
+    for part_index, part in enumerate(parts, start=1):
+        if control_checkpoint is not None and part_index % 128 == 1:
+            control_checkpoint()
         try:
             encoded_part = part.encode("utf-8")
         except UnicodeEncodeError as exc:
@@ -474,10 +479,14 @@ def _local_zip64_sizes(
     *,
     needs_uncompressed: bool,
     needs_compressed: bool,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[int | None, int | None]:
     zip64_payload: bytes | None = None
     cursor = 0
+    fields_seen = 0
     while cursor < len(extra):
+        if control_checkpoint is not None and fields_seen % 128 == 0:
+            control_checkpoint()
         if cursor + 4 > len(extra):
             raise _error(
                 "EPUB local ZIP extra field is truncated",
@@ -500,6 +509,7 @@ def _local_zip64_sizes(
                 )
             zip64_payload = extra[payload_start:payload_end]
         cursor = payload_end
+        fields_seen += 1
 
     if not (needs_uncompressed or needs_compressed):
         return None, None
@@ -533,7 +543,10 @@ def _local_zip64_sizes(
 def _validate_local_zip_header(
     archive: zipfile.ZipFile,
     info: zipfile.ZipInfo,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[int, int]:
+    if control_checkpoint is not None:
+        control_checkpoint()
     stream = archive.fp
     if stream is None:
         raise _error(
@@ -620,6 +633,7 @@ def _validate_local_zip_header(
         raw_extra,
         needs_uncompressed=needs_zip64_uncompressed,
         needs_compressed=needs_zip64_compressed,
+        control_checkpoint=control_checkpoint,
     )
     if local_flags & (1 << 3):
         # Streaming ZIP64 writers may leave zero placeholders in the local
@@ -782,6 +796,7 @@ def _archive_index(
         local_extra_length, local_physical_end = _validate_local_zip_header(
             archive,
             info,
+            control_checkpoint,
         )
         if local_physical_end > next_physical_boundary[info.header_offset]:
             raise _error(
@@ -793,7 +808,7 @@ def _archive_index(
                 "EPUB uses a multi-disk ZIP entry, which OCF does not permit",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
-        name = _safe_entry_name(info.filename)
+        name = _safe_entry_name(info.filename, control_checkpoint)
         if name == "mimetype":
             if info.header_offset != 0:
                 raise _error(
