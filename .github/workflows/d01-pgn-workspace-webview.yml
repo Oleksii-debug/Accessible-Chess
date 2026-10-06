@@ -273,7 +273,7 @@ jobs:
           # reviewed successor identities; every third identity remains fail-closed.
           adapter_actual="$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)"
           case "$adapter_actual" in
-            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|d35e68c56f0ed38842e9f4c6d50ba75ec055998f|ba3879d033a2b2a297b4d37318341e6a76150d03|2819643bfaeb4e14dbb50b14defce3f48e25df17)
+            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|d35e68c56f0ed38842e9f4c6d50ba75ec055998f|ba3879d033a2b2a297b4d37318341e6a76150d03|2819643bfaeb4e14dbb50b14defce3f48e25df17|0147d0c3bb744a80d8010b418be644484c5abbee)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_workspace_webview_adapter.py actual=%s\n' "$adapter_actual" >&2
@@ -283,7 +283,7 @@ jobs:
 
           bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
           case "$bridge_actual" in
-            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|597c46effb1da535d1c61aeb88f1a03465b762c1|15a83d8bf171f8ad914c434c61442040ed734547|1949082c3eb7e7af4f540daf595ae4be2c404604)
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|597c46effb1da535d1c61aeb88f1a03465b762c1|15a83d8bf171f8ad914c434c61442040ed734547|1949082c3eb7e7af4f540daf595ae4be2c404604|e69f6ad4f8b6da8b3561ae569f4c6817b903548a)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
@@ -293,7 +293,7 @@ jobs:
 
           projection_test_actual="$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)"
           case "$projection_test_actual" in
-            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e|98a567716c2764c0b077e55101cad4111cd1e16a|5703b31a7a24f0b3fed605c373e787ad7413bd33)
+            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e|98a567716c2764c0b077e55101cad4111cd1e16a|5703b31a7a24f0b3fed605c373e787ad7413bd33|d9a5109ea0c01b250b12a470962a93cd7df6fe6e)
               ;;
             *)
               printf 'Feature blob mismatch: tests/test_dev1_pgn_webview_projection.py actual=%s\n' "$projection_test_actual" >&2
@@ -303,7 +303,7 @@ jobs:
 
           dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
           case "$dom_test_actual" in
-            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b|1054a49f7c9cb57acde843cc1dee0bdf943e77fc|0a630298ff41d86678850ac401eeb763cc28a26a)
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b|1054a49f7c9cb57acde843cc1dee0bdf943e77fc|0a630298ff41d86678850ac401eeb763cc28a26a|91830f427013162ae633d917f2244d120dfc5c22)
               ;;
             *)
               printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
@@ -316,7 +316,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|2d92a32c40ad0c532725105e443288bb646a819b|0af49d422c4995c166c49d85569c156a93d08106|8562ba21156466a915d1e72ca89e0029cd04fe44)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|2d92a32c40ad0c532725105e443288bb646a819b|0af49d422c4995c166c49d85569c156a93d08106|8562ba21156466a915d1e72ca89e0029cd04fe44|d9d1dfa213f83dcbc0f07263fed8339f1a54b394)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -326,7 +326,7 @@ jobs:
 
           command_actual="$(git rev-parse HEAD:acs/version2_pgn_commands.py)"
           case "$command_actual" in
-            d449d2352644c859774562628505f88d86acdea2|74a94b45597fbdc1607e7b3452df41b88837b42f|b85330c2458b864ee406de75cf58072ba2ee6338|6e2a86ffd7204f601ed21973c7ab4eb00b955d57)
+            d449d2352644c859774562628505f88d86acdea2|74a94b45597fbdc1607e7b3452df41b88837b42f|b85330c2458b864ee406de75cf58072ba2ee6338|6e2a86ffd7204f601ed21973c7ab4eb00b955d57|32d99d960652c406b80f76742678fdd7852adce5)
               ;;
             *)
               printf 'Feature blob mismatch: acs/version2_pgn_commands.py actual=%s\n' "$command_actual" >&2
@@ -342,7 +342,7 @@ jobs:
 
           workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
           case "$workspace_actual" in
-            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB"|8208afe46c734035db23e66b4f4e9c59d6524cf5)
+            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB"|8208afe46c734035db23e66b4f4e9c59d6524cf5|2fe0d7213b1a986a5e8671dd84a7ddef4dfb1a8f)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_workspace.py actual=%s\n' "$workspace_actual" >&2
@@ -351,7 +351,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1|98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6|2a81d303d18440f60da7c38ab1eb8668e7f9e92b)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1|98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6|2a81d303d18440f60da7c38ab1eb8668e7f9e92b|6c3fc44c53412662d39f0be914dc1208478d526b)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2

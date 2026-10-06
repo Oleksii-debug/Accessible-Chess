@@ -6,6 +6,7 @@ on:
       - anchor/s56r8-pgn-fen-47da6c0
     paths:
       - '.github/workflows/current-pgn-fen-tag-bounds-apex.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_workspace.py'
@@ -27,6 +28,7 @@ concurrency:
 
 env:
   EXPECTED_BASE_SHA: 47da6c05cb484a129df39c08b5fad7acfa06a119
+  D01_WORKFLOW_BLOB: ff9fa5e7695ba8a89b73e42bd22075a0887c6f77
   PGN_BRIDGE_BLOB: e69f6ad4f8b6da8b3561ae569f4c6817b903548a
   PGN_PROJECTION_BLOB: d9d1dfa213f83dcbc0f07263fed8339f1a54b394
   PGN_WORKSPACE_BLOB: 2fe0d7213b1a986a5e8671dd84a7ddef4dfb1a8f
@@ -65,6 +67,7 @@ jobs:
           changed="$(git diff --name-only "$base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-pgn-fen-tag-bounds-apex.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
             'acs/pgn_webview_bridge.py' \
             'acs/pgn_webview_projection.py' \
             'acs/pgn_workspace.py' \
@@ -76,6 +79,7 @@ jobs:
             'tests/test_pgn_complete_editing_user_flow.py' \
             'web/full_product_pgn.js' | sort)"
           test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "$D01_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$PGN_BRIDGE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PGN_PROJECTION_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
