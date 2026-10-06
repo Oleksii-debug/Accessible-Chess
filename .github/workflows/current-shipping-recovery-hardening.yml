@@ -86,6 +86,12 @@ env:
   PGN_OPEN_WORKER_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
   PGN_SAVE_TERMINAL_TEST_BLOB: 21c22aca52b4aa6fb3a1bab2509e0a89d19fb290
   PGN_SAVE_WORKER_TEST_BLOB: 5ddd7c4634dad4bd0e8c4d41b6f7549395220c04
+  POSITION_TEXT_WORKFLOW_BLOB: 866cc2d2e0f0407b93ddd466c77bbda0601e3b23
+  SAN_INPUT_BUDGET_WORKFLOW_BLOB: b81e6ee94468df93318853034d2a65ffa94de2f3
+  NOTATION_BLOB: 4ce7cca2576d4a20b0fae86aa019719d3609c6e3
+  POSITION_TEXT_BLOB: c4eed9078ec8f12b9286235355e7af09bd778355
+  NOTATION_TEST_BLOB: 77c3f12f91d0ca219848bdf263fe33a0c6308ee8
+  POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
 
 jobs:
   recovery-hardening:
@@ -142,7 +148,9 @@ jobs:
             ".github/workflows/current-owner-portable-passive-ingress.yml"
             ".github/workflows/current-package-passive-control-ingress.yml"
             ".github/workflows/current-position-editor-ascii-fen.yml"
+            ".github/workflows/current-position-text-square-localization.yml"
             ".github/workflows/current-product-accessibility-formats-convergence.yml"
+            ".github/workflows/current-san-input-budget.yml"
             ".github/workflows/current-shipping-recovery-hardening.yml"
             ".github/workflows/current-square-text-bound.yml"
             ".github/workflows/current-webui-accessibility-oracle.yml"
@@ -163,7 +171,9 @@ jobs:
             "acs/library_export_webview_projection.py"
             "acs/library_webview_bridge.py"
             "acs/library_webview_projection.py"
+            "acs/notation.py"
             "acs/position_editor.py"
+            "acs/position_text.py"
             "acs/settings.py"
             "acs/squares.py"
             "acs/stage1_release_ui.py"
@@ -201,6 +211,7 @@ jobs:
             "tests/test_full_product_native_menu.py"
             "tests/test_issue22_release_contract.py"
             "tests/test_library_open_game_publication.py"
+            "tests/test_notation.py"
             "tests/test_owner_gameplay_feedback.py"
             "tests/test_owner_gameplay_wav_delivery.py"
             "tests/test_owner_physical_acceptance_json_hardening.py"
@@ -208,6 +219,7 @@ jobs:
             "tests/test_portable_launcher_contract.py"
             "tests/test_portable_launcher_window_readiness.py"
             "tests/test_position_editor.py"
+            "tests/test_position_text_authority.py"
             "tests/test_squares.py"
             "tests/test_stage1_release_composition_ui.py"
             "tests/test_ui_native_menu_recovery.py"
@@ -251,6 +263,12 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/w6-v2-release-payload-current-assembler.yml)" = "$RELEASE_PAYLOAD_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-package-passive-control-ingress.yml)" = "$CURRENT_PACKAGE_PASSIVE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-owner-portable-passive-ingress.yml)" = "$OWNER_PORTABLE_PASSIVE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-position-text-square-localization.yml)" = "$POSITION_TEXT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-san-input-budget.yml)" = "$SAN_INPUT_BUDGET_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
+          test "$(git rev-parse HEAD:acs/position_text.py)" = "$POSITION_TEXT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_notation.py)" = "$NOTATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_text_authority.py)" = "$POSITION_TEXT_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "$APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$RELEASE_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_ui.py)" = "$RELEASE_UI_BLOB"
@@ -354,6 +372,8 @@ jobs:
           python -m py_compile
           acs/full_product_native_menu.py
           acs/library_webview_projection.py
+          acs/notation.py
+          acs/position_text.py
           acs/settings.py
           acs/stage1_release_ui.py
           acs/training.py
@@ -379,6 +399,8 @@ jobs:
           tests/test_dev1_release_ui_regressions.py
           tests/test_full_product_native_menu.py
           tests/test_issue22_release_contract.py
+          tests/test_notation.py
+          tests/test_position_text_authority.py
           tests/test_nvda_p0_contract.py
           tests/test_version2_release_accessibility_contract.py
           tests/test_stage1_packaged_focus_origin_contract.py
@@ -455,6 +477,7 @@ jobs:
           tests.test_settings
           tests.test_move_entry
           tests.test_notation
+          tests.test_position_text_authority
           tests.test_sound_runtime
           tests.test_sound_events
           tests.test_dev3_sound_failure_isolation
