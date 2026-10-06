@@ -155,10 +155,11 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     assert checks["uia_from_handle_matches_automation_id_row"] is False
 
 
-def test_source_uia_probe_waits_for_exact_automation_id_not_any_process_menubar() -> None:
+def test_source_uia_probe_waits_for_unique_exact_automation_id_not_any_process_menubar() -> None:
     source = Path("scripts/p0_native_menubar_uia_probe.ps1").read_text(encoding="utf-8")
 
-    assert "if($exact.Count -eq 1){ break }" in source
+    assert "if($exact.Count -eq 1 -and $anyId.Count -eq 1){ break }" in source
+    assert "if($exact.Count -eq 1){ break }" not in source
     assert "$exact.Count -eq 1 -or $bars.Count -gt 0" not in source
 
 
