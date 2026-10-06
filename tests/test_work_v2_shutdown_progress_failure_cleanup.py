@@ -149,6 +149,66 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     book_worker.shutdown(timeout=2)
                 database.close()
                 analysis.close()
+    def test_progress_failure_reconciles_retired_book_busy_status_without_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            callbacks = []
+            commits = []
+            prepared = threading.Event()
+            book_worker = None
+
+            def prepare(_source, *, cancel_check):
+                prepared.set()
+                return object()
+
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                book_worker = Version2BookOpenWorker(
+                    prepare=prepare,
+                    commit=commits.append,
+                    post_to_ui=callbacks.append,
+                    event_sink=application._book_open_event,
+                )
+                application._book_open_worker = book_worker
+
+                self.assertTrue(
+                    book_worker.start(root / "book.md", focus_target="book-open")
+                )
+                self.assertTrue(prepared.wait(2.0))
+                for _ in range(400):
+                    if callbacks:
+                        break
+                    threading.Event().wait(0.005)
+                self.assertTrue(callbacks)
+                self.assertTrue(application._events[-1]["payload"]["book_open_busy"])
+
+                with self.assertRaises(OSError):
+                    application.shutdown()
+
+                self.assertFalse(book_worker.closed)
+                self.assertFalse(book_worker.active)
+                self.assertEqual(commits, [])
+                recovered = application._events[-1]
+                self.assertEqual(recovered["kind"], "status")
+                self.assertEqual(recovered["payload"]["focus_target"], "book-open")
+                self.assertFalse(recovered["payload"]["book_open_busy"])
+
+                event_count = len(application._events)
+                callbacks.pop(0)()
+                self.assertEqual(commits, [])
+                self.assertEqual(len(application._events), event_count)
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                if book_worker is not None:
+                    book_worker.shutdown(timeout=2)
+                database.close()
+                analysis.close()
     def test_partial_worker_retirement_refusal_reopens_each_recoverable_owner(self) -> None:
         class Worker:
             def __init__(self, shutdown_result, resume_result) -> None:
