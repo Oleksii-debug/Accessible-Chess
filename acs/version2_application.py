@@ -1515,24 +1515,47 @@ class Version2Application:
                 {"kind": "route", "payload": {"route_id": "books"}}
             )
 
+    def _canonical_visible_fen(self) -> str:
+        if self.shell.current_route.route_id != "board":
+            raise ValueError("FEN readback requires the visible Board")
+        result = self._board_dispatch("board.read_fen", {})
+        if type(result) is not dict or result.get("ok") is not True:
+            raise RuntimeError("canonical visible FEN is unavailable")
+        fen = result.get("fen")
+        if (
+            type(fen) is not str
+            or not fen
+            or len(fen) > MAX_FEN_CHARS
+            or "\x00" in fen
+        ):
+            raise RuntimeError("canonical visible FEN is unavailable")
+        canonical = Board(fen).fen()
+        if canonical != fen:
+            raise RuntimeError("canonical visible FEN is inconsistent")
+        return canonical
+
     def _delegate(self, action, payload):
+        if action == "board.read_fen":
+            if payload:
+                raise ValueError("Read FEN accepts no payload")
+            canonical = self._canonical_visible_fen()
+            self._events.append(
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": (
+                            "FEN позиції: " + canonical
+                            if self.shell.language is UILanguage.UA
+                            else "Position FEN: " + canonical
+                        )
+                    },
+                }
+            )
+            return {"ok": True, "fen": canonical}
         if action == "position.copy_fen":
             if payload:
                 raise ValueError("Copy FEN accepts no payload")
-            result = self._board_dispatch("board.read_fen", {})
-            if type(result) is not dict or result.get("ok") is not True:
-                raise RuntimeError("canonical visible FEN is unavailable")
-            fen = result.get("fen")
-            if (
-                type(fen) is not str
-                or not fen
-                or len(fen) > MAX_FEN_CHARS
-                or "\x00" in fen
-            ):
-                raise RuntimeError("canonical visible FEN is unavailable")
-            canonical = Board(fen).fen()
-            if canonical != fen:
-                raise RuntimeError("canonical visible FEN is inconsistent")
+            canonical = self._canonical_visible_fen()
             self._copy_text(canonical)
             self._events.append(
                 {
@@ -1556,20 +1579,7 @@ class Version2Application:
                 raise ValueError("close the active dialog before replacing the PGN document")
             if self.book_workflow is not None and self.book_workflow.active:
                 raise ValueError("return to the book before replacing the PGN document")
-            result = self._board_dispatch("board.read_fen", {})
-            if type(result) is not dict or result.get("ok") is not True:
-                raise RuntimeError("canonical visible FEN is unavailable")
-            fen = result.get("fen")
-            if (
-                type(fen) is not str
-                or not fen
-                or len(fen) > MAX_FEN_CHARS
-                or "\x00" in fen
-            ):
-                raise RuntimeError("canonical visible FEN is unavailable")
-            canonical = Board(fen).fen()
-            if canonical != fen:
-                raise RuntimeError("canonical visible FEN is inconsistent")
+            canonical = self._canonical_visible_fen()
             position = PositionState.from_fen(canonical)
             candidate = PgnDocumentSession.new_game_from_position(position)
             self.set_document(candidate)

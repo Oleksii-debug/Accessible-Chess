@@ -190,6 +190,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
         for item in actions:
             registry.definition(item.action_id)
         position_menu = next(menu for menu in menus if menu.menu_id == "position")
+        read_fen = next(item for item in position_menu.items if item.action_id == "board.read_fen")
+        self.assertEqual("Read current FEN", read_fen.label)
         copy_fen = next(item for item in position_menu.items if item.action_id == "position.copy_fen")
         self.assertEqual("Copy current FEN", copy_fen.label)
         new_pgn = next(item for item in position_menu.items if item.action_id == "pgn.new_from_position")
@@ -199,6 +201,10 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
         self.assertEqual("&Файл", ua[0].label)
         ua_position = next(menu for menu in ua if menu.menu_id == "position")
+        self.assertEqual(
+            "Прочитати поточний FEN",
+            next(item.label for item in ua_position.items if item.action_id == "board.read_fen"),
+        )
         self.assertEqual(
             "Скопіювати поточний FEN",
             next(item.label for item in ua_position.items if item.action_id == "position.copy_fen"),
