@@ -1,0 +1,67 @@
+name: Current Book PGN EPUB Bounds Convergence
+
+on:
+  pull_request:
+    branches:
+      - fix/book-canonical-pgn-active-cancellation-20261006-hy6ez0h
+    paths:
+      - '.github/workflows/current-book-pgn-epub-bounds-convergence.yml'
+      - 'acs/book_epub_import.py'
+      - 'tests/test_book_active_import_cancellation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-book-pgn-epub-bounds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EPUB_IMPORT_BLOB: 0bfeffce90ae04ea71f6aef08a73de476db91d58
+  ACTIVE_CANCEL_TEST_BLOB: e0d80af2832e44b4a542c2e3a15701f16549da87
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove bounded geometry and exact blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-book-pgn-epub-bounds-convergence.yml' \
+            'acs/book_epub_import.py' \
+            'tests/test_book_active_import_cancellation.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = "$EPUB_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile converged Python
+        run: python -m py_compile acs/book_epub_import.py tests/test_book_active_import_cancellation.py
+
+      - name: Run converged Books and canonical PGN regressions
+        run: python -m unittest tests.test_book_active_import_cancellation tests.test_gametree tests.test_d06_pgn_roundtrip tests.test_book_html_pgn_loss_accounting
