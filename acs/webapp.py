@@ -510,6 +510,8 @@ class AccessibleChessAPI:
         return self._ok("Стандартну позицію встановлено." if self.lang == "uk" else "Standard position loaded.")
 
     def clear_board(self) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
         try:
             candidate_board = copy.deepcopy(self.board)
             candidate_board.board = [None] * 64
@@ -642,6 +644,8 @@ class AccessibleChessAPI:
         return self._ok("Позиція коректна і готова до гри." if self.lang == "uk" else "Position is valid and ready to play.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
@@ -984,6 +988,8 @@ class AccessibleChessAPI:
         )
 
     def set_fen(self, fen: str) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
         if type(fen) is not str:
             return self._error(self._t("fen_text_type"))
         if len(fen) > MAX_FEN_CHARS:
