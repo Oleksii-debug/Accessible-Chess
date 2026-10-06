@@ -276,42 +276,54 @@
         ? "presentation-commit"
         : "presentation-rollback";
 
-    function hostResponseError(message) {
-      const error = new Error(message);
-      error.hostResponded = true;
-      return error;
+    function publicationFailure(hostResponded, cause) {
+      // Normalize every failure into an internal passive record. Promise
+      // rejection values and malformed bridge responses are untrusted: they
+      // may be frozen/sealed objects or Proxies with active property traps.
+      return Object.freeze({
+        hostResponded: hostResponded === true,
+        cause: cause
+      });
     }
 
     function attempt() {
-      return bridge.v2_browser_command("shell", command, { token: token }).then(function (result) {
-        if (plainObject(result) && result.kind === "error") {
-          throw hostResponseError("shell publication acknowledgement rejected");
+      return bridge.v2_browser_command("shell", command, { token: token }).then(
+        function (result) {
+          try {
+            if (plainObject(result) && result.kind === "error") {
+              throw new Error("shell publication acknowledgement rejected");
+            }
+            if (!plainObject(result) || result.kind !== expectedKind ||
+                !plainObject(result.payload) || result.payload.token !== token) {
+              throw new Error("invalid shell publication acknowledgement");
+            }
+            return result;
+          } catch (error) {
+            // A resolved bridge call is host-response authority even when the
+            // payload itself is malformed or has active accessors.
+            throw publicationFailure(true, error);
+          }
+        },
+        function (error) {
+          // Transport rejection is opaque. Store it only as a cause; never read
+          // from or write to the caller-controlled rejection object.
+          throw publicationFailure(false, error);
         }
-        if (!plainObject(result) || result.kind !== expectedKind ||
-            !plainObject(result.payload) || result.payload.token !== token) {
-          throw hostResponseError("invalid shell publication acknowledgement");
-        }
-        return result;
-      });
+      );
     }
 
     // The Python boundary is idempotent for the same token/outcome. A single
     // retry therefore closes local bridge response loss without duplicating a
     // route commit or rollback.
-    return attempt().catch(function (firstError) {
-      return attempt().catch(function (secondError) {
-        const hostResponded =
-          !!(firstError && firstError.hostResponded) ||
-          !!(secondError && secondError.hostResponded);
-        if (hostResponded && secondError && typeof secondError === "object") {
-          secondError.hostResponded = true;
+    return attempt().catch(function (firstFailure) {
+      return attempt().catch(function (secondFailure) {
+        if (firstFailure.hostResponded && !secondFailure.hostResponded) {
+          // At least one attempt reached Python, so preserve that authority even
+          // when the final retry failed only at transport. Re-wrap instead of
+          // mutating the opaque second rejection value.
+          throw publicationFailure(true, secondFailure.cause);
         }
-        if (hostResponded && (!secondError || typeof secondError !== "object")) {
-          const wrapped = hostResponseError("shell publication acknowledgement rejected");
-          wrapped.cause = secondError;
-          throw wrapped;
-        }
-        throw secondError;
+        throw secondFailure;
       });
     });
   }
