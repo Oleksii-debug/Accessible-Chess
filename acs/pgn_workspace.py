@@ -70,7 +70,10 @@ MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
 def _pgn_edit_text_units(value: str) -> int:
     """Return browser-compatible UTF-16 units for bounded PGN edit text."""
 
-    return len(value.encode("utf-16-le", "surrogatepass")) // 2
+    try:
+        return len(value.encode("utf-16-le")) // 2
+    except UnicodeEncodeError as exc:
+        raise ValueError("PGN edit text is not valid Unicode") from exc
 
 
 class PgnWorkspaceErrorCode(str, Enum):
