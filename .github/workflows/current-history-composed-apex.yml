@@ -1,0 +1,120 @@
+name: Current History Review on Composed Apex
+
+on:
+  pull_request:
+    branches:
+      - anchor/ooxple7-history-composed-9d7b9fa
+    paths:
+      - '.github/workflows/current-history-composed-apex.yml'
+      - 'acs/webapp.py'
+      - 'tests/test_history_review_complete_user_flow.py'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-history-composed-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 9d7b9faf67f548a5fde778b72804a728d679831e
+  WEBAPP_BLOB: a9b9b6a04ece52e939b062fedf7dd07bc6bba343
+  WEB_INDEX_BLOB: 17ec7045d1284d2624d54bdd21141100244b2df4
+  HISTORY_FLOW_TEST_BLOB: a8e09c9cc6fe8a95f9e8df085bff36bf8e3495e0
+  GAMETREE_TEST_BLOB: 9f9902e86d27bd9ace0dfd8379969b422800f761
+  PGN_BROWSER_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  EPD_TEST_BLOB: 90cfe919074b7b48d3ec5c43fb54003d505e4f51
+  PGN_WORKSPACE_BLOB: cc10d63d6ffdb4e6844f6cb01fb54d7f12044fde
+  VERSION2_COMMANDS_BLOB: 79655ccdde7fa3587861d5308a417df5d691b177
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact History successor geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "${EVENT_BASE_REF}" = "anchor/ooxple7-history-composed-9d7b9fa"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-history-composed-apex.yml' \
+            'acs/webapp.py' \
+            'tests/test_history_review_complete_user_flow.py' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind History and inherited authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+          test "$(git rev-parse HEAD:tests/test_history_review_complete_user_flow.py)" = "$HISTORY_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_gametree_accessible_completion.py)" = "$GAMETREE_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_BROWSER_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$VERSION2_COMMANDS_BLOB"
+
+      - name: Compile changed History surface
+        run: >-
+          python -m py_compile
+          acs/webapp.py
+          tests/test_history_review_complete_user_flow.py
+
+      - name: History and review regressions
+        run: >-
+          python -m unittest -v
+          tests.test_history_review_complete_user_flow
+          tests.test_history_review_ui
+          tests.test_stage1_review_navigation_atomicity_current
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_keybindings
+          tests.test_version2_external_review_live_state_isolation
+          tests.test_release_stockfish_composition
+
+      - name: Composed GameTree EPD PGN regressions
+        run: >-
+          python -m unittest -v
+          tests.test_gametree_accessible_completion
+          tests.test_epd
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: PGN browser DOM regression
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
