@@ -229,6 +229,13 @@ jobs:
           tests.test_version2_package_assembler
           tests.test_version2_release_payload
           tests.test_version2_portable_package
+          tests.test_owner_oneclick_from_w4_workflow
+          tests.test_owner_docx_win32_portability
+          tests.test_materialize_owner_library_seed
+          tests.test_owner_portable_candidate
+          tests.test_verify_owner_w4_run_provenance
+          tests.test_user_library_seed
+          tests.test_user_sound_pack_builder
           tests.test_portable_launcher_contract
           tests.test_portable_launcher_window_readiness
           tests.test_portable_localappdata_persistence_binding
