@@ -324,6 +324,74 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
 
+    def test_completed_prior_lesson_post_publication_failure_recovers_exact_new_state(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.app.plan_classroom_pairings(
+            batch_id="completed-postpublish-pairing",
+            game_session_ids=("game-1", "game-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        state = self.app.bind_current_pairing_to_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.assertEqual("completed", state.phase.value)
+
+        self.app.stop_teaching_session()
+        other = LessonSession(
+            "session-2",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            self.plan.student_ids,
+            self.plan.cohort_id,
+        )
+        self.app.start_teaching_session(other)
+        real_save = self.store.save
+
+        def publish_then_fail(plan, next_state, *, expected_revision):
+            real_save(
+                plan,
+                next_state,
+                expected_revision=expected_revision,
+            )
+            raise OSError("simulated rollover failure after durable publication")
+
+        with mock.patch.object(self.store, "save", side_effect=publish_then_fail):
+            with self.assertRaisesRegex(OSError, "after durable publication"):
+                self.app.begin_or_resume_default_group_rotation("rotation-2")
+
+        self.assertIsNone(self.app._rotation_state)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+        durable = self.store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual("session-2", durable.plan.lesson_session_id)
+        self.assertEqual("rotation-2", durable.plan.rotation_id)
+        self.assertEqual("active", durable.state.phase.value)
+        self.assertEqual(1, durable.state.revision)
+
+        recovered = self.app.begin_or_resume_default_group_rotation("rotation-2")
+        self.assertEqual(durable.state, recovered)
+        self.assertEqual(durable.revision, self.app._rotation_store_revision)
+        self.assertFalse(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
     def test_advance_store_io_failure_marks_rotation_recovery_required(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
         with mock.patch.object(
