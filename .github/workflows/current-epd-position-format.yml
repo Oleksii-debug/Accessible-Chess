@@ -1,0 +1,110 @@
+name: Current EPD Position Format
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - ".github/workflows/current-epd-position-format.yml"
+      - "acs/epd.py"
+      - "acs/move_entry.py"
+      - "acs/position_text.py"
+      - "tests/test_epd.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-epd-position-format-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  EPD_BLOB: eed2fabbb0b3fd7663ba36dfa1f30adc5b3315c5
+  MOVE_ENTRY_BLOB: 30bd6fd478638030d0042a1418b69a3eb600dc66
+  POSITION_TEXT_BLOB: e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
+  EPD_TEST_BLOB: 2d94011c092e41f91f1ff56419f2d706b6ba575e
+  POSITION_EDITOR_BLOB: b3b51e71f55f7477bf1b4dc9e35492f82625be7f
+  MOVE_ENTRY_TEST_BLOB: bceae6b13563625630e2fba43133f4d3efc51659
+  POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
+  WEBAPP_BLOB: 084bf4eb68708afa68b6b7d401a6fa5dc5d63181
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact bounded EPD scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "${EVENT_BASE_REF:-converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb}" = "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb"
+          base_sha="${EVENT_BASE_SHA}"
+          test -n "$base_sha"
+          git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
+          live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
+          test "$base_sha" = "$live_base"
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-epd-position-format.yml' \
+            'acs/epd.py' \
+            'acs/move_entry.py' \
+            'acs/position_text.py' \
+            'tests/test_epd.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected EPD scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Bind exact semantic authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/move_entry.py)" = "$MOVE_ENTRY_BLOB"
+          test "$(git rev-parse HEAD:acs/position_text.py)" = "$POSITION_TEXT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_move_entry.py)" = "$MOVE_ENTRY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_text_authority.py)" = "$POSITION_TEXT_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+
+      - name: Compile EPD semantic slice
+        run: >-
+          python -m py_compile
+          acs/epd.py
+          acs/move_entry.py
+          acs/position_text.py
+          tests/test_epd.py
+
+      - name: Run EPD and inherited position regressions
+        run: >-
+          python -m unittest -v
+          tests.test_epd
+          tests.test_move_entry
+          tests.test_position_text_authority
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
