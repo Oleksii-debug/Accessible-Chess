@@ -86,16 +86,36 @@ jobs:
           test "$(git rev-parse refs/remotes/origin/runtime-fix:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
           test "$(git rev-parse refs/remotes/origin/runtime-fix:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
 
-      - name: Compile runtime, package and receipt boundaries
+      - name: Compile runtime, semantic, package and receipt boundaries
         run: >-
           python -m py_compile
+          run_accessible_chess.py
+          acs/bookreader.py
+          acs/book_board_workflow.py
+          acs/library_webview_projection.py
+          acs/pgn_document.py
+          acs/pgn_save_snapshot.py
+          acs/pgn_workspace.py
+          acs/version2_application.py
           acs/version2_windows_file_workflows.py
-          acs/version2_package_preflight.py
           acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
           acs/version2_release_receipt.py
           scripts/finalize_owner_final_receipt.py
+          scripts/record_owner_physical_acceptance.py
           tests/test_v2_windows_pgn_open_worker.py
           tests/test_v2_windows_pgn_save_worker.py
+
+      - name: Execute Books semantic navigation and recovery contracts
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_library_webview_projection
+          tests.test_bookreader_revision_barriers_current
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_v2_book_board_workflow
+          tests.test_version2_book_workspace
 
       - name: Execute PGN terminal, persistence and NVDA-adjacent contracts
         run: >-
@@ -118,12 +138,40 @@ jobs:
           tests.test_whole_product_user_journey
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
           tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
           tests.test_version2_release_receipt
           tests.test_finalize_owner_final_receipt
           tests.test_owner_physical_acceptance
           tests.test_owner_physical_acceptance_json_hardening
-          tests.test_portable_launcher_contract
+          tests.test_version2_package_zip_topology_preflight
 
       - name: Core selftest
         run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Execute semantic document-copy oracle
+        run: >-
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          python -m unittest -v tests.test_p0_semantic_document_copy
