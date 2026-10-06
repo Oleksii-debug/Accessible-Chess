@@ -15,6 +15,17 @@ from .agent_tools import ToolExecutor, ToolSpec
 _MAX_DEPTH = 12
 _MAX_ITEMS = 1024
 _MAX_TEXT = 12_000
+_FORBIDDEN_FIELDS = frozenset(
+    {
+        "fen",
+        "start_fen",
+        "accepted_moves",
+        "solution",
+        "source_path",
+        "local_path",
+        "persistence_snapshot",
+    }
+)
 
 
 class AgentBooksTrainingToolsError(ValueError):
@@ -43,6 +54,10 @@ def _passive_copy(value: object, *, surface: str, depth: int = 0,
             if type(key) is not str:
                 raise AgentBooksTrainingToolsError(
                     f"{surface} snapshot contains a non-text key"
+                )
+            if key.casefold() in _FORBIDDEN_FIELDS:
+                raise AgentBooksTrainingToolsError(
+                    f"{surface} snapshot contains a non-public field"
                 )
             result[key] = _passive_copy(
                 item, surface=surface, depth=depth + 1, budget=budget
