@@ -74,12 +74,14 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "shipping-release-data"
-            api, application, runtime, _native_factory = create_shipping_release_application(
+            api, build_application, runtime, _native_factory = create_shipping_release_application(
                 data_root=root,
                 runtime_factory=Runtime,
                 sound_playback=Playback(),
                 copy_text=lambda _text: None,
+                defer_ui=True,
             )
+            application = build_application()
             try:
                 self.assertIsInstance(application, Version2PackagedStarterApplication)
                 self.assertIsInstance(application, Version2FinalProductApplication)
