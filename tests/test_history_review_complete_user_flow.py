@@ -139,6 +139,43 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
                 self.assertFalse(state["canHistoryPrevious"])
                 self.assertFalse(state["canHistoryNext"])
 
+    def test_malformed_history_cannot_be_extended_by_move_or_board_activation(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        live_fen = api.board.fen()
+        live_node = api.live_history_node
+        api.move_sides = []
+
+        move = api.make_move("e5")
+        self.assertFalse(move["ok"])
+        self.assertEqual(move["announcement"], "Could not read move history.")
+        self.assertEqual(api.board.fen(), live_fen)
+        self.assertEqual(api.live_history_node, live_node)
+
+        activation = api.activate_square("e7")
+        self.assertFalse(activation["ok"])
+        self.assertEqual(activation["announcement"], "Could not read move history.")
+        self.assertEqual(api.board.fen(), live_fen)
+        self.assertIsNone(api.selected_source)
+
+        recovered = api.new_game()
+        self.assertTrue(recovered["ok"])
+        self.assertEqual(recovered["historyItems"][0]["ply"], 0)
+        self.assertTrue(recovered["historyItems"][0]["live"])
+
+    def test_malformed_redo_is_rejected_without_mutating_live_state(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        undone = api.undo()
+        self.assertTrue(undone["ok"])
+        live_fen = api.board.fen()
+        api.redo_meta = [["e4", "w"]]
+
+        result = api.redo()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Could not read move history.")
+        self.assertEqual(api.board.fen(), live_fen)
+
     def test_malformed_redo_metadata_never_advertises_redo(self) -> None:
         api = AccessibleChessAPI("en")
         play(api, "e4")

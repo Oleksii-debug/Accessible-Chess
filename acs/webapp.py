@@ -844,6 +844,8 @@ class AccessibleChessAPI:
             return commands[text]()
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
         if not self._position_playable(self.board):
@@ -907,6 +909,8 @@ class AccessibleChessAPI:
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         try:
             target = parse_sq(square)
         except ValueError as exc:
@@ -989,6 +993,8 @@ class AccessibleChessAPI:
     def undo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self.sans:
             return self._error(self._t("undo_none"))
         try:
@@ -1041,6 +1047,10 @@ class AccessibleChessAPI:
     def redo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
+        if not self._redo_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self.redo_meta:
             return self._error(self._t("redo_none"))
         try:
