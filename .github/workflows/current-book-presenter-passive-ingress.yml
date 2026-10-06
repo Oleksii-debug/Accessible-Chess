@@ -85,9 +85,11 @@ jobs:
           acs/book_webview_bridge.py
           tests/test_book_presenter_passive_ingress.py
 
-      - name: Execute Books presentation and workflow regressions
+      - name: Execute durable reader and presentation convergence regressions
         run: >-
           python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_book_training_passive_roots_current
           tests.test_book_presenter_passive_ingress
           tests.test_dev1_books_training_webview_projection
           tests.test_dev1_full_product_ui_packages
