@@ -7,12 +7,14 @@ on:
     paths:
       - '.github/workflows/current-pgn-surrogate-safety.yml'
       - 'acs/pgn_workspace.py'
+      - 'acs/pgn_roundtrip.py'
       - 'acs/pgn_webview_projection.py'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'acs/version2_pgn_commands.py'
       - 'tests/test_pgn_complete_editing_user_flow.py'
       - 'tests/test_pgn_workspace.py'
+      - 'tests/test_pgn_unicode_scalar_safety.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
   workflow_dispatch:
@@ -27,6 +29,7 @@ concurrency:
 env:
   BASE_SHA: 3081ac91685647f5d246403279168ea01e92c3ab
   WORKSPACE_BLOB: cc10d63d6ffdb4e6844f6cb01fb54d7f12044fde
+  ROUNDTRIP_BLOB: 10b51e36778276e9b5c790516ab0860d19ae9e3f
   PROJECTION_BLOB: 8cfae5b665a79be2da6fd3f5ba26f4f0bc54aa36
   BRIDGE_BLOB: a50e809086e1bffc5abd5a30ed9911c6fe69a07c
   ADAPTER_BLOB: bc3b464ed04f3935ada2f0c9ff98526ba0d0537b
@@ -35,6 +38,7 @@ env:
   ADAPTER_TEST_BLOB: a28b3669342172ee4ce4c4a1d324fbeab737e119
   PROJECTION_TEST_BLOB: c58b9096bcccd8b5a09f2e8bdb9c09ebfe5bcc4b
   WORKSPACE_TEST_BLOB: 7e73878af7f310227b9c958c3af4bf5cabbe65be
+  UNICODE_TEST_BLOB: dfb165c01c855e6af57f5274cb69667d9188046f
 
 jobs:
   exact-head:
@@ -65,14 +69,17 @@ jobs:
             'acs/pgn_webview_bridge.py' \
             'acs/pgn_webview_projection.py' \
             'acs/pgn_workspace.py' \
+            'acs/pgn_roundtrip.py' \
             'acs/pgn_workspace_webview_adapter.py' \
             'acs/version2_pgn_commands.py' \
             'tests/test_dev1_pgn_workspace_webview_adapter.py' \
             'tests/test_dev1_pgn_webview_projection.py' \
             'tests/test_pgn_complete_editing_user_flow.py' \
-            'tests/test_pgn_workspace.py' | sort)"
+            'tests/test_pgn_workspace.py' \
+            'tests/test_pgn_unicode_scalar_safety.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$ROUNDTRIP_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PROJECTION_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$BRIDGE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$ADAPTER_BLOB"
@@ -81,6 +88,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$ADAPTER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$PROJECTION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$WORKSPACE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_unicode_scalar_safety.py)" = "$UNICODE_TEST_BLOB"
 
       - uses: actions/setup-python@v5
         with:
@@ -90,6 +98,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/pgn_workspace.py
+          acs/pgn_roundtrip.py
           acs/pgn_webview_projection.py
           acs/pgn_webview_bridge.py
           acs/pgn_workspace_webview_adapter.py
@@ -98,6 +107,7 @@ jobs:
           tests/test_dev1_pgn_workspace_webview_adapter.py
           tests/test_dev1_pgn_webview_projection.py
           tests/test_pgn_workspace.py
+          tests/test_pgn_unicode_scalar_safety.py
 
       - name: PGN malformed-text and atomicity regressions
         run: >-
@@ -106,6 +116,7 @@ jobs:
           tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_dev1_pgn_webview_projection
           tests.test_pgn_workspace
+          tests.test_pgn_unicode_scalar_safety
           tests.test_version2_pgn_commands
 
       - name: Core chess selftest
