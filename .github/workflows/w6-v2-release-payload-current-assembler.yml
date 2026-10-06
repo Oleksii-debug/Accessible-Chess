@@ -21,6 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CURRENT_PRODUCT_PARENT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
+  CURRENT_PRODUCT_PARENT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
   CURRENT_ASSEMBLER_PARENT: 977910b28725ab26ecded690bfb1dcbb7ee25cf9
   CURRENT_ASSEMBLER_BLOB: 5224ed4516fb1a09d9ac6465b6d72d6ff575a229
   CURRENT_PREFLIGHT_BLOB: 5331c79063e465284a486b3f57ae5b78f9e52778
@@ -55,6 +57,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_PARENT_BRANCH:refs/remotes/origin/current-product-parent"
+          live_product_parent="$(git rev-parse refs/remotes/origin/current-product-parent)"
+          test "$live_product_parent" = "$CURRENT_PRODUCT_PARENT_SHA"
           git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
           git merge-base --is-ancestor "$SOURCE_PAYLOAD_OWNER" HEAD
           git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
