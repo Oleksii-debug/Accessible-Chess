@@ -302,7 +302,7 @@ jobs:
 
           dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
           case "$dom_test_actual" in
-            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b|502cb5feabc256e108217ac8c6076b5da899fe62)
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b|1054a49f7c9cb57acde843cc1dee0bdf943e77fc)
               ;;
             *)
               printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
@@ -350,7 +350,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|1fd14fcf977255610e680b9c4f1587da6ed3327b)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
