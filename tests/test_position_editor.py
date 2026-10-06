@@ -1,5 +1,6 @@
 import unittest
 
+from acs.chesscore import Board
 from acs.position_editor import (
     PositionState,
     PositionValidationError,
@@ -70,6 +71,8 @@ class PositionEditorTests(unittest.TestCase):
         )
         for fen in invalid:
             with self.subTest(fen=fen):
+                with self.assertRaises(ValueError):
+                    Board(fen)
                 with self.assertRaises(PositionValidationError):
                     PositionState.from_fen(fen)
 
