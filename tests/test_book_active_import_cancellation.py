@@ -435,9 +435,9 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         import acs.book_epub_import as epub
         validate = epub._validate_local_zip_header
         calls = 0
-        def pause(archive, info):
+        def pause(archive, info, control_checkpoint=None):
             nonlocal calls
-            result = validate(archive, info)
+            result = validate(archive, info, control_checkpoint)
             calls += 1
             if calls == 100:
                 ready.set()
