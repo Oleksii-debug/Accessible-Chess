@@ -209,6 +209,22 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         ]
         self.assertTrue(any("позиція" in item.lower() for item in announcements))
 
+    def test_keyboard_rotation_status_reports_unavailable_store_truth(self) -> None:
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        self.app._rotation_store = None
+        try:
+            status = self._dispatch_chord("Ctrl+Alt+S").value
+        finally:
+            self.app._rotation_store = store
+
+        self.assertEqual("group-rotation", status["kind"])
+        self.assertFalse(status["recovery_required"])
+        self.assertNotIn("revision", status)
+        spoken = status["announcement"].casefold()
+        self.assertTrue("недоступ" in spoken or "unavailable" in spoken)
+        self.assertFalse(self.app.snapshot()["product_status"]["group_rotation_active"])
+
     def test_keyboard_rotation_status_before_start_is_spoken_without_mutation(self) -> None:
         store = self.app._rotation_store
         self.assertIsNotNone(store)
