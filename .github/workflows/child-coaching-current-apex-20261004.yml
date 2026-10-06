@@ -96,7 +96,7 @@ jobs:
               "tests/test_child_coaching_pointer_contract.py": "c410b32d7ef4ac05bc45921b859a283bad452b68",
               "tests/test_child_coaching_application.py": "a59dfaa0055f156b64ddd9e22704bf3d1814b9c5",
               "tests/test_child_coaching_projection.py": "d3de779725cf54c100675098a22fd41330d5d790",
-              "tests/test_child_coaching_rotation.py": "ac547c5c6eec732e5cb1a64ca7f29ed835bfafe1",
+              "tests/test_child_coaching_rotation.py": "6e188d10b63df6be5275d09adaa01c2e97fe51ef",
               "tests/test_child_coaching_rotation_completed_recovery.py": "5a3233b611cca861de497d3e7692560f7d9b449e",
               "tests/test_child_coaching_prepared_positions.py": "6999fca59274c9e1afd7159bab23e544ca6614a7",
           }
