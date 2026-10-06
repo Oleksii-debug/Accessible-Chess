@@ -14,7 +14,9 @@ from typing import Any, Callable, Iterator
 
 from . import version2_release_app as _release_app
 from . import version2_release_ui as _release_ui
+from .agent_execution_host import AgentOwnerThreadCall, bind_agent_runtime
 from .full_product_ui_shell import UILanguage
+from .universal_chess_agent import UniversalChessAgentRuntime
 from .version2_final_product_application import Version2FinalProductApplication
 from .version2_final_product_profile import (
     FINAL_PRODUCT_ACTION_IDS,
@@ -98,8 +100,33 @@ def _bind_api_language_sync(
     setattr(api, "_sync_version2_language", _composed_language_sync(base_sync))
 
 
+def _bind_agent_execution(
+    api: Any,
+    application: Version2FinalProductApplication,
+    factory: Callable[[Any, Version2FinalProductApplication, AgentOwnerThreadCall], object] | None,
+) -> None:
+    """Bind an explicitly configured model/runtime without inventing a provider."""
+
+    if factory is None:
+        return
+    owner_call = AgentOwnerThreadCall(api._invoke_ui)
+    runtime = factory(api, application, owner_call)
+    if type(runtime) is not UniversalChessAgentRuntime:
+        raise TypeError("agent_runtime_factory must return UniversalChessAgentRuntime")
+    bind_agent_runtime(application, runtime)
+
+
 def create_version2_release_application(*args: Any, **kwargs: Any):
-    """Create the final product without leaking its process-global release seams."""
+    """Create the final product and optionally bind its canonical Agent runtime.
+
+    No model provider is guessed from environment or credentials. A release host
+    that has an approved provider supplies agent_runtime_factory; otherwise the
+    Agent route remains reachable but explicitly unavailable.
+    """
+
+    agent_runtime_factory = kwargs.pop("agent_runtime_factory", None)
+    if agent_runtime_factory is not None and not callable(agent_runtime_factory):
+        raise TypeError("agent_runtime_factory must be callable or None")
 
     defer_ui = kwargs.get("defer_ui", False) is True
     with _final_product_bindings() as base_sync:
@@ -108,7 +135,20 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
         _bind_api_language_sync(api, base_sync)
 
     if not defer_ui:
-        return composed
+        api, application, runtime, native_runtime_factory = composed
+        try:
+            _bind_agent_execution(api, application, agent_runtime_factory)
+        except BaseException:
+            try:
+                application.shutdown()
+            except BaseException:
+                pass
+            try:
+                runtime.close()
+            except BaseException:
+                pass
+            raise
+        return api, application, runtime, native_runtime_factory
 
     api, application_factory, runtime, native_runtime_factory = composed
     if not callable(application_factory):
@@ -116,7 +156,16 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
 
     def build_final_product_application():
         with _final_product_bindings():
-            return application_factory()
+            application = application_factory()
+        try:
+            _bind_agent_execution(api, application, agent_runtime_factory)
+        except BaseException:
+            try:
+                application.shutdown()
+            except BaseException:
+                pass
+            raise
+        return application
 
     return api, build_final_product_application, runtime, native_runtime_factory
 
