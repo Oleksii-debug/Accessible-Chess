@@ -463,13 +463,16 @@ def _iter_semantic_images(line: str):
                 if destination_char == ")":
                     depth -= 1
                     if depth == 0:
-                        if cursor > destination_start:
-                            yield _SemanticImageMatch(
-                                start_index=index,
-                                end_index=cursor + 1,
-                                alt=alt_text,
-                            )
-                            index = cursor + 1
+                        # CommonMark permits an omitted/empty destination: ![alt]().
+                        # It is still an image semantic boundary whose alt text
+                        # must remain readable while the empty target contributes
+                        # no destination text.
+                        yield _SemanticImageMatch(
+                            start_index=index,
+                            end_index=cursor + 1,
+                            alt=alt_text,
+                        )
+                        index = cursor + 1
                         break
                     cursor += 1
                     continue
