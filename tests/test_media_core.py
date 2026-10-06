@@ -573,9 +573,12 @@ class MediaCoreContractTests(unittest.TestCase):
     def test_clock_rejects_unrepresentable_elapsed_delta(self):
         clock = MediaClock(playback_rate=16.0)
         clock.play(0)
+        before = clock.snapshot(0)
         with self.assertRaises(MediaContractError) as caught:
             clock.snapshot(10**1000)
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+        after = clock.snapshot(0)
+        self.assertEqual(after, before)
 
     def test_clock_rejects_non_monotonic_host_time(self):
         clock = MediaClock()
