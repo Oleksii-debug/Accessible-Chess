@@ -284,6 +284,88 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                epub._rebase_block(block, '123456789', 1, 1)
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('source anchor', str(caught.exception))
+
+    def test_epub_rebased_source_anchor_allows_exact_canonical_boundary(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
+            rebased = epub._rebase_block(block, '12345678', 1, 1)
+
+        self.assertEqual(rebased.source_anchor, '12345678')
+        self.assertTrue(rebased.block_id.startswith('epub-'))
+
+    def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, '_rebase_block', wraps=epub._rebase_block) as rebase:
+            with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 3):
+                with self.assertRaises(epub.BookEpubImportError) as caught:
+                    import_epub_book(raw, source_name='aggregate-limit.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('BookDocument block limit', str(caught.exception))
+        self.assertEqual(rebase.call_count, 3)
+
+    def test_epub_aggregate_blocks_allow_exact_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 4):
+            imported = import_epub_book(raw, source_name='aggregate-boundary.epub')
+
+        self.assertEqual(len(imported.document.blocks), 4)
+        self.assertEqual(imported.spine_documents, 2)
+
     def test_epub_nested_html_control_preserves_order_and_closes_archive_on_cancel(self):
         raw = _simple_epub(HTML.encode('utf-8'))
         plain = import_epub_book(raw, source_name='study.epub')
