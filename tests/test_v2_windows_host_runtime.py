@@ -255,6 +255,78 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(owner.posted, [])
         self.assertTrue(runtime.shutdown())
 
+    def test_next_owner_command_recovers_retained_mailbox_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "pending-before-dispatch.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            result = runtime("analysis.restart", {"source": "board"})
+
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls,
+                [("analysis.restart", {"source": "board"})],
+            )
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_pending_owner_recovery_cannot_dispatch_after_reentrant_close(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+        shutdown_results: list[bool] = []
+
+        runtime._pump.post_owner_callback(
+            lambda: shutdown_results.append(runtime.shutdown())
+        )
+        self.assertTrue(runtime._pump.owner_callback_pending)
+
+        with self.assertRaisesRegex(RuntimeError, "closed during UI recovery"):
+            runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(shutdown_results, [True])
+        self.assertTrue(runtime.closed)
+        self.assertEqual(fallback_calls, [])
+        self.assertFalse(runtime._pump.owner_callback_pending)
+
+        while owner.posted:
+            owner.posted.pop(0)()
+        self.assertEqual(fallback_calls, [])
+
     def test_pending_import_wakeup_reports_reentrant_close_as_not_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "reentrant-import-wakeup.pgn"
