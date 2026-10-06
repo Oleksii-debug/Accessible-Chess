@@ -1,0 +1,90 @@
+name: Recorded Media Canonical Application Adapter
+
+on:
+  push:
+    branches:
+      - work/recorded-media-canonical-application-adapter-20261005-sol56q8n4
+    paths:
+      - acs/recorded_media_application.py
+      - tests/test_recorded_media_application.py
+      - .github/workflows/recorded-media-application-adapter.yml
+  pull_request:
+    paths:
+      - acs/recorded_media_application.py
+      - tests/test_recorded_media_application.py
+      - .github/workflows/recorded-media-application-adapter.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recorded-media-application-adapter-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  canonical-application-adapter:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact recorded-media parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_parent='37aa2839ac5ca316dfbaf81242de8046ff67d6b7'
+          parent_ref='refs/heads/work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2'
+          live_parent="$(git ls-remote origin "$parent_ref" | awk '{print $1}')"
+          if [ "$live_parent" != "$expected_parent" ]; then
+            echo "RECORDED_MEDIA_PARENT_MOVED expected=$expected_parent live=$live_parent" >&2
+            exit 1
+          fi
+          merge_base="$(git merge-base "$expected_parent" HEAD)"
+          if [ "$merge_base" != "$expected_parent" ]; then
+            echo "APPLICATION_ADAPTER_NOT_DESCENDANT expected=$expected_parent merge_base=$merge_base" >&2
+            exit 1
+          fi
+          mapfile -t changed < <(git diff --name-only "$expected_parent" HEAD | sort)
+          expected=(
+            '.github/workflows/recorded-media-application-adapter.yml'
+            'acs/recorded_media_application.py'
+            'tests/test_recorded_media_application.py'
+          )
+          if [ "${#changed[@]}" -ne "${#expected[@]}" ]; then
+            echo "APPLICATION_ADAPTER_SCOPE_DRIFT" >&2
+            printf '%s\n' "${changed[@]}" >&2
+            exit 1
+          fi
+          for i in "${!expected[@]}"; do
+            if [ "${changed[$i]}" != "${expected[$i]}" ]; then
+              echo "APPLICATION_ADAPTER_SCOPE_DRIFT expected=${expected[$i]} actual=${changed[$i]}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Compile application bridge
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/media_preprocess.py
+          acs/recorded_media_sync.py
+          acs/recorded_media_application.py
+          tests/test_recorded_media_application.py
+
+      - name: Run recorded-media application adapter regressions
+        run: >-
+          python -m unittest -v
+          tests.test_recorded_media_application
+          tests.test_recorded_media_sync
