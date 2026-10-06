@@ -298,6 +298,79 @@ class PortableTreeTests(unittest.TestCase):
                 portable_module._stable_change_metadata(incomplete),
             )
 
+    def test_snapshot_metadata_rejects_invalid_stat_scalars(self):
+        stable = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        invalid = (
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=-1,
+                st_mtime_ns=123,
+                st_ctime_ns=456,
+            ),
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=True,
+                st_mtime_ns=123,
+                st_ctime_ns=456,
+            ),
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=4096,
+                st_mtime_ns=-1,
+                st_ctime_ns=456,
+            ),
+            SimpleNamespace(
+                st_dev=11,
+                st_ino=22,
+                st_size=4096,
+                st_mtime_ns=True,
+                st_ctime_ns=456,
+            ),
+        )
+        with mock.patch.object(
+            portable_module,
+            "_complete_file_identity",
+            return_value=True,
+        ):
+            for candidate in invalid:
+                with self.subTest(candidate=candidate):
+                    self.assertFalse(
+                        portable_module._same_file_snapshot(stable, candidate),
+                    )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=-1),
+                )
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=True),
+                )
+            )
+
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123, st_ctime_ns=-1),
+                )
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123, st_ctime_ns=True),
+                )
+            )
+
     def test_windows_snapshot_uses_mtime_without_ctime_and_fails_closed_without_mtime(self):
         with mock.patch.object(portable_module.os, "name", "nt"):
             self.assertEqual(
@@ -498,6 +571,34 @@ class PortableTreeTests(unittest.TestCase):
             st_size=4096,
             st_ctime_ns=456,
         )
+        negative_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=-1,
+            st_ctime_ns=456,
+        )
+        bool_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=True,
+            st_ctime_ns=456,
+        )
+        negative_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=-1,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
 
         self.assertTrue(
             portable_module._same_publication_snapshot(first, ctime_drift),
@@ -508,6 +609,16 @@ class PortableTreeTests(unittest.TestCase):
         self.assertFalse(
             portable_module._same_publication_snapshot(first, missing_mtime),
         )
+        for candidate in (
+            negative_mtime,
+            bool_mtime,
+            negative_size,
+            bool_size,
+        ):
+            with self.subTest(candidate=candidate):
+                self.assertFalse(
+                    portable_module._same_publication_snapshot(first, candidate),
+                )
 
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(
