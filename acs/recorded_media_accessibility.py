@@ -91,6 +91,9 @@ _LABELS = {
         "restore": "Restore synchronized chess position",
         "cancel": "Cancel media preprocessing",
         "heading": "Recorded chess media",
+        "region": "Recorded chess media player",
+        "back": "Back 10 seconds",
+        "forward": "Forward 10 seconds",
         "status_unavailable": "Recorded media synchronization is unavailable.",
         "status_confirmed": "A confirmed chess position is synchronized with the current media time.",
         "status_candidate": "The current media position has an unconfirmed chess candidate. Chess restore is disabled.",
@@ -110,6 +113,9 @@ _LABELS = {
         "restore": "Відновити синхронізовану шахову позицію",
         "cancel": "Скасувати попередню обробку медіа",
         "heading": "Записане шахове медіа",
+        "region": "Програвач записаного шахового медіа",
+        "back": "Назад на 10 секунд",
+        "forward": "Вперед на 10 секунд",
         "status_unavailable": "Синхронізація записаного медіа недоступна.",
         "status_confirmed": "Підтверджена шахова позиція синхронізована з поточним часом медіа.",
         "status_candidate": "Для поточного часу медіа є непідтверджений шаховий кандидат. Відновлення шахів вимкнено.",
@@ -246,6 +252,14 @@ class RecordedMediaPlayerState:
     position_ms: int | None
     duration_ms: int | None
     position_text: str
+    region_label: str
+    heading: str
+    seek_label: str
+    back_label: str
+    forward_label: str
+    restore_label: str
+    cancel_label: str
+    progress_label: str
     playback_state: str
     qualification: str
     status_text: str
@@ -269,6 +283,17 @@ class RecordedMediaPlayerState:
         _optional_nonnegative_int(self.position_ms, "player position")
         _optional_nonnegative_int(self.duration_ms, "player duration")
         _text(self.position_text, "position text", limit=64)
+        for name, value in ((
+            "region label", self.region_label),
+            ("heading", self.heading),
+            ("seek label", self.seek_label),
+            ("back label", self.back_label),
+            ("forward label", self.forward_label),
+            ("restore label", self.restore_label),
+            ("cancel label", self.cancel_label),
+            ("progress label", self.progress_label),
+        ):
+            _text(value, name, limit=256)
         _text(self.status_text, "status text")
         _text(self.announcement, "announcement text")
         if self.playback_state not in {state.value for state in MediaPlaybackState}:
@@ -312,6 +337,14 @@ class RecordedMediaPlayerState:
             "positionMs": self.position_ms,
             "durationMs": self.duration_ms,
             "positionText": self.position_text,
+            "regionLabel": self.region_label,
+            "heading": self.heading,
+            "seekLabel": self.seek_label,
+            "backLabel": self.back_label,
+            "forwardLabel": self.forward_label,
+            "restoreLabel": self.restore_label,
+            "cancelLabel": self.cancel_label,
+            "progressLabel": self.progress_label,
             "playbackState": self.playback_state,
             "qualification": self.qualification,
             "statusText": self.status_text,
@@ -412,6 +445,14 @@ class RecordedMediaAccessibilityBridge:
                 position_ms=position,
                 duration_ms=duration,
                 position_text=position_text,
+                region_label=labels["region"],
+                heading=labels["heading"],
+                seek_label=labels["seek"],
+                back_label=labels["back"],
+                forward_label=labels["forward"],
+                restore_label=labels["restore"],
+                cancel_label=labels["cancel"],
+                progress_label=labels["progress"],
                 playback_state=playback_state,
                 qualification=qualification,
                 status_text=status_text,
@@ -444,6 +485,14 @@ class RecordedMediaAccessibilityBridge:
             position_ms=position,
             duration_ms=None,
             position_text="—" if position is None else _format_time(position),
+            region_label=labels["region"],
+            heading=labels["heading"],
+            seek_label=labels["seek"],
+            back_label=labels["back"],
+            forward_label=labels["forward"],
+            restore_label=labels["restore"],
+            cancel_label=labels["cancel"],
+            progress_label=labels["progress"],
             playback_state="unstarted",
             qualification="unavailable",
             status_text=labels["status_unavailable"],
