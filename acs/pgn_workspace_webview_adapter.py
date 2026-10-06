@@ -19,7 +19,7 @@ from .full_product_actions import FullProductActionRouter
 from .full_product_presenters import PgnTreePresenter
 from .full_product_ui_shell import UILanguage
 from .gametree_navigation import GameTreeCursor, VariationStep
-from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection
+from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
 from .pgn_workspace import (
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
@@ -411,9 +411,14 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         if type(node_id) is not str:
             raise ValueError("PGN action lacks a presentation node")
         cursor = _node_cursor(node_id)
+        main_line_comment = (
+            action_id in {"pgn.comment_edit", "pgn.comment_delete"}
+            and cursor == GameTreeCursor()
+            and payload.get("slot") in {"leading", "trailing"}
+        )
         trusted = self._trusted_target(
             node_id,
-            require_current=True,
+            require_current=not main_line_comment,
             extra={key: value for key, value in payload.items() if key not in {"game_index", "node_id"}},
         )
         if action_id in {
@@ -524,16 +529,11 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return self._operate_and_render(operation)
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if (
-            type(name) is not str
-            or not name
-            or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
-            or "\x00" in name
-        ):
+        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
         if (
             type(value) is not str
-            or len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+            or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
             or "\x00" in value
             or "\r" in value
             or "\n" in value
@@ -547,12 +547,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if (
-            type(name) is not str
-            or not name
-            or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
-            or "\x00" in name
-        ):
+        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -562,7 +557,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def append_moves(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
             raise ValueError("PGN continuation text is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -572,7 +567,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def search(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > 4096 or "\x00" in text:
             raise ValueError("PGN search text is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -587,6 +582,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         *,
         slot: str | None = None,
         index: int | None = None,
+        main: bool = False,
     ) -> PgnWebViewEvent:
         return self._mutate_and_render(
             lambda: PgnWebViewProjection.edit_comment(
@@ -594,6 +590,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
                 text,
                 slot=slot,
                 index=index,
+                main=main,
             )
         )
 
@@ -608,12 +605,14 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         *,
         slot: str | None = None,
         index: int | None = None,
+        main: bool = False,
     ) -> PgnWebViewEvent:
         return self._mutate_and_render(
             lambda: PgnWebViewProjection.delete_comment(
                 self,
                 slot=slot,
                 index=index,
+                main=main,
             )
         )
 

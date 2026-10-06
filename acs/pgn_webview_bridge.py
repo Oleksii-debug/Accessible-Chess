@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .full_product_ui_shell import concise_user_error
-from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection
+from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
 from .pgn_workspace import (
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
@@ -44,7 +44,7 @@ class PgnWebViewBridge:
         # subclasses before len()/items() can execute custom Python hooks.
         if type(value) is not dict:
             raise TypeError("PGN browser payload must be a mapping")
-        if len(value) > 4:
+        if len(value) > 5:
             raise ValueError("PGN browser payload has too many fields")
         normalized: dict[str, object] = {}
         for key, item in value.items():
@@ -67,7 +67,7 @@ class PgnWebViewBridge:
     def _text(value: object, *, name: str, limit: int) -> str:
         if type(value) is not str:
             raise TypeError(f"{name} must be text")
-        if len(value) > limit or "\x00" in value:
+        if _utf16_units(value) > limit or "\x00" in value:
             raise ValueError(f"{name} is invalid")
         token = value.strip() if name != "comment text" else value
         if name != "comment text" and not token:
@@ -156,7 +156,7 @@ class PgnWebViewBridge:
                 value = data["value"]
                 if (
                     type(value) is not str
-                    or len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                    or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
                     or "\x00" in value
                     or "\r" in value
                     or "\n" in value
@@ -192,39 +192,66 @@ class PgnWebViewBridge:
                     return guarded
                 return self._projection.search(text)
             if command_id == "pgn.comment_edit":
+                main = False
                 if set(data) == {"text"}:
                     text = self._text(data["text"], name="comment text", limit=8000)
                     slot = None
                     index = None
                 else:
-                    self._exact_fields(data, {"text", "slot", "index"})
+                    allowed = {"text", "slot", "index"}
+                    if set(data) == allowed | {"main"}:
+                        if data["main"] is not True:
+                            raise ValueError("main-line comment flag is invalid")
+                        main = True
+                    else:
+                        self._exact_fields(data, allowed)
                     text = self._text(data["text"], name="comment text", limit=8000)
                     slot = self._text(data["slot"], name="comment slot", limit=16)
                     index = data["index"]
                     if type(index) is not int or index < -1 or index > 255:
                         raise ValueError("comment index is invalid")
+                    if main and slot not in {"leading", "trailing"}:
+                        raise ValueError("main-line comment slot is invalid")
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
-                return self._projection.edit_comment(text, slot=slot, index=index)
+                return self._projection.edit_comment(
+                    text,
+                    slot=slot,
+                    index=index,
+                    main=main,
+                )
             if command_id == "pgn.comment_delete":
+                main = False
                 if not data:
                     slot = None
                     index = None
                 else:
-                    self._exact_fields(data, {"slot", "index"})
+                    allowed = {"slot", "index"}
+                    if set(data) == allowed | {"main"}:
+                        if data["main"] is not True:
+                            raise ValueError("main-line comment flag is invalid")
+                        main = True
+                    else:
+                        self._exact_fields(data, allowed)
                     slot = self._text(data["slot"], name="comment slot", limit=16)
                     index = data["index"]
                     if type(index) is not int or index < 0 or index > 255:
                         raise ValueError("comment index is invalid")
+                    if main and slot not in {"leading", "trailing"}:
+                        raise ValueError("main-line comment slot is invalid")
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
-                return self._projection.delete_comment(slot=slot, index=index)
+                return self._projection.delete_comment(
+                    slot=slot,
+                    index=index,
+                    main=main,
+                )
             if command_id == "pgn.nag_edit":
                 self._exact_fields(data, {"text"})
                 raw = data["text"]
-                if type(raw) is not str or len(raw) > 512 or "\x00" in raw:
+                if type(raw) is not str or _utf16_units(raw) > 512 or "\x00" in raw:
                     raise ValueError("NAG text is invalid")
                 text = raw.strip()
                 guarded = presentation_guard()

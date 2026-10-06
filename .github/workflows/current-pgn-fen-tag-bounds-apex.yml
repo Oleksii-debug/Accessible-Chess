@@ -3,15 +3,20 @@ name: Current PGN FEN Tag Bounds Apex
 on:
   pull_request:
     branches:
-      - converge/pgn-editing-books-fen-apex-20261006-zftrkmo121
+      - anchor/s56r8-pgn-fen-47da6c0
     paths:
       - '.github/workflows/current-pgn-fen-tag-bounds-apex.yml'
-      - 'acs/pgn_workspace.py'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
       - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_workspace.py'
       - 'acs/pgn_workspace_webview_adapter.py'
-      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
       - 'tests/test_fen_editor_turn_and_visible_status.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'web/full_product_pgn.js'
   workflow_dispatch:
 
 permissions:
@@ -22,11 +27,17 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PGN_WORKSPACE_BLOB: 4728e069d1fbc6f76daaed3116cabbe8ce6c0e0a
-  PGN_BRIDGE_BLOB: 79a33b2acb88183dc9e76c2a1751e1e1862510d0
-  PGN_ADAPTER_BLOB: 1c9a62995cb0da3eeaaca0e76186fc6bbfc7dba1
-  PGN_ADAPTER_TEST_BLOB: fd9cf12b0b86a57e71e34ac234fee7d39239a497
-  PGN_FLOW_TEST_BLOB: f46f608474bedfa7d8830294e06e21fb3b24ccae
+  EXPECTED_BASE_SHA: 47da6c05cb484a129df39c08b5fad7acfa06a119
+  D01_WORKFLOW_BLOB: 41ca467e929931356b55103559f0db87b37483e6
+  PGN_BRIDGE_BLOB: e69f6ad4f8b6da8b3561ae569f4c6817b903548a
+  PGN_PROJECTION_BLOB: d9d1dfa213f83dcbc0f07263fed8339f1a54b394
+  PGN_WORKSPACE_BLOB: 2fe0d7213b1a986a5e8671dd84a7ddef4dfb1a8f
+  PGN_ADAPTER_BLOB: 0147d0c3bb744a80d8010b418be644484c5abbee
+  PGN_DOM_TEST_BLOB: d751388dc98e0f5218cfc7029f9af113b4bc751c
+  PGN_PROJECTION_TEST_BLOB: d9a5109ea0c01b250b12a470962a93cd7df6fe6e
+  PGN_ADAPTER_TEST_BLOB: 97ffc9efbed003b053f174f82e9082f5288e3d20
+  PGN_FLOW_TEST_BLOB: b5f5c6c8bbee028e25ef10f104b1fc8e355f77e3
+  PGN_WEB_UI_BLOB: 6c3fc44c53412662d39f0be914dc1208478d526b
   FEN_TURN_TEST_BLOB: b70774b1bd9fbd333733dd4d0dd0d2a23956b9d7
 
 jobs:
@@ -44,29 +55,40 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove exact geometry and blobs
+      - name: Prove exact base, geometry and blobs
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha }}"
+          test "$base" = "$EXPECTED_BASE_SHA"
           test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
           changed="$(git diff --name-only "$base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-pgn-fen-tag-bounds-apex.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
             'acs/pgn_webview_bridge.py' \
-            'acs/pgn_workspace_webview_adapter.py' \
+            'acs/pgn_webview_projection.py' \
             'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
             'tests/test_fen_editor_turn_and_visible_status.py' \
             'tests/test_pgn_complete_editing_user_flow.py' \
-            'tests/test_dev1_pgn_workspace_webview_adapter.py' | sort)"
+            'web/full_product_pgn.js' | sort)"
           test "$changed" = "$expected"
-          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = "$D01_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$PGN_BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PGN_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$PGN_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$PGN_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$PGN_PROJECTION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$PGN_ADAPTER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$PGN_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_WEB_UI_BLOB"
           test "$(git rev-parse HEAD:tests/test_fen_editor_turn_and_visible_status.py)" = "$FEN_TURN_TEST_BLOB"
 
       - uses: actions/setup-python@v5
@@ -74,9 +96,25 @@ jobs:
           python-version: '3.12'
 
       - name: Compile changed Python
-        run: python -m py_compile acs/pgn_workspace.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py tests/test_pgn_complete_editing_user_flow.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_fen_editor_turn_and_visible_status.py
+        run: >-
+          python -m py_compile
+          acs/pgn_workspace.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace_webview_adapter.py
+          tests/test_pgn_complete_editing_user_flow.py
+          tests/test_dev1_pgn_webview_projection.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_fen_editor_turn_and_visible_status.py
 
-      - name: PGN complete editing and workspace
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: PGN browser DOM contract
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: PGN complete editing, workspace and commands
         run: >-
           python -m unittest
           tests.test_pgn_complete_editing_user_flow

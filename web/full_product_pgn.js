@@ -9,6 +9,7 @@
   const MAX_PGN_DEPTH = 256;
   const MAX_PGN_NODE_ID = 4096;
   const MAX_PGN_COMMENT_TEXT = 8000;
+  const MAX_PGN_EDIT_CONTRACT_LIMIT = 8192;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const PGN_DOM_ID_PATTERN = /^pgn-node-[0-9a-f]{20}$/;
   const PRESENTATION_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
@@ -50,6 +51,13 @@
     }
     if (value.length > limit || value.indexOf("\x00") >= 0) {
       throw new TypeError(label + " exceeds its canonical text contract");
+    }
+    return value;
+  }
+
+  function requirePositiveLimit(value, label) {
+    if (!Number.isSafeInteger(value) || value < 1 || value > MAX_PGN_EDIT_CONTRACT_LIMIT) {
+      throw new TypeError(label + " is invalid");
     }
     return value;
   }
@@ -102,14 +110,15 @@
     requireText(editor.save_label, "PGN comment editor save label", false, 120);
     requireText(editor.cancel_label, "PGN comment editor cancel label", false, 120);
     if (editor.entries !== undefined) {
-      if (!Array.isArray(editor.entries) || editor.entries.length > MAX_PGN_COMMENTS_PER_ITEM * 2) {
+      if (!Array.isArray(editor.entries) || editor.entries.length > MAX_PGN_COMMENTS_PER_ITEM * 4) {
         throw new TypeError("PGN comment editor entries are invalid");
       }
       editor.entries.forEach(function (entry) {
         requireRecord(entry, "PGN comment entry");
         if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0 ||
             !Number.isSafeInteger(entry.index) || entry.index < 0 ||
-            entry.index >= MAX_PGN_COMMENTS_PER_ITEM) {
+            entry.index >= MAX_PGN_COMMENTS_PER_ITEM ||
+            typeof entry.main !== "boolean") {
           throw new TypeError("PGN comment entry target is invalid");
         }
         requireText(entry.label, "PGN comment entry label", false, 160);
@@ -122,7 +131,8 @@
       }
       editor.add_slots.forEach(function (entry) {
         requireRecord(entry, "PGN comment add slot");
-        if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0) {
+        if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0 ||
+            typeof entry.main !== "boolean") {
           throw new TypeError("PGN comment add slot is invalid");
         }
         requireText(entry.label, "PGN comment add slot label", false, 160);
@@ -162,6 +172,18 @@
         (documentSpec.lang !== "uk" && documentSpec.lang !== "en")) {
       throw new TypeError("PGN document contract is invalid");
     }
+    const editContract = requireRecord(snapshot.edit_contract, "PGN edit contract");
+    if (Object.keys(editContract).length !== 2) {
+      throw new TypeError("PGN edit contract shape is invalid");
+    }
+    const tagNameMaxChars = requirePositiveLimit(
+      editContract.tag_name_max_chars,
+      "PGN tag-name edit limit"
+    );
+    const tagValueMaxChars = requirePositiveLimit(
+      editContract.tag_value_max_chars,
+      "PGN tag-value edit limit"
+    );
 
     requireText(snapshot.error_message, "PGN error message", false, 240);
     if (
@@ -276,8 +298,8 @@
         throw new TypeError("PGN tags must be dense");
       }
       const tag = requireRecord(game.tags[index], "PGN tag");
-      requireText(tag.name, "PGN tag name", false, 80);
-      requireText(tag.value, "PGN tag value", true, 360);
+      requireText(tag.name, "PGN tag name", false, tagNameMaxChars);
+      requireText(tag.value, "PGN tag value", true, tagValueMaxChars);
     }
     requireDenseTextArray(
       game.warnings,
@@ -747,10 +769,22 @@
       const index = Number(parts[1]);
       if (parts[0] === "existing") {
         const entry = entries[index];
-        return entry ? { slot: entry.slot, index: entry.index, existing: true, value: entry.value } : null;
+        return entry ? {
+          slot: entry.slot,
+          index: entry.index,
+          existing: true,
+          value: entry.value,
+          main: entry.main === true
+        } : null;
       }
       const slot = addSlots[index];
-      return slot ? { slot: slot.slot, index: -1, existing: false, value: "" } : null;
+      return slot ? {
+        slot: slot.slot,
+        index: -1,
+        existing: false,
+        value: "",
+        main: slot.main === true
+      } : null;
     }
 
     function syncTarget() {
@@ -801,7 +835,12 @@
       textarea.focus({ preventScroll: true });
       const selected = currentTarget();
       const payload = selected
-        ? { text: textarea.value, slot: selected.slot, index: selected.index }
+        ? {
+            text: textarea.value,
+            slot: selected.slot,
+            index: selected.index,
+            ...(selected.main ? { main: true } : {})
+          }
         : { text: textarea.value };
       const started = invokeCommand(
         root,
@@ -836,7 +875,11 @@
         invoke,
         announce,
         "pgn.comment_delete",
-        { slot: selected.slot, index: selected.index },
+        {
+          slot: selected.slot,
+          index: selected.index,
+          ...(selected.main ? { main: true } : {})
+        },
         {
           afterResult: function (result) {
             if (result.kind === "error") {
@@ -910,15 +953,16 @@
     const nameLabel = node("label", en ? "Tag name" : "Назва тегу");
     const nameInput = node("input");
     nameInput.id = "pgn-tag-name";
-    nameInput.maxLength = 80;
+    nameInput.maxLength = snapshot.edit_contract.tag_name_max_chars;
     nameLabel.htmlFor = nameInput.id;
     dialog.appendChild(nameLabel);
     dialog.appendChild(nameInput);
 
     const valueLabel = node("label", en ? "Tag value" : "Значення тегу");
-    const valueInput = node("textarea");
+    const valueInput = node("input");
+    valueInput.type = "text";
     valueInput.id = "pgn-tag-value";
-    valueInput.maxLength = 360;
+    valueInput.maxLength = snapshot.edit_contract.tag_value_max_chars;
     valueLabel.htmlFor = valueInput.id;
     dialog.appendChild(valueLabel);
     dialog.appendChild(valueInput);

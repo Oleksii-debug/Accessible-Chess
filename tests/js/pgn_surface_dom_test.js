@@ -75,6 +75,7 @@ function snapshot(selectedId) {
     status: "ready",
     empty_message: "",
     error_message: "The action could not be completed.",
+    edit_contract: { tag_name_max_chars: 80, tag_value_max_chars: 360 },
     game: {
       index: 0,
       number: 1,
@@ -120,9 +121,15 @@ function snapshot(selectedId) {
     actions: [
       { action: "pgn.previous_game", label: "Previous game", enabled: false },
       { action: "pgn.next_game", label: "Next game", enabled: false },
+      { action: "pgn.search", label: "Search PGN", enabled: true },
+      { action: "pgn.append_moves", label: "Continue line", enabled: true },
+      { action: "pgn.tag_edit", label: "Edit PGN tag", enabled: true },
+      { action: "pgn.tag_delete", label: "Delete PGN tag", enabled: true },
       { action: "pgn.parent", label: "Return to parent variation", enabled: false },
       { action: "pgn.comment_edit", label: "Add or edit comment", enabled: true },
       { action: "pgn.comment_delete", label: "Delete comment", enabled: false },
+      { action: "pgn.nag_edit", label: "Edit NAG", enabled: true },
+      { action: "pgn.variation_add", label: "Add variation", enabled: true },
       { action: "pgn.variation_delete", label: "Delete variation", enabled: false },
       { action: "pgn.variation_promote", label: "Promote variation", enabled: false },
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true },
@@ -177,6 +184,7 @@ async function run() {
     calls.push([command, payload || {}]);
     if (command === "pgn.move") return { kind: "selection", payload: { snapshot: snapshot("pgn-node-bbbbbbbbbbbbbbbbbbbb"), focus_target: "pgn-node-bbbbbbbbbbbbbbbbbbbb", announcement: "" } };
     if (command === "pgn.comment_edit") return { kind: "selection", payload: { snapshot: snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"), focus_target: "pgn-node-aaaaaaaaaaaaaaaaaaaa", announcement: "" } };
+    if (command === "pgn.tag_edit") return { kind: "delegated", payload: { action: command } };
     if (command === "pgn.copy_selection") return { kind: "delegated", payload: { action: command } };
     throw new Error("unexpected command " + command);
   };
@@ -251,6 +259,58 @@ async function run() {
   check(
     oversizedTreeRejected,
     "PGN render accepted an oversized tree before item validation"
+  );
+
+  const customContractSnapshot = snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa");
+  customContractSnapshot.edit_contract = {
+    tag_name_max_chars: 17,
+    tag_value_max_chars: 29
+  };
+  const customContractRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    customContractRoot,
+    customContractSnapshot,
+    () => ({ kind: "delegated", payload: { action: "pgn.copy_selection" } }),
+    () => {},
+    ""
+  );
+  const customName = customContractRoot.descendants().find(
+    (item) => item.id === "pgn-tag-name"
+  );
+  const customValue = customContractRoot.descendants().find(
+    (item) => item.id === "pgn-tag-value"
+  );
+  check(
+    customName && customName.maxLength === 17 &&
+      customValue && customValue.maxLength === 29,
+    "PGN browser tag editor ignored the host edit contract"
+  );
+
+  const malformedContractSnapshot = snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa");
+  malformedContractSnapshot.edit_contract = {
+    tag_name_max_chars: 80,
+    tag_value_max_chars: 0
+  };
+  const malformedContractRoot = new FakeElement("div");
+  let malformedContractRejected = false;
+  try {
+    window.AccessibleChessPgnSurface.render(
+      malformedContractRoot,
+      malformedContractSnapshot,
+      () => ({}),
+      () => {},
+      ""
+    );
+  } catch (error) {
+    malformedContractRejected = error instanceof TypeError;
+  }
+  check(
+    malformedContractRejected,
+    "PGN browser accepted an invalid edit contract"
+  );
+  check(
+    malformedContractRoot.children.length === 0,
+    "invalid PGN edit contract mutated DOM before validation"
   );
 
   let announcementCoercionTouched = false;
@@ -353,41 +413,46 @@ async function run() {
   check(firstToolbar !== null, "PGN action toolbar missing");
   check(firstToolbar.getAttribute("aria-orientation") === "horizontal", "PGN toolbar orientation missing");
   const firstToolbarButtons = firstToolbar.children.filter((item) => item.tagName === "BUTTON");
-  check(firstToolbarButtons.length === 9, "PGN toolbar action fixture changed");
-  check(firstToolbarButtons[3].tabIndex === 0, "first enabled PGN toolbar action must be tabbable");
+  check(firstToolbarButtons.length === 15, "PGN toolbar action fixture changed");
+  const enabledToolbarButtons = firstToolbarButtons.filter((button) => !button.disabled);
+  const firstEnabledToolbar = enabledToolbarButtons[0];
+  const secondEnabledToolbar = enabledToolbarButtons[1];
+  const lastEnabledToolbar = enabledToolbarButtons[enabledToolbarButtons.length - 1];
+  check(firstEnabledToolbar.tabIndex === 0, "first enabled PGN toolbar action must be tabbable");
   check(firstToolbarButtons[0].disabled && firstToolbarButtons[0].tabIndex === -1, "disabled previous-game action entered roving order");
-  check(firstToolbarButtons[7].tabIndex === -1 && firstToolbarButtons[8].tabIndex === -1, "later enabled PGN toolbar actions must start outside Tab order");
+  check(
+    enabledToolbarButtons.slice(1).every((button) => button.tabIndex === -1),
+    "later enabled PGN toolbar actions must start outside Tab order"
+  );
 
-  firstToolbarButtons[3].focus();
-  check(pressKey(firstToolbarButtons[3], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight must be handled");
-  check(document.activeElement === firstToolbarButtons[7], "PGN toolbar ArrowRight did not skip disabled actions");
-  check(firstToolbarButtons[7].tabIndex === 0 && firstToolbarButtons[3].tabIndex === -1, "PGN toolbar roving tab stop did not follow focus");
-  check(pressKey(firstToolbarButtons[7], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight second step must be handled");
-  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar ArrowRight did not reach next enabled action");
-  check(pressKey(firstToolbarButtons[8], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight wrap must be handled");
-  check(document.activeElement === firstToolbarButtons[3], "PGN toolbar ArrowRight did not wrap to first enabled action");
-  check(pressKey(firstToolbarButtons[3], firstToolbar, "ArrowLeft"), "PGN toolbar ArrowLeft wrap must be handled");
-  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar ArrowLeft did not wrap to last enabled action");
-  check(pressKey(firstToolbarButtons[8], firstToolbar, "Home"), "PGN toolbar Home must be handled");
-  check(document.activeElement === firstToolbarButtons[3], "PGN toolbar Home did not reach first enabled action");
-  check(pressKey(firstToolbarButtons[3], firstToolbar, "End"), "PGN toolbar End must be handled");
-  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar End did not reach last enabled action");
+  firstEnabledToolbar.focus();
+  check(pressKey(firstEnabledToolbar, firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight must be handled");
+  check(document.activeElement === secondEnabledToolbar, "PGN toolbar ArrowRight did not reach next enabled action");
+  check(secondEnabledToolbar.tabIndex === 0 && firstEnabledToolbar.tabIndex === -1, "PGN toolbar roving tab stop did not follow focus");
+  check(pressKey(lastEnabledToolbar, firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight wrap must be handled");
+  check(document.activeElement === firstEnabledToolbar, "PGN toolbar ArrowRight did not wrap to first enabled action");
+  check(pressKey(firstEnabledToolbar, firstToolbar, "ArrowLeft"), "PGN toolbar ArrowLeft wrap must be handled");
+  check(document.activeElement === lastEnabledToolbar, "PGN toolbar ArrowLeft did not wrap to last enabled action");
+  check(pressKey(lastEnabledToolbar, firstToolbar, "Home"), "PGN toolbar Home must be handled");
+  check(document.activeElement === firstEnabledToolbar, "PGN toolbar Home did not reach first enabled action");
+  check(pressKey(firstEnabledToolbar, firstToolbar, "End"), "PGN toolbar End must be handled");
+  check(document.activeElement === lastEnabledToolbar, "PGN toolbar End did not reach last enabled action");
   delete toolbarBindings.ArrowRight;
   toolbarBindings.j = "toolbar.next_control";
-  check(!pressKey(firstToolbarButtons[8], firstToolbar, "ArrowRight"), "unbound former PGN toolbar ArrowRight was still claimed");
-  check(document.activeElement === firstToolbarButtons[8], "unbound former PGN toolbar ArrowRight still moved focus");
-  check(pressKey(firstToolbarButtons[8], firstToolbar, "j"), "remapped PGN toolbar next-control key was not handled");
-  check(document.activeElement === firstToolbarButtons[3], "remapped PGN toolbar next-control key did not wrap focus");
+  check(!pressKey(lastEnabledToolbar, firstToolbar, "ArrowRight"), "unbound former PGN toolbar ArrowRight was still claimed");
+  check(document.activeElement === lastEnabledToolbar, "unbound former PGN toolbar ArrowRight still moved focus");
+  check(pressKey(lastEnabledToolbar, firstToolbar, "j"), "remapped PGN toolbar next-control key was not handled");
+  check(document.activeElement === firstEnabledToolbar, "remapped PGN toolbar next-control key did not wrap focus");
   toolbarBindings.ArrowRight = "toolbar.next_control";
   delete toolbarBindings.j;
-  check(!pressKey(firstToolbarButtons[8], firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
+  check(!pressKey(lastEnabledToolbar, firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
   exerciseToolbarRemaps(
     firstToolbarButtons, (button, event) => button.listeners.keydown(event),
     window, toolbarBindings, document, "PGN toolbar"
   );
-  firstToolbarButtons[8].listeners.focus();
-  check(firstToolbarButtons[8].tabIndex === 0, "PGN pointer/programmatic focus did not update the Tab stop");
-  check(firstToolbarButtons[3].tabIndex === -1, "PGN toolbar retained a second Tab stop after focus");
+  lastEnabledToolbar.listeners.focus();
+  check(lastEnabledToolbar.tabIndex === 0, "PGN pointer/programmatic focus did not update the Tab stop");
+  check(firstEnabledToolbar.tabIndex === -1, "PGN toolbar retained a second Tab stop after focus");
   firstToolbarButtons[0].listeners.focus();
   check(firstToolbarButtons[0].tabIndex === -1, "disabled PGN focus entered Tab order");
 
@@ -453,6 +518,40 @@ async function run() {
   check(calls.length === beforeCopy, "Ctrl+C unexpectedly became a PGN command");
 
   const all = root.descendants();
+  const tagEdit = all.find((item) => item.dataset.action === "pgn.tag_edit");
+  const tagName = all.find((item) => item.id === "pgn-tag-name");
+  const tagValue = all.find((item) => item.id === "pgn-tag-value");
+  check(tagEdit && tagName && tagValue, "PGN tag editor controls missing");
+  check(
+    tagName.tagName === "INPUT" && tagName.maxLength === 80,
+    "PGN tag-name input did not consume the canonical limit"
+  );
+  check(
+    tagValue.tagName === "INPUT" &&
+      tagValue.type === "text" &&
+      tagValue.maxLength === 360,
+    "PGN tag-value editor is not canonical single-line text"
+  );
+  tagEdit.listeners.click();
+  const tagDialog = tagName.parentNode;
+  check(tagDialog && tagDialog.tagName === "DIALOG" && tagDialog.open, "PGN tag dialog did not open");
+  tagName.value = "Event";
+  tagValue.value = "Accessible event";
+  const tagSave = tagDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Save"
+  );
+  check(tagSave, "PGN tag save action missing");
+  tagSave.listeners.click();
+  await flush();
+  await flush();
+  const tagCall = calls.find((call) => call[0] === "pgn.tag_edit");
+  check(
+    tagCall &&
+      tagCall[1].name === "Event" &&
+      tagCall[1].value === "Accessible event",
+    "PGN tag editor did not preserve the canonical payload"
+  );
+
   const textarea = all.find((item) => item.tagName === "TEXTAREA");
   check(textarea && !textarea.listeners.keydown, "comment textarea editing semantics changed");
   const edit = all.find((item) => item.dataset.action === "pgn.comment_edit");

@@ -206,6 +206,34 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(0, payload["index"])
         self.assertEqual(0, payload["move_index"])
 
+    def test_workspace_adapter_rejects_utf16_overflow_before_registry_dispatch(self) -> None:
+        before = list(self.calls)
+        for operation in (
+            lambda: self.projection.search("😀" * 2049),
+            lambda: self.projection.append_moves("😀" * 4097),
+            lambda: self.projection.edit_tag("Event", "😀" * 181),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises(ValueError):
+                    operation()
+                self.assertEqual(before, self.calls)
+
+    def test_bridge_rejects_tag_utf16_and_line_breaks_before_projection(self) -> None:
+        def unexpected_projection_call(_name, _value):
+            self.fail("bridge forwarded an invalid PGN tag edit")
+
+        self.projection.edit_tag = unexpected_projection_call
+        invalid_payloads = (
+            {"name": "Event", "value": "😀" * 181},
+            {"name": "😀" * 41, "value": "safe"},
+            {"name": "Event", "value": "line\nbreak"},
+            {"name": "Event", "value": "carriage\rreturn"},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=repr(payload)):
+                event = self.bridge.dispatch("pgn.tag_edit", payload)
+                self.assertEqual("error", event.kind)
+
     def test_direct_projection_tag_edit_uses_canonical_bounds_and_rejects_line_breaks(self) -> None:
         before = len(self.calls)
         invalid = (

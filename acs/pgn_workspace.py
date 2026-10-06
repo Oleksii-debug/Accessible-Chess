@@ -67,6 +67,12 @@ MAX_PGN_EDIT_TAG_NAME_CHARS = 80
 MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
 
 
+def _pgn_edit_text_units(value: str) -> int:
+    """Return browser-compatible UTF-16 units for bounded PGN edit text."""
+
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
+
+
 class PgnWorkspaceErrorCode(str, Enum):
     INVALID_DOCUMENT = "invalid_document"
     EMPTY_DOCUMENT = "empty_document"
@@ -508,7 +514,7 @@ class PgnWorkspace:
         """Edit or delete one PGN tag atomically on the selected game."""
         if (
             type(name) is not str
-            or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or _pgn_edit_text_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
             or "\x00" in name
             or TAG_NAME_RE.fullmatch(name) is None
         ):
@@ -517,7 +523,7 @@ class PgnWorkspace:
             if type(value) is not str:
                 raise TypeError("PGN tag value must be text or None")
             if (
-                len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                _pgn_edit_text_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
                 or "\x00" in value
                 or "\r" in value
                 or "\n" in value

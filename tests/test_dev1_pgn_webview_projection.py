@@ -16,6 +16,10 @@ from acs.gametree import (
 )
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
+from acs.pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 
 
 PGN = """[Event \"C:/Users/private/tournament.pgn\"]
@@ -60,6 +64,13 @@ class PgnWebViewProjectionTests(unittest.TestCase):
     def test_recursive_tree_tags_warnings_and_paths_are_safely_projected(self) -> None:
         snapshot = self.projection.snapshot()
         self.assertEqual("ready", snapshot["status"])
+        self.assertEqual(
+            {
+                "tag_name_max_chars": MAX_PGN_EDIT_TAG_NAME_CHARS,
+                "tag_value_max_chars": MAX_PGN_EDIT_TAG_VALUE_CHARS,
+            },
+            snapshot["edit_contract"],
+        )
         self.assertEqual("Game 1 of 2", snapshot["game"]["position_label"])
         self.assertEqual("White — Black", snapshot["game"]["heading"])
         tree = snapshot["tree"]
@@ -102,6 +113,64 @@ class PgnWebViewProjectionTests(unittest.TestCase):
             ("pgn.search", {"game_index": 0, "node_id": "", "text": "needle"}),
             calls[-1],
         )
+
+    def test_move_less_main_line_comment_uses_trusted_root_scope(self) -> None:
+        games = tuple(
+            parse_games('[Event "Root comments"]\n[Result "*"]\n\n{Opening note} *')
+        )
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def dispatch(action_id: str, payload: dict[str, object]):
+            calls.append((action_id, dict(payload)))
+            return None
+
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            dispatch,
+            lambda: len(games),
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+
+        snapshot = projection.snapshot()
+        self.assertEqual((), snapshot["tree"])
+        self.assertTrue(
+            next(
+                action["enabled"]
+                for action in snapshot["actions"]
+                if action["action"] == "pgn.comment_edit"
+            )
+        )
+        main_entries = [
+            entry for entry in snapshot["comment_editor"]["entries"] if entry["main"]
+        ]
+        self.assertEqual("Opening note", main_entries[0]["value"])
+
+        event = bridge.dispatch(
+            "pgn.comment_edit",
+            {
+                "text": "Updated opening",
+                "slot": "leading",
+                "index": 0,
+                "main": True,
+            },
+        )
+        self.assertEqual("delegated", event.kind)
+        self.assertEqual(
+            (
+                "pgn.comment_edit",
+                {
+                    "game_index": 0,
+                    "node_id": "g0:main",
+                    "text": "Updated opening",
+                    "slot": "leading",
+                    "index": 0,
+                },
+            ),
+            calls[-1],
+        )
+        self.assertNotIn("main", calls[-1][1])
 
     def test_move_tree_labels_use_shared_accessible_san_spacing(self) -> None:
         snapshot = self.projection.snapshot()
@@ -327,6 +396,36 @@ class PgnWebViewProjectionTests(unittest.TestCase):
 
         self.assertFalse(HostilePresenter.touched)
 
+    def test_detailed_comment_editor_collections_are_bounded_before_projection(self) -> None:
+        base = self.presenter.view()
+        variation = next(item for item in base.items if item.kind == "variation")
+
+        for replacement, error, message in (
+            (
+                replace(variation, trailing_comments=["not-a-tuple"]),
+                TypeError,
+                "canonical tuples",
+            ),
+            (
+                replace(variation, trailing_comments=("tail",) * 257),
+                ValueError,
+                "too many comments",
+            ),
+        ):
+            with self.subTest(error=error.__name__):
+                items = tuple(
+                    replacement if item.node_id == variation.node_id else item
+                    for item in base.items
+                )
+                hostile = replace(
+                    base,
+                    items=items,
+                    selected_node_id=variation.node_id,
+                )
+                with patch.object(self.presenter, "view", return_value=hostile):
+                    with self.assertRaisesRegex(error, message):
+                        self.projection.snapshot()
+
     def test_game_count_provider_rejects_false_green_or_coercive_values(self) -> None:
         for value in (True, -1, len(self.games) + 1):
             with self.subTest(value=value):
@@ -530,6 +629,35 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         accepted = "😀" * 4000
         self.projection.edit_comment(accepted)
         self.assertEqual(accepted, self.calls[-1][1]["text"])
+
+        bounded_calls = (
+            (lambda text: self.projection.search(text), 2048),
+            (lambda text: self.projection.append_moves(text), 4096),
+            (lambda text: self.projection.edit_tag("Event", text), 180),
+            (lambda text: self.projection.edit_nags(text), 256),
+            (lambda text: self.projection.add_variation(text), 4096),
+        )
+        for call, emoji_limit in bounded_calls:
+            with self.subTest(emoji_limit=emoji_limit):
+                before = list(self.calls)
+                with self.assertRaises(ValueError):
+                    call("😀" * (emoji_limit + 1))
+                self.assertEqual(before, self.calls)
+                call("😀" * emoji_limit)
+                self.assertEqual("😀" * emoji_limit, self.calls[-1][1]["text"] if "text" in self.calls[-1][1] else self.calls[-1][1]["value"])
+
+        with patch.object(
+            self.projection,
+            "search",
+            side_effect=AssertionError("bridge must reject UTF-16 overflow first"),
+        ) as search:
+            result = self.bridge.dispatch("pgn.search", {"text": "😀" * 2049})
+        self.assertEqual("error", result.kind)
+        search.assert_not_called()
+
+        result = self.bridge.dispatch("pgn.search", {"text": "😀" * 2048})
+        self.assertEqual("delegated", result.kind)
+        self.assertEqual("😀" * 2048, self.calls[-1][1]["text"])
 
     def test_comment_input_is_bounded_and_nul_rejected_before_dispatch(self) -> None:
         before = list(self.calls)
