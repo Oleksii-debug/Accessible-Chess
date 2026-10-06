@@ -8,7 +8,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .full_product_ui_shell import concise_user_error
-from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection
+from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
+from .pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 
 
 class PgnWebViewBridge:
@@ -63,7 +67,7 @@ class PgnWebViewBridge:
     def _text(value: object, *, name: str, limit: int) -> str:
         if type(value) is not str:
             raise TypeError(f"{name} must be text")
-        if len(value) > limit or "\x00" in value:
+        if len(value) > limit or _utf16_units(value) > limit or "\x00" in value:
             raise ValueError(f"{name} is invalid")
         token = value.strip() if name != "comment text" else value
         if name != "comment text" and not token:
@@ -142,19 +146,98 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.next_game()
-            if command_id == "pgn.comment_edit":
+            if command_id == "pgn.tag_edit":
+                self._exact_fields(data, {"name", "value"})
+                name = self._text(
+                    data["name"],
+                    name="tag name",
+                    limit=MAX_PGN_EDIT_TAG_NAME_CHARS,
+                )
+                value = data["value"]
+                if (
+                    type(value) is not str
+                    or len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS\n                    or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                    or "\x00" in value
+                    or "\r" in value
+                    or "\n" in value
+                ):
+                    raise ValueError("tag value is invalid")
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_tag(name, value)
+            if command_id == "pgn.tag_delete":
+                self._exact_fields(data, {"name"})
+                name = self._text(
+                    data["name"],
+                    name="tag name",
+                    limit=MAX_PGN_EDIT_TAG_NAME_CHARS,
+                )
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.delete_tag(name)
+            if command_id == "pgn.append_moves":
                 self._exact_fields(data, {"text"})
-                text = self._text(data["text"], name="comment text", limit=8000)
+                text = self._text(data["text"], name="continuation text", limit=8192)
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
-                return self._projection.edit_comment(text)
+                return self._projection.append_moves(text)
+            if command_id == "pgn.search":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="search text", limit=4096)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.search(text)
+            if command_id == "pgn.comment_edit":
+                if set(data) == {"text"}:
+                    text = self._text(data["text"], name="comment text", limit=8000)
+                    slot = None
+                    index = None
+                else:
+                    self._exact_fields(data, {"text", "slot", "index"})
+                    text = self._text(data["text"], name="comment text", limit=8000)
+                    slot = self._text(data["slot"], name="comment slot", limit=16)
+                    index = data["index"]
+                    if type(index) is not int or index < -1 or index > 255:
+                        raise ValueError("comment index is invalid")
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_comment(text, slot=slot, index=index)
             if command_id == "pgn.comment_delete":
-                self._exact_fields(data, set())
+                if not data:
+                    slot = None
+                    index = None
+                else:
+                    self._exact_fields(data, {"slot", "index"})
+                    slot = self._text(data["slot"], name="comment slot", limit=16)
+                    index = data["index"]
+                    if type(index) is not int or index < 0 or index > 255:
+                        raise ValueError("comment index is invalid")
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
-                return self._projection.delete_comment()
+                return self._projection.delete_comment(slot=slot, index=index)
+            if command_id == "pgn.nag_edit":
+                self._exact_fields(data, {"text"})
+                raw = data["text"]
+                if type(raw) is not str or len(raw) > 512 or _utf16_units(raw) > 512 or "\x00" in raw:
+                    raise ValueError("NAG text is invalid")
+                text = raw.strip()
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_nags(text)
+            if command_id == "pgn.variation_add":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="variation text", limit=8192)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.add_variation(text)
             if command_id == "pgn.variation_delete":
                 self._exact_fields(data, set())
                 guarded = presentation_guard()

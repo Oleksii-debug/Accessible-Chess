@@ -6,11 +6,14 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .gametree import Comment, PgnGame, serialize_game
+from .gametree import Comment, PgnGame, VariationLine, serialize_game
 from .gametree_annotations import LineAnnotationPatch, LineAnnotationTarget, MoveAnnotationPatch, MoveAnnotationTarget
 from .gametree_editing import VariationEditTarget
+from .gametree_insertion import variation_insert_target
 from .gametree_legality import validate_game_legality
+from .pgn_roundtrip import parse_pgn_text
 from .gametree_navigation import GameTreeCursor, MoveAddress, VariationStep, resolve_line, validate_cursor
+from .search_policy import normalize_search_term, normalize_search_text, search_fold
 from .pgn_document import PgnDocumentSession
 from .pgn_service import export_game_atomic
 from .version2_windows_pgn_export import PgnSelectionExportRequest
@@ -93,6 +96,10 @@ class _PgnNavigationTarget:
         )
 
 
+def _utf16_units(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
 class Version2PgnCommands:
     def __init__(self, get_session, *, copy_text=lambda _: None):
         self._get_session = get_session
@@ -163,6 +170,97 @@ class Version2PgnCommands:
         workspace = self._session().workspace
         return self._selection_game(request, workspace)
 
+    @staticmethod
+    def _line_search_targets(line: VariationLine, path: tuple[VariationStep, ...]):
+        line_text = " ".join(
+            [comment.text for comment in line.leading_comments]
+            + [comment.text for comment in line.trailing_comments]
+        )
+        if line_text.strip():
+            yield GameTreeCursor(path, 0), line_text
+        for index, move in enumerate(line.moves):
+            text = " ".join(
+                [move.san]
+                + list(move.nags)
+                + [comment.text for comment in move.comments_before]
+                + [comment.text for comment in move.comments_after]
+            )
+            yield GameTreeCursor(path, index + 1), text
+            for variation_index, variation in enumerate(move.variations):
+                child_path = path + (VariationStep(index, variation_index),)
+                yield from Version2PgnCommands._line_search_targets(variation, child_path)
+
+    @staticmethod
+    def _search_pgn(workspace, query: str):
+        if type(query) is not str or len(query) > 4096 or _utf16_units(query) > 4096 or "\x00" in query:
+            raise ValueError("PGN search text is invalid")
+        normalized = normalize_search_term(query, name="PGN search")
+        if normalized is None:
+            raise ValueError("PGN search text must not be empty")
+        needle = search_fold(normalized)
+        assert needle is not None
+        games = workspace.games()
+        current_game = workspace.selected_game_index
+        current_cursor = workspace.cursor
+        targets = []
+        for game_index, game in enumerate(games):
+            tag_text = " ".join(
+                f"{name} {value}" for name, value in game.tags.items()
+            )
+            targets.append((game_index, GameTreeCursor(), tag_text))
+            for cursor, text in Version2PgnCommands._line_search_targets(game.line, ()):
+                targets.append((game_index, cursor, text))
+        if not targets:
+            raise ValueError("PGN contains no searchable content")
+        current_key = (current_game, current_cursor)
+        start = -1
+        for index, (game_index, cursor, _text) in enumerate(targets):
+            if (game_index, cursor) == current_key:
+                start = index
+        ordered = targets[start + 1 :] + targets[: start + 1]
+        for game_index, cursor, text in ordered:
+            folded = search_fold(normalize_search_text(text))
+            if folded is not None and needle in folded:
+                return workspace.select_game_cursor(game_index, cursor)
+        raise ValueError("PGN search found no match")
+
+    @staticmethod
+    def _selected_move_origin_fen(workspace, cursor: GameTreeCursor) -> str:
+        if cursor.next_move_index <= 0:
+            raise ValueError("select a PGN move first")
+        report = validate_game_legality(workspace.current_game())
+        address = MoveAddress(cursor.line_path, cursor.next_move_index - 1)
+        move = next((item for item in report.moves if item.address == address), None)
+        if move is None:
+            raise ValueError("selected PGN move has no canonical position")
+        return move.fen_before
+
+    @staticmethod
+    def _variation_from_text(text: str, *, origin_fen: str) -> VariationLine:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or _utf16_units(text) > 8192 or "\x00" in text:
+            raise ValueError("invalid PGN variation text")
+        fields = origin_fen.split()
+        if len(fields) != 6 or fields[1] not in {"w", "b"}:
+            raise ValueError("variation origin is not canonical FEN")
+        try:
+            fullmove = int(fields[5])
+        except ValueError as exc:
+            raise ValueError("variation origin has invalid move counter") from exc
+        prefix = f"{fullmove}." if fields[1] == "w" else f"{fullmove}..."
+        synthetic = (
+            f'[SetUp "1"]\n[FEN "{origin_fen}"]\n[Result "*"]\n\n'
+            f"{prefix} {text.strip()} *"
+        )
+        games = parse_pgn_text(synthetic, strict=True)
+        if len(games) != 1 or not games[0].line.moves:
+            raise ValueError("variation text contains no canonical moves")
+        report = validate_game_legality(games[0])
+        if not report.complete or report.issues:
+            raise ValueError("variation contains an illegal or unsupported move")
+        line = games[0].line
+        line.result = None
+        return line
+
     def current_fen(self) -> str:
         workspace = self._session().workspace
         cursor = workspace.cursor
@@ -201,15 +299,77 @@ class Version2PgnCommands:
                     allow_root=True,
                 )
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
+        if action_id in {"pgn.tag_edit", "pgn.tag_delete"}:
+            expected = set(_NAVIGATION_TARGET_FIELDS) | {"name"}
+            if action_id == "pgn.tag_edit":
+                expected.add("value")
+            if set(payload) != expected:
+                raise ValueError("invalid PGN tag payload")
+            _request, _cursor = self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
+            name = payload.get("name")
+            if type(name) is not str:
+                raise ValueError("invalid PGN tag name")
+            if action_id == "pgn.tag_delete":
+                return workspace.edit_tag(name, None)
+            value = payload.get("value")
+            if type(value) is not str:
+                raise ValueError("invalid PGN tag value")
+            return workspace.edit_tag(name, value)
+        if action_id == "pgn.append_moves":
+            if set(payload) != set(_NAVIGATION_TARGET_FIELDS) | {"text"}:
+                raise ValueError("invalid PGN continuation payload")
+            _request, _cursor = self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
+            text = payload.get("text", "")
+            origin_fen = self.current_fen()
+            fragment = self._variation_from_text(text, origin_fen=origin_fen)
+            return workspace.append_moves(fragment)
+        if action_id == "pgn.search":
+            if set(payload) != set(_NAVIGATION_TARGET_FIELDS) | {"text"}:
+                raise ValueError("invalid PGN search payload")
+            _request, _cursor = self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
+            text = payload.get("text", "")
+            if type(text) is not str:
+                raise ValueError("invalid PGN search text")
+            return self._search_pgn(workspace, text)
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
-        if action_id == "pgn.comment_edit": allowed.add("text")
-        if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
-            allowed.update({"parent_path", "parent_move_index", "variation_index"})
+        allowed_variants: list[set[str]] = []
+        if action_id == "pgn.comment_edit":
+            allowed_variants = [
+                allowed | {"text"},
+                allowed | {"text", "slot", "index"},
+            ]
+        elif action_id == "pgn.comment_delete":
+            allowed_variants = [
+                allowed,
+                allowed | {"slot", "index"},
+            ]
+        else:
+            if action_id in {"pgn.nag_edit", "pgn.variation_add"}:
+                allowed.add("text")
+            if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+                allowed.update({"parent_path", "parent_move_index", "variation_index"})
+            allowed_variants = [allowed]
         payload_fields = set(payload)
-        if (
-            payload_fields != allowed
-            and payload_fields != allowed | {"expected_content_digest"}
+        if not any(
+            payload_fields == variant
+            or payload_fields == variant | {"expected_content_digest"}
+            for variant in allowed_variants
         ):
             raise ValueError("invalid PGN command payload")
         request, cursor = self._target(
@@ -220,6 +380,85 @@ class Version2PgnCommands:
         if action_id in navigation:
             return workspace.set_cursor(cursor)
         if action_id in {"pgn.comment_edit", "pgn.comment_delete"}:
+            exact = "slot" in payload or "index" in payload
+            if exact:
+                slot = payload.get("slot")
+                index = payload.get("index")
+                if type(slot) is not str or type(index) is not int:
+                    raise ValueError("invalid PGN comment target")
+                if index < -1:
+                    raise ValueError("invalid PGN comment index")
+                text = payload.get("text", "")
+                if type(text) is not str or len(text) > 8000 or _utf16_units(text) > 8000 or "\x00" in text:
+                    raise ValueError("invalid PGN comment")
+                game = workspace.current_game()
+                if request.move_index is None:
+                    line = resolve_line(game, cursor.line_path)
+                    if slot == "leading":
+                        source = line.leading_comments
+                    elif slot == "trailing":
+                        source = line.trailing_comments
+                    else:
+                        raise ValueError("invalid PGN line comment slot")
+                    comments = deepcopy(list(source))
+                    if action_id == "pgn.comment_delete":
+                        if index < 0 or index >= len(comments):
+                            raise ValueError("PGN comment index is stale")
+                        del comments[index]
+                    elif index == -1:
+                        if not text.strip():
+                            raise ValueError("new PGN comment cannot be empty")
+                        comments.append(Comment(text))
+                    elif 0 <= index < len(comments):
+                        if text.strip():
+                            comments[index] = Comment(text, comments[index].style)
+                        else:
+                            del comments[index]
+                    else:
+                        raise ValueError("PGN comment index is stale")
+                    patch = (
+                        LineAnnotationPatch(leading_comments=tuple(comments))
+                        if slot == "leading"
+                        else LineAnnotationPatch(trailing_comments=tuple(comments))
+                    )
+                    return workspace.edit_line_annotations(
+                        LineAnnotationTarget(cursor.line_path, request.expected_record_digest),
+                        patch,
+                    )
+                line = resolve_line(game, cursor.line_path)
+                move = line.moves[request.move_index]
+                if slot == "before":
+                    source = move.comments_before
+                elif slot == "after":
+                    source = move.comments_after
+                else:
+                    raise ValueError("invalid PGN move comment slot")
+                comments = deepcopy(list(source))
+                if action_id == "pgn.comment_delete":
+                    if index < 0 or index >= len(comments):
+                        raise ValueError("PGN comment index is stale")
+                    del comments[index]
+                elif index == -1:
+                    if not text.strip():
+                        raise ValueError("new PGN comment cannot be empty")
+                    comments.append(Comment(text))
+                elif 0 <= index < len(comments):
+                    if text.strip():
+                        comments[index] = Comment(text, comments[index].style)
+                    else:
+                        del comments[index]
+                else:
+                    raise ValueError("PGN comment index is stale")
+                patch = (
+                    MoveAnnotationPatch(comments_before=tuple(comments))
+                    if slot == "before"
+                    else MoveAnnotationPatch(comments_after=tuple(comments))
+                )
+                return workspace.edit_move_annotations(
+                    MoveAnnotationTarget(cursor.line_path, request.move_index, request.expected_record_digest),
+                    patch,
+                )
+
             text = payload.get("text", "")
             if type(text) is not str or len(text) > 8000:
                 raise ValueError("invalid PGN comment")
@@ -233,6 +472,31 @@ class Version2PgnCommands:
                 MoveAnnotationTarget(cursor.line_path, request.move_index, request.expected_record_digest),
                 MoveAnnotationPatch(comments_before=(), comments_after=comments),
             )
+        if action_id == "pgn.nag_edit":
+            if request.move_index is None:
+                raise ValueError("NAG editing requires a selected move")
+            text = payload.get("text", "")
+            if type(text) is not str or len(text) > 512 or _utf16_units(text) > 512 or "\x00" in text:
+                raise ValueError("invalid PGN NAG text")
+            tokens = tuple(token for token in text.split() if token)
+            if len(tokens) > 64:
+                raise ValueError("too many PGN NAG annotations")
+            return workspace.edit_move_annotations(
+                MoveAnnotationTarget(cursor.line_path, request.move_index, request.expected_record_digest),
+                MoveAnnotationPatch(nags=tokens),
+            )
+        if action_id == "pgn.variation_add":
+            if request.move_index is None:
+                raise ValueError("variation creation requires a selected move")
+            text = payload.get("text", "")
+            origin_fen = self._selected_move_origin_fen(workspace, cursor)
+            variation = self._variation_from_text(text, origin_fen=origin_fen)
+            target = variation_insert_target(
+                workspace.current_game(),
+                cursor.line_path,
+                request.move_index,
+            )
+            return workspace.add_variation(target, variation)
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             parent = tuple(VariationStep(*step) for step in payload["parent_path"])
             target = VariationEditTarget(parent, payload["parent_move_index"], payload["variation_index"], request.expected_record_digest)

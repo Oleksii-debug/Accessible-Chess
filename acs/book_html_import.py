@@ -432,6 +432,25 @@ def _controlled_css_strip(
     return value[start:end]
 
 
+def _controlled_css_partition(
+    declaration: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, str, str]:
+    """Match str.partition on the first colon with bounded cancellation latency."""
+
+    if control_checkpoint is None:
+        return declaration.partition(":")
+    for offset in range(0, len(declaration), 4_096):
+        control_checkpoint()
+        chunk = declaration[offset : offset + 4_096]
+        relative = chunk.find(":")
+        if relative >= 0:
+            split_at = offset + relative
+            return declaration[:split_at], ":", declaration[split_at + 1 :]
+    control_checkpoint()
+    return declaration, "", ""
+
+
 def _split_css_important(
     value: str,
     control_checkpoint: Callable[[], None] | None = None,
@@ -525,7 +544,10 @@ def _inline_style_hides(
     ):
         if control_checkpoint is not None and declaration_index % 128 == 0:
             control_checkpoint()
-        name, separator, raw_value = declaration.partition(":")
+        name, separator, raw_value = _controlled_css_partition(
+            declaration,
+            control_checkpoint,
+        )
         if not separator:
             continue
         property_name = _css_ascii_lower(
