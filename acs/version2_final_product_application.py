@@ -199,6 +199,60 @@ class Version2FinalProductApplication(Version2Application):
         )
         self.education = EducationWebViewBridge(projection)
 
+    def _preflight_education_workspace_replacement(
+        self,
+        workspace: EducationWorkspace,
+    ) -> None:
+        """Keep active teaching/rotation ownership valid across D10 replacement."""
+
+        lesson = self._teaching_plan
+        state = self._teaching_state
+        if type(lesson) is not LessonSession or type(state) is not TeachingSessionState:
+            return
+        validate_lesson_session_scope(lesson, workspace.classroom)
+
+        plan = self._rotation_plan
+        rotation_state = self._rotation_state
+        if (
+            self._rotation_load_error
+            or type(plan) is not RotationPlan
+            or type(rotation_state) is not RotationState
+            or rotation_state.phase is RotationPhase.COMPLETED
+        ):
+            return
+        validate_rotation_scope(plan, lesson)
+        try:
+            self._validate_rotation_group_scope(
+                plan,
+                lesson,
+                workspace.classroom,
+            )
+        except ChildCoachingRotationError as exc:
+            raise RuntimeError(
+                "Education workspace would invalidate the active group rotation"
+            ) from exc
+
+        current = self._education_workspace
+        if type(current) is not EducationWorkspace:
+            raise RuntimeError("Education workspace is unavailable")
+        for item in plan.rounds:
+            if item.target is not RotationTarget.GROUP:
+                continue
+            before = self._rotation_group_target_students(
+                item,
+                lesson,
+                current.classroom,
+            )
+            after = self._rotation_group_target_students(
+                item,
+                lesson,
+                workspace.classroom,
+            )
+            if before != after:
+                raise RuntimeError(
+                    "Education workspace would change active group rotation membership"
+                )
+
     def replace_education_workspace(
         self,
         workspace: EducationWorkspace,
@@ -208,6 +262,9 @@ class Version2FinalProductApplication(Version2Application):
         """Trusted CAS publication seam for a canonical editor owner."""
 
         self._assert_thread()
+        if type(workspace) is not EducationWorkspace:
+            raise TypeError("workspace must be EducationWorkspace")
+        self._preflight_education_workspace_replacement(workspace)
         revision = self.education_store.save(
             workspace,
             expected_revision=expected_revision,

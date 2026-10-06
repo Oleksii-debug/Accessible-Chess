@@ -502,6 +502,98 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertEqual(durable_before, self.store.path.read_bytes())
         self.assertEqual(state, self.app._rotation_state)
 
+    def test_workspace_replacement_cannot_change_active_group_membership(self) -> None:
+        self.app.stop_teaching_session()
+        workspace = EducationWorkspace.empty(self._two_group_classroom())
+        self.app.replace_education_workspace(
+            workspace,
+            expected_revision=self.app.education_revision,
+        )
+        lesson = LessonSession(
+            "session-membership-stable",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            ("student-1", "student-2", "student-3", "student-4"),
+            None,
+        )
+        self.app.start_teaching_session(lesson)
+        plan = build_rotation_plan(
+            lesson,
+            rotation_id="rotation-membership-stable",
+            rounds=(
+                RotationRound(
+                    "pair",
+                    RotationActivity.PAIR_PLAY,
+                    "Pair group 1",
+                    5,
+                    RotationTarget.GROUP,
+                    ("group-1",),
+                ),
+            ),
+        )
+        state = start_rotation(plan)
+        self.store.save(plan, state, expected_revision=None)
+        self.app.begin_or_resume_default_group_rotation(
+            "rotation-membership-stable"
+        )
+        durable_before = self.store.path.read_bytes()
+        education_revision_before = self.app.education_revision
+
+        students = self._two_group_classroom().students
+        changed = ClassroomSnapshot(
+            students=students,
+            classes=(
+                ClassroomClass(
+                    "class-1",
+                    "Class",
+                    ("group-1", "group-2"),
+                ),
+            ),
+            groups=(
+                Group("group-1", "class-1", "Group 1"),
+                Group("group-2", "class-1", "Group 2"),
+            ),
+            courses=(Course("course-1", "Course", ("lesson-1",)),),
+            cohorts=(
+                Cohort(
+                    "cohort-1",
+                    "course-1",
+                    ("student-1",),
+                    "group-1",
+                ),
+                Cohort(
+                    "cohort-2",
+                    "course-1",
+                    ("student-2", "student-3", "student-4"),
+                    "group-2",
+                ),
+            ),
+            lessons=(
+                Lesson(
+                    "lesson-1",
+                    "course-1",
+                    "Lesson",
+                    (),
+                    "2026-10-04T10:00:00Z",
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "change active group rotation membership",
+        ):
+            self.app.replace_education_workspace(
+                EducationWorkspace.empty(changed),
+                expected_revision=education_revision_before,
+            )
+
+        self.assertEqual(education_revision_before, self.app.education_revision)
+        self.assertEqual(durable_before, self.store.path.read_bytes())
+        status = self.app._rotation_keyboard_result()
+        self.assertFalse(status["recovery_required"])
+        self.assertEqual(state.revision, status["revision"])
+
     def test_pair_round_requires_exact_current_pairing_then_advances_to_review(self) -> None:
         state = self._reach_pair_round()
         with self.assertRaisesRegex(
