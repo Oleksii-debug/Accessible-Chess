@@ -881,6 +881,16 @@ class Version2FinalProductApplication(Version2Application):
                 "recovery_required": True,
                 "announcement": announcement,
             }
+        if self._rotation_state is None or self._rotation_plan is None:
+            announcement = self._teacher_keyboard_announcement(
+                "Групову ротацію ще не розпочато. Натисніть Control+Alt+R, щоб почати або відновити.",
+                "Group rotation has not started. Press Control+Alt+R to start or resume.",
+            )
+            return {
+                "kind": "group-rotation",
+                "recovery_required": False,
+                "announcement": announcement,
+            }
         snapshot = self.group_rotation_snapshot()
         phase = snapshot["phase"]
         if phase == RotationPhase.COMPLETED.value:
