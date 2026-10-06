@@ -13,6 +13,7 @@ from typing import Protocol
 
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .agent_books_training_tools import AgentBooksTrainingTools
+from .agent_classroom_tools import AgentClassroomTools
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
@@ -168,6 +169,9 @@ class ChessAgentToolRegistry:
             self._register_media()
         if self.application_snapshot_provider is not None:
             AgentBooksTrainingTools(self.application_snapshot_provider).register(
+                self.executor
+            )
+            AgentClassroomTools(self.application_snapshot_provider).register(
                 self.executor
             )
         return self.executor.specs()
