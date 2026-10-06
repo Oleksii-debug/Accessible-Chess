@@ -3,7 +3,7 @@ name: Current EPUB Aggregate Block Limit
 on:
   pull_request:
     branches:
-      - fix/book-html-parser-control-checkpoints-20261006-hy6ez0h
+      - checkpoint/book-html-parser-control-48d36ce
     paths:
       - '.github/workflows/current-epub-aggregate-block-limit.yml'
       - 'acs/book_epub_import.py'
