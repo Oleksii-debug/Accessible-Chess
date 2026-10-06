@@ -1,0 +1,62 @@
+name: Current EPUB Metadata Dedup Linear
+
+on:
+  pull_request:
+    branches:
+      - fix/book-epub-scalar-precheck-cancellation-20261006-ooxple7108
+    paths:
+      - '.github/workflows/current-epub-metadata-dedup-linear.yml'
+      - 'acs/book_epub_import.py'
+      - 'tests/test_v2_book_epub_import.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-epub-metadata-dedup-linear-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EPUB_IMPORT_BLOB: bcf2568af0352921b6cbd4d2976e8810a885ee5f
+  EPUB_TEST_BLOB: 851299de1bb5727f8c180128485d8a37e4d3c75c
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove bounded geometry and exact blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-epub-metadata-dedup-linear.yml' \
+            'acs/book_epub_import.py' \
+            'tests/test_v2_book_epub_import.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = "$EPUB_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = "$EPUB_TEST_BLOB"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile changed Python
+        run: python -m py_compile acs/book_epub_import.py tests/test_v2_book_epub_import.py
+      - name: Run EPUB import regressions
+        run: python -m unittest tests.test_v2_book_epub_import
