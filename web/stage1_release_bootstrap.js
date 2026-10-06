@@ -697,6 +697,26 @@ async function loadMoveFeedbackSettings() {
     } catch (_) {}
 }
 
+async function persistMoveFeedbackSetting(control, requested) {
+    if (!control) return false;
+    control.disabled = true;
+    const a = api();
+    try {
+        if (!a || typeof a.set_move_error_announcements !== 'function') throw new Error();
+        const result = await a.set_move_error_announcements(requested === true);
+        if (!(result && result.ok === true && typeof result.enabled === 'boolean')) {
+            await loadMoveFeedbackSettings();
+            return false;
+        }
+        control.checked = result.enabled === true;
+        control.disabled = false;
+        return true;
+    } catch (_) {
+        await loadMoveFeedbackSettings();
+        return false;
+    }
+}
+
 async function loadSoundState() {
     const a = api();
     const enabled = byId('sound-enabled');
@@ -803,20 +823,15 @@ function installSoundSettings() {
     const feedback = document.createElement('input');
     feedback.type = 'checkbox';
     feedback.id = 'move-error-announcements';
+    feedback.disabled = true;
     const feedbackLabel = document.createElement('label');
     feedbackLabel.id = 'move-error-announcements-label';
     feedbackLabel.htmlFor = feedback.id;
     feedbackRow.append(feedback, feedbackLabel);
     fieldset.appendChild(feedbackRow);
     feedback.addEventListener('change', async () => {
-        const a = api();
-        try {
-            if (!a || typeof a.set_move_error_announcements !== 'function') throw new Error();
-            const result = await a.set_move_error_announcements(feedback.checked);
-            feedback.checked = result.enabled === true;
-            if (!result.ok) speak(text().unavailable);
-        } catch (_) {
-            await loadMoveFeedbackSettings();
+        const requested = feedback.checked === true;
+        if (!await persistMoveFeedbackSetting(feedback, requested)) {
             speak(text().unavailable);
         }
     });
