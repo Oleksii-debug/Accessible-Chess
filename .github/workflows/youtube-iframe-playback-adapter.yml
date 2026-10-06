@@ -44,7 +44,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_PARENT_BRANCH: fix/recorded-media-player-browser-boundary-20261006-ac7m2
-          EXPECTED_PARENT: 32fe2314eaa0015322b30712568b7722ce488ea8
+          EXPECTED_PARENT: 8afbf9cde0373be49497000ce90ebb6b2d500487
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
