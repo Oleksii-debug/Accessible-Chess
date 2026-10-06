@@ -221,6 +221,34 @@ class RecordedMediaSyncTests(unittest.TestCase):
         )
         self.assertIsNone(ambiguous.chess_ref)
 
+
+    def test_unresolved_reprocess_invalidates_same_timestamp_confirmed_link(self):
+        original = self.link(1000, "tree:previous-confirmed")
+        builder = RecordedMediaTimelineBuilder(
+            self.plan(),
+            Canonical(None, None),
+            timeline=MediaPositionTimeline("video-1", (original,)),
+        )
+
+        step = builder.accept(
+            self.frame(
+                timestamp=1000,
+                disposition=FrameDisposition.TRANSITION,
+            )
+        )
+
+        self.assertEqual(step.kind, RecordedSyncStepKind.SKIPPED)
+        self.assertEqual(builder.timeline.links_at(1000), ())
+        barrier = builder.timeline.barrier_at(1000)
+        self.assertIsNotNone(barrier)
+        self.assertEqual(
+            barrier.state,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
+        resolution = builder.timeline.resolve_at_or_before(1500)
+        self.assertFalse(resolution.resolved)
+        self.assertIsNone(resolution.chess_ref)
+
     def test_successful_reprocess_replaces_same_timestamp_barrier(self):
         link = self.link(1000, "tree:new")
         builder = RecordedMediaTimelineBuilder(
