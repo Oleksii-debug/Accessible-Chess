@@ -69,8 +69,8 @@ class AcsdbBookGameLookup:
             or len(warnings) > MAX_PGN_LEXICAL_TOKENS
             or any(
                 type(item) is not str
-                or not item.strip()
                 or len(item) > MAX_PGN_TOKEN_CHARS
+                or not item.strip()
                 or "\x00" in item
                 or any(0xD800 <= ord(character) <= 0xDFFF for character in item)
                 for item in warnings
