@@ -115,6 +115,155 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_exact_identifier_scan_observes_control_inside_one_attribute(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB identifier"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._is_exact_identifier("identifier" * 3_000, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_media_type_scan_observes_control_inside_one_attribute(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB media type"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 4:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._normalized_media_type(
+                "application/" + ("x" * 20_000),
+                context="test manifest item",
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 4)
+
+    def test_epub_href_scan_observes_control_inside_one_attribute(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB href"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._resolve_package_href(
+                "",
+                "Text/" + ("segment" * 4_000) + ".xhtml",
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_rel_scan_observes_control_inside_one_attribute(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB rel attribute"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._is_space_separated_tokens("alternate" * 3_000, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_resolved_asset_threads_control_into_one_long_reference(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB image reference"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 4:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._resolved_asset(
+                "OEBPS/Text/chapter.xhtml",
+                "images/" + ("asset" * 5_000) + ".png",
+                cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 4)
+
+    def test_epub_single_token_control_preserves_metadata_semantics(self):
+        import acs.book_epub_import as epub
+
+        calls = []
+        checkpoint = lambda: calls.append(1)
+        self.assertEqual(
+            epub._is_exact_identifier("chapter-01"),
+            epub._is_exact_identifier("chapter-01", checkpoint),
+        )
+        self.assertEqual(
+            epub._normalized_media_type(
+                "application/xhtml+xml",
+                context="test",
+            ),
+            epub._normalized_media_type(
+                "application/xhtml+xml",
+                context="test",
+                control_checkpoint=checkpoint,
+            ),
+        )
+        self.assertEqual(
+            epub._resolve_package_href("OEBPS", "Text/chapter.xhtml"),
+            epub._resolve_package_href(
+                "OEBPS",
+                "Text/chapter.xhtml",
+                control_checkpoint=checkpoint,
+            ),
+        )
+        self.assertTrue(
+            epub._is_space_separated_tokens(
+                "alternate stylesheet",
+                checkpoint,
+            )
+        )
+        self.assertFalse(
+            epub._is_space_separated_tokens(
+                "alternate  stylesheet",
+                checkpoint,
+            )
+        )
+        self.assertGreater(len(calls), 6)
+
     def test_epub_local_zip64_extra_scan_observes_control(self):
         import acs.book_epub_import as epub
 
