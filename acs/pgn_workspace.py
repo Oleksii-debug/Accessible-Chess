@@ -67,6 +67,10 @@ MAX_PGN_EDIT_TAG_NAME_CHARS = 80
 MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
 
 
+def _utf16_units(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
 class PgnWorkspaceErrorCode(str, Enum):
     INVALID_DOCUMENT = "invalid_document"
     EMPTY_DOCUMENT = "empty_document"
@@ -509,6 +513,7 @@ class PgnWorkspace:
         if (
             type(name) is not str
             or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
             or "\x00" in name
             or TAG_NAME_RE.fullmatch(name) is None
         ):
@@ -518,6 +523,7 @@ class PgnWorkspace:
                 raise TypeError("PGN tag value must be text or None")
             if (
                 len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
                 or "\x00" in value
                 or "\r" in value
                 or "\n" in value
