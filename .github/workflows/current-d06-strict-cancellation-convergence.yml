@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_SOURCE_BLOB: e2dc6cdc2ca338d206e55402761d872cedc52c40
-  D06_TEST_BLOB: e563ac420c102b191fb724be6f600319a06039c7
+  D06_SOURCE_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
+  D06_TEST_BLOB: 84ebb0f7ca97aa0f7a95732cb4a797bd48396461
 
 jobs:
   exact-head:
