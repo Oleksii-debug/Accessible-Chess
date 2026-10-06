@@ -23,10 +23,15 @@ class FakeElement {
     this.children.push(child);
     return child;
   }
-  replaceChildren(child) {
+  replaceChildren(...children) {
     this.replaceChildrenCalls += 1;
+    this.children.forEach((child) => {
+      if (child.parentNode === this) child.parentNode = null;
+    });
     this.children = [];
-    if (child) this.appendChild(child);
+    children.forEach((child) => {
+      if (child) this.appendChild(child);
+    });
   }
   replaceWith(replacement) {
     if (!this.parentNode) throw new Error("detached node");
