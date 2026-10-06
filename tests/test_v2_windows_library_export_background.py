@@ -2242,6 +2242,53 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertFalse(destination.exists())
 
 
+    def test_refused_shutdown_resume_republishes_failed_terminal_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "failed-before-refused-close.pgn"
+            events: list[LibraryExportHostEvent] = []
+            posted: list[object] = []
+
+            def worker_factory() -> LibraryExportWorkerServices:
+                database = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    _ZeroCountLibraryExportService(database),
+                    database.close,
+                )
+
+            delegate, _ = self._delegate(
+                destination,
+                worker_factory,
+                events,
+                posted,
+            )
+            delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertEqual(len(posted), 1)
+            stale_finish = posted.pop()
+
+            self.assertTrue(
+                delegate.shutdown(retain_terminal_for_recovery=True)
+            )
+            self.assertEqual(
+                [event.kind for event in events],
+                [LibraryExportHostEventKind.STARTED],
+            )
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.FAILED)
+            self.assertEqual(events[-1].error_code, "library_export_failed")
+
+            delivered = len(events)
+            stale_finish()
+            self.assertEqual(len(events), delivered)
+            self.assertFalse(delegate.export_running)
+            self.assertFalse(destination.exists())
+            self.assertTrue(delegate.shutdown())
+
+
     def test_refused_shutdown_resume_republishes_cancelled_terminal_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
