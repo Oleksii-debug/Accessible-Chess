@@ -345,10 +345,26 @@ def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str
     return digest.hexdigest()
 
 
-def _same_identity_and_size(first: os.stat_result, second: os.stat_result) -> bool:
+def _same_publication_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
+    """Compare content-stable metadata across hard-link namespace changes.
+
+    Creating or removing a POSIX hard link legitimately changes inode ctime
+    because the link count changes. Content mtime does not change for those
+    namespace operations, so publication continuity requires exact identity,
+    byte size and an available/equal nanosecond mtime while deliberately not
+    comparing ctime at this boundary.
+    """
+
+    if not _complete_file_identity(first, second):
+        return False
+    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+        return False
+    first_mtime = getattr(first, "st_mtime_ns", None)
+    second_mtime = getattr(second, "st_mtime_ns", None)
     return (
-        _complete_file_identity(first, second)
-        and getattr(first, "st_size", None) == getattr(second, "st_size", None)
+        type(first_mtime) is int
+        and type(second_mtime) is int
+        and first_mtime == second_mtime
     )
 
 
@@ -1058,10 +1074,10 @@ def write_portable_oneclick_zip(
                 directory=False,
             )
             if (
-                not _same_identity_and_size(verified_snapshot, linked_temporary)
-                or not _same_identity_and_size(linked_temporary, linked_target)
+                not _same_publication_snapshot(verified_snapshot, linked_temporary)
+                or not _same_publication_snapshot(linked_temporary, linked_target)
             ):
-                _fail("portable ZIP publication is not the verified archive inode")
+                _fail("portable ZIP publication is not the verified archive snapshot")
             published_identity = linked_target
 
             temporary.unlink()
@@ -1070,7 +1086,7 @@ def write_portable_oneclick_zip(
                 label="portable ZIP publication",
                 directory=False,
             )
-            if not _same_identity_and_size(published_identity, published):
+            if not _same_publication_snapshot(published_identity, published):
                 _fail("portable ZIP publication changed before durability confirmation")
             published = _sync_published_zip_namespace(
                 target,
