@@ -2469,17 +2469,32 @@ class Version2Application:
         in-flight SQLite/import transaction on process exit is not an acceptable
         release behaviour.  Tests and recovery callers may supply a bounded
         timeout and retry without closing the database when the worker is still
-        alive. Once worker shutdown succeeds, ACSDB cleanup is attempted even if
-        durable Book progress publication fails, without letting a later close
-        failure replace that first progress failure.
+        alive. Every independent native worker retirement is attempted before a
+        refused/failed close is reported; shared progress and ACSDB remain untouched
+        unless all workers confirm retirement. Once worker shutdown succeeds, ACSDB
+        cleanup is attempted even if durable Book progress publication fails, without
+        letting a later close failure replace that first progress failure.
         """
         self._assert_thread()
-        if (
-            self._book_open_worker is not None
-            and not self._book_open_worker.shutdown(timeout=timeout)
-        ):
-            return False
-        if self._files is not None and not self._files.shutdown(timeout=timeout):
+        retirement_complete = True
+        retirement_error: BaseException | None = None
+        retirement_traceback = None
+        for owner in (self._book_open_worker, self._files):
+            if owner is None:
+                continue
+            try:
+                retired = owner.shutdown(timeout=timeout)
+            except BaseException as error:
+                retirement_complete = False
+                if retirement_error is None:
+                    retirement_error = error
+                    retirement_traceback = error.__traceback__
+            else:
+                if retired is not True:
+                    retirement_complete = False
+        if retirement_error is not None:
+            raise retirement_error.with_traceback(retirement_traceback)
+        if not retirement_complete:
             return False
         if self._pending_shell_publication is not None:
             # Native close/Alt+F4 can race a browser route render. An
