@@ -79,7 +79,7 @@ class AccessibleChessAPI:
             "no_moves": "Ходів ще немає", "no_last": "Останнього ходу немає",
             "selected": "вибрано", "illegal": "Не вдалося виконати хід",
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
-            "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
+            "setup_incomplete": "Редактор позиції. Завершіть позицію та перевірте її коректність перед грою.",
             "move_text_type": "Текст ходу має бути текстовим значенням.",
             "move_text_too_long": "Текст ходу занадто довгий.",
             "move_invalid": "Не вдалося виконати хід. Перевірте запис і позицію.",
@@ -105,7 +105,7 @@ class AccessibleChessAPI:
             "no_moves": "No moves yet", "no_last": "No last move",
             "selected": "selected", "illegal": "Could not make the move",
             "undo_none": "No move to undo", "redo_none": "No move to redo",
-            "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
+            "setup_incomplete": "Position editor. Complete and validate the position before play.",
             "move_text_type": "Move text must be a text value.",
             "move_text_too_long": "Move text is too long.",
             "move_invalid": "Could not make the move. Check the notation and position.",
@@ -140,8 +140,19 @@ class AccessibleChessAPI:
         return Board(view.fen)
 
     def _position_complete(self, board: Board | None = None) -> bool:
+        """Return whether the visible position is accepted by canonical Board.
+
+        Position Editor intentionally allows incomplete/intermediate composition
+        states. Gameplay must not treat those states as legal merely because
+        each king happens to be present, so reuse Board's FEN validator instead
+        of maintaining a second, weaker rules boundary here.
+        """
         b = board or self._display_board()
-        return b.board.count("K") == 1 and b.board.count("k") == 1
+        try:
+            Board(b.fen())
+        except (ValueError, TypeError, IndexError):
+            return False
+        return True
 
     def square_label(self, square: int | str, board: Board | None = None) -> str:
         b = board or self._display_board()

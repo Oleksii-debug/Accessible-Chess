@@ -103,6 +103,64 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
+    def test_canonical_board_validity_blocks_gameplay_after_editor_changes(self):
+        invalid_setups = (
+            (
+                "adjacent kings",
+                (("e1", "K"), ("e2", "k")),
+                None,
+            ),
+            (
+                "pawn on first rank",
+                (("a1", "K"), ("h8", "k"), ("b1", "P")),
+                None,
+            ),
+            (
+                "impossible en passant provenance",
+                (("a1", "K"), ("h8", "k")),
+                ("w", "-", "e6", "0", "1"),
+            ),
+        )
+
+        for label, pieces, metadata in invalid_setups:
+            with self.subTest(label=label):
+                api = AccessibleChessAPI(lang="en")
+                self.assertTrue(api.clear_board()["ok"])
+                for square, piece in pieces:
+                    self.assertTrue(api.edit_position_piece(square, piece)["ok"])
+                if metadata is not None:
+                    self.assertTrue(api.edit_position_metadata(*metadata)["ok"])
+
+                before = api.board.fen()
+                state = api.get_state()
+                self.assertFalse(state["positionComplete"])
+                self.assertIn("Complete and validate", state["gameStatus"])
+
+                move_result = api.make_move("Ka2")
+                self.assertFalse(move_result["ok"])
+                self.assertEqual(api.board.fen(), before)
+
+                square_result = api.activate_square("a1")
+                self.assertFalse(square_result["ok"])
+                self.assertEqual(api.board.fen(), before)
+                self.assertIsNone(api.selected_source)
+
+    def test_valid_manual_editor_position_remains_playable(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.clear_board()["ok"])
+        for square, piece in (
+            ("a1", "K"),
+            ("h8", "k"),
+            ("a2", "R"),
+            ("e5", "p"),
+        ):
+            self.assertTrue(api.edit_position_piece(square, piece)["ok"])
+        self.assertTrue(api.edit_position_metadata("w", "-", "e6", "0", "2")["ok"])
+
+        state = api.get_state()
+        self.assertTrue(state["positionComplete"])
+        self.assertTrue(api.validate_position_editor()["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()
