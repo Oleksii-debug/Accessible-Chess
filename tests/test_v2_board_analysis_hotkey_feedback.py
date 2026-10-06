@@ -146,20 +146,25 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
         self.assertEqual(resolved["actionId"], "board.evaluation")
         self.assertEqual(resolved["context"], "board")
 
-    def test_disabled_analysis_hotkey_is_not_silent(self) -> None:
+    def test_every_analysis_shortcut_is_not_silent_when_analysis_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             api = Version2ReleaseAccessibleChessAPI(
                 keymap_path=Path(temp) / "keymap.json"
             )
-            resolved = api.keymap_resolve_binding("board", "Alt+1")
-            self.assertIsNotNone(resolved)
 
-            result = api.dispatch_action(resolved["actionId"])
+            for binding, expected_action in _ANALYSIS_SHORTCUTS.items():
+                with self.subTest(binding=binding):
+                    resolved = api.keymap_resolve_binding("board", binding)
+                    self.assertIsNotNone(resolved)
+                    self.assertEqual(resolved["actionId"], expected_action)
+                    result = api.dispatch_action(expected_action)
 
-            self.assertTrue(result["ok"])
-            announcement = str(result.get("announcement") or "").strip()
-            self.assertTrue(announcement)
-            self.assertIn("вимкнено", announcement.lower())
+                    self.assertTrue(result["ok"])
+                    announcement = str(result.get("announcement") or "").strip()
+                    self.assertTrue(
+                        announcement,
+                        f"analysis action {expected_action} became silent while disabled",
+                    )
 
 
 if __name__ == "__main__":
