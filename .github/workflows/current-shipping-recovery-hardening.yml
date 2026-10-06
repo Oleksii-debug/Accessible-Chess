@@ -67,6 +67,7 @@ env:
   OWNER_GAMEPLAY_DOC_BLOB: e3db8d9c77358e10e0e51983305c6bed4107f66f
   STAGE1_CORE_LANGUAGE_TEST_BLOB: de9ed33762a8aa6f1771ead21aa6070e1bb9b012
   ACCESSIBLE_WEBUI_TEST_BLOB: 9609be5b953922822f2841081bf831e04d0246c3
+  ISSUE22_RELEASE_CONTRACT_TEST_BLOB: a4becb659b57712ac7e9adf48e18bec9c5d59477
   DEV1_RELEASE_UI_REGRESSIONS_TEST_BLOB: 4fb51179498937f842baa644c817835d9b23270d
   FULL_PRODUCT_NATIVE_MENU_TEST_BLOB: 1be05cb652a93a7d452ffdee51d4b146a52c2c5a
   UI_NATIVE_MENU_RECOVERY_TEST_BLOB: b355c57bd7c9e2b19e0f049ada62b2bee43590dc
@@ -160,6 +161,7 @@ jobs:
             "tests/test_accessible_webui.py"
             "tests/test_dev1_release_ui_regressions.py"
             "tests/test_full_product_native_menu.py"
+            "tests/test_issue22_release_contract.py"
             "tests/test_owner_gameplay_feedback.py"
             "tests/test_owner_gameplay_wav_delivery.py"
             "tests/test_owner_physical_acceptance_json_hardening.py"
@@ -249,6 +251,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_accessible_webui.py)" = "$ACCESSIBLE_WEBUI_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev1_release_ui_regressions.py)" = "$DEV1_RELEASE_UI_REGRESSIONS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = "$FULL_PRODUCT_NATIVE_MENU_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_issue22_release_contract.py)" = "$ISSUE22_RELEASE_CONTRACT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_ui_native_menu_recovery.py)" = "$UI_NATIVE_MENU_RECOVERY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_stage1_release_composition_ui.py)" = "$STAGE1_RELEASE_COMPOSITION_UI_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status_shipping.py)" = "$V2_UPGRADE_STATUS_SHIPPING_TEST_BLOB"
@@ -284,6 +287,11 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_p0_packaged_release_probe_convergence.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_release_probe_convergence.py)"
           test "$(git rev-parse HEAD:tests/test_verify_p0_packaged_document_copy_evidence.py)" = "$(git rev-parse "$base_sha":tests/test_verify_p0_packaged_document_copy_evidence.py)"
           test "$(git rev-parse HEAD:tests/test_verify_p0g_packaged_hotkey_result_evidence.py)" = "$(git rev-parse "$base_sha":tests/test_verify_p0g_packaged_hotkey_result_evidence.py)"
+          test "$(git rev-parse HEAD:tests/test_nvda_p0_contract.py)" = "$(git rev-parse "$base_sha":tests/test_nvda_p0_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = "$(git rev-parse "$base_sha":tests/test_version2_release_accessibility_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_stage1_packaged_focus_origin_contract.py)" = "$(git rev-parse "$base_sha":tests/test_stage1_packaged_focus_origin_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_current_launcher_resource_contract.py)" = "$(git rev-parse "$base_sha":tests/test_current_launcher_resource_contract.py)"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_core_guard.py)" = "$(git rev-parse "$base_sha":tests/test_portable_launcher_core_guard.py)"
 
       - name: Compile changed and integrated boundaries
         run: >-
@@ -314,6 +322,12 @@ jobs:
           tests/test_accessible_webui.py
           tests/test_dev1_release_ui_regressions.py
           tests/test_full_product_native_menu.py
+          tests/test_issue22_release_contract.py
+          tests/test_nvda_p0_contract.py
+          tests/test_version2_release_accessibility_contract.py
+          tests/test_stage1_packaged_focus_origin_contract.py
+          tests/test_current_launcher_resource_contract.py
+          tests/test_portable_launcher_core_guard.py
           tests/test_stage1_release_composition_ui.py
           tests/test_training.py
           tests/test_p0f_packaged_starter_application.py
@@ -392,6 +406,10 @@ jobs:
           tests.test_full_product_native_menu
           tests.test_dev1_library_webview_projection
           tests.test_accessible_webui
+          tests.test_issue22_release_contract
+          tests.test_nvda_p0_contract
+          tests.test_version2_release_accessibility_contract
+          tests.test_stage1_packaged_focus_origin_contract
           tests.test_stage1_release_composition_ui
           tests.test_ui_native_menu_recovery
           tests.test_training
@@ -445,6 +463,8 @@ jobs:
           tests.test_p0_packaged_release_probe_convergence
           tests.test_verify_p0_packaged_document_copy_evidence
           tests.test_verify_p0g_packaged_hotkey_result_evidence
+          tests.test_current_launcher_resource_contract
+          tests.test_portable_launcher_core_guard
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
