@@ -348,6 +348,43 @@ class ClassroomModerationPendingRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn((ROOM, "op-recover"), self.ledger.reservations)
 
+    async def test_cancel_during_provider_state_verification_preserves_pending(self) -> None:
+        wire = await self.leave_ambiguous_pending()
+        pending_before = self.ledger.reservations[(ROOM, "op-recover")]
+        verification_started = asyncio.Event()
+        verification_continue = asyncio.Event()
+
+        class BlockingVerifier(FakeProviderStateVerifier):
+            async def moderation_effect_matches(self, *, room_id, command):
+                self.calls.append((room_id, command))
+                verification_started.set()
+                await verification_continue.wait()
+                return True
+
+        verifier = BlockingVerifier()
+        restarted = self.restarted(verifier=verifier)
+        task = asyncio.create_task(
+            restarted.handle_rpc(
+                trusted_room_id=ROOM,
+                trusted_caller_identity=CALLER,
+                payload=wire,
+            )
+        )
+        await asyncio.wait_for(verification_started.wait(), timeout=1.0)
+        task.cancel()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+        self.assertEqual(
+            self.ledger.reservations[(ROOM, "op-recover")],
+            pending_before,
+        )
+        self.assertNotIn((ROOM, "op-recover"), self.ledger.values)
+        self.assertEqual(self.ledger.commit_calls, [])
+        self.assertEqual(self.restarted_provider.calls, [])
+        self.assertEqual(len(verifier.calls), 1)
+
     async def test_two_restarted_reconcilers_converge_without_provider_effect(self) -> None:
         await self.leave_ambiguous_pending()
         first_verifier = FakeProviderStateVerifier()
