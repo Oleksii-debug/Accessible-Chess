@@ -227,6 +227,7 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
                 "enabled": self.analysis_ui.enabled, "fen": displayed_fen, "running": False,
                 "multipv": self.analysis_ui.multipv,
                 "depth": self.analysis_ui.depth,
+                "movetimeMs": self.analysis_ui.movetime_ms,
                 "lines": [], "error": "engine_error", "stale": False,
                 "targetLocked": self.analysis_ui.target_locked,
                 "selectedPv": self.analysis_ui.selected_pv,
@@ -385,17 +386,32 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         except Exception:
             return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
 
-    def configure_analysis(self, multipv: int, depth: int) -> dict[str, Any]:
+    def configure_analysis(
+        self,
+        multipv: int,
+        depth: int,
+        movetime_ms: int | None = None,
+    ) -> dict[str, Any]:
         if not self.analysis_ui.available:
             return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
         try:
-            self.analysis_ui.configure(multipv=multipv, depth=depth)
+            self.analysis_ui.configure(
+                multipv=multipv,
+                depth=depth,
+                movetime_ms=movetime_ms,
+            )
+            if self.analysis_ui.movetime_ms is None:
+                detail_uk = f"глибина {self.analysis_ui.depth}"
+                detail_en = f"depth {self.analysis_ui.depth}"
+            else:
+                detail_uk = f"час {self.analysis_ui.movetime_ms} мс"
+                detail_en = f"time {self.analysis_ui.movetime_ms} ms"
             return self._ok(
                 f"Налаштування аналізу застосовано: MultiPV "
-                f"{self.analysis_ui.multipv}, глибина {self.analysis_ui.depth}."
+                f"{self.analysis_ui.multipv}, {detail_uk}."
                 if self.lang == "uk"
                 else f"Analysis settings applied: MultiPV {self.analysis_ui.multipv}, "
-                f"depth {self.analysis_ui.depth}."
+                f"{detail_en}."
             )
         except Exception:
             return self._error(
