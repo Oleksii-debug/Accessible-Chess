@@ -24,6 +24,15 @@ def _with_optional_magic(payload: bytes, magic: int) -> bytes:
     return bytes(data)
 
 
+def _with_dll_characteristic(payload: bytes) -> bytes:
+    data = bytearray(payload)
+    pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+    characteristics = pe_offset + 4 + 18
+    value = int.from_bytes(data[characteristics:characteristics + 2], "little")
+    data[characteristics:characteristics + 2] = (value | 0x2000).to_bytes(2, "little")
+    return bytes(data)
+
+
 def _snapshot(*, dev, ino, size: int = 4096, mtime_ns: int = 123456789):
     return SimpleNamespace(
         st_dev=dev,
@@ -52,6 +61,36 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
                 r"unexpected Windows PE optional magic .*expected 0x020b",
+            ):
+                _validate_tree(root)
+
+    def test_product_executable_rejects_dll_image_characteristic(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            executable = root / "AccessibleChess" / "AccessibleChess.exe"
+            executable.write_bytes(
+                _with_dll_characteristic(_minimal_windows_pe(machine=0x8664))
+            )
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                r"image kind DLL; expected EXE",
+            ):
+                _validate_tree(root)
+
+    def test_stockfish_executable_rejects_dll_image_characteristic(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            stockfish = root.joinpath(*preflight._REQUIRED_STOCKFISH.split("/"))
+            stockfish.write_bytes(
+                _with_dll_characteristic(_minimal_windows_pe(machine=0x8664))
+            )
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                r"image kind DLL; expected EXE",
             ):
                 _validate_tree(root)
 
