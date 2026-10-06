@@ -438,6 +438,24 @@ def _accessible_list_item_text(text: str) -> tuple[str, bool]:
     return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
 
 
+def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
+    """Flatten an unrepresentable list row without leaking image destinations.
+
+    Keep the authored marker visible so reading order and list intent survive the
+    fallback, but reduce semantic inline images to their accessible alt text.
+    This never fetches assets or infers chess content.
+    """
+
+    ordered = match.group("number") is not None
+    marker = (
+        f"{match.group('number')}{match.group('delimiter')}"
+        if ordered
+        else match.group("bullet")
+    )
+    item, had_image = _accessible_list_item_text(match.group("text"))
+    return f"{marker} {item}".rstrip(), had_image
+
+
 def _is_fence_close(line: str, marker: str) -> bool:
     leading_spaces = len(line) - len(line.lstrip(" "))
     if leading_spaces > 3:
@@ -617,10 +635,17 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             start_value = int(list_match.group("number")) if ordered else None
 
             if "\t" in indent or len(indent) > 3:
-                builder.paragraph(line.strip(), number)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
                 builder.warning(
                     "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
                 )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 index += 1
                 continue
 
@@ -715,7 +740,14 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                         "Markdown book visible text exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
                     )
-                builder.paragraph(nested_line.strip(), next_index + 1)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    nested_match
+                )
+                builder.paragraph(fallback_text, next_index + 1)
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 if not nested_warning_emitted:
                     builder.warning(
                         "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
