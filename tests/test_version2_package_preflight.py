@@ -1439,6 +1439,35 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_tree_rejects_member_over_per_file_limit_before_hashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with (
+                patch.object(
+                    preflight,
+                    "_sha256",
+                    side_effect=AssertionError("hashing must not start"),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "per-file byte limit",
+                ),
+            ):
+                _validate_tree(
+                    root,
+                    limits=PackageLimits(
+                        max_files=50_000,
+                        max_bytes=8 * 1024 * 1024 * 1024,
+                        max_archive_bytes=4 * 1024 * 1024 * 1024,
+                        max_member_bytes=8,
+                        max_compression_ratio=200,
+                        max_text_scan_bytes=2 * 1024 * 1024,
+                    ),
+                )
+
     def test_tree_bounds_fail_before_trusting_checksums(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
