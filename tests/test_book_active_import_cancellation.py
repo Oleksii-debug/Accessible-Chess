@@ -243,6 +243,20 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                epub._rebase_block(block, '123456789', 1, 1)
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('source anchor', str(caught.exception))
+
     def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
         import acs.book_epub_import as epub
 
