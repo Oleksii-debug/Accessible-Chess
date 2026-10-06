@@ -73,6 +73,7 @@ jobs:
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
             '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
@@ -130,6 +131,7 @@ jobs:
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
             '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
