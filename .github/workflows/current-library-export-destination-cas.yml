@@ -115,7 +115,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/library_webview_bridge.py)" = "b4be6f6fd08d9876acfa86d018a78f9d164e484d"
           test "$(git rev-parse HEAD:acs/ui_keymap_adapter.py)" = "68ee886873ec96bfca9f8a25ec499deb67a5b25a"
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "64ff565255cacca0df2dd4eaab17b3326e4af47a"
-          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "afc0aa8ac5dd294a4b850f61c56b65f453c8d60d"
+          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "3ed97c0351fccb3e9123601e9608412e62fe0925"
           test "$(git rev-parse HEAD:acs/version2_windows_library_export.py)" = "af7bc379ea76390590c36a2797127e21935bd313"
           test "$(git rev-parse HEAD:tests/js/library_export_surface_dom_test.js)" = "61af02b4fe654c02b76403a100ac73ea4fde479f"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "3b61778122cb97a6f0cca8febbb3ccc801c0275b"
