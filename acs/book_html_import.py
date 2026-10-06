@@ -510,9 +510,15 @@ def _explicit_pgn_pre(raw: str) -> bool:
 
 
 class _SemanticHtmlParser(HTMLParser):
-    def __init__(self, *, available_assets: frozenset[str] | None) -> None:
+    def __init__(
+        self,
+        *,
+        available_assets: frozenset[str] | None,
+        control_checkpoint: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.available_assets = available_assets
+        self.control_checkpoint = control_checkpoint
         self.blocks = []
         self.warnings: list[str] = []
         self._warnings_suppressed = False
@@ -598,6 +604,8 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _block_identity_index(self, target: object) -> int:
         for index, block in enumerate(self.blocks):
+            if self.control_checkpoint is not None and index % 128 == 0:
+                self.control_checkpoint()
             if block is target:
                 return index
         raise BookHtmlImportError(
@@ -1406,7 +1414,7 @@ class _SemanticHtmlParser(HTMLParser):
             # Canonical PGN validation still happens only after parsing through
             # the existing D06 round-trip authority; rejected candidates remain
             # readable prose at this location, never guessed chess content.
-            for candidate in _pgn_candidates(raw):
+            for candidate in _pgn_candidates(raw, self.control_checkpoint):
                 self._append_block(
                     _PgnSlot(
                         candidate=_PgnCandidate(
@@ -1488,14 +1496,22 @@ class _SemanticHtmlParser(HTMLParser):
                 "malformed HTML left hidden content unclosed; subsequent readable text may have been omitted"
             )
             self._hidden_tags.clear()
+        recovered_captures = 0
         while self._captures:
+            if self.control_checkpoint is not None and recovered_captures % 128 == 0:
+                self.control_checkpoint()
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture, recovered=True)
+            recovered_captures += 1
+        recovered_lists = 0
         while self._lists:
+            if self.control_checkpoint is not None and recovered_lists % 128 == 0:
+                self.control_checkpoint()
             captured = self._lists.pop()
             captured.unsupported = True
             captured.structural_unsupported = True
             self._emit_list(captured)
+            recovered_lists += 1
 
 
 def _pgn_candidates(
@@ -1697,7 +1713,10 @@ def import_html_book(
     text, raw, legacy_windows_1251 = _source_text(source)
     assets = _asset_set(available_assets)
 
-    parser = _SemanticHtmlParser(available_assets=assets)
+    parser = _SemanticHtmlParser(
+        available_assets=assets,
+        control_checkpoint=control_checkpoint,
+    )
     # Keep trusted host control outside parser exception translation. A cancelled
     # import must propagate to its transaction owner, never become damaged prose.
     chunks = (text,) if control_checkpoint is None else (
