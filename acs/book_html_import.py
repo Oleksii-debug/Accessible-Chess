@@ -160,6 +160,51 @@ _HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
 _CSS_WHITESPACE = " \t\r\n\f"
 _CSS_IMPORTANT_RE = re.compile(r"[ \t\r\n\f]*![ \t\r\n\f]*important[ \t\r\n\f]*$")
 
+_CSS_DISPLAY_SINGLE_VALUES = frozenset(
+    {
+        "none", "contents", "block", "inline", "run-in", "flow", "flow-root",
+        "table", "flex", "grid", "ruby", "math", "list-item", "inline-block",
+        "inline-table", "inline-flex", "inline-grid", "table-row-group",
+        "table-header-group", "table-footer-group", "table-row", "table-cell",
+        "table-column-group", "table-column", "table-caption", "ruby-base",
+        "ruby-text", "ruby-base-container", "ruby-text-container", "inherit",
+        "initial", "revert", "revert-layer", "unset",
+    }
+)
+_CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
+_CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby", "math"})
+
+
+def _deterministic_display_value(value: str) -> str | None:
+    """Return one bounded valid display value, or None for invalid/indeterminate CSS."""
+
+    tokens = tuple(
+        token for token in re.split(r"[ \t\r\n\f]+", value) if token
+    )
+    if len(tokens) == 1 and tokens[0] in _CSS_DISPLAY_SINGLE_VALUES:
+        return tokens[0]
+    if len(tokens) not in {2, 3} or len(set(tokens)) != len(tokens):
+        return None
+
+    token_set = set(tokens)
+    outside = token_set & _CSS_DISPLAY_OUTSIDE
+    inside = token_set & _CSS_DISPLAY_INSIDE
+    if len(tokens) == 2 and len(outside) == 1 and len(inside) == 1:
+        return " ".join(tokens)
+
+    if "list-item" in token_set:
+        remaining = token_set - {"list-item"}
+        outside = remaining & _CSS_DISPLAY_OUTSIDE
+        flow_inside = remaining & {"flow", "flow-root"}
+        if (
+            remaining == outside | flow_inside
+            and len(outside) <= 1
+            and len(flow_inside) <= 1
+        ):
+            return " ".join(tokens)
+    return None
+
+
 
 def _css_ascii_lower(value: str) -> str:
     """Apply CSS ASCII case-insensitive folding without Unicode case expansion."""
@@ -340,11 +385,14 @@ def _inline_style_hides(style: str) -> bool:
         important = important_match is not None
         if important_match is not None:
             value = value[: important_match.start()].strip(_CSS_WHITESPACE)
-        if not value:
+        deterministic_value = _deterministic_display_value(value)
+        if deterministic_value is None:
+            # Invalid or value-dependent CSS must not override an earlier valid
+            # display declaration and accidentally resurrect hidden semantics.
             continue
         if effective_display is not None and effective_display[1] and not important:
             continue
-        effective_display = (value, important)
+        effective_display = (deterministic_value, important)
 
     return effective_display is not None and effective_display[0] == "none"
 
