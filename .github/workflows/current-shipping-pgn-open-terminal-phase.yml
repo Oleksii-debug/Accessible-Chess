@@ -1,0 +1,166 @@
+name: Current Shipping PGN Open Terminal + Publication Phase
+
+on:
+  push:
+    branches:
+      - converge/current-shipping-pgn-open-terminal-phase-20261006-zftrkmo
+  pull_request:
+    branches:
+      - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-pgn-open-terminal-phase-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  SHIPPING_PARENT_BRANCH: converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
+  SHIPPING_PARENT_SHA: cfdc2f7d74ed84448003f865d4ee3b7c4f0472d2
+  SOURCE_BLOB: 01575e19315e69624d104d9c5d2b23a3f36e469d
+  OPEN_TEST_BLOB: 8268832a903d77f0d40e027c5f2cd2a335e47aae
+  SAVE_TEST_BLOB: a9fb0eb40d8b48b75a900318db72ad62bb825b3e
+
+jobs:
+  convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - name: Prove live parent and exact shipping delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$head"
+
+          git fetch --no-tags origin "+refs/heads/$SHIPPING_PARENT_BRANCH:refs/remotes/origin/shipping-parent"
+          live_base="$(git rev-parse refs/remotes/origin/shipping-parent)"
+          git merge-base --is-ancestor "$SHIPPING_PARENT_SHA" "$live_base"
+          git merge-base --is-ancestor "$SHIPPING_PARENT_SHA" HEAD
+
+          test "$(git rev-parse "$live_base:acs/version2_windows_file_workflows.py")" = "$SOURCE_BLOB"
+          test "$(git rev-parse "$live_base:tests/test_v2_windows_pgn_open_worker.py")" = "$OPEN_TEST_BLOB"
+          test "$(git rev-parse "$live_base:tests/test_v2_windows_pgn_save_worker.py")" = "$SAVE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SAVE_TEST_BLOB"
+
+          mapfile -t paths < <(git diff --name-only "$SHIPPING_PARENT_SHA"...HEAD | sort)
+          test "${#paths[@]}" -eq 1
+          test "${paths[0]}" = ".github/workflows/current-shipping-pgn-open-terminal-phase.yml"
+          git diff --check "$SHIPPING_PARENT_SHA"...HEAD
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Compile integrated runtime and package boundaries
+        run: >-
+          python -m py_compile
+          run_accessible_chess.py
+          acs/bookreader.py
+          acs/book_board_workflow.py
+          acs/pgn_document.py
+          acs/pgn_save_snapshot.py
+          acs/pgn_workspace.py
+          acs/version2_application.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
+          acs/version2_release_receipt.py
+          scripts/finalize_owner_final_receipt.py
+          scripts/record_owner_physical_acceptance.py
+
+      - name: Execute Books semantic and recovery contracts
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader_revision_barriers_current
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_v2_book_board_workflow
+          tests.test_dev1_books_training_webview_projection
+
+      - name: Execute PGN terminal, persistence and NVDA-adjacent contracts
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_workspace
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_document_passive_ingress
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_open_invalid_session
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_file_worker_preflight
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_host_runtime
+          tests.test_version2_application
+          tests.test_whole_product_user_journey
+
+      - name: Execute package, release and durable evidence contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_version2_package_zip_topology_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Execute semantic document-copy oracle
+        run: >-
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          python -m unittest -v tests.test_p0_semantic_document_copy
