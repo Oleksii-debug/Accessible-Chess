@@ -56,10 +56,6 @@ jobs:
           acs/ui_keymap_adapter.py
           acs/version2_pgn_commands.py
           tests/test_gametree_accessible_completion.py
-          tests/test_gametree.py
-          tests/test_d06_gametree_persistence_vertical.py
-          tests/test_d06_annotation_insertion_persistence_vertical.py
-          tests/test_d06_gametree_snapshot_resume.py
           web/full_product_pgn.js
           EOF
           sort -o expected-scope.txt expected-scope.txt
