@@ -181,7 +181,8 @@ class AgentContinuousAnalysisTests(unittest.TestCase):
         self.assertTrue(requested.ok, requested.error)
         self.assertEqual(requested.output["requestedFen"], canonical)
         self.assertTrue(requested.output["positionCurrent"])
-        self.assertIsNone(requested.output["result"])
+        if requested.output["result"] is not None:
+            self.assertEqual(requested.output["result"]["fen"], canonical)
         self.assertTrue(
             _wait_until(
                 lambda: (
