@@ -26,6 +26,7 @@ env:
   FILE_WORKFLOWS_BLOB: deaccf51a3f3e4abd8c88ec819841782f9db0d9c
   BOOK_OPEN_WORKER_TEST_BLOB: fa209e3db7f4d73cba9c31b3bae425eb2cfb90de
   FILE_SHUTDOWN_TEST_BLOB: d25efb4b26d3f9eee49ef6c86d76a0a038f97cba
+  FORMCLOSING_TEST_BLOB: 287e9be1859fabaa4cea30f243d4daefd5b90f0f
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
 
 jobs:
@@ -82,6 +83,7 @@ jobs:
             "tests/test_version2_release_cleanup_precedence.py"
             "tests/test_version2_release_ui.py"
             "tests/test_version2_windows_book_open_worker.py"
+            "tests/test_w5_native_formclosing_dirty_pgn.py"
             "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
@@ -100,6 +102,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$FILE_WORKFLOWS_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "$FILE_SHUTDOWN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "$FORMCLOSING_TEST_BLOB"
 
       - name: Compile changed and integrated boundaries
         run: >-
@@ -118,6 +121,7 @@ jobs:
           tests/test_version2_release_cleanup_precedence.py
           tests/test_version2_windows_book_open_worker.py
           tests/test_v2_windows_file_worker_shutdown_fence.py
+          tests/test_w5_native_formclosing_dirty_pgn.py
 
       - name: Execute recovery, persistence and accessibility contracts
         run: >-
