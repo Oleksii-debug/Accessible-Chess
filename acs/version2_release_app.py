@@ -540,13 +540,17 @@ def create_version2_release_application(
             current_focus_provider=lambda: str(application._focus),
             dialog_language_provider=dialog_language_provider,
         )
-        book_open_worker = Version2BookOpenWorker(
-            prepare=application.prepare_book_open,
-            commit=application.commit_prepared_book_open,
-            post_to_ui=Version2WinFormsUiPoster(owner_control),
-            event_sink=application._book_open_event,
-        )
+        book_open_worker = None
         try:
+            # File runtime ownership already exists at this point. Keep Book
+            # worker/poster construction inside the same unwind boundary so a
+            # constructor abort cannot orphan the file worker/pump.
+            book_open_worker = Version2BookOpenWorker(
+                prepare=application.prepare_book_open,
+                commit=application.commit_prepared_book_open,
+                post_to_ui=Version2WinFormsUiPoster(owner_control),
+                event_sink=application._book_open_event,
+            )
             application.bind_book_open_worker(book_open_worker)
             file_runtime = _install_close_guard_or_shutdown(
                 file_runtime,
@@ -560,14 +564,15 @@ def create_version2_release_application(
             # usable product owner. Retire every newly acquired native worker,
             # release only this unpublished Book-worker binding, and preserve
             # the original startup failure even if cleanup itself aborts.
-            try:
-                book_open_worker.shutdown()
-            except BaseException:
-                pass
-            try:
-                application.unbind_book_open_worker(book_open_worker)
-            except BaseException:
-                pass
+            if book_open_worker is not None:
+                try:
+                    book_open_worker.shutdown()
+                except BaseException:
+                    pass
+                try:
+                    application.unbind_book_open_worker(book_open_worker)
+                except BaseException:
+                    pass
             try:
                 file_runtime.shutdown()
             except BaseException:
