@@ -238,6 +238,18 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.add_variation(text)
+            if command_id == "pgn.variation_move_up":
+                self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.move_variation_up()
+            if command_id == "pgn.variation_move_down":
+                self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.move_variation_down()
             if command_id == "pgn.variation_delete":
                 self._exact_fields(data, set())
                 guarded = presentation_guard()
