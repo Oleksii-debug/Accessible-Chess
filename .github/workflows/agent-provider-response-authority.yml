@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent-provider-response-authority-${{ github.event.pull_request.number || github.ref }}
+  group: agent-provider-response-authority-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -28,52 +28,62 @@ jobs:
           - windows-2025
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Check out exact pull-request head
+      - name: Check out exact candidate
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove pinned parent and bounded scope
+      - name: Prove bounded provider-authority scope
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          BASE=e2aa2402e19f793a7f0fa1c0876ca57a0df62178
-          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
-          mapfile -t changed < <(git diff --name-only "$BASE"...HEAD | LC_ALL=C sort)
-          expected=(
-            ".github/workflows/agent-provider-response-authority.yml"
-            "acs/agent_model_gateway.py"
-            "tests/test_agent_model_response_authority.py"
-          )
-          test "${#changed[@]}" -eq "${#expected[@]}"
-          for i in "${!expected[@]}"; do
-            test "${changed[$i]}" = "${expected[$i]}"
-          done
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            test -n "$PR_BASE_SHA"
+            test "$(git merge-base "$PR_BASE_SHA" HEAD)" = "$PR_BASE_SHA"
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/agent-provider-response-authority.yml|acs/agent_model_gateway.py|tests/test_agent_model_response_authority.py)
+                  ;;
+                *)
+                  printf 'Unexpected provider-authority scope: %s\n' "$path" >&2
+                  exit 1
+                  ;;
+              esac
+            done < <(git diff --name-only "$PR_BASE_SHA"...HEAD)
+          fi
           test "$(git hash-object acs/agent_model_gateway.py)" = "e9127b209ec8c1fb50dd4f916753763084d783f1"
           test "$(git hash-object tests/test_agent_model_response_authority.py)" = "682bd87b21a3f440e563965a0cbb07c63b29d5c8"
+          git diff --check
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Compile provider boundary
+      - name: Install exact test runner
+        run: python -m pip install pytest==8.4.2
+
+      - name: Compile provider boundary and retained suites
         run: >-
           python -m py_compile
           acs/agent_model_contracts.py
           acs/agent_model_gateway.py
           acs/universal_chess_agent.py
           tests/test_agent_model_response_authority.py
+          tests/test_crossrepo_runtime_integration.py
+          tests/test_crossrepo_agent_model_numeric.py
+          tests/test_universal_chess_agent_crossrepo.py
 
-      - name: Run provider response authority regressions
-        run: python -m unittest discover -s tests -p "test_agent_model_response_authority.py" -v
-
-      - name: Run retained cross-repository gateway integration
-        run: python -m unittest discover -s tests -p "test_crossrepo_runtime_integration.py" -v
-
-      - name: Run retained model numeric contracts
-        run: python -m unittest discover -s tests -p "test_crossrepo_agent_model_numeric.py" -v
-
-      - name: Run retained Universal Agent regressions
-        run: python -m unittest discover -s tests -p "test_universal_chess_agent_crossrepo.py" -v
+      - name: Execute provider and retained agent regressions
+        run: >-
+          python -m pytest -q
+          tests/test_agent_model_response_authority.py
+          tests/test_crossrepo_runtime_integration.py
+          tests/test_crossrepo_agent_model_numeric.py
+          tests/test_universal_chess_agent_crossrepo.py
