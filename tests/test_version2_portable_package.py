@@ -401,6 +401,46 @@ class PortableTreeTests(unittest.TestCase):
                         hashlib.sha256(payload).hexdigest(),
                     )
 
+    def test_windows_stable_reads_accept_fstat_without_creation_time(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def without_ctime(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=without_ctime,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_bytes(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        payload,
+                    )
+                    self.assertEqual(
+                        portable_module._stable_digest(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
+
     def test_windows_snapshot_rejects_mtime_change_even_when_creation_time_is_stable(self):
         first = SimpleNamespace(
             st_dev=11,
