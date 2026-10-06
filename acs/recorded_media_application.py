@@ -1,17 +1,26 @@
 from __future__ import annotations
 
-"""Bridge recorded-media evidence to the canonical chess application authority.
+"""Bridge recorded-media adapter evidence to canonical chess reconciliation.
 
-This adapter intentionally owns no chess parsing, move legality, board mutation,
-or game-tree semantics. It gives the existing application authority typed media
-evidence and converts only its opaque canonical reference into Media Core data.
+BoardVision/Speech DTOs stop at this boundary. They are revalidated and converted
+into provider-neutral MediaEvidence values before canonical chess application
+code is invoked. Chess legality and GameTree semantics remain application-owned.
 """
 
-from dataclasses import dataclass
-import math
+from hashlib import sha256
+import json
 from typing import Protocol, runtime_checkable
 
-from .media_core import MediaChessLink, MediaLinkStatus
+from .media_core import (
+    MAX_MEDIA_RECONCILIATION_REFS,
+    ChessStateReconciler,
+    MediaContractError,
+    MediaEvidence,
+    MediaEvidenceField,
+    MediaEvidenceKind,
+    MediaReconciliationResult,
+    MediaReconciliationState,
+)
 from .media_preprocess import (
     BoardFrameEvidence,
     BoardOrientation,
@@ -36,18 +45,7 @@ def _text(value: object, name: str, *, limit: int = MAX_APPLICATION_REF) -> str:
     return value
 
 
-def _confidence(value: object) -> float:
-    if type(value) not in (int, float) or isinstance(value, bool):
-        raise RecordedMediaApplicationAdapterError("invalid canonical confidence")
-    number = float(value)
-    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
-        raise RecordedMediaApplicationAdapterError("invalid canonical confidence")
-    return number
-
-
-def _detached_frame_evidence(frame: object) -> BoardFrameEvidence:
-    """Revalidate and detach passive frame evidence before canonical application use."""
-
+def _detached_frame(frame: object) -> BoardFrameEvidence:
     if type(frame) is not BoardFrameEvidence:
         raise RecordedMediaApplicationAdapterError(
             "frame must be an exact BoardFrameEvidence"
@@ -74,9 +72,7 @@ def _detached_frame_evidence(frame: object) -> BoardFrameEvidence:
         ) from None
 
 
-def _detached_speech_context(value: object) -> tuple[SpeechEvidence, ...]:
-    """Bound, revalidate and detach speech evidence before authority crossing."""
-
+def _detached_speech(value: object) -> tuple[SpeechEvidence, ...]:
     if type(value) is not tuple:
         raise RecordedMediaApplicationAdapterError(
             "speech_context must contain exact SpeechEvidence values"
@@ -84,6 +80,11 @@ def _detached_speech_context(value: object) -> tuple[SpeechEvidence, ...]:
     if len(value) > MAX_SPEECH_CONTEXT:
         raise RecordedMediaApplicationAdapterError(
             "speech_context exceeds the recorded-sync limit"
+        )
+    # One board item is always part of the reconciliation bundle.
+    if len(value) + 1 > MAX_MEDIA_RECONCILIATION_REFS:
+        raise RecordedMediaApplicationAdapterError(
+            "speech_context exceeds the canonical evidence-bundle limit"
         )
     detached: list[SpeechEvidence] = []
     for item in value:
@@ -110,61 +111,133 @@ def _detached_speech_context(value: object) -> tuple[SpeechEvidence, ...]:
     return tuple(detached)
 
 
-@dataclass(frozen=True, slots=True)
-class CanonicalRecordedPositionResolution:
-    """Opaque decision returned by the canonical application layer.
+def _evidence_id(prefix: str, payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8", errors="strict")
+    return f"{prefix}:{sha256(encoded).hexdigest()}"
 
-    ``chess_ref`` identifies state already owned by that layer. The adapter
-    never interprets it and therefore cannot become an alternate rules engine.
-    """
 
-    chess_ref: str
-    confirmed: bool
-    confidence: float
+def _board_media_evidence(frame: BoardFrameEvidence) -> MediaEvidence:
+    square_text = None
+    if frame.square_confidence is not None:
+        square_text = ",".join(format(value, ".8g") for value in frame.square_confidence)
+    fields = [
+        MediaEvidenceField("disposition", frame.disposition.value),
+        MediaEvidenceField("orientation", frame.orientation.value),
+    ]
+    if square_text is not None:
+        fields.append(MediaEvidenceField("square_confidence", square_text))
+    identity_payload = {
+        "source_id": frame.source_id,
+        "source_revision": frame.source_revision,
+        "timestamp_ms": frame.timestamp_ms,
+        "disposition": frame.disposition.value,
+        "orientation": frame.orientation.value,
+        "confidence": frame.confidence,
+        "observation_ref": frame.observation_ref,
+        "square_confidence": frame.square_confidence,
+    }
+    return MediaEvidence(
+        evidence_id=_evidence_id("recorded-board", identity_payload),
+        source_id=frame.source_id,
+        kind=MediaEvidenceKind.BOARD_OBSERVATION,
+        start_ms=frame.timestamp_ms,
+        end_ms=frame.timestamp_ms,
+        fields=tuple(fields),
+        confidence=frame.confidence,
+        source_authoritative=False,
+        source_revision=frame.source_revision,
+        provider_id="recorded-media",
+        producer_revision="board-vision-adapter-v1",
+        provenance="recorded board observation; chess truth remains canonical",
+        raw_candidate_ref=frame.observation_ref,
+    )
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "chess_ref", _text(self.chess_ref, "chess_ref"))
-        if type(self.confirmed) is not bool:
-            raise RecordedMediaApplicationAdapterError("confirmed must be boolean")
-        object.__setattr__(self, "confidence", _confidence(self.confidence))
+
+def _speech_media_evidence(item: SpeechEvidence, index: int) -> MediaEvidence:
+    payload = {
+        "source_id": item.source_id,
+        "source_revision": item.source_revision,
+        "start_ms": item.start_ms,
+        "end_ms": item.end_ms,
+        "text": item.text,
+        "is_final": item.is_final,
+        "confidence": item.confidence,
+        "index": index,
+    }
+    return MediaEvidence(
+        evidence_id=_evidence_id("recorded-speech", payload),
+        source_id=item.source_id,
+        kind=MediaEvidenceKind.SPEECH_CONTEXT,
+        start_ms=item.start_ms,
+        end_ms=item.end_ms,
+        fields=(
+            MediaEvidenceField("text", item.text),
+            MediaEvidenceField("is_final", "true" if item.is_final else "false"),
+        ),
+        confidence=item.confidence,
+        source_authoritative=False,
+        source_revision=item.source_revision,
+        provider_id="recorded-media",
+        producer_revision="speech-context-adapter-v1",
+        provenance="recorded speech context; never legal-move authority",
+    )
 
 
 @runtime_checkable
 class CanonicalPositionApplicationPort(Protocol):
-    """Existing application authority capable of reconciling media evidence.
+    """Canonical chess authority consumed through Media Core reconciliation."""
 
-    Implementations are responsible for all canonical chess semantics. They
-    may consult the application's current GameTree/position services, but must
-    return only a reference to canonical state that already belongs to them.
-    """
-
-    def reconcile_recorded_observation(
+    def reconcile_media_evidence_batch(
         self,
         *,
-        frame: BoardFrameEvidence,
-        speech_context: tuple[SpeechEvidence, ...],
-    ) -> CanonicalRecordedPositionResolution | None: ...
+        current_chess_ref: str | None,
+        evidence: tuple[MediaEvidence, ...],
+    ) -> MediaReconciliationResult:
+        ...
 
 
 class CanonicalRecordedFrameApplicationAdapter:
-    """Concrete ``CanonicalRecordedFramePort`` backed by application authority."""
+    """Concrete recorded-frame port backed by canonical Media reconciliation."""
 
     def __init__(self, application: CanonicalPositionApplicationPort) -> None:
-        reconcile = getattr(application, "reconcile_recorded_observation", None)
+        reconcile = getattr(application, "reconcile_media_evidence_batch", None)
         if not callable(reconcile):
             raise RecordedMediaApplicationAdapterError(
-                "canonical position application port is required"
+                "canonical batch reconciliation port is required"
             )
-        self._application = application
+        try:
+            self._reconciler = ChessStateReconciler(application)
+        except MediaContractError:
+            raise RecordedMediaApplicationAdapterError(
+                "canonical reconciliation port is invalid"
+            ) from None
+
+    @staticmethod
+    def _bundle(
+        frame: BoardFrameEvidence,
+        speech_context: tuple[SpeechEvidence, ...],
+    ) -> tuple[MediaEvidence, ...]:
+        return (
+            _board_media_evidence(frame),
+            *tuple(
+                _speech_media_evidence(item, index)
+                for index, item in enumerate(speech_context)
+            ),
+        )
 
     def resolve_recorded_frame(
         self,
         *,
         frame: BoardFrameEvidence,
         speech_context: tuple[SpeechEvidence, ...],
-    ) -> MediaChessLink | None:
-        safe_frame = _detached_frame_evidence(frame)
-        safe_speech = _detached_speech_context(speech_context)
+    ) -> MediaReconciliationResult:
+        safe_frame = _detached_frame(frame)
+        safe_speech = _detached_speech(speech_context)
         for item in safe_speech:
             if item.source_id != safe_frame.source_id:
                 raise RecordedMediaApplicationAdapterError(
@@ -174,10 +247,7 @@ class CanonicalRecordedFrameApplicationAdapter:
                 raise RecordedMediaApplicationAdapterError(
                     "speech_context belongs to a stale recorded source revision"
                 )
-        frame_source_id = safe_frame.source_id
-        frame_timestamp_ms = safe_frame.timestamp_ms
-        frame_disposition = safe_frame.disposition
-        if frame_disposition in (
+        if safe_frame.disposition in (
             FrameDisposition.TRANSITION,
             FrameDisposition.OCCLUDED,
         ):
@@ -185,38 +255,30 @@ class CanonicalRecordedFrameApplicationAdapter:
                 "non-resolvable frame disposition reached canonical application adapter"
             )
 
-        resolution = self._application.reconcile_recorded_observation(
-            frame=safe_frame,
-            speech_context=safe_speech,
-        )
-        if resolution is None:
-            return None
-        if type(resolution) is not CanonicalRecordedPositionResolution:
+        bundle = self._bundle(safe_frame, safe_speech)
+        try:
+            result = self._reconciler.reconcile_many(bundle)
+        except MediaContractError:
             raise RecordedMediaApplicationAdapterError(
-                "application returned an invalid recorded-position resolution"
-            )
-        safe_resolution = CanonicalRecordedPositionResolution(
-            resolution.chess_ref,
-            resolution.confirmed,
-            resolution.confidence,
-        )
+                "canonical recorded-media reconciliation failed closed"
+            ) from None
+
         if (
-            frame_disposition is FrameDisposition.AMBIGUOUS
-            and safe_resolution.confirmed
+            safe_frame.disposition is FrameDisposition.AMBIGUOUS
+            and result.state
+            in (
+                MediaReconciliationState.VERIFIED,
+                MediaReconciliationState.INFERRED,
+            )
         ):
             raise RecordedMediaApplicationAdapterError(
                 "ambiguous recorded evidence cannot confirm canonical chess state"
             )
+        return result
 
-        return MediaChessLink(
-            source_id=frame_source_id,
-            timestamp_ms=frame_timestamp_ms,
-            chess_ref=safe_resolution.chess_ref,
-            status=(
-                MediaLinkStatus.CONFIRMED
-                if safe_resolution.confirmed
-                else MediaLinkStatus.CANDIDATE
-            ),
-            confidence=safe_resolution.confidence,
-            evidence="recorded-media canonical application reconciliation",
-        )
+
+__all__ = [
+    "CanonicalPositionApplicationPort",
+    "CanonicalRecordedFrameApplicationAdapter",
+    "RecordedMediaApplicationAdapterError",
+]
