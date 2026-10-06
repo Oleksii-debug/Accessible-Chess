@@ -101,6 +101,43 @@ function event(key, mods = {}, tag = 'INPUT') {
     assert(!source.includes('createElement("li")'));
     assert(source.includes('global.showStage1Route(routeId)'));
   }
+  // Starting an engine game is one atomic UI transaction. While the bridge
+  // request is pending, a blind keyboard user must not be able to close the
+  // dialog and create an active backend game behind a stale/closed surface.
+  let resolveEngineStart, engineStartCalls=0, moveInputFocus=0, startButtonFocus=0;
+  const engineNodes={
+    'engine-game-start':{disabled:false,focus:()=>{startButtonFocus+=1;}},
+    'engine-game-cancel':{disabled:false},
+    'engine-human-side':{value:'white'},
+    'engine-level':{value:'5'},
+    'engine-minutes':{value:'5'},
+    'engine-increment':{value:'0'},
+    'engine-game-dialog':{closeCalls:0,close(){this.closeCalls+=1;}},
+    'move-input':{focus:()=>{moveInputFocus+=1;}},
+  };
+  shell.el=id=>engineNodes[id];
+  shell.setText=()=>{};
+  shell.apiAction=()=>{engineStartCalls+=1;return new Promise(resolve=>{resolveEngineStart=resolve;});};
+  vm.runInContext('let engineGameStartInFlight=false,engineGameReturnFocusOnClose=false;',shell);
+  vm.runInContext(html.split('\n').find(line=>line.startsWith('async function startEngineGame(')),shell);
+  const enginePending=shell.startEngineGame();
+  assert.equal(engineNodes['engine-game-start'].disabled,true);
+  assert.equal(engineNodes['engine-game-cancel'].disabled,true);
+  await shell.startEngineGame();
+  assert.equal(engineStartCalls,1,'a second Start during the pending bridge request must be ignored');
+  resolveEngineStart({ok:true});
+  await enginePending;
+  assert.equal(engineNodes['engine-game-dialog'].closeCalls,1);
+  assert.equal(moveInputFocus,1);
+  assert.equal(engineNodes['engine-game-start'].disabled,false);
+  assert.equal(engineNodes['engine-game-cancel'].disabled,false);
+
+  shell.apiAction=async()=>{engineStartCalls+=1;return {ok:false,announcement:'start failed'};};
+  await shell.startEngineGame();
+  assert.equal(startButtonFocus,1,'failed start must keep keyboard focus inside the dialog');
+  assert.equal(engineNodes['engine-game-start'].disabled,false);
+  assert.equal(engineNodes['engine-game-cancel'].disabled,false);
+
   const sound=fs.readFileSync('web/stage1_release_bootstrap.js','utf8');
   assert(!sound.includes('sound-preview'));
   assert(!sound.includes('preview_sound'));
