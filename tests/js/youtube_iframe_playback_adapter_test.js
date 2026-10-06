@@ -131,14 +131,29 @@ const refreshed = adapter.refresh();
 check(snapshots.length === beforeRefresh + 1, "refresh did not publish one snapshot");
 check(refreshed.sourceId === "youtube:dQw4w9WgXcQ", "refresh changed source identity");
 
+player.getPlayerState = () => { throw new Error("must not read provider after error"); };
+player.getCurrentTime = () => { throw new Error("must not read provider after error"); };
+player.getDuration = () => { throw new Error("must not read provider after error"); };
 player.error(101);
 check(snapshots.at(-1).ok === false && snapshots.at(-1).errorCode === 101, "provider error did not fail closed");
+check(snapshots.at(-1).positionMs === 0 && snapshots.at(-1).durationMs === null, "provider error leaked uncertain timing");
+check(adapter.snapshot().ok === false, "error snapshot depended on broken provider getters");
 expectThrow(() => adapter.pause(), "provider error");
 
 check(adapter.destroy() === true, "first destroy did not report completion");
 check(player.destroyed === true, "IFrame player was not destroyed");
 check(adapter.destroy() === false, "second destroy was not idempotent");
 expectThrow(() => adapter.snapshot(), "destroyed");
+
+expectThrow(
+  () => new api.YouTubeIframePlaybackAdapter({
+    YT: { Player: class { getPlayerState() {} } },
+    element: "broken-player",
+    source: "dQw4w9WgXcQ",
+    origin: "https://appassets.example",
+  }),
+  "missing getCurrentTime",
+);
 
 expectThrow(
   () => new api.YouTubeIframePlaybackAdapter({
