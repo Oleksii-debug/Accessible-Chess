@@ -309,6 +309,13 @@ def _require_text(value: object, field_name: str) -> str:
             f"{field_name} must be non-empty text",
             code=MediaErrorCode.INVALID_TEXT,
         )
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            f"{field_name} must be valid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
     return value
 
 
@@ -873,6 +880,13 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _reject_nonfinite_json(value: str) -> object:
+    raise MediaContractError(
+        f"media state contains non-finite JSON number: {value}",
+        code=MediaErrorCode.INVALID_SCHEMA,
+    )
+
+
 def serialize_media_state(
     source: MediaSource,
     timeline: MediaPositionTimeline,
@@ -910,8 +924,15 @@ def serialize_media_state(
             "chess_ref": session.chess_ref,
         },
     }
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    if len(text.encode("utf-8")) > MAX_MEDIA_STATE_BYTES:
+    try:
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        encoded_length = len(text.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            "serialized media state contains invalid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
+    if encoded_length > MAX_MEDIA_STATE_BYTES:
         raise MediaContractError(
             "serialized media state exceeds the safety limit",
             code=MediaErrorCode.STATE_TOO_LARGE,
@@ -929,13 +950,24 @@ def deserialize_media_state(
             "media state must be text",
             code=MediaErrorCode.INVALID_TEXT,
         )
-    if len(text.encode("utf-8")) > MAX_MEDIA_STATE_BYTES:
+    try:
+        encoded_length = len(text.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            "media state must be valid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
+    if encoded_length > MAX_MEDIA_STATE_BYTES:
         raise MediaContractError(
             "media state exceeds the safety limit",
             code=MediaErrorCode.STATE_TOO_LARGE,
         )
     try:
-        payload = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
+        payload = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json,
+        )
     except (json.JSONDecodeError, RecursionError) as exc:
         raise MediaContractError(
             "media state is not valid JSON",
