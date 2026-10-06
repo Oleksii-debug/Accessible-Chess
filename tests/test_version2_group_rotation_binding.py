@@ -305,6 +305,17 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
                 expected_rotation_revision=state.revision
             )
 
+        # Rebinding the same readable store is only an integrity probe. It must
+        # not clear the recovery fence while application memory is still stale.
+        self.app.bind_child_coaching_rotation_store(self.store)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.advance_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+
         resumed = self.app.begin_or_resume_default_group_rotation("rotation-1")
         self.assertEqual(durable.state, resumed)
         self.assertFalse(
