@@ -116,6 +116,49 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         self.assertIn(Board.START, notes[0].text)
         self.assertFalse(any("image reference" in warning for warning in book.warnings))
 
+    def test_fence_close_requires_same_marker_family_minimum_length_and_no_payload(self):
+        from acs.book_text_import import _is_fence_close
+
+        self.assertTrue(_is_fence_close("~~~", "~~~"))
+        self.assertTrue(_is_fence_close("  ~~~~~", "~~~~"))
+        self.assertFalse(_is_fence_close("~~~", "~~~~"))
+        self.assertFalse(_is_fence_close("```", "~~~"))
+        self.assertFalse(_is_fence_close("~~~~ trailing", "~~~"))
+        self.assertFalse(_is_fence_close("    ~~~~", "~~~"))
+
+    def test_invalid_tilde_closers_stay_opaque_until_matching_close(self):
+        source = (
+            "~~~~code`meta\n"
+            "~~~\n"
+            "```\n"
+            "~~~~ trailing\n"
+            "# still not a heading\n"
+            "![still not an image](https://example.invalid/board.png)\n"
+            "```fen\n"
+            + Board.START
+            + "\n```\n"
+            "~~~~\n\n"
+            "# Real heading"
+        )
+        book = import_text_book(
+            source,
+            source_name="tilde-close.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        headings = [block for block in book.document.blocks if type(block) is Heading]
+        self.assertEqual([block.text for block in headings], ["Real heading"])
+        self.assertFalse(any(type(block) is Position for block in book.document.blocks))
+        self.assertFalse(any(type(block) is Game for block in book.document.blocks))
+        notes = [block for block in book.document.blocks if type(block) is Note]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("~~~", notes[0].text)
+        self.assertIn("```", notes[0].text)
+        self.assertIn("~~~~ trailing", notes[0].text)
+        self.assertIn("# still not a heading", notes[0].text)
+        self.assertIn(Board.START, notes[0].text)
+        self.assertFalse(any("image reference" in warning for warning in book.warnings))
+
     def test_native_import_action_accepts_markdown_on_worker_and_reopens_database(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'lesson.MD'
