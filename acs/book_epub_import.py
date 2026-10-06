@@ -1308,7 +1308,7 @@ def _validate_package_document(
 
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
-    for metadata_index, element in enumerate(metadata_children, start=1):
+    for metadata_index, element in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
         if element.tag != identifier_tag or element.attrib.get("id") != unique_identifier:
