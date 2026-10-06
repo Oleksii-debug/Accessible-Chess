@@ -5,6 +5,7 @@ const fs = require("fs");
 const vm = require("vm");
 
 const source = fs.readFileSync("web/version2_final_product_bootstrap.js", "utf8");
+const releaseSource = fs.readFileSync("web/version2_release_bootstrap.js", "utf8");
 
 function extract(startToken, endToken, label) {
   const start = source.indexOf(startToken);
@@ -12,6 +13,64 @@ function extract(startToken, endToken, label) {
   assert(start >= 0, label + " start not found");
   assert(end > start, label + " end not found");
   return source.slice(start, end);
+}
+
+function extractFunctionFrom(sourceText, name) {
+  const start = sourceText.indexOf("  function " + name + "(");
+  assert(start >= 0, "missing function: " + name);
+  const brace = sourceText.indexOf("{", start);
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = brace; index < sourceText.length; index += 1) {
+    const current = sourceText[index];
+    const next = sourceText[index + 1];
+    if (lineComment) {
+      if (current === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (current === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (current === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (current === quote) quote = null;
+      continue;
+    }
+    if (current === "'" || current === '"' || current === "`") {
+      quote = current;
+      continue;
+    }
+    if (current === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (current === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (current === "{") depth += 1;
+    else if (current === "}") {
+      depth -= 1;
+      if (depth === 0) return sourceText.slice(start, index + 1);
+    }
+  }
+  throw new Error("unterminated function: " + name);
 }
 
 function flush() {
@@ -33,6 +92,49 @@ assert(
 assert(
   source.includes('actionId === "library.export"'),
   "Library export must keep its own terminal presentation/focus event"
+);
+
+const canonicalPublicationFunctions = [
+  "areaInvoke",
+  "shellPublicationToken",
+  "nextShellPublicationRequestId",
+  "clearPendingShellPublicationStart",
+  "startShellPublication",
+  "finishShellPublication",
+  "clearPendingShellPublication",
+  "recoverShellPublication",
+  "recoverPendingShellPublicationStart",
+  "recoverOutstandingShellPublication",
+  "startPublishedBrowserTransition",
+  "runPublishedBrowserTransition",
+  "snapshotShellPublicationToken",
+  "refresh",
+  "waitForEventDrainIdle",
+  "browserOwnsPendingShellPublication",
+  "finishRouteTransition",
+  "finishEventDrain",
+  "drainEvents"
+];
+canonicalPublicationFunctions.forEach((name) => {
+  assert.strictEqual(
+    extractFunctionFrom(source, name),
+    extractFunctionFrom(releaseSource, name),
+    "final-product publication function drifted from canonical release owner: " + name
+  );
+});
+assert(
+  source.includes('runPublishedBrowserTransition(\n          bridge,\n          "shell",'),
+  "final-product navigation bypasses canonical shell publication"
+);
+assert(
+  source.includes('"publication_protocol": "ack-v1"') ||
+    source.includes('publication_protocol: "ack-v1"'),
+  "final-product shell publication does not use ack-v1"
+);
+assert(
+  source.includes("orphanedToken") &&
+    source.includes("recoverShellPublication("),
+  "final-product refresh does not recover orphaned shell publication"
 );
 
 const drainBlock = extract(
@@ -72,6 +174,9 @@ const bridge = {
 const context = vm.createContext({
   Promise,
   MAX_NATIVE_EVENT_BATCH: 64,
+  shellRouteTransitionInFlight: false,
+  pendingShellPublicationToken: 0,
+  pendingShellPublicationRequestId: 0,
   api: () => bridge,
   plainObject: (value) => !!value && typeof value === "object" && !Array.isArray(value),
   validFocusId: (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value),
@@ -401,7 +506,16 @@ try {
 } catch (error) {
   observedRenderFailure = error;
 }
-assert.strictEqual(observedRenderFailure, renderFailure, "renderer failure identity was replaced");
+assert(
+  observedRenderFailure &&
+    observedRenderFailure.committedPresentationPreserved === true,
+  "renderer failure did not carry committed-presentation rollback marker"
+);
+assert.strictEqual(
+  observedRenderFailure.cause,
+  renderFailure,
+  "renderer failure cause identity was not retained inside passive rollback marker"
+);
 assert.strictEqual(txOriginalMain.hidden, false, "failed candidate hid committed Stage 1 UI");
 assert.strictEqual(txWorkspace.hidden, true, "failed candidate exposed uncommitted workspace");
 assert.deepStrictEqual(
