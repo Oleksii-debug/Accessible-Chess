@@ -169,6 +169,105 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             analysis.close.assert_called_once_with()
             runtime.close.assert_called_once_with()
 
+    def test_native_close_refusal_announces_without_weakening_failure_authority(self) -> None:
+        class ClosingEvent:
+            def __init__(self) -> None:
+                self.handlers = []
+
+            def __iadd__(self, handler):
+                self.handlers.append(handler)
+                return self
+
+        class PrimaryAbort(BaseException):
+            pass
+
+        class ReporterAbort(BaseException):
+            pass
+
+        for label, shutdown_result in (("false", False), ("truthy-non-bool", 1)):
+            with self.subTest(label=label):
+                application = SimpleNamespace(
+                    session=SimpleNamespace(dirty=False),
+                    shutdown=mock.Mock(return_value=shutdown_result),
+                    announce_shutdown_failure=mock.Mock(),
+                    _native_unsaved_close_guard=None,
+                )
+                owner = SimpleNamespace(FormClosing=ClosingEvent())
+                dialogs = SimpleNamespace(
+                    confirm_discard_unsaved_pgn_on_exit=mock.Mock(return_value=True)
+                )
+                release_app._install_unsaved_pgn_close_guard(
+                    application,
+                    owner,
+                    dialogs,
+                )
+                event = SimpleNamespace(Cancel=False)
+                owner.FormClosing.handlers[0](None, event)
+
+                self.assertTrue(event.Cancel)
+                application.announce_shutdown_failure.assert_called_once_with()
+                self.assertFalse(
+                    getattr(application, "_native_close_shutdown_complete", False)
+                )
+
+        primary = PrimaryAbort("PRIMARY_SHUTDOWN")
+        application = SimpleNamespace(
+            session=SimpleNamespace(dirty=False),
+            shutdown=mock.Mock(side_effect=primary),
+            announce_shutdown_failure=mock.Mock(
+                side_effect=ReporterAbort("SECONDARY_PRESENTATION")
+            ),
+            _native_unsaved_close_guard=None,
+        )
+        owner = SimpleNamespace(FormClosing=ClosingEvent())
+        dialogs = SimpleNamespace(
+            confirm_discard_unsaved_pgn_on_exit=mock.Mock(return_value=True)
+        )
+        release_app._install_unsaved_pgn_close_guard(application, owner, dialogs)
+        event = SimpleNamespace(Cancel=False)
+        owner.FormClosing.handlers[0](None, event)
+
+        self.assertTrue(event.Cancel)
+        self.assertIs(application._native_close_shutdown_error, primary)
+        application.announce_shutdown_failure.assert_called_once_with()
+
+    def test_pre_shutdown_abort_announces_and_keeps_native_close_retryable(self) -> None:
+        class ClosingEvent:
+            def __init__(self) -> None:
+                self.handlers = []
+
+            def __iadd__(self, handler):
+                self.handlers.append(handler)
+                return self
+
+        class ResumeAbort(BaseException):
+            pass
+
+        primary = ResumeAbort("PRIMARY_RESUME")
+        application = SimpleNamespace(
+            session=SimpleNamespace(dirty=False),
+            shutdown=mock.Mock(return_value=True),
+            announce_shutdown_failure=mock.Mock(),
+            _native_unsaved_close_guard=None,
+        )
+        owner = SimpleNamespace(FormClosing=ClosingEvent())
+        dialogs = SimpleNamespace(
+            confirm_discard_unsaved_pgn_on_exit=mock.Mock(return_value=True)
+        )
+        release_app._install_unsaved_pgn_close_guard(
+            application,
+            owner,
+            dialogs,
+            before_shutdown=mock.Mock(side_effect=primary),
+        )
+        event = SimpleNamespace(Cancel=False)
+        owner.FormClosing.handlers[0](None, event)
+
+        self.assertTrue(event.Cancel)
+        self.assertIs(application._native_close_resume_error, primary)
+        application.shutdown.assert_not_called()
+        application.announce_shutdown_failure.assert_called_once_with()
+
     def test_abort_class_close_guard_install_failure_retires_unbound_runtime(self) -> None:
         class GuardAbort(BaseException):
             pass
