@@ -2540,8 +2540,10 @@ class Version2Application:
                 if retired is not True:
                     retirement_complete = False
         if retirement_error is not None:
+            self._resume_native_workers_after_refused_shutdown()
             raise retirement_error.with_traceback(retirement_traceback)
         if not retirement_complete:
+            self._resume_native_workers_after_refused_shutdown()
             return False
         if self._pending_shell_publication is not None:
             # Native close/Alt+F4 can race a browser route render. An
@@ -2553,7 +2555,11 @@ class Version2Application:
             # its exact token retryable and must also keep shared persistence
             # open because the native close is refused.
             token = self._pending_shell_publication[0]
-            self._finish_shell_publication(token, commit=False)
+            try:
+                self._finish_shell_publication(token, commit=False)
+            except BaseException:
+                self._resume_native_workers_after_refused_shutdown()
+                raise
         progress_error: BaseException | None = None
         progress_traceback = None
         for save_progress in (self.save_training_progress, self.save_book_progress):
