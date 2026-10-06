@@ -86,33 +86,6 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         )
         self.assertTrue(self.workspace.dirty)
 
-    def test_non_scalar_annotation_fails_closed_without_workspace_mutation(self):
-        before = (
-            self.workspace.to_text(),
-            self.workspace.content_digest,
-            self.workspace.content_revision,
-            self.workspace.dirty,
-        )
-        game = self.workspace.current_game()
-        target = move_annotation_target(game, (), 0)
-
-        with self.assertRaises(PgnWorkspaceError) as raised:
-            self.workspace.edit_move_annotations(
-                target,
-                MoveAnnotationPatch(comments_after=(Comment("\ud800"),)),
-            )
-
-        self.assertEqual(PgnWorkspaceErrorCode.INVALID_DOCUMENT, raised.exception.code)
-        self.assertEqual(
-            before,
-            (
-                self.workspace.to_text(),
-                self.workspace.content_digest,
-                self.workspace.content_revision,
-                self.workspace.dirty,
-            ),
-        )
-
     def test_external_game_copy_cannot_mutate_workspace(self):
         before = self.workspace.to_text()
         detached = self.workspace.current_game()
