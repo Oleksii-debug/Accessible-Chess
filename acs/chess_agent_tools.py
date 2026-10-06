@@ -365,9 +365,10 @@ class ChessAgentToolRegistry:
                 source_name=_optional_text(arguments, "source_name"),
                 limit=limit,
             )
-            # GameSearchService owns a thread-affine ACSDB connection. The host
-            # must create and execute this registry on the service owner thread;
-            # moving only the query to a worker thread violates that contract.
+            # GameSearchService owns a thread-affine ACSDB connection. When
+            # Agent execution is off-thread, owner_call must marshal this complete
+            # search operation back to the service owner; moving only part of the
+            # query or result handling would violate that contract.
             def search_on_owner() -> object:
                 page = service.search(query)
                 return {
