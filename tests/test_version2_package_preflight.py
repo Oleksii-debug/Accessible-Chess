@@ -428,6 +428,59 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         label="package path",
                     )
 
+    def test_read_stable_bytes_file_uses_one_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            payload = b"stable-metadata"
+            path.write_bytes(payload)
+
+            self.assertEqual(
+                preflight._read_stable_bytes_file(
+                    path,
+                    label="metadata",
+                    max_bytes=1024,
+                ),
+                payload,
+            )
+
+    def test_read_stable_bytes_file_fails_closed_on_open_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "metadata.json"
+            path.write_bytes(b"stable-metadata")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "metadata changed while being opened",
+                ):
+                    preflight._read_stable_bytes_file(
+                        path,
+                        label="metadata",
+                        max_bytes=1024,
+                    )
+
+    def test_winforms_accessibility_config_reads_from_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(_VALID_WINFORMS_CONFIG, encoding="utf-8")
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                return_value=_VALID_WINFORMS_CONFIG.encode("utf-8"),
+            ) as reader:
+                validate_winforms_accessibility_app_config(path)
+
+            reader.assert_called_once_with(
+                path,
+                label="WinForms accessibility app-config",
+                max_bytes=64 * 1024,
+            )
+
     def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "AccessibleChess.exe.config"
