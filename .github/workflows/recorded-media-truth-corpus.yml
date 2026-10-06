@@ -1,0 +1,69 @@
+name: Recorded Media Truth Corpus
+
+on:
+  push:
+    branches:
+      - work/recorded-media-truth-corpus-20261006-sol56r14
+  pull_request:
+    branches:
+      - work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recorded-media-truth-corpus-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact truth-corpus candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact recorded-media parent and bounded scope
+        shell: bash
+        env:
+          EXPECTED_PARENT: f0476faef79133ae45d7fbf5f4c1c125697976e1
+          EXPECTED_PARENT_BRANCH: work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_PARENT_BRANCH:refs/remotes/origin/recorded-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/recorded-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT" || {
+            printf 'RECORDED_TRUTH_PARENT_MOVED expected=%s live=%s\n' "$EXPECTED_PARENT" "$live_parent" >&2
+            exit 1
+          }
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n'             '.github/workflows/recorded-media-truth-corpus.yml'             'acs/media_truth_corpus.py'             'tests/fixtures/recorded_media_truth/ambiguous.svg'             'tests/fixtures/recorded_media_truth/manifest.json'             'tests/fixtures/recorded_media_truth/occluded.svg'             'tests/fixtures/recorded_media_truth/stable-black.svg'             'tests/fixtures/recorded_media_truth/stable-white.svg'             'tests/fixtures/recorded_media_truth/transition.svg'             'tests/test_recorded_media_truth_corpus.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'RECORDED_TRUTH_CORPUS_SCOPE_DRIFT\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile truth-corpus boundary
+        run: python -m py_compile acs/media_truth_corpus.py tests/test_recorded_media_truth_corpus.py
+
+      - name: Run truth-corpus and retained executor regressions
+        run: >-
+          python -m unittest -v
+          tests.test_recorded_media_truth_corpus
+          tests.test_media_preprocess_executor
