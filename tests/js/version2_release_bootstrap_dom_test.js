@@ -22,6 +22,12 @@ class FakeElement {
     return child;
   }
 
+  append(...children) {
+    children.forEach((child) => {
+      if (child) this.appendChild(child);
+    });
+  }
+
   insertBefore(child, reference) {
     const index = this.children.indexOf(reference);
     if (index < 0) return this.appendChild(child);
@@ -62,6 +68,18 @@ class FakeElement {
   descendants() {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
   }
+}
+
+const appendFixture = new FakeElement("div");
+const appendFixtureFirst = new FakeElement("button");
+const appendFixtureSecond = new FakeElement("button");
+appendFixture.append(appendFixtureFirst, appendFixtureSecond);
+if (
+  appendFixture.children.length !== 2 ||
+  appendFixtureFirst.parentNode !== appendFixture ||
+  appendFixtureSecond.parentNode !== appendFixture
+) {
+  throw new Error("FakeElement.append must preserve DOM child order and parent identity");
 }
 
 const container = new FakeElement("div");
