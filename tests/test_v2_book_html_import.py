@@ -61,6 +61,11 @@ def _html(*, fen: str | None = None, pgn: str = PGN) -> str:
 
 
 class BookHtmlImportTests(unittest.TestCase):
+    def test_html_block_budget_tracks_canonical_document_ceiling(self) -> None:
+        import acs.book_html_import as html
+
+        self.assertEqual(html.MAX_HTML_BLOCKS, html.MAX_BOOK_DOCUMENT_BLOCKS)
+
     def test_warning_budget_includes_suppression_marker_without_losing_non_overflow_warnings(self) -> None:
         with patch("acs.book_html_import.MAX_HTML_WARNINGS", 3):
             exact = _SemanticHtmlParser(available_assets=None)
@@ -388,6 +393,56 @@ class BookHtmlImportTests(unittest.TestCase):
         self.assertTrue(any("referenced asset is unavailable" in item for item in result.warnings))
         self.assertFalse(any(isinstance(block, Diagram) for block in result.document.blocks))
         self.assertTrue(any(isinstance(block, Game) for block in result.document.blocks))
+
+    def test_host_metadata_is_bounded_before_whitespace_normalization(self) -> None:
+        import acs.book_html_import as html
+
+        source = '<html><body><p>Readable</p></body></html>'
+        cases = (
+            {'source_name': '123456789'},
+            {'source_name': 'ok.html', 'title': '123456789'},
+            {'source_name': 'ok.html', 'author': '123456789'},
+            {'source_name': 'ok.html', 'language': '123456789'},
+        )
+        with patch.object(html, 'MAX_BOOK_TEXT_FIELD_CHARS', 8):
+            for kwargs in cases:
+                with self.subTest(kwargs=kwargs):
+                    with self.assertRaises(html.BookHtmlImportError) as caught:
+                        html.import_html_book(source, **kwargs)
+                    self.assertEqual(
+                        caught.exception.code,
+                        html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                    )
+                    self.assertIn(
+                        'BookDocument text field limit',
+                        str(caught.exception),
+                    )
+
+            imported = html.import_html_book(source, source_name='12345678')
+
+        self.assertEqual(imported.document.source_name, '12345678')
+
+    def test_final_bookdocument_failure_maps_to_html_resource_limit(self) -> None:
+        import acs.book_html_import as html
+        from acs.bookdocument import BookDocumentErrorCode
+
+        failure = html.BookDocumentError(
+            'BookDocument text exceeds the canonical aggregate limit',
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+        with patch.object(html, 'BookDocument', side_effect=failure):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                html.import_html_book(
+                    '<html><body><p>Readable</p></body></html>',
+                    source_name='book.html',
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('canonical BookDocument limits', str(caught.exception))
+        self.assertIs(caught.exception.__cause__, failure)
 
     def test_malformed_utf8_and_resource_excess_fail_closed(self) -> None:
         with self.assertRaises(BookHtmlImportError) as bad_encoding:

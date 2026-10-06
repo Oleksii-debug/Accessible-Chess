@@ -24,7 +24,10 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from .bookdocument import (
+    MAX_BOOK_DOCUMENT_BLOCKS,
+    MAX_BOOK_TEXT_FIELD_CHARS,
     BookDocument,
+    BookDocumentError,
     Diagram,
     Game,
     Heading,
@@ -41,7 +44,7 @@ from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 MAX_HTML_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_HTML_VISIBLE_CHARS = 12 * 1024 * 1024
-MAX_HTML_BLOCKS = 50_000
+MAX_HTML_BLOCKS = MAX_BOOK_DOCUMENT_BLOCKS
 MAX_HTML_IMAGES = 10_000
 MAX_HTML_PGN_GAMES = 1_024
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
@@ -487,7 +490,17 @@ def _inline_style_hides(
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     if value is None and optional:
         return None
-    if type(value) is not str or not value.strip():
+    if type(value) is not str:
+        raise BookHtmlImportError(
+            f"{field} must be non-empty text",
+            code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise BookHtmlImportError(
+            f"{field} exceeds the canonical BookDocument text field limit",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+    if not value.strip():
         raise BookHtmlImportError(
             f"{field} must be non-empty text",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -2084,14 +2097,20 @@ def import_html_book(
         if len(missing) > room and len(warnings) < MAX_HTML_WARNINGS + 1:
             warnings.append("additional missing asset warnings were suppressed")
 
-    document = BookDocument(
-        title=resolved_title,
-        author=override_author or parser.author,
-        language=override_language or parser.language,
-        source_name=display_source,
-        blocks=list(parser.blocks),
-        warnings=list(warnings),
-    )
+    try:
+        document = BookDocument(
+            title=resolved_title,
+            author=override_author or parser.author,
+            language=override_language or parser.language,
+            source_name=display_source,
+            blocks=list(parser.blocks),
+            warnings=list(warnings),
+        )
+    except BookDocumentError as exc:
+        raise BookHtmlImportError(
+            "HTML semantic projection exceeds canonical BookDocument limits",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        ) from exc
     digest = sha256(raw).hexdigest()
     return BookHtmlImportResult(
         document=document,
