@@ -663,6 +663,124 @@
     host.appendChild(section);
   }
 
+  function buildGameControls(root, snapshot, invoke, announce) {
+    const manager = snapshot.game_manager;
+    const host = node("div");
+    host.setAttribute("role", "group");
+
+    const add = node("button", manager.add_label);
+    add.type = "button";
+    add.id = "pgn-game-add";
+    const remove = node("button", manager.delete_label);
+    remove.type = "button";
+    remove.id = "pgn-game-delete";
+    remove.disabled = !manager.can_delete;
+
+    const dialog = node("dialog");
+    dialog.id = "pgn-game-delete-dialog";
+    dialog.setAttribute("aria-busy", "false");
+    const title = node("h2", manager.delete_title);
+    title.id = "pgn-game-delete-title";
+    dialog.setAttribute("aria-labelledby", title.id);
+    dialog.appendChild(title);
+    dialog.appendChild(node("p", manager.delete_message));
+    const confirm = node("button", manager.delete_confirm_label);
+    confirm.type = "button";
+    const cancel = node("button", manager.cancel_label);
+    cancel.type = "button";
+    dialog.appendChild(confirm);
+    dialog.appendChild(cancel);
+
+    let pending = false;
+    function hasActiveFlight() {
+      const flight = root._pgnFlight;
+      const epoch = root._pgnRenderEpoch || 0;
+      return !!(flight && flight.epoch === epoch);
+    }
+    function setPending(value) {
+      pending = value === true;
+      add.disabled = pending;
+      remove.disabled = pending || !manager.can_delete;
+      confirm.disabled = pending;
+      cancel.disabled = pending;
+      dialog.setAttribute("aria-busy", pending ? "true" : "false");
+    }
+    function closeDelete() {
+      if (pending) return;
+      if (dialog.open) dialog.close();
+      if (typeof remove.focus === "function") remove.focus({ preventScroll: true });
+    }
+
+    add.addEventListener("click", function () {
+      if (pending || hasActiveFlight()) return;
+      setPending(true);
+      const started = invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.game_add",
+        {},
+        {
+          afterResult: function (result) {
+            if (result.kind === "error") {
+              setPending(false);
+              add.focus({ preventScroll: true });
+              return;
+            }
+            setPending(false);
+          },
+          afterFailure: function () {
+            setPending(false);
+            add.focus({ preventScroll: true });
+          }
+        }
+      );
+      if (!started) setPending(false);
+    });
+
+    remove.addEventListener("click", function () {
+      if (remove.disabled || pending || hasActiveFlight()) return;
+      dialog.showModal();
+      confirm.focus();
+    });
+    confirm.addEventListener("click", function () {
+      if (pending) return;
+      setPending(true);
+      const started = invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.game_delete",
+        {},
+        {
+          afterResult: function (result) {
+            if (result.kind === "error") {
+              setPending(false);
+              confirm.focus({ preventScroll: true });
+              return;
+            }
+            setPending(false);
+            if (result.kind === "delegated") closeDelete();
+          },
+          afterFailure: function () {
+            setPending(false);
+            confirm.focus({ preventScroll: true });
+          }
+        }
+      );
+      if (!started) setPending(false);
+    });
+    cancel.addEventListener("click", closeDelete);
+    dialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closeDelete();
+    });
+
+    host.appendChild(add);
+    host.appendChild(remove);
+    return { host: host, dialog: dialog };
+  }
+
   function buildMetadataDialog(root, snapshot, invoke, announce) {
     const editor = snapshot.metadata_editor;
     const dialog = node("dialog");
@@ -1095,6 +1213,8 @@
     main.appendChild(node("p", game.position_label));
     main.appendChild(node("p", game.result_label + ": " + game.result));
     renderTags(main, game);
+    const gameControls = buildGameControls(root, snapshot, invoke, announce);
+    main.appendChild(gameControls.host);
     const metadataDialog = buildMetadataDialog(root, snapshot, invoke, announce);
     main.appendChild(metadataDialog.openButton);
     renderWarnings(main, game);
@@ -1108,6 +1228,7 @@
     renderActions(root, main, snapshot, invoke, announce, commentDialog);
     main.appendChild(commentDialog.dialog);
     main.appendChild(metadataDialog.dialog);
+    main.appendChild(gameControls.dialog);
     fragment.appendChild(main);
     commitRender(root, fragment, snapshot);
     focusTarget(root, requestedFocus);
