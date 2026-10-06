@@ -11,13 +11,22 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from typing import Protocol
 
+from .agent_books_training_tools import AgentBooksTrainingTools
+from .agent_classroom_tools import AgentClassroomTools
 from .agent_gametree_tools import register_gametree_tools
 from .agent_library_tools import register_library_open_game_tool
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
+from .chessbase_adapter import (
+    component_extensions,
+    primary_extensions,
+    recognized_extensions,
+)
+from .chessbase_decoder import PROTOCOL_ID as CHESSBASE_DECODER_PROTOCOL_ID
 from .chesscore import Board
 from .continuous_analysis import ContinuousAnalysisService
+from .format_import_report_service import FormatImportReportService
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
 from .pgn_workspace import PgnWorkspace
 from .squares import square_name
@@ -52,6 +61,30 @@ def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
         raise ChessAgentToolsError(f"{name} must be text")
     value = value.strip()
     return value or None
+
+
+def _canonical_extension(arguments: Mapping[str, object]) -> str:
+    if frozenset(arguments) != frozenset({"extension"}):
+        raise ChessAgentToolsError(
+            "formats.chessbase_extension requires exactly the extension argument"
+        )
+    value = arguments.get("extension")
+    if type(value) is not str:
+        raise ChessAgentToolsError("extension must be text")
+    value = value.strip().lower()
+    if not value:
+        raise ChessAgentToolsError("extension must not be empty")
+    if not value.startswith("."):
+        value = "." + value
+    body = value[1:]
+    if (
+        len(value) > 16
+        or not body
+        or not body.isascii()
+        or not body.isalnum()
+    ):
+        raise ChessAgentToolsError("extension is invalid")
+    return value
 
 
 class MediaAgentBridge:
@@ -141,7 +174,9 @@ class ChessAgentToolRegistry:
         analysis_service: AnalysisService | None = None,
         continuous_analysis: ContinuousAnalysisService | None = None,
         search_service: GameSearchService | None = None,
+        format_report_service: FormatImportReportService | None = None,
         media: MediaAgentBridge | None = None,
+        application_snapshot_provider: Callable[[], Mapping[str, object]] | None = None,
         workspace_provider: Callable[[], PgnWorkspace] | None = None,
         library_open_game_command: Callable[[Mapping[str, int]], object] | None = None,
     ) -> None:
@@ -163,7 +198,19 @@ class ChessAgentToolRegistry:
         self.analysis_service = analysis_service
         self.continuous_analysis = continuous_analysis
         self.search_service = search_service
+        if format_report_service is not None and not isinstance(
+            format_report_service, FormatImportReportService
+        ):
+            raise TypeError(
+                "format_report_service must be FormatImportReportService or None"
+            )
+        self.format_report_service = format_report_service
         self.media = media
+        if application_snapshot_provider is not None and not callable(
+            application_snapshot_provider
+        ):
+            raise TypeError("application_snapshot_provider must be callable or None")
+        self.application_snapshot_provider = application_snapshot_provider
         if workspace_provider is not None and not callable(workspace_provider):
             raise TypeError("workspace_provider must be callable or None")
         self.workspace_provider = workspace_provider
@@ -187,8 +234,16 @@ class ChessAgentToolRegistry:
             register_library_open_game_tool(
                 self.executor, self.library_open_game_command
             )
+        self._register_formats()
         if self.media is not None:
             self._register_media()
+        if self.application_snapshot_provider is not None:
+            AgentBooksTrainingTools(self.application_snapshot_provider).register(
+                self.executor
+            )
+            AgentClassroomTools(self.application_snapshot_provider).register(
+                self.executor
+            )
         return self.executor.specs()
 
     def _board(self) -> Board:
@@ -495,6 +550,134 @@ class ChessAgentToolRegistry:
                 },
             ),
             search,
+        )
+
+    def _register_formats(self) -> None:
+        recognized = recognized_extensions()
+        primaries = primary_extensions()
+        components = component_extensions()
+        recognized_set = frozenset(recognized)
+        primary_set = frozenset(primaries)
+        component_set = frozenset(components)
+
+        async def capabilities(arguments: Mapping[str, object]) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "formats.capabilities accepts no arguments"
+                )
+            return {
+                "chessBase": {
+                    "recognizedExtensions": list(recognized),
+                    "primaryExtensions": list(primaries),
+                    "componentExtensions": list(components),
+                    "recognitionAuthority": "filename_and_component_layout_only",
+                    "sourceReadOnly": True,
+                    "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                    "decoderBackend": "external_not_bundled",
+                    "neutralOutputRequired": True,
+                }
+            }
+
+        async def chessbase_extension(arguments: Mapping[str, object]) -> object:
+            extension = _canonical_extension(arguments)
+            return {
+                "extension": extension,
+                "recognized": extension in recognized_set,
+                "primarySource": extension in primary_set,
+                "componentOnly": extension in component_set,
+                "recognitionAuthority": "filename_and_component_layout_only",
+                "sourceReadOnly": True,
+                "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                "decoderBackend": "external_not_bundled",
+                "builtInSafeToImport": False,
+            }
+
+        self.executor.register(
+            ToolSpec(
+                "formats.capabilities",
+                "Read canonical format-family capability metadata without reading a user file.",
+            ),
+            capabilities,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.chessbase_extension",
+                "Classify one ChessBase-family extension using the canonical read-only adapter contract.",
+                input_schema={"extension": "extension such as .cbh or cbv"},
+            ),
+            chessbase_extension,
+        )
+
+        reports = self.format_report_service
+        if reports is None:
+            return
+
+        async def import_report(arguments: Mapping[str, object]) -> object:
+            if frozenset(arguments) != frozenset({"attempt_id"}):
+                raise ChessAgentToolsError(
+                    "formats.import_report requires exactly attempt_id"
+                )
+            attempt_id = _exact_int(
+                arguments.get("attempt_id"),
+                name="attempt_id",
+                minimum=1,
+                maximum=(1 << 63) - 1,
+            )
+            report = reports.get(attempt_id)
+            return {
+                "attemptId": attempt_id,
+                "found": report is not None,
+                "report": None if report is None else report.as_dict(),
+            }
+
+        async def import_reports(arguments: Mapping[str, object]) -> object:
+            allowed = frozenset({"status", "before_id", "limit"})
+            if not frozenset(arguments).issubset(allowed):
+                raise ChessAgentToolsError(
+                    "formats.import_reports received an unsupported argument"
+                )
+            status = arguments.get("status")
+            if status is not None and type(status) is not str:
+                raise ChessAgentToolsError("status must be text")
+            before_id = arguments.get("before_id")
+            if before_id is not None:
+                before_id = _exact_int(
+                    before_id,
+                    name="before_id",
+                    minimum=1,
+                    maximum=(1 << 63) - 1,
+                )
+            limit = _exact_int(
+                arguments.get("limit", 20),
+                name="limit",
+                minimum=1,
+                maximum=100,
+            )
+            return reports.list(
+                status=status,
+                before_id=before_id,
+                limit=limit,
+            ).as_dict()
+
+        self.executor.register(
+            ToolSpec(
+                "formats.import_report",
+                "Read one persisted canonical Library import report by attempt id.",
+                input_schema={"attempt_id": "positive import attempt id"},
+            ),
+            import_report,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.import_reports",
+                "List bounded persisted Library import reports newest-first.",
+                input_schema={
+                    "status": "optional pending/full/warning/damaged/failed",
+                    "before_id": "optional positive keyset cursor",
+                    "limit": "1-100",
+                },
+            ),
+            import_reports,
         )
 
     def _register_media(self) -> None:

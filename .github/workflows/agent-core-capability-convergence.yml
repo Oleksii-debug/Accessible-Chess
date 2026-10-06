@@ -4,15 +4,6 @@ on:
   pull_request:
     branches:
       - fix/media-agent-intake-safety-20261006-sol56x1
-    paths:
-      - .github/workflows/agent-core-capability-convergence.yml
-      - acs/agent_gametree_tools.py
-      - acs/agent_library_tools.py
-      - acs/chess_agent_tools.py
-      - tests/test_agent_capability_convergence.py
-      - tests/test_agent_continuous_analysis.py
-      - tests/test_agent_gametree_tools.py
-      - tests/test_agent_library_open_game.py
   push:
     branches:
       - converge/agent-core-capabilities-20261006-sol56x1
@@ -32,7 +23,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout exact convergence candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -49,6 +40,9 @@ jobs:
           CONTINUOUS_SOURCE_HEAD: 43f1419dd424bc8dd12fb884ddf4c016304bb357
           GAMETREE_SOURCE_HEAD: 00ec2ed2e9355e908a7e37ee3ae197c214261ab1
           LIBRARY_SOURCE_HEAD: 9ea0e17066636dbffaa71aeae83aa0187e906d78
+          FORMATS_SOURCE_HEAD: 4fd5a640111610356002e8545f82278f157765a4
+          BOOKS_SOURCE_HEAD: fe4efc2806032fadc7b069b696f403e012f8cfbc
+          CLASSROOM_SOURCE_HEAD: d9bc9f51979feefd6dce3518c89daa3dafe35b22
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
@@ -66,27 +60,44 @@ jobs:
           changed="$(git diff --name-only "$PARENT_SHA"...HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/agent-core-capability-convergence.yml' \
+            'acs/agent_books_training_tools.py' \
+            'acs/agent_classroom_tools.py' \
             'acs/agent_gametree_tools.py' \
             'acs/agent_library_tools.py' \
             'acs/chess_agent_tools.py' \
+            'acs/format_import_report_service.py' \
+            'tests/test_agent_books_training_tools.py' \
             'tests/test_agent_capability_convergence.py' \
+            'tests/test_agent_classroom_tools.py' \
             'tests/test_agent_continuous_analysis.py' \
+            'tests/test_agent_format_capabilities.py' \
             'tests/test_agent_gametree_tools.py' \
-            'tests/test_agent_library_open_game.py' | LC_ALL=C sort)"
+            'tests/test_agent_library_open_game.py' \
+            'tests/test_chess_agent_tools_crossrepo.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Agent core capability scope:\n%s\n' "$changed" >&2
             exit 1
           }
-          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'c36edeb7883de1f107194e80638c862742a15f50'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'c6379de32524859e24f030a0b335963a61d47e5e'
           test "$(git rev-parse HEAD:acs/agent_gametree_tools.py)" = '0af2ad011b68c73c99c1645652fa60870c9c8c9d'
           test "$(git rev-parse HEAD:acs/agent_library_tools.py)" = 'c9fcbe58bbfd1b65626970b17568a16146d886aa'
+          test "$(git rev-parse HEAD:acs/format_import_report_service.py)" = 'd834ac643b4998df91594f12caf8dd4dd288b393'
+          test "$(git rev-parse HEAD:acs/agent_books_training_tools.py)" = '39862492d461ec4a0d2011c6e2ec40507bebd9ee'
+          test "$(git rev-parse HEAD:acs/agent_classroom_tools.py)" = '0dbc5613c13dfb1e8e9e6336fbc950cee8742e9f'
+          test "$(git rev-parse HEAD:tests/test_agent_capability_convergence.py)" = 'd01c910b5fa311bfaf82694c1f14f47411e2e401'
           test "$(git rev-parse HEAD:tests/test_agent_continuous_analysis.py)" = 'e90f25468ef3562a3364a734c771f59bcab405f6'
           test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '65e6445dd04d3dc3c7d75c36e0186203a3607d8b'
           test "$(git rev-parse HEAD:tests/test_agent_library_open_game.py)" = '34eb1b9629cdbde21d2e20f6ebd35234f2f9b001'
-          test "$(git rev-parse HEAD:tests/test_agent_capability_convergence.py)" = 'd01c910b5fa311bfaf82694c1f14f47411e2e401'
+          test "$(git rev-parse HEAD:tests/test_agent_format_capabilities.py)" = '0aa56db984656d67aca5e3b394253d381b655cbe'
+          test "$(git rev-parse HEAD:tests/test_chess_agent_tools_crossrepo.py)" = '893f417e1838e215c7a75466ae5051fc283c922f'
+          test "$(git rev-parse HEAD:tests/test_agent_books_training_tools.py)" = '0cd57b7444e50131acd4dce402debd1c51005031'
+          test "$(git rev-parse HEAD:tests/test_agent_classroom_tools.py)" = '53b1d91d33f0ee15b54e8341484b2173f3705061'
           echo "AGENT_CONTINUOUS_SOURCE_HEAD=$CONTINUOUS_SOURCE_HEAD"
           echo "AGENT_GAMETREE_SOURCE_HEAD=$GAMETREE_SOURCE_HEAD"
           echo "AGENT_LIBRARY_SOURCE_HEAD=$LIBRARY_SOURCE_HEAD"
+          echo "AGENT_FORMATS_SOURCE_HEAD=$FORMATS_SOURCE_HEAD"
+          echo "AGENT_BOOKS_SOURCE_HEAD=$BOOKS_SOURCE_HEAD"
+          echo "AGENT_CLASSROOM_SOURCE_HEAD=$CLASSROOM_SOURCE_HEAD"
           echo 'AGENT_CORE_CAPABILITY_GEOMETRY=PASS'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -96,13 +107,20 @@ jobs:
       - name: Compile converged Agent capability boundary
         run: >-
           python -m compileall -q
+          acs/agent_books_training_tools.py
+          acs/agent_classroom_tools.py
           acs/agent_gametree_tools.py
           acs/agent_library_tools.py
           acs/chess_agent_tools.py
+          acs/format_import_report_service.py
+          tests/test_agent_books_training_tools.py
           tests/test_agent_capability_convergence.py
+          tests/test_agent_classroom_tools.py
           tests/test_agent_continuous_analysis.py
+          tests/test_agent_format_capabilities.py
           tests/test_agent_gametree_tools.py
           tests/test_agent_library_open_game.py
+          tests/test_chess_agent_tools_crossrepo.py
 
       - name: Execute converged Agent capability contracts
         run: >-
@@ -111,13 +129,18 @@ jobs:
           tests.test_agent_continuous_analysis
           tests.test_agent_gametree_tools
           tests.test_agent_library_open_game
+          tests.test_agent_format_capabilities
+          tests.test_agent_books_training_tools
+          tests.test_agent_classroom_tools
 
       - name: Execute retained canonical service regressions
         run: >-
           python -m unittest -v
           tests.test_chess_agent_tools_crossrepo
           tests.test_continuous_analysis
+          tests.test_acsdb
           tests.test_pgn_workspace
+          tests.test_dev1_books_training_webview_projection
           tests.test_version2_application
 
       - name: Execute core selftest
