@@ -730,13 +730,13 @@ class _SemanticHtmlParser(HTMLParser):
     def _emit_list(self, captured: _ListCapture) -> None:
         items: list[str] = []
         for item_index, item in enumerate(captured.items, start=1):
-            if self.control_checkpoint is not None and item_index % 128 == 0:
+            if self.control_checkpoint is not None and item_index % 128 == 1:
                 self._checkpoint()
             if item:
                 items.append(item)
         identity_items: list[str] = []
         for item_index, item in enumerate(captured.identity_items, start=1):
-            if self.control_checkpoint is not None and item_index % 128 == 0:
+            if self.control_checkpoint is not None and item_index % 128 == 1:
                 self._checkpoint()
             if item:
                 identity_items.append(item)
@@ -785,7 +785,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
             for item_index, item in enumerate(items, start=1):
-                if self.control_checkpoint is not None and item_index % 128 == 0:
+                if self.control_checkpoint is not None and item_index % 128 == 1:
                     self._checkpoint()
                 # Once numbering semantics are outside the canonical ListBlock model
                 # (reversed lists, per-item value overrides, invalid starts, nesting),

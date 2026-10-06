@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.chesscore import Board
-from acs.book_html_import import import_html_book, _SemanticHtmlParser
+from acs.book_html_import import import_html_book, _ListCapture, _SemanticHtmlParser
 from acs.book_epub_import import import_epub_book
 from acs.book_text_import import import_text_book, BookTextFormat
 from acs.import_contract import SourceReadCancelledError
@@ -94,6 +94,47 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         with zipfile.ZipFile(BytesIO(buffer.getvalue()), 'r') as archive:
             with self.assertRaises(SourceReadCancelledError) as caught:
                 epub._archive_index(archive, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_safe_name_segment_scan_observes_control(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError('cancelled during EPUB OCF path scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        name = '/'.join(f'p{index}' for index in range(300))
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._safe_entry_name(name, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_local_zip64_extra_scan_observes_control(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError('cancelled during EPUB ZIP extra scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        extra = b'\x02\x00\x00\x00' * 300
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._local_zip64_sizes(
+                extra,
+                needs_uncompressed=False,
+                needs_compressed=False,
+                control_checkpoint=cancel,
+            )
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
@@ -332,6 +373,31 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             html._pgn_candidates(visible, cancel)
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 4)
+
+    def test_html_list_aggregation_observes_control(self):
+        failure = SourceReadCancelledError('cancelled during HTML list aggregation')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        captured = _ListCapture(
+            tag='ul',
+            attrs={},
+            items=[f'item {index}' for index in range(300)],
+            identity_items=[f'item {index}' for index in range(300)],
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._emit_list(captured)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
 
     def test_html_visible_pgn_scan_observes_control_across_large_prose(self):
         import acs.book_html_import as html
@@ -595,9 +661,9 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         import acs.book_epub_import as epub
         validate = epub._validate_local_zip_header
         calls = 0
-        def pause(archive, info):
+        def pause(archive, info, control_checkpoint=None):
             nonlocal calls
-            result = validate(archive, info)
+            result = validate(archive, info, control_checkpoint)
             calls += 1
             if calls == 100:
                 ready.set()
