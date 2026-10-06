@@ -941,28 +941,48 @@ class Version2WindowsFileActionDelegate:
                             error_code="pgn_open_stale",
                         )
                     else:
-                        try:
-                            # This is the only publication point and it executes through the
-                            # owner-thread poster supplied by the production Windows runtime.
-                            self._set_pgn_session(session)
-                        except BaseException:
-                            _safe_warning(
-                                "Version 2 PGN Open session publication failed"
-                            )
-                            terminal = FileWorkflowEvent(
-                                FileWorkflowEventKind.FAILED,
-                                "pgn.open",
-                                focus_target=previous_focus,
-                                error_code="pgn_open_publish_failed",
-                            )
-                        else:
-                            terminal = FileWorkflowEvent(
-                                FileWorkflowEventKind.PGN_OPENED,
-                                "pgn.open",
-                                focus_target="pgn-game-list",
-                                game_count=game_count,
-                                warning_count=warning_count,
-                            )
+                        # Cancellation may win until this session publication
+                        # boundary. Serialize the final cancellation decision
+                        # with publication so a cancel callback racing after the
+                        # initial snapshot cannot be lost before replacing the
+                        # active document.
+                        with self._lock:
+                            if (
+                                generation != self._generation
+                                or self._worker_kind != "pgn_open"
+                                or self._shutdown_requested
+                            ):
+                                return
+                            if cancel_event.is_set():
+                                terminal = FileWorkflowEvent(
+                                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                                    "pgn.open",
+                                    focus_target=previous_focus,
+                                )
+                            else:
+                                try:
+                                    # This is the only publication point and it
+                                    # executes through the owner-thread poster
+                                    # supplied by the production Windows runtime.
+                                    self._set_pgn_session(session)
+                                except BaseException:
+                                    _safe_warning(
+                                        "Version 2 PGN Open session publication failed"
+                                    )
+                                    terminal = FileWorkflowEvent(
+                                        FileWorkflowEventKind.FAILED,
+                                        "pgn.open",
+                                        focus_target=previous_focus,
+                                        error_code="pgn_open_publish_failed",
+                                    )
+                                else:
+                                    terminal = FileWorkflowEvent(
+                                        FileWorkflowEventKind.PGN_OPENED,
+                                        "pgn.open",
+                                        focus_target="pgn-game-list",
+                                        game_count=game_count,
+                                        warning_count=warning_count,
+                                    )
 
         with self._lock:
             if (
