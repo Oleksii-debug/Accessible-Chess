@@ -142,6 +142,37 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.next_game()
+            if command_id == "pgn.tag_edit":
+                self._exact_fields(data, {"name", "value"})
+                name = self._text(data["name"], name="tag name", limit=80)
+                value = data["value"]
+                if type(value) is not str or len(value) > 360 or "\x00" in value:
+                    raise ValueError("tag value is invalid")
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_tag(name, value)
+            if command_id == "pgn.tag_delete":
+                self._exact_fields(data, {"name"})
+                name = self._text(data["name"], name="tag name", limit=80)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.delete_tag(name)
+            if command_id == "pgn.append_moves":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="continuation text", limit=8192)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.append_moves(text)
+            if command_id == "pgn.search":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="search text", limit=4096)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.search(text)
             if command_id == "pgn.comment_edit":
                 self._exact_fields(data, {"text"})
                 text = self._text(data["text"], name="comment text", limit=8000)
@@ -155,6 +186,23 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.delete_comment()
+            if command_id == "pgn.nag_edit":
+                self._exact_fields(data, {"text"})
+                raw = data["text"]
+                if type(raw) is not str or len(raw) > 512 or "\x00" in raw:
+                    raise ValueError("NAG text is invalid")
+                text = raw.strip()
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_nags(text)
+            if command_id == "pgn.variation_add":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="variation text", limit=8192)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.add_variation(text)
             if command_id == "pgn.variation_delete":
                 self._exact_fields(data, set())
                 guarded = presentation_guard()
