@@ -143,6 +143,17 @@ def _install_unsaved_pgn_close_guard(
             # original shutdown/resume failure that made FormClosing refuse.
             pass
 
+    def clear_close_failure_diagnostics() -> None:
+        # Each accepted close attempt owns fresh diagnostic truth. Historical
+        # failure objects must not survive a later successful retry or mask an
+        # incomplete-but-nonexceptional shutdown.
+        for name in ("_native_close_resume_error", "_native_close_shutdown_error"):
+            try:
+                setattr(application, name, None)
+            except BaseException:
+                # Diagnostics are secondary to the close transaction itself.
+                pass
+
     def on_form_closing(_sender: object, event: object) -> None:
         if state["shutdown_complete"]:
             return
@@ -168,6 +179,8 @@ def _install_unsaved_pgn_close_guard(
                 if not discard:
                     cancel_close(event)
                     return
+
+            clear_close_failure_diagnostics()
 
             if before_shutdown is not None:
                 try:

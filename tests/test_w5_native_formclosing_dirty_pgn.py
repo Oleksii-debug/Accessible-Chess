@@ -389,6 +389,7 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         self.assertFalse(
             getattr(application, "_native_close_shutdown_complete", False)
         )
+        self.assertIsInstance(application._native_close_shutdown_error, OSError)
 
         second = owner.request_close("retry-after-progress-recovery")
 
@@ -401,6 +402,41 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         self.assertEqual(application.database.closed, 1)
         self.assertEqual(trace.count("import-cancel-join"), 2)
         self.assertEqual(trace.count("database-close"), 1)
+        self.assertTrue(application._native_close_shutdown_complete)
+        self.assertIsNone(application._native_close_shutdown_error)
+        self.assertIsNone(application._native_close_resume_error)
+
+    def test_pre_shutdown_failure_diagnostic_is_cleared_by_successful_retry(self) -> None:
+        application, trace = _lifecycle_application(dirty=False)
+        owner = _OwnerForm()
+        dialogs = _Dialogs(True)
+        attempts = []
+
+        def before_shutdown(_application):
+            attempts.append("prepare")
+            if len(attempts) == 1:
+                raise RuntimeError("FIRST_RESUME_PUBLICATION_FAILURE")
+
+        _install_unsaved_pgn_close_guard(
+            application,
+            owner,
+            dialogs,
+            before_shutdown=before_shutdown,
+        )
+
+        first = owner.request_close("first-resume-publication-failure")
+        self.assertTrue(first.Cancel)
+        self.assertEqual(trace, [])
+        self.assertIsInstance(application._native_close_resume_error, RuntimeError)
+        self.assertIsNone(application._native_close_shutdown_error)
+
+        second = owner.request_close("second-resume-publication-success")
+        self.assertFalse(second.Cancel)
+        self.assertEqual(attempts, ["prepare", "prepare"])
+        self.assertEqual(trace.count("import-cancel-join"), 1)
+        self.assertEqual(trace.count("database-close"), 1)
+        self.assertIsNone(application._native_close_resume_error)
+        self.assertIsNone(application._native_close_shutdown_error)
         self.assertTrue(application._native_close_shutdown_complete)
 
     def test_duplicate_guard_installation_is_rejected(self) -> None:
