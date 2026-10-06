@@ -483,6 +483,11 @@ class BookReader:
         location = self.save_return_point(validated_name)
         try:
             yield location
+            # A synchronous handoff may re-enter authoring code and mutate the
+            # live BookDocument while the external transition itself succeeds.
+            # Do not commit a return point for a revision that is no longer the
+            # one represented by this reader's immutable semantic index.
+            self._require_indexed_revision()
         except BaseException:
             if had_previous:
                 assert previous_key is not None
