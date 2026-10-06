@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -84,6 +85,121 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
 
             self.assertEqual(touched, [])
             self.assertFalse(output.exists())
+
+    def test_physical_snapshot_metadata_is_platform_fail_closed(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(
+            acceptance_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            with mock.patch.object(acceptance_module.os, "name", "nt"):
+                self.assertTrue(
+                    acceptance_module._same_file_snapshot(base, ctime_drift)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, missing_mtime)
+                )
+
+            with mock.patch.object(acceptance_module.os, "name", "posix"):
+                self.assertTrue(
+                    acceptance_module._same_file_snapshot(base, base)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, ctime_drift)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, missing_ctime)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, bool_size)
+                )
+
+    def test_physical_publication_snapshot_ignores_ctime_but_requires_mtime(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(
+            acceptance_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            self.assertTrue(
+                acceptance_module._same_publication_snapshot(
+                    base,
+                    ctime_drift,
+                )
+            )
+            self.assertFalse(
+                acceptance_module._same_publication_snapshot(
+                    base,
+                    mtime_drift,
+                )
+            )
+            self.assertFalse(
+                acceptance_module._same_publication_snapshot(
+                    base,
+                    missing_mtime,
+                )
+            )
 
     def test_record_rejects_publication_not_bound_to_fsynced_staging_bytes(self):
         with tempfile.TemporaryDirectory() as raw:
