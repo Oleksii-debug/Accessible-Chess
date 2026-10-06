@@ -774,7 +774,10 @@ class BookHtmlImportTests(unittest.TestCase):
                 "block flow-root",
                 "inline flex",
                 "block math",
+                "math block",
                 "inline math",
+                "run-in math",
+                "m\\61 th",
                 "block flow list-item",
             )
         ):
