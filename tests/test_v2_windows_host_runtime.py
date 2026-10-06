@@ -569,6 +569,52 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             owner.posted.pop(0)()
         self.assertEqual(fallback_calls, [])
 
+    def test_pending_import_wakeup_reports_failed_delivery_as_not_recovered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "failed-explicit-wakeup.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    self.assertFalse(runtime.request_pending_import_wakeup())
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.request_pending_import_wakeup())
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertTrue(runtime.shutdown())
+
     def test_pending_import_wakeup_reports_reentrant_close_as_not_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "reentrant-import-wakeup.pgn"

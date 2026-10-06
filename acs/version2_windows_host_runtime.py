@@ -277,6 +277,12 @@ class Version2WindowsFileWorkflowRuntime:
         # Do not report wakeup recovery while file actions are no longer live.
         if self._file_delegate.shutdown_requested:
             return False
+        # A recovery attempt is not recovery authority. Owner callback execution
+        # and mailbox delivery are transactional and may retain their exact work
+        # after a presentation failure. Report success only when that retained
+        # accessibility state has actually committed.
+        if self._pump.owner_callback_pending or self._mailbox.pending_count:
+            return False
         return owner_recovered or mailbox_recovered
 
     def resume_after_refused_shutdown(self) -> bool:
