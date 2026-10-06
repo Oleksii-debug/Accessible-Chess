@@ -238,6 +238,35 @@ class BooksTrainingWebViewBridgeTests(unittest.TestCase):
         self.assertEqual("error", result.kind)
         self.assertNotIn("private book abort", repr(result))
 
+    def test_book_bridge_navigation_abort_reports_error_without_hidden_cursor_move(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        presenter = self.book.projection._presenter
+        reader = presenter._reader
+        before_index = reader.index
+        original_digest = reader._document_revision_digest
+        calls = 0
+
+        def abort_second_revision_read() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise AbortSignal("private final revision abort")
+            return original_digest()
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            side_effect=abort_second_revision_read,
+        ):
+            result = self.book.dispatch("book.next", {})
+
+        self.assertEqual("error", result.kind)
+        self.assertEqual(before_index, reader.index)
+        self.assertEqual(calls, 2)
+        self.assertNotIn("private final revision abort", repr(result))
+
     def test_training_bridge_contains_projection_abort_as_accessible_error(self) -> None:
         class AbortSignal(BaseException):
             pass
