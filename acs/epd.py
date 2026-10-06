@@ -148,6 +148,16 @@ def serialize_epd(record: EpdRecord) -> str:
 
     core = " ".join(fields[:4])
     rendered: list[str] = []
+    serialized_length = len(core)
+
+    def append_operation(item: str) -> None:
+        nonlocal serialized_length
+        next_length = serialized_length + 1 + len(item)
+        if next_length > MAX_EPD_CHARS:
+            raise EpdParseError("serialized EPD is too long")
+        rendered.append(item)
+        serialized_length = next_length
+
     seen_hmvc = False
     seen_fmvn = False
     for operation in record.operations:
@@ -155,25 +165,22 @@ def serialize_epd(record: EpdRecord) -> str:
             if seen_hmvc:
                 raise EpdParseError("duplicate EPD hmvc operation")
             seen_hmvc = True
-            rendered.append(f"hmvc {record.position.halfmove};")
+            append_operation(f"hmvc {record.position.halfmove};")
         elif operation.opcode == "fmvn":
             if seen_fmvn:
                 raise EpdParseError("duplicate EPD fmvn operation")
             seen_fmvn = True
-            rendered.append(f"fmvn {record.position.fullmove};")
+            append_operation(f"fmvn {record.position.fullmove};")
         elif operation.operand is None:
-            rendered.append(f"{operation.opcode};")
+            append_operation(f"{operation.opcode};")
         else:
-            rendered.append(f"{operation.opcode} {operation.operand};")
+            append_operation(f"{operation.opcode} {operation.operand};")
 
     if record.position.halfmove != 0 and not seen_hmvc:
-        rendered.append(f"hmvc {record.position.halfmove};")
+        append_operation(f"hmvc {record.position.halfmove};")
     if record.position.fullmove != 1 and not seen_fmvn:
-        rendered.append(f"fmvn {record.position.fullmove};")
+        append_operation(f"fmvn {record.position.fullmove};")
 
-    serialized_length = len(core) + sum(1 + len(item) for item in rendered)
-    if serialized_length > MAX_EPD_CHARS:
-        raise EpdParseError("serialized EPD is too long")
     return core if not rendered else core + " " + " ".join(rendered)
 
 
