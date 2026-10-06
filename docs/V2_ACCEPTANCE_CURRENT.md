@@ -2,28 +2,27 @@
 
 ## 2026-10-06 final execution-run audit override
 
-Live GitHub exact heads, checks and artifacts supersede older snapshots below. This section is descriptive audit state, not a new priority queue.
+Live GitHub exact heads, checks and artifacts supersede every older snapshot retained below. This section is descriptive audit state only; it does not create a new priority queue.
 
-- default `main` at audit read: `513b17ce4213af3cdf47d971a9311676adf50ecd` (documentation/policy-only delta relative to the executable lineage);
-- executable Product #1981: `d0e14b998bb57b5c3b53609ecef41ab646b213a3`;
-- last exact audited shipping/recovery head: PR #2184 at `aabf8190ad36cceabafd68673de4fbe848565099`, draft + mergeable, clean descendant of Product (Product -> #2184 behind=0);
-- #2184 exact merge delta: 58 paths; Current Shipping Recovery Hardening declares 58 exact blob assertions and the final audit read found zero mismatches;
-- owner gameplay/accessibility #2195 is merged into #2184. The same lineage contains fail-closed move-feedback and sound-settings authority: missing/unreadable persistence cannot publish a false-success settings state, write failures restore canonical sound state, and the regressions are exact-pinned in the canonical shipping gate;
-- exact-head qualification on that audited #2184 head remained nonterminal at audit close: 35 queued and 12 pending PR-triggered runs. Current Shipping Recovery Hardening, Windows Composition, P0 Release Critical Triad, Owner Gameplay Feedback, One-Click Finalizer and Portable Final Candidate were not terminal GREEN.
+- executable Product authority remains PR #1981 at `d0e14b998bb57b5c3b53609ecef41ab646b213a3`;
+- canonical shipping/recovery is PR #2184 at exact head `7809fbbe20d625676af768bf43692ec89def7383`, base `eace8b671934c1acf6e12a4a59a95bc6274a8f1d`, open/draft/mergeable;
+- base -> #2184 is ahead-only / behind=0 with an exact 62-path effective delta. `.github/workflows/current-shipping-recovery-hardening.yml` declares the same 62-path scope and exact blob assertions for the integrated shipping boundaries;
+- owner gameplay/accessibility #2195 and deterministic native Alt-mnemonic repair #2199 are merged into #2184;
+- the canonical malformed-Books rollback oracle from #2073 is integrated into #2184 without importing the divergent Library runtime: rollback is judged by semantic `aria-current` route state rather than DOM object identity; the exact DOM regression blob is `345c6b46eca464af51469145c15792282e532e12`;
+- child-coaching recovery #2097 is now reconverged directly onto exact #2184: head `740027531b88b2aaa4771ae0ad2f08d1213bb084`, base `7809fbbe20d625676af768bf43692ec89def7383`, ahead-only / behind=0, exact 11-path overlay, open/draft/mergeable. Its fresh exact-head Child Coaching/Context/Keyboard/Group Rotation and broader jobs are queued, so it is not integrated;
+- Library #2073 remains a separate Product-relative 17-path lineage at `7732d3a5ca6b74738697fc6863b6a99105ffc034`, open/draft/mergeable. Its newer refused-close/export recovery work overlaps shipping application/runtime paths and must be semantically reconciled rather than mechanically replayed;
+- the current default-branch-only divergence from shipping is policy/documentation only (AGENTS/README and canonical vision, Media/Agent, technical-roadmap, acceptance and Web architecture documents); no main-only executable/runtime/test/workflow/package delta was found in this audit;
+- exact-current-head terminal machine qualification for #2184 is not established by the live Actions/status read. Older queued/green heads cannot qualify `7809fbbe20d625676af768bf43692ec89def7383`;
+- Media Intelligence / Universal Chess Agent remains active required scope on separate live PR stacks, including current Media #2197/#2198 and Agent #2200/#2201. None is silently part of the current shipping bytes.
 
-Whole-project reconciliation:
+Whole-product audit result:
 
-- the integrated PGN Open/Save/Save As host lineage formerly represented by #2098 is an ancestor of #2184; do not reopen the closed component PRs as competing PGN authorities;
-- Library #2073 remains a separate 17-path Product-based lineage and diverges from #2184; it is not shipping-integrated by topology;
-- child-coaching recovery #2097 remains a separate 10-path Product-based lineage and diverges from #2184;
-- Media Intelligence / Universal Chess Agent remains active required scope under issue #1992 and the live media/agent PR stacks. #2013 and #2003 remain topologically separate from #2184. Preserve canonical Board/GameTree legality, typed evidence/tool boundaries, provider compliance and Web-reusable application services when later converging them;
-- the newest observed media stack also includes recorded-media player/accessibility work and provider-compliant playback work; none is silently treated as part of the blind-user Windows shipping bytes until deliberately integrated;
-- closed package qualification #2099 is not a shipping ancestor and must not be revived as a second release authority; current #2184 directly gates the relevant portable/package/finalizer contracts;
-- full CBF/CBI semantic compatibility remains unproven pending lawful authentic fixtures plus an independent semantic oracle;
-- binding physical/user acceptance remains open in #730, #691, #1601 and owner finding #22;
-- the supplied Drive project plan and historical reservation ledger were re-read. Their top-level rule correctly defers to live GitHub/Issue #14; historical reservations do not create present mutation authority.
+- the current executable/shipping lineage carries the established canonical authorities for chess state/SAN/FEN/PGN, Book semantic reading and deterministic navigation, malformed/resource fail-closed handling, lawful starter-content/provenance constraints, persistence/recovery, keyboard/WebView/native accessibility, Windows package/preflight/portable/receipt integrity, and Web-reusable application boundaries;
+- full CBF/CBI semantic compatibility is still unproven pending lawful authentic fixtures plus an independent semantic oracle;
+- binding owner acceptance remains open in #730, #691, #1601 and real-user finding #22. Native menu automation, UIA evidence and sound dispatch tests do not substitute for physical Windows/NVDA/audio/semantic-copy acceptance on the exact delivered bytes;
+- no final exact Windows archive has attributable terminal qualification, fresh artifact readback and physical restart/NVDA acceptance.
 
-The executable lineage already carries substantial coverage for chess/SAN/FEN/PGN correctness, Books semantic reading and deterministic navigation, malformed/resource safety, lawful starter-content contracts, persistence/recovery, keyboard/WebView/native accessibility, Windows package integrity and Web-ready shared-service boundaries. This audit found no basis for a competing parser, chess-rules authority, persistence system, speech system, package authority or orchestration framework.
+The supplied Drive project plan and historical work ledger were re-read. Their live-GitHub/Issue #14 override governs; stale Drive SHA/queue snapshots are historical and were not allowed to override newer GitHub evidence.
 
 Release truth remains:
 
