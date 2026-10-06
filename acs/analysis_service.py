@@ -13,6 +13,8 @@ from threading import Lock, RLock
 from typing import Any, Callable
 
 from .engine_ports import (
+    ANALYSIS_MAX_MOVETIME_MS,
+    ANALYSIS_MIN_MOVETIME_MS,
     AnalysisEnginePort,
     EngineContractError,
     EngineContractErrorCode,
@@ -296,6 +298,22 @@ class AnalysisService:
         return normalized
 
     @staticmethod
+    def _normalize_movetime(movetime_ms: int | None) -> int | None:
+        if movetime_ms is None:
+            return None
+        if type(movetime_ms) is not int:
+            raise EngineContractError(
+                "analysis movetime_ms must be an integer or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        if not ANALYSIS_MIN_MOVETIME_MS <= movetime_ms <= ANALYSIS_MAX_MOVETIME_MS:
+            raise EngineContractError(
+                "analysis movetime_ms is outside the supported range",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return movetime_ms
+
+    @staticmethod
     def _normalize_limits(multipv: int, depth: int) -> tuple[int, int]:
         for name, value in (("multipv", multipv), ("depth", depth)):
             if type(value) is not int:
@@ -336,9 +354,16 @@ class AnalysisService:
             for index, item in enumerate(items, start=1)
         )
 
-    def analyze(self, fen: str, multipv: int = 5, depth: int = 16) -> AnalysisResult:
+    def analyze(
+        self,
+        fen: str,
+        multipv: int = 5,
+        depth: int = 16,
+        movetime_ms: int | None = None,
+    ) -> AnalysisResult:
         fen = self._normalize_fen(fen)
         multipv, depth = self._normalize_limits(multipv, depth)
+        movetime_ms = self._normalize_movetime(movetime_ms)
         generation, closed = self._begin(fen)
         if closed:
             return AnalysisResult(fen, generation, False, (), self.CLOSED_ERROR)
@@ -365,7 +390,15 @@ class AnalysisService:
                             code=EngineContractErrorCode.INVALID_PROVIDER,
                         )
                     self._engine = engine
-                raw = self._engine.analyze(fen, multipv=multipv, depth=depth)
+                if movetime_ms is None:
+                    raw = self._engine.analyze(fen, multipv=multipv, depth=depth)
+                else:
+                    raw = self._engine.analyze(
+                        fen,
+                        multipv=multipv,
+                        depth=depth,
+                        movetime_ms=movetime_ms,
+                    )
                 lines = self._snapshot_provider_result(raw, multipv)
 
             if self._is_stale(generation, fen):
