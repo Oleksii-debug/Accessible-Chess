@@ -189,22 +189,31 @@ def parse_subtitle_context(raw: bytes, *, format: str, source_id: str,
 
 
 def register_speech_context_tool(executor: ToolExecutor, *, context: SubtitleContext,
-                                 current_media) -> None:
+                                 current_media, context_allowed) -> None:
     """Bind an optional read-only tool to the SAME Universal Agent ToolExecutor.
 
     current_media is a trusted host callback returning source ID, source revision,
-    and player position in milliseconds. A stale track never supplies context for
+    and player position in milliseconds. context_allowed is a trusted live
+    permission callback and is re-checked before every read so revocation takes
+    effect without rebuilding the Agent. A stale track never supplies context for
     a different video. Provider text remains quoted evidence, not instructions.
     """
     if type(executor) is not ToolExecutor or type(context) is not SubtitleContext:
         raise TypeError("canonical tool executor and subtitle context are required")
     if not callable(current_media):
         raise TypeError("current_media must be callable")
+    if not callable(context_allowed):
+        raise TypeError("context_allowed must be callable")
     bound_context = _detached_subtitle_context(context)
 
     async def around(arguments):
         if set(arguments) - {"before_ms", "after_ms"}:
             raise ValueError("unsupported speech-context argument")
+        allowed = context_allowed()
+        if type(allowed) is not bool:
+            raise TypeError("speech-context permission must be boolean")
+        if not allowed:
+            raise PermissionError("speech context is not permitted")
         source_id, revision, position_ms = _current_media_snapshot(current_media)
         if (
             source_id != bound_context.source_id

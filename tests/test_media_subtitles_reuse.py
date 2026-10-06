@@ -95,10 +95,53 @@ class SubtitleReuseTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 context().around(1000, **kwargs)
 
+    def test_live_permission_revocation_blocks_context_before_media_snapshot(self):
+        executor = ToolExecutor()
+        permission = [True]
+        media_calls = []
+
+        def current_media():
+            media_calls.append("called")
+            return ('lesson', 'revision-1', 1500)
+
+        register_speech_context_tool(
+            executor,
+            context=context(),
+            context_allowed=lambda: permission[0],
+            current_media=current_media,
+        )
+        call = ToolCall(
+            'call-permission',
+            'speech_context.around_current_time',
+            {'before_ms': 0, 'after_ms': 0},
+        )
+
+        allowed = asyncio.run(executor.execute(call))
+        self.assertTrue(allowed.ok, allowed.error)
+        self.assertEqual(media_calls, ["called"])
+        self.assertIn('Хід конем.', allowed.output['segments'][0]['text'])
+
+        permission[0] = False
+        denied = asyncio.run(executor.execute(call))
+        self.assertFalse(denied.ok)
+        self.assertIsNone(denied.output)
+        self.assertEqual(media_calls, ["called"])
+
+        permission[0] = 1
+        malformed = asyncio.run(executor.execute(call))
+        self.assertFalse(malformed.ok)
+        self.assertIsNone(malformed.output)
+        self.assertEqual(media_calls, ["called"])
+
     def test_same_executor_reads_context_and_rejects_stale_video(self):
         executor = ToolExecutor()
         current = ['lesson', 'revision-1', 6500]
-        register_speech_context_tool(executor, context=context(), current_media=lambda: tuple(current))
+        register_speech_context_tool(
+            executor,
+            context=context(),
+            context_allowed=lambda: True,
+            current_media=lambda: tuple(current),
+        )
         call = ToolCall('call-1', 'speech_context.around_current_time', {'before_ms': 0, 'after_ms': 0})
         result = asyncio.run(executor.execute(call))
         self.assertTrue(result.ok)
@@ -115,6 +158,7 @@ class SubtitleReuseTests(unittest.TestCase):
         register_speech_context_tool(
             executor,
             context=opened,
+            context_allowed=lambda: True,
             current_media=lambda: ('lesson', 'revision-1', 1500),
         )
 
@@ -149,6 +193,7 @@ class SubtitleReuseTests(unittest.TestCase):
                 register_speech_context_tool(
                     executor,
                     context=context(),
+                    context_allowed=lambda: True,
                     current_media=lambda snapshot=snapshot: snapshot,
                 )
                 result = asyncio.run(
@@ -172,6 +217,7 @@ class SubtitleReuseTests(unittest.TestCase):
             register_speech_context_tool(
                 executor,
                 context=opened,
+                context_allowed=lambda: True,
                 current_media=lambda: ('lesson', 'revision-1', 1000),
             )
 
@@ -182,8 +228,12 @@ class SubtitleReuseTests(unittest.TestCase):
 
     def test_unknown_tool_argument_is_rejected(self):
         executor = ToolExecutor()
-        register_speech_context_tool(executor, context=context(),
-            current_media=lambda: ('lesson', 'revision-1', 1000))
+        register_speech_context_tool(
+            executor,
+            context=context(),
+            context_allowed=lambda: True,
+            current_media=lambda: ('lesson', 'revision-1', 1000),
+        )
         result = asyncio.run(executor.execute(ToolCall('call-1',
             'speech_context.around_current_time', {'source_id': 'different'})))
         self.assertFalse(result.ok)
