@@ -214,7 +214,7 @@ def build_full_product_menu_spec(
             host_exit,
         ),
         "game": (action("board_game", "screen.board"), action("standard", "move.standard"), action("empty", "move.empty"), separator, action("undo", "edit.undo"), action("redo", "edit.redo")),
-        "position": (action("position_tools", "screen.board"), action("move_input", "board.input"), action("read_fen", "position.read_fen"), action("copy_fen", "position.copy_fen"), action("new_pgn_from_position", "pgn.new_from_position"), action("history_go", "history.go_to_move"), action("history_previous", "history.previous"), action("history_next", "history.next")),
+        "position": (action("position_tools", "screen.board"), action("move_input", "board.input"), action("read_fen", "board.read_fen"), action("copy_fen", "position.copy_fen"), action("new_pgn_from_position", "pgn.new_from_position"), action("history_go", "history.go_to_move"), action("history_previous", "history.previous"), action("history_next", "history.next")),
         "pgn": (
             action("pgn_screen", "screen.pgn"),
             action("open_pgn", "pgn.open"),
