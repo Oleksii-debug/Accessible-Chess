@@ -56,6 +56,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             'L"STATUS: FAILED"',
             'L"USER_WINDOW_PROVEN: NO"',
             'L"USER_NVDA_PROVEN: NO"',
+            'child_stopped ? L"CHILD_LEFT_RUNNING: NO" : L"CHILD_LEFT_RUNNING: YES"',
         ):
             with self.subTest(path="generic", token=token):
                 self.assertIn(token, generic)
@@ -73,6 +74,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         for token in (
             'L"USER_WINDOW_PROVEN: NO"',
             'L"USER_NVDA_PROVEN: NO"',
+            'L"CHILD_LEFT_RUNNING: NO"',
         ):
             with self.subTest(path="early-exit", token=token):
                 self.assertIn(token, early)
