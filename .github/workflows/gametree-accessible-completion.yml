@@ -9,6 +9,7 @@ on:
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'acs/version2_pgn_commands.py'
+      - 'acs/ui_keymap_adapter.py'
       - 'web/full_product_pgn.js'
       - 'tests/test_gametree_accessible_completion.py'
       - '.github/workflows/gametree-accessible-completion.yml'
@@ -46,6 +47,7 @@ jobs:
           acs/pgn_webview_bridge.py
           acs/pgn_workspace_webview_adapter.py
           acs/version2_pgn_commands.py
+          acs/ui_keymap_adapter.py
           tests/test_gametree_accessible_completion.py
       - name: Parse browser GameTree surface
         run: node --check web/full_product_pgn.js
@@ -60,5 +62,7 @@ jobs:
           tests.test_version2_pgn_commands
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_bilingual_localization_contract_current
+          tests.test_full_product_pgn_keybindings
       - name: Core chess selftest
         run: python -m acs.selftest
