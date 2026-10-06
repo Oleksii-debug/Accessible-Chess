@@ -82,12 +82,20 @@ def looks_like_epd(text: object) -> bool:
         return False
     if len(parts) == 4:
         return True
-    tail = parts[4].lstrip()
+    tail = parts[4].strip()
     if not tail:
         return False
-    # A normal FEN has numeric halfmove/fullmove fields after the same first
-    # four fields. EPD operations begin with an opcode and end with semicolons.
-    return (tail[0].isascii() and tail[0].isalpha()) or ";" in tail
+    # Preserve ordinary six-field FEN routing exactly. Any other board-shaped
+    # tail belongs to the EPD position-import channel, including malformed EPD,
+    # so callers can report one localized position-format error instead of
+    # silently treating the paste as a chess move.
+    tail_fields = tail.split()
+    if (
+        len(tail_fields) == 2
+        and all(field.isascii() and field.isdecimal() for field in tail_fields)
+    ):
+        return False
+    return True
 
 
 def parse_epd(text: str) -> EpdRecord:
