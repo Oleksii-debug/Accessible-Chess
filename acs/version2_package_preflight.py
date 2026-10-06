@@ -1985,20 +1985,25 @@ def _validate_zip_entries(
         seen.add(folded)
         unix_mode = (info.external_attr >> 16) & 0xFFFF
         file_type = stat.S_IFMT(unix_mode)
+        is_directory = info.is_dir()
         if file_type == stat.S_IFLNK:
             _fail("ZIP symbolic links are forbidden")
         if file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
             _fail("ZIP special files are forbidden")
+        if is_directory and file_type == stat.S_IFREG:
+            _fail("ZIP directory member has conflicting regular-file mode")
+        if not is_directory and file_type == stat.S_IFDIR:
+            _fail("ZIP file member has conflicting directory mode")
         if info.flag_bits & 0x1:
             _fail("encrypted ZIP members are forbidden")
         _register_zip_topology(
             token,
-            is_dir=info.is_dir(),
+            is_dir=is_directory,
             files=topology_files,
             directories=topology_directories,
             label="Version 2 ZIP",
         )
-        if not info.is_dir():
+        if not is_directory:
             _validate_file_policy(token)
             if info.file_size > limits.max_member_bytes:
                 _fail("ZIP member exceeds uncompressed size limit")
