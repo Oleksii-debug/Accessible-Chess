@@ -37,6 +37,8 @@ env:
   PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
   SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
   SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: fabdefb2ade679f16dda45308d5f8ce10141a6e7
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 667725692e3c15ff51d61f177fe8fc91bf8e0ee1
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
@@ -76,13 +78,15 @@ jobs:
             test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
             preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
             case "$preflight_blob" in
-              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB") ;;
               *) echo 'Unqualified canonical preflight identity' >&2; exit 1 ;;
             esac
             if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
               test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
             elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
               test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
             fi
             echo 'W6_PAYLOAD_TOPOLOGY=CURRENT_RUNTIME_COMPOSITION'
           fi
