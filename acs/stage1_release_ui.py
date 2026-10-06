@@ -32,15 +32,23 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         )
         return state
 
+    @staticmethod
+    def _settings_persistence_available(settings: object | None) -> bool:
+        if settings is None:
+            return False
+        if getattr(settings, "_baseline_known", True) is not True:
+            return False
+        return getattr(settings, "_write_blocked_reason", None) is None
+
     def get_sound_settings(self) -> dict[str, Any]:
         state = super().get_sound_settings()
-        if getattr(self, "_settings", None) is None:
+        if not self._settings_persistence_available(getattr(self, "_settings", None)):
             return {**state, "ok": False}
         return state
 
     def get_move_feedback_settings(self) -> dict[str, Any]:
         settings = getattr(self, "_settings", None)
-        if settings is None:
+        if not self._settings_persistence_available(settings):
             return {"ok": False, "enabled": False}
         try:
             enabled = settings.get("announce_move_errors", False) is True
@@ -51,7 +59,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
 
     def set_move_error_announcements(self, enabled: bool) -> dict[str, Any]:
         settings = getattr(self, "_settings", None)
-        if type(enabled) is not bool or settings is None:
+        if type(enabled) is not bool or not self._settings_persistence_available(settings):
             return {**self.get_move_feedback_settings(), "ok": False}
         try:
             settings.set("announce_move_errors", enabled)
