@@ -1847,6 +1847,16 @@ class Version2PackagePreflightTests(unittest.TestCase):
 
         with patch.object(
             preflight,
+            "_read_stable_bytes_file",
+            side_effect=AssertionError("app-config read must not start"),
+        ) as reader:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                validate_winforms_accessibility_app_config(active)
+        reader.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with patch.object(
+            preflight,
             "_inventory",
             side_effect=AssertionError("tree filesystem work must not start"),
         ) as inventory:
