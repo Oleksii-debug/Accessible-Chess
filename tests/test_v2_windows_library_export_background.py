@@ -439,6 +439,60 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertTrue(destination.exists())
             self.assertEqual(len(open_pgn(destination)), 1)
 
+    def test_terminal_observer_failure_gets_one_bounded_automatic_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "auto-retry-terminal-observer.pgn"
+            posted: list[object] = []
+            events: list[LibraryExportHostEvent] = []
+            attempts = {"terminal": 0}
+
+            def sink(event: LibraryExportHostEvent) -> None:
+                if event.kind is LibraryExportHostEventKind.EXPORTED:
+                    attempts["terminal"] += 1
+                    if attempts["terminal"] == 1:
+                        raise RuntimeError("first terminal observer attempt fails")
+                events.append(event)
+
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(destination),
+                worker_services_factory=self._worker_factory(database_path),
+                post_to_ui=posted.append,
+                event_sink=sink,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-results",
+            )
+            request = LibraryExportRequest.selected([game_id]).browser_payload()
+
+            with patch(
+                "acs.version2_windows_library_export._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                delegate("library.export", request)
+                self.assertTrue(delegate.wait_for_export(timeout=2.0))
+                self.assertEqual(len(posted), 1)
+
+                posted.pop()()
+                self.assertTrue(delegate.export_running)
+                deadline = time.monotonic() + 1.0
+                while not posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(posted), 1)
+
+                posted.pop()()
+
+            self.assertEqual(attempts["terminal"], 2)
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    LibraryExportHostEventKind.STARTED,
+                    LibraryExportHostEventKind.EXPORTED,
+                ],
+            )
+            self.assertEqual(len(open_pgn(destination)), 1)
+            self.assertTrue(delegate.shutdown())
+
     def test_terminal_observer_failure_keeps_exact_terminal_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
