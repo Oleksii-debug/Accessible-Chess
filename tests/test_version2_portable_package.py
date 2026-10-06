@@ -1276,6 +1276,118 @@ class PortableTreeTests(unittest.TestCase):
                 )
             self.assertFalse(target.exists())
 
+    def test_zip_readback_rejects_same_size_mutation_before_snapshot_binding(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_safe_info = portable_module._safe_info
+            readback_mtime_ns = None
+            injected = False
+
+            def safe_info_with_mutation(path, *, label, directory):
+                nonlocal readback_mtime_ns, injected
+                if label == "portable ZIP archive readback":
+                    if readback_mtime_ns is None:
+                        result = real_safe_info(
+                            path,
+                            label=label,
+                            directory=directory,
+                        )
+                        readback_mtime_ns = result.st_mtime_ns
+                        return result
+                    if not injected:
+                        candidate = Path(path)
+                        with candidate.open("r+b") as handle:
+                            first = handle.read(1)
+                            handle.seek(0)
+                            handle.write(b"X" if first != b"X" else b"Y")
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                        current = real_safe_info(
+                            path,
+                            label=label,
+                            directory=directory,
+                        )
+                        os.utime(
+                            candidate,
+                            ns=(
+                                current.st_atime_ns,
+                                readback_mtime_ns + 2_000_000_000,
+                            ),
+                        )
+                        injected = True
+                return real_safe_info(path, label=label, directory=directory)
+
+            with mock.patch.object(
+                portable_module,
+                "_safe_info",
+                side_effect=safe_info_with_mutation,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "changed during readback",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
+    def test_zip_durability_rejects_same_size_mutation_after_readback_snapshot(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_sync = portable_module._fsync_file_snapshot
+            injected = False
+
+            def mutate_then_sync(path, *, expected, label):
+                nonlocal injected
+                if label == "verified portable ZIP archive" and not injected:
+                    candidate = Path(path)
+                    with candidate.open("r+b") as handle:
+                        first = handle.read(1)
+                        handle.seek(0)
+                        handle.write(b"X" if first != b"X" else b"Y")
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    current = candidate.stat()
+                    os.utime(
+                        candidate,
+                        ns=(
+                            current.st_atime_ns,
+                            expected.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                    injected = True
+                return real_sync(path, expected=expected, label=label)
+
+            with mock.patch.object(
+                portable_module,
+                "_fsync_file_snapshot",
+                side_effect=mutate_then_sync,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "changed before durability confirmation",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
     def test_zip_publication_rejects_same_inode_mutation_after_link(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
