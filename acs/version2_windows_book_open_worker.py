@@ -74,6 +74,10 @@ class Version2BookOpenWorker:
         # same retained terminal or start a new generation before that terminal
         # is accepted and retired.
         self._terminal_delivery_active = False
+        # CANCELLING is a synchronous accessibility observer. Fence its
+        # delivery so observer re-entry cannot recursively call cancel() and
+        # emit an unbounded duplicate CANCELLING sequence.
+        self._cancelling_delivery_active = False
 
     def _assert_ui_thread(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -247,19 +251,29 @@ class Version2BookOpenWorker:
 
     def cancel(self, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
+        announce_cancelling = False
         with self._lock:
             if self._closed or self._cancel is None or self._commit_active:
                 return False
+            already_cancelled = self._cancel.is_set()
             self._cancel.set()
-        try:
-            self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
-        except BaseException:
-            # Cancellation is the authoritative control decision; CANCELLING is
-            # only an intermediate accessibility observer. Never let a broken
-            # observer undo or escape the already-recorded cancel request. The
-            # exact CANCELLED/FAILED terminal remains responsible for returning
-            # the owner/NVDA surface to a stable state.
-            pass
+            if not already_cancelled and not self._cancelling_delivery_active:
+                self._cancelling_delivery_active = True
+                announce_cancelling = True
+        if announce_cancelling:
+            try:
+                self._emit(BookOpenWorkerEventKind.CANCELLING, focus_target)
+            except BaseException:
+                # Cancellation is the authoritative control decision; CANCELLING
+                # is only an intermediate accessibility observer. Never let a
+                # broken observer undo or escape the already-recorded cancel
+                # request. The exact CANCELLED/FAILED terminal remains
+                # responsible for returning the owner/NVDA surface to a stable
+                # state.
+                pass
+            finally:
+                with self._lock:
+                    self._cancelling_delivery_active = False
         return True
 
     def _run(
