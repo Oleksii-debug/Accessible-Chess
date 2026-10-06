@@ -1058,10 +1058,16 @@ def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
 def _required_unique_direct_child(
     parent: ET.Element,
     name: str,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> ET.Element:
     """Return the only direct OPF section with this local name."""
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
-    matches = [child for child in parent if child.tag == wanted]
+    matches: list[ET.Element] = []
+    for child_index, child in enumerate(parent, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if child.tag == wanted:
+            matches.append(child)
     if len(matches) != 1:
         raise _error(
             f"EPUB package must contain exactly one {name} section",
@@ -1070,12 +1076,18 @@ def _required_unique_direct_child(
     return matches[0]
 
 
-def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
+def _metadata_values(
+    metadata: ET.Element | None,
+    name: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[str]:
     if metadata is None:
         return []
     wanted = f"{{{_DUBLIN_CORE_NAMESPACE}}}{name}"
     values: list[str] = []
-    for element in metadata:
+    for metadata_index, element in enumerate(metadata, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if element.tag != wanted:
             continue
         if len(element):
@@ -1122,7 +1134,11 @@ def _is_opf_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_OPF_NAMESPACE}}}")
 
 
-def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> None:
+def _validate_package_ids_unique(
+    package: ET.Element,
+    metadata: ET.Element,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     """Reject duplicate EPUB-defined IDs before resolving IDREF semantics."""
 
     seen: set[str] = set()
@@ -1149,14 +1165,19 @@ def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> N
     # conforming collection). Foreign extension elements do not acquire EPUB ID
     # semantics merely by spelling an attribute "id".
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
-    for element in package.iter():
+    for element_index, element in enumerate(package.iter(), start=1):
+        if control_checkpoint is not None and element_index % 128 == 1:
+            control_checkpoint()
         if element.tag in _ID_BEARING_OPF_TAGS or (
             type(element.tag) is str and element.tag.startswith(dc_prefix)
         ):
             record(element)
 
 
-def _validate_package_document(package: ET.Element) -> None:
+def _validate_package_document(
+    package: ET.Element,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     if package.tag != _PACKAGE_TAG:
         raise _error(
             "EPUB package metadata has an invalid OPF root element or namespace",
@@ -1221,7 +1242,7 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    metadata = _required_unique_direct_child(package, "metadata")
+    metadata = _required_unique_direct_child(package, "metadata", control_checkpoint)
     if (metadata.text or "").strip() or any(
         (child.tail or "").strip() for child in metadata
     ):
@@ -1238,7 +1259,7 @@ def _validate_package_document(package: ET.Element) -> None:
                 "EPUB metadata contains an invalid OPF element",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-    _validate_package_ids_unique(package, metadata)
+    _validate_package_ids_unique(package, metadata, control_checkpoint)
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
     for element in metadata:
         if type(element.tag) is not str or not element.tag.startswith(dc_prefix):
@@ -1254,12 +1275,12 @@ def _validate_package_document(package: ET.Element) -> None:
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
 
-    if not _metadata_values(metadata, "title"):
+    if not _metadata_values(metadata, "title", control_checkpoint):
         raise _error(
             "EPUB package metadata is missing a non-empty dc:title",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    if not _metadata_values(metadata, "language"):
+    if not _metadata_values(metadata, "language", control_checkpoint):
         raise _error(
             "EPUB package metadata is missing a non-empty dc:language",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -2065,7 +2086,7 @@ def import_epub_book(
                 "package metadata",
                 control_checkpoint,
             )
-            _validate_package_document(rendition_package)
+            _validate_package_document(rendition_package, control_checkpoint)
             rendition_version = rendition_package.attrib["version"]
             if selected_version is None:
                 selected_version = rendition_version
@@ -2117,10 +2138,10 @@ def import_epub_book(
         }
 
         metadata = _direct_child(package, "metadata")
-        package_titles = _metadata_values(metadata, "title")
-        creators = _metadata_values(metadata, "creator")
-        languages = _metadata_values(metadata, "language")
-        rights = _metadata_values(metadata, "rights")
+        package_titles = _metadata_values(metadata, "title", control_checkpoint)
+        creators = _metadata_values(metadata, "creator", control_checkpoint)
+        languages = _metadata_values(metadata, "language", control_checkpoint)
+        rights = _metadata_values(metadata, "rights", control_checkpoint)
 
         blocks = []
         chapter_titles: list[str] = []
