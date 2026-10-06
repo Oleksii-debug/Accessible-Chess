@@ -696,43 +696,35 @@ class AccessibleChessAPI:
             return commands[text]()
         return self._play_move_text(text)
 
-    def _play_move_text(self, text: str) -> dict[str, Any]:
-        """Play one already-normalized move through the canonical transaction.
+    def _commit_move_text_transaction(self, text: str) -> str:
+        """Publish one chess move atomically without presentation side effects.
 
-        Command/alias ownership stays outside this helper.  Both the base
-        WebView API and the central-keymap composition reuse this exact path so
-        rules readiness, history publication and failure atomicity cannot drift.
+        The caller owns command interpretation and user-facing error mapping.
+        This is the single Board/history publication path reused by manual and
+        engine-game moves.
         """
-        if type(text) is not str or not text:
-            return self._error(self._t("move_invalid"))
-        if not self._at_history_end():
-            return self._error(self._t("review_before_move"))
-        if not self._position_complete(self.board):
-            return self._error(self._t("setup_incomplete"))
-        if not self._position_playable(self.board):
-            return self._error(self._t("position_invalid"))
         side = self.board.turn
         try:
             candidate_board = copy.deepcopy(self.board)
-        except Exception:
-            return self._error(self._t("move_history_failed"))
+        except Exception as exc:
+            raise RuntimeError("move board clone failed") from exc
         try:
             san = candidate_board.push_text(text)
         except ValueError:
             # Accept lowercase piece letters at the human-input boundary only.
             # Try exact SAN first: bxc3 must remain a pawn capture when valid.
-            # PGN/Board parsing and canonical disambiguation stay unchanged.
             if not re.fullmatch(r"[kqrbn](?:[a-h][1-8]?|[1-8])?x?[a-h][1-8][+#]?", text):
-                return self._error(self._t("move_invalid"))
+                raise
             try:
                 candidate_board = copy.deepcopy(self.board)
                 san = candidate_board.push_text(text[0].upper() + text[1:])
             except ValueError:
-                return self._error(self._t("move_invalid"))
-            except Exception:
-                return self._error(self._t("move_history_failed"))
-        except Exception:
-            return self._error(self._t("move_history_failed"))
+                raise
+            except Exception as exc:
+                raise RuntimeError("move board replay failed") from exc
+        except Exception as exc:
+            raise RuntimeError("move board replay failed") from exc
+
         try:
             candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
             candidate_sans = list(self.sans)
@@ -751,8 +743,9 @@ class AccessibleChessAPI:
             )
             if selection.node_id != candidate_live_node:
                 raise RuntimeError("candidate move cursor mismatch")
-        except Exception:
-            return self._error(self._t("move_history_failed"))
+        except Exception as exc:
+            raise RuntimeError("move history publication failed") from exc
+
         self._publish_live_transaction(
             candidate_board,
             candidate_history,
@@ -762,6 +755,24 @@ class AccessibleChessAPI:
             move_sides=candidate_sides,
             redo_meta=[],
         )
+        return san
+
+    def _play_move_text(self, text: str) -> dict[str, Any]:
+        """Play one already-normalized move through the canonical transaction."""
+        if type(text) is not str or not text:
+            return self._error(self._t("move_invalid"))
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._position_complete(self.board):
+            return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
+        try:
+            san = self._commit_move_text_transaction(text)
+        except ValueError:
+            return self._error(self._t("move_invalid"))
+        except Exception:
+            return self._error(self._t("move_history_failed"))
         return self._ok(
             ("Зіграно: " if self.lang == "uk" else "Played: ")
             + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
