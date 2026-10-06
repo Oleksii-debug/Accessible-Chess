@@ -10,7 +10,13 @@ their execution.
 """
 
 from dataclasses import dataclass
-from .media_core import MediaChessSession, MediaCursor, MediaPositionTimeline, MediaSource
+from .media_core import (
+    MediaChessSession,
+    MediaCursor,
+    MediaPositionTimeline,
+    MediaReconciliationState,
+    MediaSource,
+)
 from .media_preprocess import PreprocessCheckpoint, PreprocessStatus
 from .recorded_media_sync import (
     AccessibleRecordedSyncEvent,
@@ -21,7 +27,14 @@ from .recorded_media_sync import (
 
 _SUPPORTED_LANGUAGES = frozenset({"en", "uk"})
 _QUALIFICATIONS = frozenset(
-    {"confirmed", "candidate", "ambiguous", "unlinked", "unavailable"}
+    {
+        "confirmed",
+        "candidate",
+        "ambiguous",
+        "resync_required",
+        "unlinked",
+        "unavailable",
+    }
 )
 _FOCUS_TARGETS = frozenset(
     {
@@ -103,6 +116,10 @@ _LABELS = {
         "status_confirmed": "A confirmed chess position is synchronized with the current media time.",
         "status_candidate": "The current media position has an unconfirmed chess candidate. Chess restore is disabled.",
         "status_ambiguous": "The current media position is ambiguous. Chess restore is disabled.",
+        "status_resync_required": (
+            "Recorded media synchronization was interrupted at this time. "
+            "Chess restore is disabled until synchronization is rebuilt."
+        ),
         "status_unlinked": "No confirmed chess position is synchronized with the current media time.",
         "preprocess_running": "Media preprocessing is running.",
         "preprocess_canceled": "Media preprocessing was canceled.",
@@ -125,6 +142,10 @@ _LABELS = {
         "status_confirmed": "Підтверджена шахова позиція синхронізована з поточним часом медіа.",
         "status_candidate": "Для поточного часу медіа є непідтверджений шаховий кандидат. Відновлення шахів вимкнено.",
         "status_ambiguous": "Поточна позиція медіа неоднозначна. Відновлення шахової позиції вимкнено.",
+        "status_resync_required": (
+            "Синхронізацію записаного медіа перервано для цього часу. "
+            "Відновлення шахової позиції вимкнено до повторної синхронізації."
+        ),
         "status_unlinked": "Для поточного часу медіа немає підтвердженої шахової позиції.",
         "preprocess_running": "Попередня обробка медіа триває.",
         "preprocess_canceled": "Попередню обробку медіа скасовано.",
@@ -146,6 +167,8 @@ def _qualification(
         resolution = snapshot.timeline.resolve_at_or_before(position_ms)
     if resolution is None:
         return "unavailable"
+    if resolution.qualification is MediaReconciliationState.RESYNC_REQUIRED:
+        return "resync_required"
     if resolution.ambiguous:
         return "ambiguous"
     if resolution.chess_ref is not None:
@@ -161,6 +184,7 @@ def _sync_status(qualification: str, language: str) -> str:
         "confirmed": labels["status_confirmed"],
         "candidate": labels["status_candidate"],
         "ambiguous": labels["status_ambiguous"],
+        "resync_required": labels["status_resync_required"],
         "unlinked": labels["status_unlinked"],
         "unavailable": labels["status_unavailable"],
     }[qualification]

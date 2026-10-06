@@ -53,7 +53,7 @@
       throw new Error("invalid playback state");
     }
     const qualification = requiredText(value.qualification, "qualification", 32);
-    if (!["confirmed", "candidate", "ambiguous", "unlinked", "unavailable"].includes(qualification)) {
+    if (!["confirmed", "candidate", "ambiguous", "resync_required", "unlinked", "unavailable"].includes(qualification)) {
       throw new Error("invalid synchronization qualification");
     }
     const preprocessStatus = requiredText(value.preprocessStatus, "preprocessStatus", 32);
