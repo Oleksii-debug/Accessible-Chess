@@ -3,11 +3,9 @@ name: Recorded Media Accessible Player
 on:
   push:
     branches:
-      - feat/recorded-media-accessible-player-20261006-sol56
+      - fix/recorded-media-player-browser-boundary-20261006-ac7m2
     paths:
-      - acs/recorded_media_accessibility.py
       - web/recorded_media_accessible_player.js
-      - tests/test_recorded_media_accessibility.py
       - tests/js/recorded_media_accessible_player_dom_test.js
       - .github/workflows/recorded-media-accessible-player.yml
   pull_request:
@@ -50,36 +48,33 @@ jobs:
       - name: Prove exact recorded-media parent and bounded scope
         shell: bash
         env:
-          EXPECTED_PARENT_BRANCH: work/recorded-media-canonical-application-adapter-20261005-sol56q8n4
-          EXPECTED_PARENT: 1ef7ce3e8b4a021d83be90316496f5e0c4d72c3c
+          EXPECTED_PARENT_BRANCH: feat/recorded-media-accessible-player-20261006-sol56
+          EXPECTED_PARENT: 6b9bb5a2c42f577cbac443a1c3544422f80a7cd9
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           git fetch --no-tags origin "+refs/heads/$EXPECTED_PARENT_BRANCH:refs/remotes/origin/recorded-media-parent"
           live_parent="$(git rev-parse refs/remotes/origin/recorded-media-parent)"
-          test "$live_parent" = "$EXPECTED_PARENT"
+          git merge-base --is-ancestor "$EXPECTED_PARENT" "$live_parent"
+          test "$(git rev-parse "$live_parent:web/recorded_media_accessible_player.js")" = "$(git rev-parse "$EXPECTED_PARENT:web/recorded_media_accessible_player.js")"
+          test "$(git rev-parse "$live_parent:tests/js/recorded_media_accessible_player_dom_test.js")" = "$(git rev-parse "$EXPECTED_PARENT:tests/js/recorded_media_accessible_player_dom_test.js")"
           test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
-          git merge-base --is-ancestor "$EXPECTED_PARENT" HEAD
           git diff --check "$EXPECTED_PARENT"...HEAD
           changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/recorded-media-accessible-player.yml' \
-            'acs/recorded_media_accessibility.py' \
             'tests/js/recorded_media_accessible_player_dom_test.js' \
-            'tests/test_recorded_media_accessibility.py' \
             'web/recorded_media_accessible_player.js' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
-            printf 'RECORDED_MEDIA_ACCESSIBLE_PLAYER_SCOPE_DRIFT\n%s\n' "$changed" >&2
+            printf 'RECORDED_MEDIA_PLAYER_BROWSER_BOUNDARY_SCOPE_DRIFT\n%s\n' "$changed" >&2
             exit 1
           }
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.js' '*.yml' || true)"
 
-      - name: Compile Python presentation boundary
+      - name: Check browser boundary syntax
         run: |
-          python -m py_compile acs/recorded_media_accessibility.py
-          python -m py_compile tests/test_recorded_media_accessibility.py
-
-      - name: Run recorded-media accessibility regressions
-        run: python -m unittest -v tests.test_recorded_media_accessibility
+          node --check web/recorded_media_accessible_player.js
+          node --check tests/js/recorded_media_accessible_player_dom_test.js
 
       - name: Run browser keyboard and screen-reader DOM contract
         run: node tests/js/recorded_media_accessible_player_dom_test.js
