@@ -57,6 +57,33 @@ class LegacyBookUtf16IntegrationTests(unittest.TestCase):
         self.assertEqual(result.pgn_games, 0)
         self.assertFalse(any("Windows-1251" in warning for warning in result.warnings))
 
+    def test_malformed_bom_utf8_maps_to_public_encoding_errors(self) -> None:
+        text_body = "Українська книга позиції аналіз партія".encode("cp1251")
+        with self.assertRaises(BookTextImportError) as text_error:
+            import_text_book(
+                b"\xef\xbb\xbf" + text_body,
+                source_name="bad-utf8-bom.txt",
+                source_format="txt",
+            )
+        self.assertEqual(
+            text_error.exception.code,
+            BookTextImportErrorCode.UNSUPPORTED_ENCODING,
+        )
+
+        html_body = (
+            "<html><body><p>Українська книга позиції аналіз партія"
+            "</p></body></html>"
+        ).encode("cp1251")
+        with self.assertRaises(BookHtmlImportError) as html_error:
+            import_html_book(
+                b"\xef\xbb\xbf" + html_body,
+                source_name="bad-utf8-bom.html",
+            )
+        self.assertEqual(
+            html_error.exception.code,
+            BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
+        )
+
     def test_malformed_bom_utf16_maps_to_public_encoding_errors(self) -> None:
         malformed = b"\xff\xfeA"
         with self.assertRaises(BookTextImportError) as text_error:
