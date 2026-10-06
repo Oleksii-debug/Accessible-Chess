@@ -176,9 +176,11 @@
     const generation = nextGeneration(root);
 
     const section = document.createElement("section");
+    section.setAttribute("role", "region");
     section.setAttribute("aria-label", state.regionLabel);
 
-    appendText(section, "h2", "recorded-media-heading", state.heading);
+    const heading = appendText(section, "h2", "recorded-media-heading", state.heading);
+    section.setAttribute("aria-labelledby", heading.id);
 
     const position = appendText(section, "p", "recorded-media-position", state.positionText);
     if (state.positionMs !== null) {
