@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'acs/pgn_roundtrip.py'
+      - 'tests/test_d06_pgn_roundtrip.py'
       - 'acs/pgn_workspace.py'
       - 'tests/test_w1_d06_bounded_model_materialization.py'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
@@ -51,6 +52,8 @@ jobs:
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
+          D06_SOURCE_BLOB: 4098053291b4611f4aa9152ceb65b432554b3d5f
+          D06_TEST_BLOB: c898e3b5ea4c514ebf86008339118e6fb124d9b3
         run: |
           set -euo pipefail
           base="${EVENT_BASE_SHA:-}"
@@ -63,12 +66,13 @@ jobs:
           git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
           git diff --check "$base" HEAD
           for path in \
-            acs/pgn_roundtrip.py \
             acs/pgn_workspace.py \
             tests/test_w1_d06_bounded_model_materialization.py
           do
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
           done
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_pgn_roundtrip.py)" = "$D06_TEST_BLOB"
 
       - name: Compile converged PGN modules
         run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py
