@@ -1009,6 +1009,69 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 }.issubset(labels)
             )
 
+    def test_text_hygiene_reads_one_stable_text_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "web" / "index.html"
+            real_open = Path.open
+            read_opens = 0
+
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == target and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counting_open):
+                preflight._scan_text_hygiene(
+                    root,
+                    ("AccessibleChess/web/index.html",),
+                    PackageLimits(),
+                )
+
+            self.assertEqual(read_opens, 1)
+
+    def test_text_hygiene_rejects_identity_change_while_opening(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with patch.object(preflight, "_same_file_snapshot", return_value=False):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being opened",
+                ):
+                    preflight._scan_text_hygiene(
+                        root,
+                        ("AccessibleChess/web/index.html",),
+                        PackageLimits(),
+                    )
+
+    def test_text_hygiene_rejects_path_change_after_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                side_effect=(True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package hygiene file changed while being read",
+                ):
+                    preflight._scan_text_hygiene(
+                        root,
+                        ("AccessibleChess/web/index.html",),
+                        PackageLimits(),
+                    )
+
     def test_terminal_revalidation_rejects_file_mutation_after_hygiene(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"

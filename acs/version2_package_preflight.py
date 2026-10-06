@@ -1823,38 +1823,61 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
+        before = _safe_lstat(path, label=f"package hygiene file {relative}")
+        if not stat.S_ISREG(before.st_mode):
+            _fail(f"package hygiene file is not a regular file: {relative}")
+        # A PE image can legitimately contain compiler/debug build paths. Do
+        # not classify those embedded binary strings as package text merely
+        # because UTF-8 error-ignoring happens to expose them. This is
+        # structure-based, not suffix-only: text renamed to .dll/.exe still
+        # follows the normal path-leak gate. Credential signatures remain
+        # scanned even inside recognized PE images.
+        is_pe_binary = (
+            PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
+            and _has_windows_pe_structure(path)
+        )
+        source = None
         try:
-            # A PE image can legitimately contain compiler/debug build paths.  Do
-            # not classify those embedded binary strings as package text merely
-            # because UTF-8 error-ignoring happens to expose them.  This is
-            # structure-based, not suffix-only: text renamed to .dll/.exe still
-            # follows the normal path-leak gate.  Credential signatures remain
-            # scanned even inside recognized PE images.
-            is_pe_binary = (
-                PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
-                and _has_windows_pe_structure(path)
-            )
-            with path.open("rb") as handle:
-                while True:
-                    block = handle.read(chunk_size)
-                    if not block:
-                        break
-                    window = tail + block
-                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large file as a scan exemption.
-                    text = window.decode("utf-8", errors="ignore")
-                    if (
-                        not is_pe_binary
-                        and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
-                    ):
-                        _fail(f"private local path leaked into package text: {relative}")
-                    if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-                        _fail(f"secret-like credential leaked into package text: {relative}")
-                    tail = window[-overlap_bytes:]
+            source = path.open("rb")
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail(
+                    f"package hygiene file must remain a regular non-reparse file: {relative}"
+                )
+            if not _same_file_snapshot(before, opened):
+                _fail(f"package hygiene file changed while being opened: {relative}")
+
+            while True:
+                block = source.read(chunk_size)
+                if not block:
+                    break
+                window = tail + block
+                # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
+                # without treating a large file as a scan exemption.
+                text = window.decode("utf-8", errors="ignore")
+                if (
+                    not is_pe_binary
+                    and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
+                ):
+                    _fail(f"private local path leaked into package text: {relative}")
+                if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
+                    _fail(f"secret-like credential leaked into package text: {relative}")
+                tail = window[-overlap_bytes:]
+
+            after_read = os.fstat(source.fileno())
+            after_path = _safe_lstat(path, label=f"package hygiene file {relative}")
+            if (
+                not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+            ):
+                _fail(f"package hygiene file changed while being read: {relative}")
         except Version2PackagePreflightError:
             raise
         except OSError as exc:
             _fail(f"package hygiene scan failed: {type(exc).__name__}")
+        finally:
+            if source is not None:
+                source.close()
 
 
 def _normalize_expected_integration_sha(value: str) -> str:
