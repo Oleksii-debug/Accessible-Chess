@@ -492,12 +492,12 @@
             failedMessage
           ).then(function () { return null; });
         });
-      }, function () {
+      }, function (error) {
         return recoverShellPublication(
           bridge,
           token,
           failedMessage,
-          true
+          !!(error && error.committedPresentationPreserved === true)
         ).then(function () { return null; });
       });
     }, function () {
@@ -758,6 +758,9 @@
           !hiddenByAncestor(previousActiveElement)
         ) {
           previousActiveElement.focus({ preventScroll: true });
+        }
+        if (error && typeof error === "object") {
+          error.committedPresentationPreserved = true;
         }
         throw error;
       }
