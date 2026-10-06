@@ -170,6 +170,7 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
         before = snapshot()
         invalid_values = (
             "x" * (MAX_PGN_EDIT_TAG_VALUE_CHARS + 1),
+            "😀" * (MAX_PGN_EDIT_TAG_VALUE_CHARS // 2 + 1),
             "embedded\x00nul",
             "line\nbreak",
             "carriage\rreturn",
@@ -199,6 +200,48 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             workspace.edit_tag(oversized_name, "safe")
         self.assertEqual(snapshot(), before)
+
+    def test_direct_command_utf16_resource_fences_are_atomic(self):
+        session = PgnDocumentSession.from_text("1. e4 e5 *")
+        workspace = session.workspace
+        commands = Version2PgnCommands(lambda: session)
+
+        def snapshot():
+            view = workspace.view()
+            return (
+                workspace.to_text(),
+                view.content_revision,
+                view.content_digest,
+                workspace.dirty,
+                workspace.selected_game_index,
+                workspace.cursor,
+            )
+
+        workspace.line_end()
+        before = snapshot()
+        with self.assertRaises(ValueError):
+            commands(
+                "pgn.append_moves",
+                {**command_target(session), "text": "😀" * 4097},
+            )
+        self.assertEqual(snapshot(), before)
+
+        workspace.set_cursor(GameTreeCursor((), 1))
+        before = snapshot()
+        invalid_operations = (
+            ("pgn.search", "😀" * 2049),
+            ("pgn.comment_edit", "😀" * 4001),
+            ("pgn.nag_edit", "😀" * 257),
+            ("pgn.variation_add", "😀" * 4097),
+        )
+        for action, text in invalid_operations:
+            with self.subTest(action=action):
+                with self.assertRaises(ValueError):
+                    commands(
+                        action,
+                        {**command_target(session), "text": text},
+                    )
+                self.assertEqual(snapshot(), before)
 
     def test_position_tags_remain_owned_by_position_workflow(self):
         session = PgnDocumentSession.from_text("1. e4 *")
