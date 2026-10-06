@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+from acs.input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from acs.webapp import AccessibleChessAPI
 
 
@@ -84,6 +85,32 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("not yet playable", result["announcement"])
         self.assertEqual(api.board.fen(), before)
+
+    def test_direct_piece_editor_bounds_untrusted_text_before_normalization(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+
+        too_long_square = " " * (MAX_SQUARE_TEXT_CHARS + 1)
+        self.assertFalse(api.edit_position_piece(too_long_square, "Q")["ok"])
+        self.assertEqual(api.board.fen(), before)
+
+        self.assertFalse(api.edit_position_piece("e4", "Q" * 2)["ok"])
+        self.assertEqual(api.board.fen(), before)
+
+    def test_direct_metadata_editor_bounds_untrusted_text_atomically(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+        cases = (
+            ("ww", "-", "-", "0", "1"),
+            ("w", "K" * (MAX_FEN_CHARS + 1), "-", "0", "1"),
+            ("w", "-", " " * (MAX_SQUARE_TEXT_CHARS + 1), "0", "1"),
+            ("w", "-", "-", "1" * (MAX_FEN_CHARS + 1), "1"),
+            ("w", "-", "-", "0", "1" * (MAX_FEN_CHARS + 1)),
+        )
+        for args in cases:
+            with self.subTest(args=(len(args[0]), len(args[1]), len(args[2]), len(args[3]), len(args[4]))):
+                self.assertFalse(api.edit_position_metadata(*args)["ok"])
+                self.assertEqual(api.board.fen(), before)
 
     def test_accessible_html_exposes_all_position_editor_controls(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
