@@ -80,6 +80,7 @@ jobs:
             'tests/test_epd.py' \
             'tests/test_fen_editor_turn_and_visible_status.py' \
             'tests/test_pgn_complete_editing_user_flow.py' \
+            'tests/js/pgn_surface_dom_test.js' \
             'web/full_product_pgn.js' \
             'web/index.html' | sort)"
           test "$changed" = "$expected"
@@ -95,7 +96,7 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          .github/workflows/d01-pgn-workspace-webview.yml=1c1b4c56b765ef386bdd9e8362fd2d2f5164201c
+          .github/workflows/d01-pgn-workspace-webview.yml=2518ab08a831fe962bc5420841d443da02660008
           .github/workflows/pgn-complete-editing-current.yml=0008b054ad4b19b4d5e99c996fa9a7dbc156b458
           acs/full_product_actions.py=3979e7a3b978715fd1ddfbb9e613f5f889675e8c
           acs/full_product_presenters.py=07c68e56666bcb37f866d91a6317490b83d8a454
@@ -113,6 +114,7 @@ jobs:
           tests/test_epd.py=2d94011c092e41f91f1ff56419f2d706b6ba575e
           tests/test_fen_editor_turn_and_visible_status.py=ccea833f59cbca7639aebb5d4c7c682bd7032cf8
           tests/test_pgn_complete_editing_user_flow.py=18359190f5e4724c6c2ec7a3ba4567039d6f1844
+          tests/js/pgn_surface_dom_test.js=0a630298ff41d86678850ac401eeb763cc28a26a
           web/full_product_pgn.js=2a81d303d18440f60da7c38ab1eb8668e7f9e92b
           web/index.html=f70aac53dc60ffaacca222ecccd7799741f480cd
           LOCKS
