@@ -290,6 +290,73 @@ async function main() {
   }
   check(rejected, "invalid state did not fail closed");
 
+  for (const overrides of [
+    {
+      qualification: "candidate",
+      restoreEnabled: true,
+    },
+    {
+      qualification: "ambiguous",
+      restoreEnabled: true,
+    },
+    {
+      qualification: "unlinked",
+      restoreEnabled: true,
+    },
+    {
+      qualification: "unavailable",
+      restoreEnabled: true,
+    },
+  ]) {
+    let restoreRejected = false;
+    try {
+      window.AccessibleChessRecordedMediaPlayer.render(
+        new FakeElement("div"),
+        state(overrides),
+        async () => undefined,
+        false,
+      );
+    } catch (error) {
+      restoreRejected = String(error).includes("restore");
+    }
+    check(restoreRejected, "restore was enabled for an unconfirmed state");
+  }
+
+  for (const focusTarget of [
+    "recorded-media-status' )",
+    "recorded-media-play-toggle-extra",
+    "",
+  ]) {
+    let focusRejected = false;
+    try {
+      window.AccessibleChessRecordedMediaPlayer.render(
+        new FakeElement("div"),
+        state({ focusTarget }),
+        async () => undefined,
+        false,
+      );
+    } catch (error) {
+      focusRejected = String(error).includes("invalid focus target");
+    }
+    check(focusRejected, "arbitrary focus target crossed the browser boundary");
+  }
+
+  let unavailableRestoreRejected = false;
+  try {
+    window.AccessibleChessRecordedMediaPlayer.render(
+      new FakeElement("div"),
+      state({ ok: false, restoreEnabled: true }),
+      async () => undefined,
+      false,
+    );
+  } catch (error) {
+    unavailableRestoreRejected = String(error).includes("unavailable player");
+  }
+  check(
+    unavailableRestoreRejected,
+    "unavailable player exposed restore",
+  );
+
   console.log("recorded_media_accessible_player_dom_test: ok");
 }
 
