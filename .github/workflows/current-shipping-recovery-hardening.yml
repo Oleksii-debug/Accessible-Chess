@@ -26,6 +26,7 @@ env:
   FILE_WORKFLOWS_BLOB: deaccf51a3f3e4abd8c88ec819841782f9db0d9c
   HOST_RUNTIME_BLOB: 652badafd5ec393e1ee12cf89105cb68326be134
   IMPORT_UI_PUMP_BLOB: 76baad119f244f71b53556549b8ee2119872fd2a
+  IMPORT_UI_PUMP_TEST_BLOB: 967392b32966b5b5f5f0d89e13068e14f93d31f1
   BOOK_OPEN_WORKER_TEST_BLOB: fa209e3db7f4d73cba9c31b3bae425eb2cfb90de
   HOST_RUNTIME_TEST_BLOB: 951f2bd1cac2ceb1514d52f7793695739b7cb2d0
   FILE_SHUTDOWN_TEST_BLOB: d25efb4b26d3f9eee49ef6c86d76a0a038f97cba
@@ -108,6 +109,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$FILE_WORKFLOWS_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "$HOST_RUNTIME_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_import_ui_pump.py)" = "$IMPORT_UI_PUMP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_import_ui_pump.py)" = "$IMPORT_UI_PUMP_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$HOST_RUNTIME_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "$FILE_SHUTDOWN_TEST_BLOB"
@@ -132,6 +134,7 @@ jobs:
           tests/test_version2_windows_book_open_worker.py
           tests/test_v2_windows_file_worker_shutdown_fence.py
           tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_import_ui_pump.py
           tests/test_w5_native_formclosing_dirty_pgn.py
 
       - name: Execute recovery, persistence and accessibility contracts
@@ -146,6 +149,7 @@ jobs:
           tests.test_version2_windows_book_open_worker
           tests.test_w5_native_formclosing_dirty_pgn
           tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_ui_pump
           tests.test_v2_windows_pgn_open_worker
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_pgn_save_terminal_truth
@@ -164,13 +168,41 @@ jobs:
           python -m unittest -v
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
           tests.test_version2_release_payload
           tests.test_version2_portable_package
           tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
           tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_app
           tests.test_version2_release_receipt
           tests.test_finalize_owner_final_receipt
           tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_version2_package_zip_topology_preflight
 
       - name: Core selftest
         run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Execute semantic document-copy oracle
+        run: >-
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          python -m unittest -v tests.test_p0_semantic_document_copy
