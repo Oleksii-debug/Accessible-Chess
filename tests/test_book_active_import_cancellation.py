@@ -334,6 +334,27 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 3)
         self.assertLess(parser._node_count, 400)
 
+    def test_html_starttag_attribute_normalization_observes_control(self):
+        failure = SourceReadCancelledError("cancelled during HTML attribute normalization")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        attrs = [(f"data-test-{index}", "x") for index in range(400)]
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag("div", attrs)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
     def test_html_data_fanout_observes_control_inside_deep_capture_stack(self):
         parser = _SemanticHtmlParser(available_assets=None)
         parser.feed('<p>' * 400)
