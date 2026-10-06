@@ -557,6 +557,26 @@ class AccessibleChessAPI:
                 "editable": self._at_history_end(),
             }
 
+        history_items = self._history_items()
+        history_projection_valid = (
+            len(history_items) == len(self.sans) + 1
+            and sum(bool(item["selected"]) for item in history_items) == 1
+            and sum(bool(item["live"]) for item in history_items) == 1
+        )
+        at_history_end = self._at_history_end()
+        can_history_previous = (
+            history_projection_valid and display_view.ply > 0
+        )
+        can_history_next = (
+            history_projection_valid and display_view.ply < len(self.sans)
+        )
+        can_undo = (
+            history_projection_valid and at_history_end and bool(self.sans)
+        )
+        can_redo = (
+            history_projection_valid and at_history_end and bool(self.redo_meta)
+        )
+
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
             "gameInfo": status,
@@ -573,8 +593,11 @@ class AccessibleChessAPI:
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
             "positionComplete": self._position_playable(display_board),
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
-            "historyItems": self._history_items(),
-            "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
+            "historyItems": history_items,
+            "reviewStatus": display_view.status, "atHistoryEnd": at_history_end,
+            "canHistoryPrevious": can_history_previous,
+            "canHistoryNext": can_history_next,
+            "canUndo": can_undo, "canRedo": can_redo,
         }
 
     def _ok(self, message: str) -> dict[str, Any]:

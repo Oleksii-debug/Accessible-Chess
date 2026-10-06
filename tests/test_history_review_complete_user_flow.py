@@ -116,6 +116,57 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), live_fen)
         self.assertFalse(api.get_state()["atHistoryEnd"])
 
+    def test_history_action_availability_follows_canonical_review_state(self) -> None:
+        api = AccessibleChessAPI("en")
+
+        initial = api.get_state()
+        self.assertFalse(initial["canUndo"])
+        self.assertFalse(initial["canRedo"])
+        self.assertFalse(initial["canHistoryPrevious"])
+        self.assertFalse(initial["canHistoryNext"])
+
+        play(api, "e4")
+        live = api.get_state()
+        self.assertTrue(live["canUndo"])
+        self.assertFalse(live["canRedo"])
+        self.assertTrue(live["canHistoryPrevious"])
+        self.assertFalse(live["canHistoryNext"])
+
+        reviewed = api.review_previous()
+        self.assertTrue(reviewed["ok"])
+        self.assertFalse(reviewed["canUndo"])
+        self.assertFalse(reviewed["canRedo"])
+        self.assertFalse(reviewed["canHistoryPrevious"])
+        self.assertTrue(reviewed["canHistoryNext"])
+
+        end = api.go_to_move("end")
+        self.assertTrue(end["ok"])
+        self.assertTrue(end["canUndo"])
+        self.assertFalse(end["canRedo"])
+
+        undone = api.undo()
+        self.assertTrue(undone["ok"])
+        self.assertFalse(undone["canUndo"])
+        self.assertTrue(undone["canRedo"])
+
+        redone = api.redo()
+        self.assertTrue(redone["ok"])
+        self.assertTrue(redone["canUndo"])
+        self.assertFalse(redone["canRedo"])
+
+    def test_analysis_unlock_preserves_history_mutation_guards(self) -> None:
+        html = (
+            Path(__file__).resolve().parents[1] / "web" / "index.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("const s=state||{},pe=s.positionEditor||{},atEnd=s.atHistoryEnd===true,reviewLocked=!atEnd", html)
+        self.assertIn("n.disabled=!!locked||reviewLocked", html)
+        self.assertIn("n.disabled=!!locked||pe.editable===false", html)
+        self.assertIn("undo.disabled=!!locked||s.canUndo!==true", html)
+        self.assertIn("redo.disabled=!!locked||s.canRedo!==true", html)
+        self.assertIn("previous.disabled=!!locked||s.canHistoryPrevious!==true", html)
+        self.assertIn("next.disabled=!!locked||s.canHistoryNext!==true", html)
+
     def test_history_list_includes_initial_position_as_canonical_ply_zero(self) -> None:
         api = AccessibleChessAPI("en")
         play(api, "e4", "e5")
