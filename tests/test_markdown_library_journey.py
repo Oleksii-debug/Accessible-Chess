@@ -126,6 +126,31 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         self.assertFalse(_is_fence_close("~~~~ trailing", "~~~"))
         self.assertFalse(_is_fence_close("    ~~~~", "~~~"))
 
+    def test_blockquote_marker_requires_top_level_commonmark_indentation(self):
+        valid = import_text_book(
+            "   > quoted text",
+            source_name="valid-quote.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        valid_paragraphs = [
+            block for block in valid.document.blocks if type(block).__name__ == "Paragraph"
+        ]
+        self.assertEqual([block.text for block in valid_paragraphs], ["quoted text"])
+        self.assertTrue(any("block quote structure" in warning for warning in valid.warnings))
+
+        for source in ("    > not a top-level quote", "\t> not a top-level quote"):
+            with self.subTest(source=source):
+                book = import_text_book(
+                    source,
+                    source_name="indented-quote.md",
+                    source_format=BookTextFormat.MARKDOWN,
+                )
+                paragraphs = [
+                    block for block in book.document.blocks if type(block).__name__ == "Paragraph"
+                ]
+                self.assertEqual([block.text for block in paragraphs], ["> not a top-level quote"])
+                self.assertFalse(any("block quote structure" in warning for warning in book.warnings))
+
     def test_invalid_tilde_closers_stay_opaque_until_matching_close(self):
         source = (
             "~~~~code`meta\n"
