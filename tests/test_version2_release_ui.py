@@ -114,6 +114,24 @@ class Version2ReleaseUiTests(unittest.TestCase):
         api.v2_browser_command("shell", "screen.library", {})
         self.assertEqual(api.v2_snapshot()["screen"]["route_id"], "library")
 
+    def test_read_fen_reports_live_and_visible_external_review_position(self):
+        api = self.make_api()
+        app = _Application()
+        api.bind_version2_application(app)
+
+        live = api.v2_board_dispatch("board.read_fen", {})
+        self.assertTrue(live["ok"])
+        self.assertEqual(api.board.fen(), live["fen"])
+        self.assertIn(live["fen"], live["announcement"])
+
+        review_fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
+        app.pgn_board_active = True
+        projected = api.project_review_fen(review_fen)
+        self.assertTrue(projected["ok"])
+        visible = api.v2_board_dispatch("board.read_fen", {})
+        self.assertEqual(review_fen, visible["fen"])
+        self.assertEqual(api.board.fen(), live["fen"])
+
     def test_keyboard_dispatch_restores_shell_and_focus_when_native_publication_raises(self):
         api = self.make_api()
         app = _Application()
