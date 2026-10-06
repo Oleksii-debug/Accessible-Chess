@@ -1185,6 +1185,72 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                     self.assertEqual(source.read_bytes(), original)
                     self.assertFalse(destination.exists())
 
+    def test_pgn_save_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "save-shutdown-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+
+            class SaveDialogs(_Dialogs):
+                def __init__(self, source: Path, destination: Path) -> None:
+                    super().__init__(source)
+                    self.destination = destination
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return self.destination
+
+            for action_id in ("pgn.save", "pgn.save_as"):
+                with self.subTest(action_id=action_id):
+                    destination = Path(tmp) / "shutdown-save-as.pgn"
+                    session = PgnDocumentSession.open(source)
+                    events = []
+                    shutdown_results = []
+                    reentrant_resume_results = []
+                    posted = []
+                    holder = {}
+
+                    def sink(event):
+                        events.append(event)
+                        if event.kind is FileWorkflowEventKind.PGN_SAVE_STARTED:
+                            shutdown_results.append(holder["delegate"].shutdown(0.0))
+                            reentrant_resume_results.append(
+                                holder["delegate"].resume_after_refused_shutdown()
+                            )
+
+                    delegate = Version2WindowsFileActionDelegate(
+                        dialogs=SaveDialogs(source, destination),
+                        get_pgn_session=lambda: session,
+                        set_pgn_session=lambda value: None,
+                        import_services_factory=lambda: Version2ImportWorkerServices(
+                            _UnusedLibrary(), None, lambda: None
+                        ),
+                        event_sink=sink,
+                        next_delegate=lambda action, payload: None,
+                        current_focus_provider=lambda: "pgn-tree",
+                        post_to_ui=posted.append,
+                    )
+                    holder["delegate"] = delegate
+
+                    with mock.patch.object(
+                        threading.Thread, "start", autospec=True
+                    ) as start:
+                        result = delegate(action_id, {})
+
+                    self.assertEqual(shutdown_results, [False])
+                    self.assertEqual(reentrant_resume_results, [False])
+                    self.assertEqual(start.call_count, 0)
+                    self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+                    self.assertEqual(result.error_code, "file_workflow_closed")
+                    self.assertEqual(posted, [])
+                    self.assertEqual(
+                        [event.kind for event in events],
+                        [FileWorkflowEventKind.PGN_SAVE_STARTED, FileWorkflowEventKind.FAILED],
+                    )
+                    self.assertFalse(delegate.pgn_save_running)
+                    self.assertTrue(delegate.resume_after_refused_shutdown())
+                    self.assertEqual(source.read_bytes(), original)
+                    self.assertFalse(destination.exists())
+
     def test_pgn_open_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "open-shutdown.pgn"
