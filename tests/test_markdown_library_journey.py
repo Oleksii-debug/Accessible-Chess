@@ -152,7 +152,7 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
                 self.assertEqual([block.text for block in paragraphs], ["> not a top-level quote"])
                 self.assertFalse(any("block quote structure" in warning for warning in book.warnings))
 
-    def test_blockquote_images_use_alt_text_without_destination_identity_churn(self):
+    def test_blockquote_images_preserve_accessible_order_and_legacy_targets(self):
         first = import_text_book(
             '> Before  ![Board position](https://one.invalid/board.png "first title")  after.',
             source_name="quote-one.md",
@@ -170,13 +170,54 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         second_paragraphs = [
             block for block in second.document.blocks if type(block) is Paragraph
         ]
-        self.assertEqual(len(first_paragraphs), 1)
-        self.assertEqual(len(second_paragraphs), 1)
-        self.assertEqual(first_paragraphs[0].text, "Before  Board position  after.")
-        self.assertEqual(second_paragraphs[0].text, "Before  Board position  after.")
-        self.assertEqual(first_paragraphs[0].block_id, second_paragraphs[0].block_id)
-        self.assertNotIn("one.invalid", first_paragraphs[0].text)
-        self.assertNotIn("first title", first_paragraphs[0].text)
+        first_images = [
+            block
+            for block in first.document.blocks
+            if type(block) is Note and block.note_type == "image"
+        ]
+        second_images = [
+            block
+            for block in second.document.blocks
+            if type(block) is Note and block.note_type == "image"
+        ]
+        self.assertEqual([block.text for block in first_paragraphs], ["Before", "after."])
+        self.assertEqual([block.text for block in second_paragraphs], ["Before", "after."])
+        self.assertEqual([block.text for block in first_images], ["Board position"])
+        self.assertEqual([block.text for block in second_images], ["Board position"])
+        self.assertNotIn("one.invalid", " ".join(block.text for block in first.document.blocks if hasattr(block, "text")))
+        self.assertNotIn("first title", " ".join(block.text for block in first.document.blocks if hasattr(block, "text")))
+
+        legacy_paragraph_text = "> Before    after."
+        first_paragraph_id = "markdown-" + sha256(
+            ("Paragraph\0" + legacy_paragraph_text).encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+        image_id = "markdown-" + sha256(
+            ("Image\0Board position").encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+        trailing_id = "markdown-" + sha256(
+            ("Paragraph\0after.").encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+
+        self.assertEqual(first_paragraphs[0].block_id, first_paragraph_id)
+        self.assertEqual(second_paragraphs[0].block_id, first_paragraph_id)
+        self.assertEqual(first_images[0].block_id, image_id)
+        self.assertEqual(second_images[0].block_id, image_id)
+        self.assertEqual(first_paragraphs[1].block_id, trailing_id)
+        self.assertEqual(second_paragraphs[1].block_id, trailing_id)
+
+        for target in (first_paragraph_id, image_id, trailing_id):
+            with self.subTest(target=target):
+                restored = BookReader.restore_snapshot(
+                    first.document,
+                    {
+                        "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+                        "current_target": f"block:{target}",
+                        "return_points": {},
+                        "fallback_digests": {},
+                    },
+                )
+                self.assertEqual(restored.location().block_id, target)
+
         self.assertTrue(
             any("image destination was excluded" in warning for warning in first.warnings)
         )
