@@ -300,6 +300,8 @@ class Version2FinalProductApplication(Version2Application):
         """
 
         self._assert_thread()
+        if getattr(self, "_agent_execution_host", None) is not None:
+            raise RuntimeError("Agent execution host is already installed")
         if self.agent.projection.snapshot()["run_id"]:
             raise RuntimeError("stop the active Agent run before rebinding")
         projection = AgentConversationProjection(
@@ -314,6 +316,8 @@ class Version2FinalProductApplication(Version2Application):
         """Return the route to fail-closed unavailable state when no run is active."""
 
         self._assert_thread()
+        if getattr(self, "_agent_execution_host", None) is not None:
+            raise RuntimeError("shutdown the Agent execution host before unbinding")
         if self.agent.projection.snapshot()["run_id"]:
             raise RuntimeError("stop the active Agent run before unbinding")
         self.agent = AgentConversationWebViewBridge(
@@ -327,7 +331,7 @@ class Version2FinalProductApplication(Version2Application):
         shutdown = getattr(host, "shutdown", None)
         if not callable(shutdown):
             raise TypeError("Agent execution host must expose shutdown()")
-        if self._agent_execution_host is not None:
+        if getattr(self, "_agent_execution_host", None) is not None:
             raise RuntimeError("Agent execution host is already installed")
         self._agent_execution_host = host
 
@@ -335,7 +339,7 @@ class Version2FinalProductApplication(Version2Application):
         """Retire Agent execution before canonical application state is closed."""
 
         self._assert_thread()
-        host = self._agent_execution_host
+        host = getattr(self, "_agent_execution_host", None)
         if host is not None:
             shutdown = getattr(host, "shutdown", None)
             if not callable(shutdown):
