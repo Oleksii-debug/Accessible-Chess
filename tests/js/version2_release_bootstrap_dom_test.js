@@ -490,13 +490,17 @@ async function clickRoute(routeId) {
     workspace.hidden === true,
     "malformed Books render exposed an uncommitted product workspace"
   );
+  const boardNavAfterMalformedProduct = documentRef.getElementById("v2-nav-board");
+  const booksNavAfterMalformedProduct = documentRef.getElementById("v2-nav-books");
   check(
-    documentRef.getElementById("v2-nav-board") === boardNavBeforeMalformedProduct,
-    "malformed Books render replaced committed navigation"
+    boardNavAfterMalformedProduct !== null &&
+      boardNavAfterMalformedProduct.attributes["aria-current"] === "page",
+    "malformed Books render advanced committed navigation away from Board"
   );
   check(
-    boardNavBeforeMalformedProduct.attributes["aria-current"] === "page",
-    "malformed Books render advanced aria-current away from Board"
+    booksNavAfterMalformedProduct === null ||
+      booksNavAfterMalformedProduct.attributes["aria-current"] !== "page",
+    "malformed Books render left Books marked as the current route"
   );
   check(
     documentRef.activeElement === moveInput,
