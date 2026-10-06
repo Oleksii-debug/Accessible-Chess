@@ -423,12 +423,30 @@ class Version2Application:
         return event
 
     def observe_progress(self, value: LibraryImportProgress):
-        if type(value) is not LibraryImportProgress: raise TypeError("invalid import progress")
-        with self._observation_lock: self._progress = value
+        if type(value) is not LibraryImportProgress:
+            raise TypeError("invalid import progress")
+        canonical = LibraryImportProgress(
+            value.attempt_id,
+            value.processed_games,
+            value.total_games,
+        )
+        with self._observation_lock:
+            self._progress = canonical
 
     def observe_result(self, value: LibraryImportResult):
-        if type(value) is not LibraryImportResult: raise TypeError("invalid import result")
-        with self._observation_lock: self._result = value
+        if type(value) is not LibraryImportResult:
+            raise TypeError("invalid import result")
+        canonical = LibraryImportResult(
+            value.attempt_id,
+            value.source_id,
+            value.game_count,
+            value.warning_count,
+            value.first_game_id,
+            value.last_game_id,
+            value.reused,
+        )
+        with self._observation_lock:
+            self._result = canonical
 
     def worker_factory(self, database_path, *, chessbase_factory=None):
         def create():
@@ -472,12 +490,15 @@ class Version2Application:
         # until the shell has accepted the PGN route. open_route() can partially
         # write its route before a focus-restore tail fails, so recover from the
         # actual shell state.
-        origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
         try:
             route_focus = self.shell.open_route("pgn")
         except BaseException:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+            # Restore the exact route/focus/dialog presentation checkpoint rather
+            # than issuing another route transition that could itself fail and
+            # replace the primary PGN publication error.
+            self.shell._restore_presentation_state(shell_checkpoint)
+            self._focus = self.shell.restore_focus_target()
             raise
         self.session, self.pgn = session, bridge
         self.pgn_board_active = False
@@ -2455,15 +2476,20 @@ class Version2Application:
             # any Training or Book progress publication.
             token = self._pending_shell_publication[0]
             self._finish_shell_publication(token, commit=False)
-        self.save_training_progress()
-        try:
-            self.save_book_progress()
-        except BaseException as progress_error:
-            progress_traceback = progress_error.__traceback__
+        progress_error: BaseException | None = None
+        progress_traceback = None
+        for save_progress in (self.save_training_progress, self.save_book_progress):
             try:
-                self.database.close()
-            except BaseException:
-                pass
+                save_progress()
+            except BaseException as error:
+                if progress_error is None:
+                    progress_error = error
+                    progress_traceback = error.__traceback__
+        try:
+            self.database.close()
+        except BaseException:
+            if progress_error is None:
+                raise
+        if progress_error is not None:
             raise progress_error.with_traceback(progress_traceback)
-        self.database.close()
         return True
