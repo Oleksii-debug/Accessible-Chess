@@ -179,12 +179,49 @@ _CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
 _CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby", "math"})
 
 
-def _deterministic_display_value(value: str) -> str | None:
+_CSS_DISPLAY_MAX_TOKEN_CHARS = max(
+    len(token)
+    for token in (
+        _CSS_DISPLAY_SINGLE_VALUES | _CSS_DISPLAY_OUTSIDE | _CSS_DISPLAY_INSIDE
+    )
+)
+
+
+def _deterministic_display_value(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
     """Return one bounded valid display value, or None for invalid/indeterminate CSS."""
 
-    tokens = tuple(
-        token for token in re.split(r"[ \t\r\n\f]+", value) if token
-    )
+    if control_checkpoint is None:
+        tokens = tuple(
+            token for token in re.split(r"[ \t\r\n\f]+", value) if token
+        )
+    else:
+        parsed_tokens: list[str] = []
+        token_chars: list[str] = []
+        for cursor, char in enumerate(value, start=1):
+            if cursor % 4_096 == 0:
+                control_checkpoint()
+            if char in _CSS_WHITESPACE:
+                if token_chars:
+                    parsed_tokens.append("".join(token_chars))
+                    if len(parsed_tokens) > 3:
+                        return None
+                    token_chars = []
+                continue
+            token_chars.append(char)
+            # Every deterministic display keyword is short. Once one token is
+            # longer than the longest supported keyword the declaration cannot
+            # become authoritative, so fail closed without scanning megabytes
+            # of attacker-controlled text.
+            if len(token_chars) > _CSS_DISPLAY_MAX_TOKEN_CHARS:
+                return None
+        if token_chars:
+            parsed_tokens.append("".join(token_chars))
+        control_checkpoint()
+        tokens = tuple(parsed_tokens)
+
     if len(tokens) == 1 and tokens[0] in _CSS_DISPLAY_SINGLE_VALUES:
         return tokens[0]
     if len(tokens) not in {2, 3} or len(set(tokens)) != len(tokens):
@@ -217,12 +254,135 @@ _CSS_CONTENT_VISIBILITY_VALUES = frozenset(
 def _deterministic_content_visibility_value(value: str) -> str | None:
     """Return one bounded content-visibility value or None if cascade-dependent."""
 
+    if len(value) > 7:
+        return None
     if value in _CSS_CONTENT_VISIBILITY_VALUES:
         return value
     # revert/revert-layer depend on other cascade origins/layers that this
     # bounded inline adapter deliberately does not model.
     return None
 
+
+def _css_strip_whitespace(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Strip CSS whitespace with bounded cancellation-aware edge scans."""
+
+    if control_checkpoint is None:
+        return value.strip(_CSS_WHITESPACE)
+
+    start = 0
+    end = len(value)
+    scanned = 0
+    while start < end and value[start] in _CSS_WHITESPACE:
+        scanned += 1
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        start += 1
+
+    scanned = 0
+    while end > start and value[end - 1] in _CSS_WHITESPACE:
+        scanned += 1
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        end -= 1
+
+    control_checkpoint()
+    return value[start:end]
+
+
+def _css_partition_declaration(
+    declaration: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, str, str]:
+    """Partition one declaration at its first colon without an unbounded scan."""
+
+    if control_checkpoint is None:
+        return declaration.partition(":")
+
+    for offset in range(0, len(declaration), 4_096):
+        control_checkpoint()
+        chunk = declaration[offset : offset + 4_096]
+        relative = chunk.find(":")
+        if relative >= 0:
+            split_at = offset + relative
+            return declaration[:split_at], ":", declaration[split_at + 1 :]
+    control_checkpoint()
+    return declaration, "", ""
+
+
+def _css_strip_important(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, bool]:
+    """Remove one terminal important suffix with bounded reverse scans."""
+
+    if control_checkpoint is None:
+        important_match = _CSS_IMPORTANT_RE.search(value)
+        if important_match is None:
+            return value, False
+        return value[: important_match.start()].strip(_CSS_WHITESPACE), True
+
+    end = len(value)
+    scanned = 0
+    while end > 0 and value[end - 1] in _CSS_WHITESPACE:
+        scanned += 1
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        end -= 1
+
+    suffix = "important"
+    suffix_start = end - len(suffix)
+    if suffix_start < 0 or value[suffix_start:end] != suffix:
+        control_checkpoint()
+        return value, False
+
+    cursor = suffix_start
+    scanned = 0
+    while cursor > 0 and value[cursor - 1] in _CSS_WHITESPACE:
+        scanned += 1
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        cursor -= 1
+    if cursor <= 0 or value[cursor - 1] != "!":
+        control_checkpoint()
+        return value, False
+
+    cursor -= 1
+    scanned = 0
+    while cursor > 0 and value[cursor - 1] in _CSS_WHITESPACE:
+        scanned += 1
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        cursor -= 1
+
+    control_checkpoint()
+    return value[:cursor], True
+
+
+def _find_css_comment_end(
+    style: str,
+    start: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> int:
+    """Return the next CSS comment terminator start offset with bounded polling."""
+
+    if control_checkpoint is None:
+        return style.find("*/", start)
+
+    cursor = start
+    scanned = 0
+    while cursor + 1 < len(style):
+        scanned += 1
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        if style[cursor] == "*" and style[cursor + 1] == "/":
+            control_checkpoint()
+            return cursor
+        cursor += 1
+    control_checkpoint()
+    return -1
 
 
 def _css_ascii_lower(
@@ -292,7 +452,11 @@ def _inline_style_without_comments(
             # Preserve a token boundary even when a preceding hexadecimal
             # CSS escape consumes one following whitespace code point.
             parts.append("  ")
-            end = style.find("*/", cursor + 2)
+            end = _find_css_comment_end(
+                style,
+                cursor + 2,
+                control_checkpoint,
+            )
             if end < 0:
                 break
             cursor = end + 2
@@ -432,12 +596,15 @@ def _inline_style_hides(
     ):
         if control_checkpoint is not None and declaration_index % 128 == 0:
             control_checkpoint()
-        name, separator, raw_value = declaration.partition(":")
+        name, separator, raw_value = _css_partition_declaration(
+            declaration,
+            control_checkpoint,
+        )
         if not separator:
             continue
         property_name = _css_ascii_lower(
             _css_unescape_token(
-                name.strip(_CSS_WHITESPACE),
+                _css_strip_whitespace(name, control_checkpoint),
                 control_checkpoint,
             ),
             control_checkpoint,
@@ -447,18 +614,18 @@ def _inline_style_hides(
 
         value = _css_ascii_lower(
             _css_unescape_token(
-                raw_value.strip(_CSS_WHITESPACE),
+                _css_strip_whitespace(raw_value, control_checkpoint),
                 control_checkpoint,
             ),
             control_checkpoint,
         )
-        important_match = _CSS_IMPORTANT_RE.search(value)
-        important = important_match is not None
-        if important_match is not None:
-            value = value[: important_match.start()].strip(_CSS_WHITESPACE)
+        value, important = _css_strip_important(value, control_checkpoint)
 
         if property_name == "display":
-            deterministic_value = _deterministic_display_value(value)
+            deterministic_value = _deterministic_display_value(
+                value,
+                control_checkpoint,
+            )
             if deterministic_value is None:
                 continue
             if effective_display is not None and effective_display[1] and not important:
