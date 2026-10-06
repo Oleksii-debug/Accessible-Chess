@@ -4,10 +4,19 @@ import asyncio
 import unittest
 
 from acs.agent_books_training_tools import AgentBooksTrainingTools
+from acs.agent_model_contracts import (
+    ModelRequest,
+    ModelResponse,
+    ModelUsage,
+    ProviderCapabilities,
+    ProviderKind,
+)
+from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolCall, ToolExecutor
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
+from acs.universal_chess_agent import UniversalChessAgentRuntime
 
 
 def _board_commands(board: Board) -> BoardCommandService:
@@ -40,6 +49,33 @@ def _execute(executor: ToolExecutor, tool_id: str, arguments=None):
             )
         )
     )
+
+
+class _ScriptedProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            provider_id="fixture",
+            kind=ProviderKind.LOCAL,
+            supports_private_data=True,
+        )
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("unexpected model call")
+        return ModelResponse(
+            request_id=request.request_id,
+            text=self.responses.pop(0),
+            provider_id="fixture",
+            provider_kind=ProviderKind.LOCAL,
+            model=request.model or "fixture-model",
+            usage=ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+        )
 
 
 class AgentBooksTrainingToolsTests(unittest.TestCase):
@@ -162,6 +198,46 @@ class AgentBooksTrainingToolsTests(unittest.TestCase):
         rendered = str(books.output).casefold()
         self.assertNotIn("fen", rendered)
         self.assertNotIn("accepted_moves", rendered)
+
+    def test_universal_agent_round_trips_both_application_surfaces(self):
+        board = Board()
+        executor = ToolExecutor()
+        ChessAgentToolRegistry(
+            executor=executor,
+            board_provider=lambda: board,
+            board_commands_provider=lambda: _board_commands(board),
+            application_snapshot_provider=lambda: self.snapshot,
+        ).register_all()
+        provider = _ScriptedProvider(
+            [
+                '{"type":"tool","tool_id":"books.current","arguments":{}}',
+                '{"type":"tool","tool_id":"training.status","arguments":{}}',
+                '{"type":"final","text":"Book and training context read."}',
+            ]
+        )
+        gateway = ModelGateway()
+        gateway.register(provider)
+        runtime = UniversalChessAgentRuntime(
+            gateway=gateway,
+            tools=executor,
+            provider_id="fixture",
+            model="fixture-model",
+            product_instruction="Use Accessible Chess application tools only.",
+        )
+
+        result = asyncio.run(
+            runtime.run(run_id="books-training-e2e", user_text="Read my learning context.")
+        )
+
+        self.assertEqual(result.text, "Book and training context read.")
+        self.assertEqual(result.tool_calls, 2)
+        self.assertEqual(len(provider.requests), 3)
+        book_result = provider.requests[1].messages[-1].content
+        training_result = provider.requests[2].messages[-1].content
+        self.assertIn("A sanitized, selectable book paragraph.", book_result)
+        self.assertIn("Find the best continuation", training_result)
+        self.assertNotIn("accepted_moves", book_result)
+        self.assertNotIn("start_fen", training_result)
 
 
 if __name__ == "__main__":
