@@ -5,6 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
+from acs.media_core import MediaEvidenceKind, MediaReconciliationState
 from acs.structured_broadcast import (
     BroadcastApplyKind,
     BroadcastConnectionState,
@@ -326,6 +327,43 @@ class StructuredBroadcastTests(unittest.TestCase):
             )
         self.assertEqual(source_id.exception.code, BroadcastErrorCode.INVALID_TEXT)
 
+
+    def test_verified_game_exposes_typed_provider_evidence_without_chess_authority(self):
+        session = self.session()
+        applied = session.apply(envelope(sequence=7, observed=7000), Canonical((game(),)))
+        evidence = session.media_evidence_for_game("g1", timestamp_ms=4321)
+
+        self.assertEqual(evidence.kind, MediaEvidenceKind.STRUCTURED_CHESS)
+        self.assertEqual(evidence.source_id, "broadcast:Ab12Cd34")
+        self.assertEqual((evidence.start_ms, evidence.end_ms), (4321, 4321))
+        self.assertEqual(evidence.provider_id, "lichess")
+        self.assertTrue(evidence.source_authoritative)
+        self.assertIn("sequence:7:sha256:", evidence.source_revision)
+        self.assertIn(applied.payload_sha256, evidence.source_revision)
+        self.assertEqual(evidence.producer_revision, "structured-broadcast-v1")
+        self.assertEqual(evidence.raw_candidate_ref, "g1")
+        self.assertIn("canonical chess acceptance remains application-owned", evidence.provenance)
+        self.assertEqual(
+            {field.name: field.value for field in evidence.fields},
+            {
+                "payload_sha256": applied.payload_sha256,
+                "provider_game_id": "g1",
+            },
+        )
+        with self.assertRaises(AttributeError):
+            _ = evidence.chess_ref
+
+    def test_verified_media_link_is_bound_to_typed_evidence_id(self):
+        session = self.session()
+        session.apply(envelope(sequence=9, observed=9000), Canonical((game(),)))
+        evidence = session.media_evidence_for_game("g1", timestamp_ms=4321)
+        link = session.media_link_for_game("g1", timestamp_ms=4321)
+
+        self.assertEqual(link.qualification, MediaReconciliationState.VERIFIED)
+        self.assertEqual(link.evidence, evidence.evidence_id)
+        self.assertEqual(link.evidence_ids, (evidence.evidence_id,))
+        self.assertEqual(link.chess_ref, "tree:g1:n4")
+
     def test_verified_game_projects_to_confirmed_media_core_link_only(self):
         session = self.session()
         session.apply(envelope(), Canonical((game(),)))
@@ -333,7 +371,9 @@ class StructuredBroadcastTests(unittest.TestCase):
         self.assertTrue(link.confirmed)
         self.assertEqual((link.source_id, link.chess_ref, link.timestamp_ms), ("broadcast:Ab12Cd34", "tree:g1:n4", 4321))
         self.assertEqual(link.confidence, 1.0)
-        self.assertIn("structured:lichess:Ab12Cd34:g1:r4", link.evidence)
+        self.assertEqual(link.qualification, MediaReconciliationState.VERIFIED)
+        self.assertTrue(link.evidence.startswith("structured:lichess:Ab12Cd34:g1:"))
+        self.assertEqual(link.evidence_ids, (link.evidence,))
         with self.assertRaises(BroadcastContractError) as ctx:
             session.media_link_for_game("missing", timestamp_ms=0)
         self.assertEqual(ctx.exception.code, BroadcastErrorCode.GAME_NOT_FOUND)

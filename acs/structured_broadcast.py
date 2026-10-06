@@ -20,7 +20,14 @@ from hashlib import sha256
 import json
 from typing import Protocol, runtime_checkable
 
-from .media_core import MediaChessLink, MediaLinkStatus
+from .media_core import (
+    MediaChessLink,
+    MediaEvidence,
+    MediaEvidenceField,
+    MediaEvidenceKind,
+    MediaLinkStatus,
+    MediaReconciliationState,
+)
 
 
 LICHESS_BROADCAST_PROVIDER = "lichess"
@@ -731,6 +738,60 @@ class StructuredBroadcastSession:
         session._connection_state = BroadcastConnectionState.DISCONNECTED
         return session
 
+
+    def media_evidence_for_game(
+        self,
+        provider_game_id: str,
+        *,
+        timestamp_ms: int,
+    ) -> MediaEvidence:
+        """Return typed provider evidence without promoting it to chess truth."""
+
+        game_id = _require_text(provider_game_id, "provider_game_id")
+        timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
+        game = self._games.get(game_id)
+        if game is None:
+            raise BroadcastContractError(
+                "broadcast game is not available",
+                code=BroadcastErrorCode.GAME_NOT_FOUND,
+            )
+        if self._last_sequence is None or self._last_payload_sha256 is None:
+            raise BroadcastContractError(
+                "broadcast evidence requires an applied provider revision",
+                code=BroadcastErrorCode.INVALID_CANONICAL_RESULT,
+            )
+        source_revision = (
+            f"sequence:{self._last_sequence}:sha256:{self._last_payload_sha256}"
+        )
+        evidence_id = (
+            f"structured:{self.provider}:{self.round_id}:{game.provider_game_id}:"
+            f"{self._last_sequence}:{self._last_payload_sha256[:16]}"
+        )
+        return MediaEvidence(
+            evidence_id=evidence_id,
+            source_id=self.source_id,
+            kind=MediaEvidenceKind.STRUCTURED_CHESS,
+            start_ms=timestamp,
+            end_ms=timestamp,
+            fields=(
+                MediaEvidenceField("provider_game_id", game.provider_game_id),
+                MediaEvidenceField(
+                    "payload_sha256",
+                    self._last_payload_sha256,
+                ),
+            ),
+            confidence=1.0,
+            source_authoritative=True,
+            source_revision=source_revision,
+            provider_id=self.provider,
+            producer_revision="structured-broadcast-v1",
+            provenance=(
+                f"structured broadcast round {self.round_id}; "
+                "canonical chess acceptance remains application-owned"
+            ),
+            raw_candidate_ref=game.provider_game_id,
+        )
+
     def media_link_for_game(
         self,
         provider_game_id: str,
@@ -752,16 +813,19 @@ class StructuredBroadcastSession:
                 "broadcast game is not available",
                 code=BroadcastErrorCode.GAME_NOT_FOUND,
             )
+        evidence = self.media_evidence_for_game(
+            game_id,
+            timestamp_ms=timestamp,
+        )
         return MediaChessLink(
             source_id=self.source_id,
             timestamp_ms=timestamp,
             chess_ref=game.chess_ref,
             status=MediaLinkStatus.CONFIRMED,
             confidence=1.0,
-            evidence=(
-                f"structured:{self.provider}:{self.round_id}:"
-                f"{game.provider_game_id}:{game.canonical_revision}"
-            ),
+            evidence=evidence.evidence_id,
+            qualification=MediaReconciliationState.VERIFIED,
+            evidence_ids=(evidence.evidence_id,),
         )
 
     def mark_disconnected(self) -> BroadcastConnectionState:
