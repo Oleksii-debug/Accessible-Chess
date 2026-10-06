@@ -1516,6 +1516,8 @@ class Version2Application:
             )
 
     def _canonical_visible_fen(self) -> str:
+        if self.shell.current_route.route_id != "board":
+            raise ValueError("FEN readback requires the visible Board")
         result = self._board_dispatch("board.read_fen", {})
         if type(result) is not dict or result.get("ok") is not True:
             raise RuntimeError("canonical visible FEN is unavailable")
