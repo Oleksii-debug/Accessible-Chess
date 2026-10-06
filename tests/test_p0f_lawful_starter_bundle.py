@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import hashlib
 import io
 import json
+from pathlib import Path
 import re
 from typing import Iterator, Type
 from unittest.mock import patch
@@ -497,3 +498,84 @@ def test_release_bundle_rejects_record_count_mismatch(tmp_path):
             curation_evidence=_fake_curation_evidence(starter_pgn),
             stress_count=MINIMUM_REAL_GAME_COUNT + 2,
         )
+
+def test_release_bundle_build_failure_preserves_existing_bundle(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    destination = tmp_path / "bundle"
+    destination.mkdir()
+    previous = {}
+    for index, name in enumerate(lawful_bundle.BUNDLE_FILENAMES, start=1):
+        payload = f"previous-{index}-{name}".encode("utf-8")
+        (destination / name).write_bytes(payload)
+        previous[name] = payload
+
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+        with patch.object(
+            lawful_bundle,
+            "_prove_sample_database",
+            side_effect=RuntimeError("forced database proof failure"),
+        ):
+            with _raises(RuntimeError, match="forced database proof failure"):
+                build_release_bundle_from_curated_pgn(
+                    destination,
+                    starter_pgn=starter_pgn,
+                    starter_count=starter_count,
+                    source_subset_sha256=subset_sha,
+                    source_compressed_bytes=1,
+                    curation_evidence=curation,
+                    overwrite=True,
+                    stress_count=starter_count + 2,
+                )
+
+    assert {
+        name: (destination / name).read_bytes()
+        for name in lawful_bundle.BUNDLE_FILENAMES
+    } == previous
+
+
+def test_staged_bundle_publication_rolls_back_mid_replace_failure(tmp_path):
+    destination = tmp_path / "bundle"
+    staging = tmp_path / "staging"
+    destination.mkdir()
+    staging.mkdir()
+    previous = {}
+    for index, name in enumerate(lawful_bundle.BUNDLE_FILENAMES, start=1):
+        old_payload = f"old-{index}-{name}".encode("utf-8")
+        new_payload = f"new-{index}-{name}".encode("utf-8")
+        (destination / name).write_bytes(old_payload)
+        (staging / name).write_bytes(new_payload)
+        previous[name] = old_payload
+
+    real_replace = lawful_bundle.os.replace
+    failed = False
+
+    def replace_with_one_publication_failure(source, target):
+        nonlocal failed
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not failed
+            and source_path.parent == staging
+            and source_path.name == "stress_uk.pgn"
+            and target_path.parent == destination
+        ):
+            failed = True
+            raise OSError("forced staged publication failure")
+        return real_replace(source, target)
+
+    with patch.object(lawful_bundle.os, "replace", side_effect=replace_with_one_publication_failure):
+        with _raises(OSError, match="forced staged publication failure"):
+            lawful_bundle._publish_staged_bundle(
+                staging,
+                destination,
+                overwrite=True,
+            )
+
+    assert failed is True
+    assert {
+        name: (destination / name).read_bytes()
+        for name in lawful_bundle.BUNDLE_FILENAMES
+    } == previous
+

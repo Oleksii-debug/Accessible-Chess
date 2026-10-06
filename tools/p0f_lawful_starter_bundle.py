@@ -23,6 +23,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import sys
 import tempfile
@@ -53,6 +54,12 @@ STARTER_REAL_GAME_COUNT = 240
 MINIMUM_REAL_GAME_COUNT = 200
 DOWNLOAD_LIMIT_BYTES = 32 * 1024 * 1024
 DOWNLOAD_CHUNK = 1024 * 1024
+BUNDLE_FILENAMES = (
+    "starter_uk.pgn",
+    "stress_uk.pgn",
+    "sample_library.acsdb",
+    "manifest.json",
+)
 
 CURATION_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
 CURATION_MIN_PLIES = 20
@@ -426,6 +433,91 @@ def _write_text_atomic(path: Path, text: str, *, overwrite: bool) -> None:
             temp.unlink()
 
 
+
+def _publish_staged_bundle(
+    staging: Path,
+    destination: Path,
+    *,
+    overwrite: bool,
+) -> None:
+    """Publish one complete starter bundle, rolling back a partial replacement."""
+
+    staged = {name: staging / name for name in BUNDLE_FILENAMES}
+    missing = [name for name, path in staged.items() if not path.is_file()]
+    if missing:
+        raise RuntimeError(
+            "staged starter bundle is incomplete: " + ", ".join(sorted(missing))
+        )
+
+    if destination.exists() and not destination.is_dir():
+        raise NotADirectoryError(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination_preexisted = destination.exists()
+    destination.mkdir(parents=True, exist_ok=True)
+
+    targets = {name: destination / name for name in BUNDLE_FILENAMES}
+    for name, target in targets.items():
+        if target.exists() and not target.is_file():
+            raise RuntimeError(f"starter bundle target is not a regular file: {name}")
+        if target.exists() and not overwrite:
+            raise FileExistsError(target)
+
+    backup = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.rollback-",
+            dir=str(destination.parent),
+        )
+    )
+    backed_up: list[str] = []
+    published: list[str] = []
+    try:
+        if overwrite:
+            for name in BUNDLE_FILENAMES:
+                target = targets[name]
+                if target.exists():
+                    os.replace(target, backup / name)
+                    backed_up.append(name)
+
+        for name in BUNDLE_FILENAMES:
+            os.replace(staged[name], targets[name])
+            published.append(name)
+    except BaseException as publish_error:
+        rollback_errors: list[BaseException] = []
+        for name in reversed(published):
+            try:
+                target = targets[name]
+                if target.exists():
+                    target.unlink()
+            except BaseException as exc:  # pragma: no cover - catastrophic filesystem failure.
+                rollback_errors.append(exc)
+
+        for name in backed_up:
+            previous = backup / name
+            if not previous.exists():
+                rollback_errors.append(
+                    RuntimeError(f"starter bundle rollback backup vanished: {name}")
+                )
+                continue
+            try:
+                os.replace(previous, targets[name])
+            except BaseException as exc:  # pragma: no cover - catastrophic filesystem failure.
+                rollback_errors.append(exc)
+
+        if not destination_preexisted:
+            try:
+                destination.rmdir()
+            except OSError:
+                pass
+
+        if rollback_errors:
+            raise RuntimeError(
+                "starter bundle publication failed and rollback was incomplete"
+            ) from publish_error
+        raise
+    finally:
+        shutil.rmtree(backup, ignore_errors=True)
+
+
 def _licensed_file(payload: bytes, *, license_id: str) -> dict[str, object]:
     return {
         "sha256": _sha256_bytes(payload),
@@ -564,7 +656,7 @@ def build_release_bundle_from_curated_pgn(
     overwrite: bool = False,
     stress_count: int = STRESS_GAME_COUNT,
 ) -> dict[str, object]:
-    """Materialize the release four-file bundle from a verified curated lawful subset."""
+    """Materialize one verified release bundle without exposing partial output."""
 
     if type(starter_count) is not int or starter_count < MINIMUM_REAL_GAME_COUNT:
         raise ValueError(f"starter_count must be >= {MINIMUM_REAL_GAME_COUNT}")
@@ -586,71 +678,85 @@ def build_release_bundle_from_curated_pgn(
         raise ValueError("source_subset_sha256 does not match starter PGN bytes")
 
     output = Path(destination)
-    output.mkdir(parents=True, exist_ok=True)
-    starter_path = output / "starter_uk.pgn"
-    stress_path = output / "stress_uk.pgn"
-    library_path = output / "sample_library.acsdb"
-    manifest_path = output / "manifest.json"
-
-    if not overwrite:
-        for path in (starter_path, stress_path, library_path, manifest_path):
+    if output.exists() and not output.is_dir():
+        raise NotADirectoryError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not overwrite and output.exists():
+        for name in BUNDLE_FILENAMES:
+            path = output / name
             if path.exists():
                 raise FileExistsError(path)
 
-    stress_pgn = build_stress_pgn(stress_count)
-    _write_text_atomic(starter_path, starter_pgn, overwrite=overwrite)
-    _write_text_atomic(stress_path, stress_pgn, overwrite=overwrite)
-    build_sample_library(library_path, starter_pgn=starter_pgn, overwrite=overwrite)
-    database_evidence = _prove_sample_database(library_path, starter_count)
-
-    starter_bytes = starter_path.read_bytes()
-    stress_bytes = stress_path.read_bytes()
-    library_bytes = library_path.read_bytes()
-    manifest: dict[str, object] = {
-        "schema_version": 3,
-        "bundle_kind": "lawful-curated-real-game-starter",
-        "runtime_network_required": False,
-        "starter_source": {
-            "name": CORPUS_NAME,
-            "url": CORPUS_URL,
-            "license_id": CORPUS_LICENSE_ID,
-            "published_games": CORPUS_PUBLISHED_GAMES,
-            "compressed_sha256": CORPUS_SHA256,
-            "compressed_bytes": source_compressed_bytes,
-            "selection": CURATION_POLICY_ID,
-            "subset_sha256": source_subset_sha256.lower(),
-            "selected_games": starter_count,
-            "curation": curation_evidence,
-        },
-        "licenses": {
-            CORPUS_LICENSE_ID: {
-                "type": "public-domain-dedication",
-                "url": CORPUS_LICENSE_URL,
-                "source": "Lichess standard database publication",
-            },
-            CONTENT_LICENSE_ID: {
-                "type": "project-owned-redistribution-grant",
-                "terms_uk": CONTENT_LICENSE_TERMS_UK,
-            },
-        },
-        "counts": {
-            "starter_games": starter_count,
-            "stress_games": stress_count,
-        },
-        "sample_library": database_evidence,
-        "files": {
-            "starter_uk.pgn": _licensed_file(starter_bytes, license_id=CORPUS_LICENSE_ID),
-            "stress_uk.pgn": _licensed_file(stress_bytes, license_id=CONTENT_LICENSE_ID),
-            "sample_library.acsdb": _licensed_file(library_bytes, license_id=CORPUS_LICENSE_ID),
-        },
-    }
-    _write_text_atomic(
-        manifest_path,
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        overwrite=overwrite,
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output.name}.build-",
+            dir=str(output.parent),
+        )
     )
-    return manifest
+    starter_path = staging / "starter_uk.pgn"
+    stress_path = staging / "stress_uk.pgn"
+    library_path = staging / "sample_library.acsdb"
+    manifest_path = staging / "manifest.json"
 
+    try:
+        stress_pgn = build_stress_pgn(stress_count)
+        _write_text_atomic(starter_path, starter_pgn, overwrite=False)
+        _write_text_atomic(stress_path, stress_pgn, overwrite=False)
+        build_sample_library(library_path, starter_pgn=starter_pgn, overwrite=False)
+        database_evidence = _prove_sample_database(library_path, starter_count)
+
+        starter_bytes = starter_path.read_bytes()
+        stress_bytes = stress_path.read_bytes()
+        library_bytes = library_path.read_bytes()
+        manifest: dict[str, object] = {
+            "schema_version": 3,
+            "bundle_kind": "lawful-curated-real-game-starter",
+            "runtime_network_required": False,
+            "starter_source": {
+                "name": CORPUS_NAME,
+                "url": CORPUS_URL,
+                "license_id": CORPUS_LICENSE_ID,
+                "published_games": CORPUS_PUBLISHED_GAMES,
+                "compressed_sha256": CORPUS_SHA256,
+                "compressed_bytes": source_compressed_bytes,
+                "selection": CURATION_POLICY_ID,
+                "subset_sha256": source_subset_sha256.lower(),
+                "selected_games": starter_count,
+                "curation": curation_evidence,
+            },
+            "licenses": {
+                CORPUS_LICENSE_ID: {
+                    "type": "public-domain-dedication",
+                    "url": CORPUS_LICENSE_URL,
+                    "source": "Lichess standard database publication",
+                },
+                CONTENT_LICENSE_ID: {
+                    "type": "project-owned-redistribution-grant",
+                    "terms_uk": CONTENT_LICENSE_TERMS_UK,
+                },
+            },
+            "counts": {
+                "starter_games": starter_count,
+                "stress_games": stress_count,
+            },
+            "sample_library": database_evidence,
+            "files": {
+                "starter_uk.pgn": _licensed_file(starter_bytes, license_id=CORPUS_LICENSE_ID),
+                "stress_uk.pgn": _licensed_file(stress_bytes, license_id=CONTENT_LICENSE_ID),
+                "sample_library.acsdb": _licensed_file(
+                    library_bytes, license_id=CORPUS_LICENSE_ID
+                ),
+            },
+        }
+        _write_text_atomic(
+            manifest_path,
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            overwrite=False,
+        )
+        _publish_staged_bundle(staging, output, overwrite=overwrite)
+        return manifest
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 def build_from_pinned_lichess(
     destination: str | Path,
