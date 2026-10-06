@@ -646,6 +646,8 @@ class Version2Application:
         bridge.projection.snapshot()
 
         origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
+        focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("books")
             try:
@@ -663,9 +665,21 @@ class Version2Application:
                     canonical_matches = False
                 if not canonical_matches:
                     raise error
-        except Exception:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+        except BaseException:
+            # Candidate Book owners are still staged here. Restore the exact
+            # shell/focus presentation rather than routing back through a second
+            # command that could replace the primary persistence/publication
+            # failure. If exact restoration itself aborts, one best-effort route
+            # recovery may repair the visible shell but never becomes authority.
+            self._focus = focus_checkpoint
+            try:
+                self.shell._restore_presentation_state(shell_checkpoint)
+            except BaseException:
+                try:
+                    self.shell.open_route(origin_route)
+                except BaseException:
+                    pass
+                self._focus = focus_checkpoint
             raise
 
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (

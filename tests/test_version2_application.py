@@ -1332,6 +1332,58 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_book_open_persistence_failure_keeps_primary_when_route_rollback_aborts(self):
+        candidate = self.root / "book-open-primary-failure.md"
+        candidate.write_text(
+            "# Candidate\n\nThis candidate must remain staged on failure.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_books = self.app.books
+        primary = OSError("PRIMARY_BOOK_PROGRESS_PUBLICATION")
+        original_open_route = self.app.shell.open_route
+
+        class RollbackAbort(BaseException):
+            pass
+
+        def route_then_abort_rollback(route_id):
+            if route_id == "books":
+                return original_open_route(route_id)
+            if route_id == origin_route:
+                raise RollbackAbort("SECONDARY_ROUTE_ROLLBACK")
+            return original_open_route(route_id)
+
+        with (
+            patch.object(
+                self.app,
+                "_persist_book_progress",
+                side_effect=primary,
+            ),
+            patch.object(
+                self.app.shell,
+                "open_route",
+                side_effect=route_then_abort_rollback,
+            ),
+            patch.object(
+                self.app.shell,
+                "_restore_presentation_state",
+                side_effect=RollbackAbort("SECONDARY_CHECKPOINT_ROLLBACK"),
+            ),
+        ):
+            with self.assertRaises(OSError) as caught:
+                self.app.commit_prepared_book_open(prepared)
+
+        self.assertIs(caught.exception, primary)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertIs(self.app.books, origin_books)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
     def test_book_open_binds_native_focus_to_rendered_current_block(self):
         book = self.root / "initial-book-focus.md"
         book.write_text(
