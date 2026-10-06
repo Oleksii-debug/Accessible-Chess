@@ -1,0 +1,132 @@
+name: Current Shipping Native MenuBar Parity
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - '.github/workflows/current-shipping-native-menubar-parity.yml'
+      - '.github/workflows/p0-native-menubar-uia-runtime.yml'
+      - 'scripts/p0_native_menubar_uia_oracle.py'
+      - 'tests/test_windows_native_menu_smoke_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-native-menubar-parity-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  P0_WORKFLOW_BLOB: 3fe35515cc30585751a5aa5aa44f2b0651dbd10f
+  UIA_ORACLE_BLOB: 2f0e2580f34d74187d75c3573d0cc92728db9b08
+  SMOKE_TEST_BLOB: 8d9805a02aae0bbe3c81371ffbfb2fb0e0d54baa
+
+jobs:
+  qualify:
+    name: source-contract-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove live shipping base, bounded scope and exact blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin "refs/heads/$BASE_REF"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test -n "$live_base"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            event_base="${{ github.event.pull_request.base.sha }}"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            test "$event_base" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          mapfile -t actual < <(git diff --name-only "$live_base"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-shipping-native-menubar-parity.yml"
+            ".github/workflows/p0-native-menubar-uia-runtime.yml"
+            "scripts/p0_native_menubar_uia_oracle.py"
+            "tests/test_windows_native_menu_smoke_contract.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse HEAD:.github/workflows/p0-native-menubar-uia-runtime.yml)" = "$P0_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:scripts/p0_native_menubar_uia_oracle.py)" = "$UIA_ORACLE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_windows_native_menu_smoke_contract.py)" = "$SMOKE_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded menu qualification surfaces
+        run: >-
+          python -m compileall -q
+          scripts/p0_native_menubar_uia_oracle.py
+          tests/test_windows_native_menu_smoke_contract.py
+
+      - name: Execute native menu source contracts
+        run: >-
+          python -m unittest -v
+          tests.test_windows_native_menu_smoke_contract
+          tests.test_full_product_native_menu
+          tests.test_ui_native_menu_recovery
+
+  windows-uia:
+    name: windows-source-uia
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install exact Windows host dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install -q pywebview==6.2.1 pythonnet==3.1.0 clr-loader==0.3.1 cffi==2.1.1 pycparser==3.0 typing-extensions==4.16.0
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows host dependency installation failed'}
+
+      - name: Prove real source MenuBar through process-scoped Windows UIA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          python scripts/p0_native_menubar_uia_oracle.py
+          if($LASTEXITCODE -ne 0){throw 'Shipping native MenuBar UIA oracle failed'}
+
+      - name: Upload source UIA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: current-shipping-native-menubar-uia-evidence
+          path: p0-native-menubar-uia-source-summary.json
+          if-no-files-found: warn
+          retention-days: 14
