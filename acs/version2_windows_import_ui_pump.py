@@ -341,6 +341,33 @@ class Version2ImportUiWakeupPump:
         self._request_wakeup()
         return True
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Re-open UI delivery after an application close attempt was refused.
+
+        The owning file delegate has already retired its worker before the pump is
+        closed. close() cancels retry timers and drops owner callbacks that became
+        stale at that retirement boundary, but it deliberately leaves the
+        canonical mailbox intact. A refused native close may therefore re-open
+        this pump and deliver retained path-free mailbox events through the same
+        trusted UI owner.
+        """
+
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("UI wakeup pump recovery requires the UI thread")
+        with self._lock:
+            if not self._closed:
+                return True
+            if (
+                self._retry_timer is not None
+                or self._owner_retry_timer is not None
+                or self._owner_callback is not None
+                or self._wakeup_pending
+                or self._owner_wakeup_pending
+            ):
+                return False
+            self._closed = False
+        return True
+
     def close(self) -> None:
         """Stop future wakeup scheduling; caller must stop the import worker first."""
 

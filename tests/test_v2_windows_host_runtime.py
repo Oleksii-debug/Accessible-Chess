@@ -233,6 +233,45 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(owner.posted, [])
         self.assertTrue(runtime.shutdown())
 
+    def test_refused_close_resume_restores_real_import_and_ui_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "resume-after-refused-close.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            owner = _Owner()
+            library = _Library()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+
+            _OpenDialog.selected_paths.append(str(source))
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertEqual(library.calls, 1)
+            self.assertTrue(owner.posted)
+
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_export_routes_through_owned_dialog_then_injected_canonical_exporter(self) -> None:
         owner = _Owner()
         export_calls: list[tuple[object, Path]] = []

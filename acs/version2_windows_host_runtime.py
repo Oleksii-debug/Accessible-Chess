@@ -226,6 +226,48 @@ class Version2WindowsFileWorkflowRuntime:
         mailbox_recovered = self._pump.request_pending_wakeup()
         return owner_recovered or mailbox_recovered
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Restore file actions atomically after the owning Form refused to close.
+
+        Application shutdown retires the canonical file delegate and closes its
+        UI pump before durable progress/database publication. If that later
+        publication fails, the still-visible product must recover both halves of
+        this runtime; reopening only the delegate or only the pump would advertise
+        file commands that cannot complete or cannot reach keyboard/NVDA users.
+        """
+
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError(
+                "Version 2 Windows file workflow recovery requires UI thread"
+            )
+        with self._lock:
+            runtime_was_closed = self._closed
+
+        if runtime_was_closed:
+            pump_restored = self._pump.resume_after_refused_shutdown()
+            if pump_restored is not True:
+                return False
+
+        try:
+            delegate_restored = self._file_delegate.resume_after_refused_shutdown()
+        except BaseException:
+            if runtime_was_closed:
+                self._pump.close()
+            raise
+        if delegate_restored is not True:
+            if runtime_was_closed:
+                self._pump.close()
+            return False
+
+        with self._lock:
+            self._closed = False
+
+        # Import terminals are canonical mailbox state, not disposable UI work.
+        # A close attempt can retire the pump after the worker stored such an
+        # event. Re-deliver it only after both runtime halves are live again.
+        self._pump.request_pending_wakeup()
+        return True
+
     def shutdown(self, timeout: float | None = None) -> bool:
         """Cancel/join active file worker before closing the UI pump."""
 

@@ -24,7 +24,10 @@ env:
   RELEASE_UI_TEST_BLOB: 5993cc5cb4315fe50adf9b89d0f7583dfb90e065
   BOOK_OPEN_WORKER_BLOB: 5c4a703458277d25eb6ff7630c6148d11c0e7ac3
   FILE_WORKFLOWS_BLOB: deaccf51a3f3e4abd8c88ec819841782f9db0d9c
+  HOST_RUNTIME_BLOB: 652badafd5ec393e1ee12cf89105cb68326be134
+  IMPORT_UI_PUMP_BLOB: 76baad119f244f71b53556549b8ee2119872fd2a
   BOOK_OPEN_WORKER_TEST_BLOB: fa209e3db7f4d73cba9c31b3bae425eb2cfb90de
+  HOST_RUNTIME_TEST_BLOB: 3066bf7469bc141aa2591362b52b86b975459e5c
   FILE_SHUTDOWN_TEST_BLOB: d25efb4b26d3f9eee49ef6c86d76a0a038f97cba
   FORMCLOSING_TEST_BLOB: 197661e6fee63d19fcdc86535815389cb1c70868
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
@@ -77,7 +80,10 @@ jobs:
             "acs/version2_release_ui.py"
             "acs/version2_windows_book_open_worker.py"
             "acs/version2_windows_file_workflows.py"
+            "acs/version2_windows_host_runtime.py"
+            "acs/version2_windows_import_ui_pump.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
+            "tests/test_v2_windows_host_runtime.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
             "tests/test_version2_release_cleanup_precedence.py"
@@ -100,7 +106,10 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_version2_release_cleanup_precedence.py)" = "$RELEASE_CLEANUP_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$FILE_WORKFLOWS_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "$HOST_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_import_ui_pump.py)" = "$IMPORT_UI_PUMP_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$HOST_RUNTIME_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "$FILE_SHUTDOWN_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "$FORMCLOSING_TEST_BLOB"
 
@@ -113,6 +122,7 @@ jobs:
           acs/version2_windows_book_open_worker.py
           acs/version2_windows_file_workflows.py
           acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_ui_pump.py
           tests/test_version2_application.py
           tests/test_version2_shutdown.py
           tests/test_work_v2_shutdown_progress_failure_cleanup.py
@@ -121,6 +131,7 @@ jobs:
           tests/test_version2_release_cleanup_precedence.py
           tests/test_version2_windows_book_open_worker.py
           tests/test_v2_windows_file_worker_shutdown_fence.py
+          tests/test_v2_windows_host_runtime.py
           tests/test_w5_native_formclosing_dirty_pgn.py
 
       - name: Execute recovery, persistence and accessibility contracts
