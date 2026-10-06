@@ -75,6 +75,7 @@ jobs:
           git diff --check "$PARENT_SHA"...HEAD
           mapfile -t paths < <(git diff --name-only "$PARENT_SHA"...HEAD | sort)
           expected=(
+            ".github/workflows/current-shipping-owner-cancel-recovery-order.yml"
             ".github/workflows/current-shipping-recovery-hardening.yml"
             "acs/version2_application.py"
             "acs/version2_release_app.py"
@@ -98,6 +99,7 @@ jobs:
           for i in "${!expected[@]}"; do
             test "${paths[$i]}" = "${expected[$i]}"
           done
+          test ! -e .github/workflows/current-shipping-owner-cancel-recovery-order.yml
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "$APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$RELEASE_APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_ui.py)" = "$RELEASE_UI_BLOB"
