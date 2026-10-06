@@ -278,10 +278,13 @@ class BookBoardWorkflow:
         game_source: BookGameSource | str,
     ) -> _BookBoardSession:
         try:
+            # The constructor requires an exact BookReader. Dispatch through the
+            # concrete class so mutable instance method shadows cannot replace
+            # the canonical indexed-revision/content authority at this seam.
             # Consume the immutable BookReader revision, never the mutable live
             # BookDocument.  A concurrent authoring mutation after origin capture
             # must fail before alternate chess/content bytes are resolved.
-            block = self._reader.block_snapshot(origin.index)
+            block = BookReader.block_snapshot(self._reader, origin.index)
         except (RuntimeError, LookupError, IndexError) as exc:
             raise self._error(
                 "book reading revision changed while opening the board",
@@ -396,7 +399,7 @@ class BookBoardWorkflow:
                     BookBoardWorkflowCode.ACTIVE_SESSION,
                 )
             try:
-                origin = self._reader.location()
+                origin = BookReader.location(self._reader)
             except RuntimeError as exc:
                 raise self._error(
                     "book reading revision changed while opening the board",
@@ -406,7 +409,7 @@ class BookBoardWorkflow:
             # The reader is externally owned.  Reject a concurrent cursor move
             # rather than returning to a different location later.
             try:
-                current = self._reader.location()
+                current = BookReader.location(self._reader)
             except RuntimeError as exc:
                 raise self._error(
                     "book reading revision changed while opening the board",
@@ -442,7 +445,7 @@ class BookBoardWorkflow:
             )
         with self._lock:
             try:
-                origin = self._reader.location()
+                origin = BookReader.location(self._reader)
             except RuntimeError as exc:
                 raise self._error(
                     "book reading revision changed while resolving semantic content",
@@ -468,7 +471,7 @@ class BookBoardWorkflow:
                 )
 
             try:
-                current = self._reader.location()
+                current = BookReader.location(self._reader)
             except RuntimeError as exc:
                 raise self._error(
                     "book reading revision changed while resolving semantic content",
@@ -652,15 +655,15 @@ class BookBoardWorkflow:
                 # transient Board origin. An in-place document mutation can keep
                 # the same numeric index while changing its semantic identity;
                 # snapshot() is the canonical fail-closed revision boundary.
-                self._reader.snapshot()
-                current = self._reader.location()
+                BookReader.snapshot(self._reader)
+                current = BookReader.location(self._reader)
                 if current == origin:
                     restored = current
                 else:
                     # Board review does not publish a durable return point, but
                     # an external/presentation cursor move must still be recoverable
                     # to the exact semantic origin captured by this transient session.
-                    restored = self._reader.go_to(origin.index)
+                    restored = BookReader.go_to(self._reader, origin.index)
                     if restored != origin:
                         raise LookupError("book Board origin no longer matches")
             except Exception as exc:
