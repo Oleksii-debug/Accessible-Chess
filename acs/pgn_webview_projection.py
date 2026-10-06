@@ -731,7 +731,15 @@ class PgnWebViewProjection:
     def search(self, text: str) -> PgnWebViewEvent:
         if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
             raise ValueError("PGN search text is invalid")
-        return self._dispatch_selected("pgn.search", extra={"text": text})
+        # Search is document-scoped, not move-scoped. A lawful PGN can have
+        # tags/result but no moves, so search must work from the canonical root
+        # even when there is no presentation node to select.
+        self._presenter.dispatch_edit(
+            "pgn.search",
+            self._dispatch,
+            extra={"text": text},
+        )
+        return PgnWebViewEvent("delegated", {"action": "pgn.search"})
 
     def edit_comment(
         self,
