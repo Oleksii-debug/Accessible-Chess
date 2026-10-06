@@ -230,7 +230,7 @@ class BookWebViewProjection:
         self._presenter = presenter
         self._dispatch = dispatch
         self._language = language
-        self._presenter.set_language(language)
+        BookReaderPresenter.set_language(self._presenter, language)
         self._last_bookmark = "default"
 
     @property
@@ -265,14 +265,14 @@ class BookWebViewProjection:
         previous_language = self._language
         try:
             self._language = language
-            self._presenter.set_language(language)
-            snapshot = self.snapshot()
+            BookReaderPresenter.set_language(self._presenter, language)
+            snapshot = type(self).snapshot(self)
         except BaseException:
             # Language is presentation state, but a failed render must not publish
             # a half-applied locale. Restore both projection and presenter so the
             # bridge's generic error and the next successful render remain coherent.
             self._language = previous_language
-            self._presenter.set_language(previous_language)
+            BookReaderPresenter.set_language(self._presenter, previous_language)
             raise
         return BookWebViewEvent("render", {"snapshot": snapshot, "focus_target": ""})
 
@@ -374,7 +374,7 @@ class BookWebViewProjection:
         if any(not part for part in safe_heading_path):
             raise ValueError("book heading path contains an empty visible part")
         labels = _LABELS[self._language]
-        navigation = self._presenter.navigation_availability()
+        navigation = BookReaderPresenter.navigation_availability(self._presenter)
         # Presenter navigation is a trust boundary just like BookBlockView.
         # Require the canonical built-in container before iteration, hashing,
         # equality or lookup can invoke provider-defined hooks.
@@ -444,10 +444,13 @@ class BookWebViewProjection:
 
     def snapshot(self) -> dict[str, object]:
         # One immutable BookBlockView per browser render; no repeated mutable reads.
-        return self._snapshot_from_block(self._presenter.current())
+        return type(self)._snapshot_from_block(
+            self,
+            BookReaderPresenter.current(self._presenter),
+        )
 
     def _render(self, block: BookBlockView, *, announcement: str = "") -> BookWebViewEvent:
-        snapshot = self._snapshot_from_block(block)
+        snapshot = type(self)._snapshot_from_block(self, block)
         return BookWebViewEvent(
             "render",
             {
@@ -459,53 +462,61 @@ class BookWebViewProjection:
 
     def _navigate(
         self,
-        operation: Callable[[], BookBlockView],
+        operation: Callable[[BookReaderPresenter], BookBlockView],
         *,
         announcement: str = "",
     ) -> BookWebViewEvent:
         before_index = self._presenter.cursor_index
         try:
-            return self._render(operation(), announcement=announcement)
+            return type(self)._render(
+                self,
+                operation(self._presenter),
+                announcement=announcement,
+            )
         except BaseException:
             if self._presenter.cursor_index != before_index:
-                self._presenter.restore_cursor(before_index)
+                BookReaderPresenter.restore_cursor(self._presenter, before_index)
             raise
 
     def previous(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.previous_block)
+        return type(self)._navigate(self, BookReaderPresenter.previous_block)
 
     def next(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.next_block)
+        return type(self)._navigate(self, BookReaderPresenter.next_block)
 
     def previous_heading(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.previous_heading)
+        return type(self)._navigate(self, BookReaderPresenter.previous_heading)
 
     def next_heading(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.next_heading)
+        return type(self)._navigate(self, BookReaderPresenter.next_heading)
 
     def next_position(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.next_position)
+        return type(self)._navigate(self, BookReaderPresenter.next_position)
 
     def previous_position(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.previous_position)
+        return type(self)._navigate(self, BookReaderPresenter.previous_position)
 
     def next_game(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.next_game)
+        return type(self)._navigate(self, BookReaderPresenter.next_game)
 
     def previous_game(self) -> BookWebViewEvent:
-        return self._navigate(self._presenter.previous_game)
+        return type(self)._navigate(self, BookReaderPresenter.previous_game)
 
     def save_bookmark(self, name: object) -> BookWebViewEvent:
         token = _bookmark_name(name)
         previous_name = self._last_bookmark
-        announcement = self._result_announcement("saved")
+        announcement = type(self)._result_announcement(self, "saved")
         # Saving a bookmark does not move the canonical cursor. Validate the
         # exact post-save WebView snapshot first so a presentation failure can
         # never leave behind a bookmark that the browser did not accept.
         self._last_bookmark = token
         try:
-            event = self._render(self._presenter.current(), announcement=announcement)
-            self._presenter.bookmark(token)
+            event = type(self)._render(
+                self,
+                BookReaderPresenter.current(self._presenter),
+                announcement=announcement,
+            )
+            BookReaderPresenter.bookmark(self._presenter, token)
         except BaseException:
             self._last_bookmark = previous_name
             raise
@@ -516,9 +527,10 @@ class BookWebViewProjection:
         previous_name = self._last_bookmark
         self._last_bookmark = token
         try:
-            return self._navigate(
-                lambda: self._presenter.restore_bookmark(token),
-                announcement=self._result_announcement("restored"),
+            return type(self)._navigate(
+                self,
+                lambda presenter: BookReaderPresenter.restore_bookmark(presenter, token),
+                announcement=type(self)._result_announcement(self, "restored"),
             )
         except BaseException:
             self._last_bookmark = previous_name
@@ -528,29 +540,30 @@ class BookWebViewProjection:
         # Complete the exact WebView presentation contract before the irreversible
         # board handoff. A local semantic/schema failure must never activate Book
         # Board while the browser remains on a reading surface it could not render.
-        announcement = self._result_announcement("opened")
-        self.snapshot()
+        announcement = type(self)._result_announcement(self, "opened")
+        type(self).snapshot(self)
         # Presenter supplies FEN directly to the canonical dispatcher. Discard the
         # backend return value and expose no FEN/path/provider payload to WebView.
-        self._presenter.open_current_position(self._dispatch)
+        BookReaderPresenter.open_current_position(self._presenter, self._dispatch)
         return BookWebViewEvent(
             "delegated",
             {"action": "book.open_position", "announcement": announcement},
         )
 
     def open_game(self) -> BookWebViewEvent:
-        announcement = self._result_announcement("game_opened")
-        self.snapshot()
-        self._presenter.open_current_game(self._dispatch)
+        announcement = type(self)._result_announcement(self, "game_opened")
+        type(self).snapshot(self)
+        BookReaderPresenter.open_current_game(self._presenter, self._dispatch)
         return BookWebViewEvent(
             "delegated",
             {"action": "book.open_game", "announcement": announcement},
         )
 
     def return_from_board(self) -> BookWebViewEvent:
-        return self._navigate(
-            self._presenter.return_from_board,
-            announcement=self._result_announcement("returned"),
+        return type(self)._navigate(
+            self,
+            BookReaderPresenter.return_from_board,
+            announcement=type(self)._result_announcement(self, "returned"),
         )
 
     def generic_error(self) -> BookWebViewEvent:
