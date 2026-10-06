@@ -425,19 +425,49 @@ def write_version2_package_zip(
                 except (OSError, RuntimeError, ValueError, zipfile.LargeZipFile) as exc:
                     _fail(f"package archive source could not be streamed: {type(exc).__name__}")
         report = validate_version2_package_zip(temporary, expected_integration_sha=sha)
+        link_created = False
+        publication_accepted = False
         try:
-            # The validated temporary ZIP is a sibling of the destination.
-            # Hard-link creation is atomic and has no replace-existing mode on
-            # both NTFS and POSIX filesystems.
-            os.link(temporary, target)
-        except FileExistsError:
-            _fail("Version 2 ZIP output appeared during assembly and will not be overwritten")
-        except OSError as exc:
-            if _path_entry_exists(target, label="Version 2 ZIP output"):
+            try:
+                # The validated temporary ZIP is a sibling of the destination.
+                # Hard-link creation is atomic and has no replace-existing mode on
+                # both NTFS and POSIX filesystems.
+                os.link(temporary, target)
+                link_created = True
+            except FileExistsError:
                 _fail("Version 2 ZIP output appeared during assembly and will not be overwritten")
-            _fail(f"validated Version 2 ZIP could not be published atomically: {type(exc).__name__}")
-        temporary.unlink()
-        return report
+            except OSError as exc:
+                if _path_entry_exists(target, label="Version 2 ZIP output"):
+                    _fail("Version 2 ZIP output appeared during assembly and will not be overwritten")
+                _fail(
+                    "validated Version 2 ZIP could not be published atomically: "
+                    f"{type(exc).__name__}"
+                )
+
+            # The private readback is not sufficient publication authority:
+            # the temporary inode can still be rewritten after validation and
+            # both hard-link names would then expose bytes that were never
+            # accepted by the report above. Revalidate the public pathname and
+            # require its archive identity to remain byte-identical.
+            published = validate_version2_package_zip(
+                target,
+                expected_integration_sha=sha,
+            )
+            if published.archive_sha256 != report.archive_sha256:
+                _fail("published Version 2 ZIP differs from validated archive")
+            publication_accepted = True
+            return published
+        finally:
+            if link_created and not publication_accepted:
+                try:
+                    temporary_info = temporary.lstat()
+                    target_info = target.lstat()
+                    if os.path.samestat(temporary_info, target_info):
+                        target.unlink()
+                except (AttributeError, OSError):
+                    # Never remove a raced-in foreign pathname, and never let
+                    # best-effort owned-link cleanup replace the primary error.
+                    pass
     finally:
         try:
             temporary.unlink(missing_ok=True)
