@@ -707,6 +707,33 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_inline_visibility_can_be_overridden_by_visible_descendant(self) -> None:
+        source = f"""<html><body>
+<section style="visibility:hidden">
+  <p style="visibility:visible">Visible descendant text</p>
+  <div style="visibility:visible" data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-visibility-descendant-override.html",
+        )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible descendant text"
+                for block in result.document.blocks
+            )
+        )
+        positions = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].fen, Board.START)
+
     def test_inline_style_hidden_void_element_does_not_hide_following_content(self) -> None:
         source = f"""<html><body>
 <img style="display:none" src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
