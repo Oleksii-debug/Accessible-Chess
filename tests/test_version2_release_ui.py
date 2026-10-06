@@ -211,6 +211,51 @@ class Version2ReleaseUiTests(unittest.TestCase):
         self.assertEqual(seen_owners, [owner])
         self.assertIs(app.files, runtime)
 
+    def test_release_window_retires_unbound_file_runtime_when_bind_aborts(self):
+        class BindAbort(BaseException):
+            pass
+
+        class CleanupAbort(BaseException):
+            pass
+
+        class CandidateRuntime:
+            def __init__(self):
+                self.shutdown_count = 0
+
+            def shutdown(self):
+                self.shutdown_count += 1
+                raise CleanupAbort("candidate cleanup abort")
+
+        api = self.make_api()
+        app = _Application()
+        webview = _WebView()
+        owner = object()
+        candidate = CandidateRuntime()
+        primary = BindAbort("native file binding abort")
+
+        def install_menu(window, _controller):
+            window._accessible_chess_native_menu_host = owner
+            return True
+
+        def reject_binding(_runtime):
+            raise primary
+
+        app.bind_files = reject_binding
+
+        with self.assertRaises(BindAbort) as caught:
+            run_version2_release_window(
+                api,
+                app,
+                webview_module=webview,
+                menu_installer=install_menu,
+                file_runtime_factory=lambda value: candidate if value is owner else None,
+            )
+
+        self.assertIs(caught.exception, primary)
+        self.assertEqual(candidate.shutdown_count, 1)
+        self.assertTrue(app.closed)
+        self.assertIsNone(app.files)
+
     def test_release_window_fails_closed_when_native_owner_is_missing(self):
         api = self.make_api()
         app = _Application()
