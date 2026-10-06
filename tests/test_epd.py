@@ -227,7 +227,15 @@ class EpdFormatTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / "web" / "index.html"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            '<textarea id="position-input" spellcheck="false" aria-describedby="position-format-hint"></textarea>',
+            '<textarea id="position-input" maxlength="4096" spellcheck="false" aria-describedby="position-format-hint"></textarea>',
+            html,
+        )
+        self.assertIn(
+            '<input id="move-input" type="text" maxlength="4096"',
+            html,
+        )
+        self.assertIn(
+            '<input id="fen-input" type="text" maxlength="4096"',
             html,
         )
         self.assertIn(
