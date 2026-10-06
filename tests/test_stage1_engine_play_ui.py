@@ -101,6 +101,41 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.addCleanup(api.close_analysis)
         return api, selected
 
+    def test_position_piece_edit_commits_then_ends_active_engine_game(self) -> None:
+        api, _engine = self.make_api()
+        self.assertTrue(api.start_engine_game("white", 4, 0, 0)["ok"])
+        self.assertIsNotNone(api._engine_session)
+
+        edited = api.edit_position_piece("a3", "N")
+
+        self.assertTrue(edited["ok"])
+        self.assertEqual(api.board.board[16], "N")
+        self.assertIsNone(api._engine_session)
+        self.assertEqual(api._engine_game_phase, "idle")
+        self.assertFalse(edited["engineGame"]["active"])
+
+    def test_failed_clear_board_preserves_active_engine_game_and_board(self) -> None:
+        api, _engine = self.make_api()
+        self.assertTrue(api.start_engine_game("white", 4, 0, 0)["ok"])
+        prior_session = api._engine_session
+        prior_phase = api._engine_game_phase
+        prior_fen = api.board.fen()
+        original = api._prepare_root_state
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated clear-root failure")
+
+        api._prepare_root_state = fail
+        try:
+            result = api.clear_board()
+        finally:
+            api._prepare_root_state = original
+
+        self.assertFalse(result["ok"])
+        self.assertIs(api._engine_session, prior_session)
+        self.assertEqual(api._engine_game_phase, prior_phase)
+        self.assertEqual(api.board.fen(), prior_fen)
+
     def test_failed_engine_game_restart_preserves_existing_session_lifecycle(self) -> None:
         api, _engine = self.make_api()
         started = api.start_engine_game("white", 4, 0, 0)
