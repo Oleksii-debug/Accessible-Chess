@@ -255,6 +255,49 @@ class BookOpenWorkerTests(unittest.TestCase):
         )
         self.assertFalse(worker.active)
         self.assertTrue(worker.shutdown())
+    def test_recovery_cancel_observer_reentrant_shutdown_does_not_report_live(self) -> None:
+        callbacks = []
+        events = []
+        commits = []
+        prepared = threading.Event()
+        reentrant_shutdown = []
+        holder = {}
+
+        def prepare(source, *, cancel_check):
+            prepared.set()
+            return "retired-book"
+
+        def sink(event):
+            events.append(event.kind)
+            if event.kind is BookOpenWorkerEventKind.CANCELLED:
+                reentrant_shutdown.append(holder["worker"].shutdown())
+
+        worker = Version2BookOpenWorker(
+            prepare=prepare,
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        holder["worker"] = worker
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self.assertTrue(prepared.wait(2.0))
+        self._wait(lambda: len(callbacks) == 1)
+        self.assertTrue(worker.shutdown())
+
+        self.assertFalse(worker.resume_after_refused_shutdown())
+        self.assertTrue(worker.closed)
+        self.assertEqual(reentrant_shutdown, [True])
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLED],
+        )
+        callbacks.pop(0)()
+        self.assertEqual(commits, [])
+
+        self.assertTrue(worker.resume_after_refused_shutdown())
+        self.assertFalse(worker.closed)
+        self.assertTrue(worker.shutdown())
     def test_refused_close_can_reopen_fully_retired_worker(self) -> None:
         callbacks = []
         commits = []
