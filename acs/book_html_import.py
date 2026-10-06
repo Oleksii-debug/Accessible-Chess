@@ -888,7 +888,16 @@ class _SemanticHtmlParser(HTMLParser):
         self._text_boundary_count += 1
 
     def _block_id(self, kind: str, payload: str) -> str:
-        digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
+        if self.control_checkpoint is None:
+            digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
+        else:
+            digest_state = sha256()
+            digest_state.update((kind + "\0").encode("utf-8"))
+            for offset in range(0, len(payload), 4_096):
+                self._checkpoint()
+                digest_state.update(payload[offset : offset + 4_096].encode("utf-8"))
+            self._checkpoint()
+            digest = digest_state.hexdigest()[:20]
         key = f"{kind}:{digest}"
         occurrence = self._ids.get(key, 0) + 1
         self._ids[key] = occurrence
@@ -970,11 +979,18 @@ class _SemanticHtmlParser(HTMLParser):
                 return True
         return False
 
-    @staticmethod
-    def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
+    def _ordered_start(self, attrs: dict[str, str]) -> tuple[int | None, bool]:
         if "start" not in attrs:
             return None, True
-        raw = attrs.get("start", "").strip()
+        raw_value = attrs.get("start", "")
+        raw = (
+            _controlled_strip(
+                raw_value,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
+            if raw_value
+            else ""
+        )
         if _HTML_INTEGER_RE.fullmatch(raw) is None:
             return None, False
         try:
@@ -1013,7 +1029,11 @@ class _SemanticHtmlParser(HTMLParser):
                 + "\0"
                 + (str(start) if start is not None else "")
                 + "\0"
-                + "\0".join(identity_items)
+                + _controlled_join_strings(
+                    identity_items,
+                    "\0",
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
             )
             captured.legacy_identity_block.block_id = self._block_id(
                 "List",
@@ -1068,7 +1088,11 @@ class _SemanticHtmlParser(HTMLParser):
             + "\0"
             + (str(start) if start is not None else "")
             + "\0"
-            + "\0".join(items)
+            + _controlled_join_strings(
+                items,
+                "\0",
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
         )
         self._append_block(
             ListBlock(
