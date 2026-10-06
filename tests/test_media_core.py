@@ -455,6 +455,21 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(ended.state, MediaPlaybackState.ENDED)
         self.assertEqual(clock.snapshot(9000).position_ms, 5000)
 
+    def test_clock_invalid_seek_does_not_mutate_position(self):
+        clock = MediaClock(duration_ms=1000)
+        clock.play(0)
+        clock.snapshot(500)
+        with self.assertRaises(MediaContractError) as caught:
+            clock.seek(1001, 500)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+        self.assertEqual(clock.snapshot(500).position_ms, 500)
+
+    def test_clock_rejects_unrepresentable_elapsed_delta(self):
+        clock = MediaClock(playback_rate=16.0)
+        clock.play(0)
+        with self.assertRaises(MediaContractError) as caught:
+            clock.snapshot(10**1000)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
     def test_clock_rejects_non_monotonic_host_time(self):
         clock = MediaClock()
         clock.play(10)
