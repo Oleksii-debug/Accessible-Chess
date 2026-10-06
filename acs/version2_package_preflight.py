@@ -713,15 +713,15 @@ def _inspect_windows_pe_stream(
     source,
     *,
     inspect_clr: bool = False,
-) -> tuple[int, int, int, bool] | None:
-    """Inspect PE, subsystem and optional CLR metadata from one open handle."""
+) -> tuple[int, int, int, bool, bool] | None:
+    """Inspect PE, subsystem, CLR metadata and DLL image kind from one handle."""
     if type(inspect_clr) is not bool:
         raise TypeError("inspect_clr must be bool")
     source.seek(0, os.SEEK_END)
     file_size = source.tell()
     source.seek(0)
     dos_header = source.read(64)
-    identity: tuple[int, int, int, bool] | None = None
+    identity: tuple[int, int, int, bool, bool] | None = None
     if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
         pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
         if 0x40 <= pe_offset <= file_size - 24:
@@ -842,6 +842,7 @@ def _inspect_windows_pe_stream(
                                 optional_magic,
                                 subsystem,
                                 has_clr,
+                                bool(characteristics & 0x2000),
                             )
 
 
@@ -853,8 +854,8 @@ def _inspect_windows_pe_identity(
     *,
     label: str,
     inspect_clr: bool = False,
-) -> tuple[int, int, int, bool] | None:
-    """Inspect one stable pathname/handle identity for PE, subsystem and CLR metadata."""
+) -> tuple[int, int, int, bool, bool] | None:
+    """Inspect one stable pathname/handle identity for PE, CLR and DLL image kind."""
     if type(inspect_clr) is not bool:
         raise TypeError("inspect_clr must be bool")
     before = _safe_lstat(path, label=label)
@@ -917,6 +918,7 @@ def _validate_windows_pe_executable(
     expected_optional_magic: int | None = None,
     require_clr: bool = False,
     expected_subsystem: int | None = None,
+    expected_dll: bool | None = None,
 ) -> None:
     """Require one stable PE identity plus requested CPU/managed-runtime contract."""
     if expected_machine is not None:
@@ -932,6 +934,8 @@ def _validate_windows_pe_executable(
             raise TypeError(
                 "expected_subsystem must be a positive 16-bit integer or null"
             )
+    if expected_dll is not None and type(expected_dll) is not bool:
+        raise TypeError("expected_dll must be bool or null")
 
     identity = _inspect_windows_pe_identity(
         path,
@@ -940,7 +944,13 @@ def _validate_windows_pe_executable(
     )
     if identity is None:
         _fail(f"{label} is not a valid Windows PE executable")
-    actual_machine, actual_optional_magic, actual_subsystem, has_clr = identity
+    (
+        actual_machine,
+        actual_optional_magic,
+        actual_subsystem,
+        has_clr,
+        actual_dll,
+    ) = identity
     if expected_machine is not None and actual_machine != expected_machine:
         _fail(
             f"{label} has unexpected Windows PE machine "
@@ -965,6 +975,13 @@ def _validate_windows_pe_executable(
         )
     if require_clr and not has_clr:
         _fail(f"{label} is not a managed CLR assembly")
+    if expected_dll is not None and actual_dll is not expected_dll:
+        actual_kind = "DLL" if actual_dll else "EXE"
+        expected_kind = "DLL" if expected_dll else "EXE"
+        _fail(
+            f"{label} has unexpected Windows PE image kind "
+            f"{actual_kind}; expected {expected_kind}"
+        )
 
 
 def _provenance_text(value: object, *, label: str, max_length: int) -> str:
@@ -1570,6 +1587,7 @@ def _validate_required_runtime_resources(
         expected_machine=0x8664,
         expected_optional_magic=0x20B,
         expected_subsystem=0x0002,
+        expected_dll=False,
     )
 
     app_config = _require_package_file(
@@ -1628,6 +1646,7 @@ def _validate_required_runtime_resources(
         label="packaged Stockfish 18 executable",
         expected_machine=0x8664,
         expected_optional_magic=0x20B,
+        expected_dll=False,
     )
 
     manifest_path = _require_package_file(
