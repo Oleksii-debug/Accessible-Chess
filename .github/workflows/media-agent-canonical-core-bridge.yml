@@ -36,8 +36,8 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           AGENT_PARENT: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
-          MEDIA_CORE_PARENT: 2fab0518976ad3938f56b9c9cf129f3a368e1f04
-          MEDIA_APPLICATION_SOURCE: 4bfd31932e5e855764bb2ed86248028646dc9c09
+          MEDIA_CORE_PARENT: 50c27fe9ff0f8899438d8aba4ee455119b01fe13
+          MEDIA_APPLICATION_SOURCE: 97dadde3b9bc0f48486399ebbdde4570e0bf9875
           AGENT_BRANCH: work/media-agent-crossrepo-intake-20261005
           MEDIA_CORE_BRANCH: work/accessible-chess-20261005-media-core-sol56n4q8
           MEDIA_APPLICATION_BRANCH: work/media-application-restore-position-20261005-sol56
@@ -74,17 +74,17 @@ jobs:
             exit 1
           }
 
-          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = '89a27bf7783d48d8f9e80c79f9d841a43f2b16e6'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = '925ab3be456ea5a1e163990bc475deebe85a876c'
           test "$(git rev-parse HEAD:tests/test_chess_agent_tools_crossrepo.py)" = 'e1752b02334d8b5a8f0491701ec2e4f25e8dd669'
-          test "$(git rev-parse "$MEDIA_CORE_PARENT":acs/media_core.py)" = '498b44304503edb5244778eda061c109c9bf112e'
-          test "$(git rev-parse HEAD:acs/media_core.py)" = '498b44304503edb5244778eda061c109c9bf112e'
-          test "$(git rev-parse "$MEDIA_CORE_PARENT":tests/test_media_core.py)" = '0cf124d6694796470d9efc730bea76621fbd6014'
-          test "$(git rev-parse HEAD:tests/test_media_core.py)" = '0cf124d6694796470d9efc730bea76621fbd6014'
-          test "$(git rev-parse "$MEDIA_APPLICATION_SOURCE":acs/media_application.py)" = 'b603e86e3d7eb7f7256ffeb943abf223d97e2bf5'
-          test "$(git rev-parse HEAD:acs/media_application.py)" = 'b603e86e3d7eb7f7256ffeb943abf223d97e2bf5'
-          test "$(git rev-parse "$MEDIA_APPLICATION_SOURCE":tests/test_media_application.py)" = '44d1ea42a225f89aa922c891098c348439d69e57'
-          test "$(git rev-parse HEAD:tests/test_media_application.py)" = '44d1ea42a225f89aa922c891098c348439d69e57'
-          test "$(git rev-parse HEAD:tests/test_media_agent_canonical_core_bridge.py)" = 'e1c9e3775d7bc3f2afbd08dcc75f8ed35cd8b556'
+          test "$(git rev-parse "$MEDIA_CORE_PARENT":acs/media_core.py)" = 'dfb9f8628c84a142951d98ff126c51fe573f9fc7'
+          test "$(git rev-parse HEAD:acs/media_core.py)" = 'dfb9f8628c84a142951d98ff126c51fe573f9fc7'
+          test "$(git rev-parse "$MEDIA_CORE_PARENT":tests/test_media_core.py)" = '00f8082bd9bfaf0aeb2f09700346128ea04e2651'
+          test "$(git rev-parse HEAD:tests/test_media_core.py)" = '00f8082bd9bfaf0aeb2f09700346128ea04e2651'
+          test "$(git rev-parse "$MEDIA_APPLICATION_SOURCE":acs/media_application.py)" = '1518064a092e6773d4e1ceeef293059421678b9c'
+          test "$(git rev-parse HEAD:acs/media_application.py)" = '1518064a092e6773d4e1ceeef293059421678b9c'
+          test "$(git rev-parse "$MEDIA_APPLICATION_SOURCE":tests/test_media_application.py)" = '50bda338c6c791ce0c30ea07c7cb6588111feb87'
+          test "$(git rev-parse HEAD:tests/test_media_application.py)" = '50bda338c6c791ce0c30ea07c7cb6588111feb87'
+          test "$(git rev-parse HEAD:tests/test_media_agent_canonical_core_bridge.py)" = 'e7f3ed1ce3f308478806f65ecb9d0e8595fbe469'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:

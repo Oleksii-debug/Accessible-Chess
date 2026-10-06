@@ -16,9 +16,24 @@ from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
 from .media_application import MediaApplicationService
-from .media_foundation import MediaClock, MediaContractError
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
+
+
+class MediaClockStatePort(Protocol):
+    session_id: str
+    source_id: str
+    source_kind: object
+    position_ms: int
+    duration_ms: int | None
+    playback_state: object
+    playback_rate: float
+    revision: int
+
+
+class MediaClockPort(Protocol):
+    @property
+    def state(self) -> MediaClockStatePort: ...
 
 
 class MediaPlaybackPort(Protocol):
@@ -63,21 +78,44 @@ class MediaAgentBridge:
     def __init__(
         self,
         *,
-        clock: MediaClock,
+        clock: MediaClockPort,
         application: MediaApplicationService,
         playback: MediaPlaybackPort | None = None,
     ) -> None:
-        if type(clock) is not MediaClock:
-            raise TypeError("clock must be MediaClock")
+        state = getattr(clock, "state", None)
+        required_state_fields = (
+            "session_id",
+            "source_id",
+            "source_kind",
+            "position_ms",
+            "duration_ms",
+            "playback_state",
+            "playback_rate",
+            "revision",
+        )
+        if state is None or any(
+            not hasattr(state, field_name)
+            for field_name in required_state_fields
+        ):
+            raise TypeError("clock must expose the MediaClockPort state contract")
         if type(application) is not MediaApplicationService:
             raise TypeError("application must be MediaApplicationService")
-        if application.source.source_id != clock.state.source_id:
+        if application.source.source_id != state.source_id:
             raise ChessAgentToolsError(
                 "media clock and Media application source IDs differ"
             )
-        self.clock = clock
+        self.clock: MediaClockPort = clock
         self.application = application
         self.playback = playback
+
+    @staticmethod
+    def _enum_value(value: object, field_name: str) -> str:
+        raw = getattr(value, "value", value)
+        if type(raw) is not str or not raw:
+            raise ChessAgentToolsError(
+                f"{field_name} must expose non-empty text"
+            )
+        return raw
 
     def status(self) -> dict[str, object]:
         state = self.clock.state
@@ -85,10 +123,13 @@ class MediaAgentBridge:
         return {
             "sessionId": state.session_id,
             "sourceId": state.source_id,
-            "sourceKind": state.source_kind.value,
+            "sourceKind": self._enum_value(state.source_kind, "source_kind"),
             "positionMs": state.position_ms,
             "durationMs": state.duration_ms,
-            "playbackState": state.playback_state.value,
+            "playbackState": self._enum_value(
+                state.playback_state,
+                "playback_state",
+            ),
             "playbackRate": state.playback_rate,
             "revision": state.revision,
             "applicationRevision": snapshot.revision,
@@ -116,19 +157,19 @@ class MediaAgentBridge:
 
     def play(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.play()
         return {"requested": "play"}
 
     def pause(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.pause()
         return {"requested": "pause"}
 
     def seek(self, position_ms: int) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.seek(position_ms)
         return {"requested": "seek", "positionMs": position_ms}
 

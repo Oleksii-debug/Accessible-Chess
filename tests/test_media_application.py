@@ -14,6 +14,8 @@ from acs.media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationState,
+    MediaTimelineBarrier,
     MediaSource,
     MediaSourceKind,
     deserialize_media_state,
@@ -214,6 +216,40 @@ class MediaApplicationTests(unittest.TestCase):
         self.assertEqual(service.session.media_cursor.position_ms, 21_000)
         self.assertEqual(service.session.chess_ref, "tree:restore")
         self.assertEqual(service.revision, 1)
+
+
+    def test_resync_required_is_exposed_distinctly_and_blocks_restore(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (link(10_000, "tree:old"),),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="lesson-1",
+                    timestamp_ms=20_000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                    reason="provider jumped to an unrelated position",
+                ),
+            ),
+        )
+        restored = []
+        service = self.service(
+            timeline,
+            MediaChessSession(MediaCursor("lesson-1", 20_500), "tree:analysis"),
+            restored,
+        )
+
+        snapshot = service.snapshot()
+        self.assertEqual(snapshot.qualification, "resync_required")
+        self.assertFalse(snapshot.can_restore)
+        self.assertIn("synchronization", snapshot.status_text.lower())
+        self.assertEqual(snapshot.synchronized_chess_ref, None)
+
+        with self.assertRaises(MediaApplicationError) as caught:
+            service.restore_media_position()
+        self.assertEqual(caught.exception.code, MediaApplicationCode.RESYNC_REQUIRED)
+        self.assertEqual(restored, [])
+        self.assertEqual(service.session.chess_ref, "tree:analysis")
+        self.assertEqual(service.revision, 0)
 
     def test_candidate_only_state_fails_before_restore_effect(self):
         timeline = MediaPositionTimeline(
