@@ -632,6 +632,11 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow.revision, before_revision)
         self.assertEqual(workflow.view(), before_view)
 
+        restored = workflow.return_to_book()
+        self.assertEqual(restored.index, reader.index)
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, before_revision + 1)
+
     def test_failed_return_keeps_session_recoverable(self) -> None:
         document = BookDocument(
             title="Book",
