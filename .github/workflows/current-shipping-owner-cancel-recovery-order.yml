@@ -19,8 +19,8 @@ concurrency:
 env:
   PARENT_BRANCH: converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
   PARENT_SHA: eace8b671934c1acf6e12a4a59a95bc6274a8f1d
-  HOST_BLOB: bb79cde3adba52b6f3aaa4a354565d48583f7fb9
-  HOST_TEST_BLOB: 20f75fe1ef26df72ee0c4739eee64127f7855e8d
+  HOST_BLOB: ca85c9c28c3a085c30a1dc0584d89afd0869b9b0
+  HOST_TEST_BLOB: c539241d2dc762f5df80e5b3aff6cf35bee7a108
 
 jobs:
   cancel-recovery-order:
