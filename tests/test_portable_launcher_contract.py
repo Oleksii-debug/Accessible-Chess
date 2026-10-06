@@ -75,7 +75,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
 
     def test_report_write_failure_retires_owned_child_before_popup_and_exit(self):
         retire_start = self.source.index(
-            "static BOOL ac_retire_child_for_report_failure(DWORD code)"
+            "static BOOL ac_retire_owned_child(DWORD code)"
         )
         retire_end = self.source.index(
             "static void ac_report_write_fail(HANDLE report, DWORD code)",
@@ -98,13 +98,13 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         )
         failure = self.source[fail_start:fail_end]
         self.assertIn(
-            "BOOL child_stopped = ac_retire_child_for_report_failure(stable_code);",
+            "BOOL child_stopped = ac_retire_owned_child(stable_code);",
             failure,
         )
         self.assertIn("ac_close_child_process_handle();", failure)
         self.assertIn("The main Accessible Chess process may still be running.", failure)
         self.assertLess(
-            failure.index("ac_retire_child_for_report_failure(stable_code)"),
+            failure.index("ac_retire_owned_child(stable_code)"),
             failure.index("MessageBoxW("),
         )
         self.assertLess(
@@ -113,9 +113,35 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         )
         self.assertLess(failure.index("MessageBoxW("), failure.index("ExitProcess(stable_code)"))
 
+        fail_generic_start = self.source.index(
+            "static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code)"
+        )
+        fail_generic_end = self.source.index(
+            "static BOOL ac_direct_directory",
+            fail_generic_start,
+        )
+        generic_failure = self.source[fail_generic_start:fail_generic_end]
+        self.assertIn(
+            "BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);",
+            generic_failure,
+        )
+        self.assertLess(
+            generic_failure.index("ac_retire_owned_child("),
+            generic_failure.index("ac_write_line(report"),
+        )
+        self.assertIn("ac_close_child_process_handle();", generic_failure)
+
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
-        self.assertGreaterEqual(main.count("ac_close_child_process_handle();"), 8)
+        for stage in (
+            'L"child process identity report"',
+            'L"early child exit-code read"',
+            'L"startup window observation"',
+        ):
+            with self.subTest(stage=stage):
+                stage_at = main.index(stage)
+                prefix = main[max(0, stage_at - 180):stage_at]
+                self.assertNotIn("ac_close_child_process_handle();", prefix)
 
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
