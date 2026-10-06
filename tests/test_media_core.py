@@ -767,6 +767,51 @@ class MediaCoreContractTests(unittest.TestCase):
 
 
 
+
+    def test_confirm_candidate_promotes_qualification_and_demotes_replaced_link(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (
+                self.link(1000, "tree:old"),
+                self.link(1000, "tree:new", confirmed=False, confidence=0.9),
+            ),
+        )
+        updated = timeline.confirm_candidate(
+            1000,
+            "tree:new",
+            replace_confirmed=True,
+        )
+        links = {link.chess_ref: link for link in updated.links_at(1000)}
+        self.assertEqual(links["tree:new"].status, MediaLinkStatus.CONFIRMED)
+        self.assertEqual(
+            links["tree:new"].qualification,
+            MediaReconciliationState.VERIFIED,
+        )
+        self.assertEqual(links["tree:old"].status, MediaLinkStatus.CANDIDATE)
+        self.assertEqual(
+            links["tree:old"].qualification,
+            MediaReconciliationState.OBSERVED,
+        )
+        self.assertEqual(updated.resolve_exact(1000).chess_ref, "tree:new")
+
+    def test_timeline_from_dict_rejects_non_list_evidence_ids(self):
+        payload = {
+            "source_id": "lesson-1",
+            "links": [
+                {
+                    "timestamp_ms": 1000,
+                    "chess_ref": "tree:a",
+                    "status": "confirmed",
+                    "confidence": 1.0,
+                    "evidence": None,
+                    "evidence_ids": "not-a-list",
+                }
+            ],
+        }
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline.from_dict(payload)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
     def test_rich_timeline_link_carries_range_segment_position_and_evidence_identity(self):
         link = MediaChessLink(
             source_id="lesson-1",

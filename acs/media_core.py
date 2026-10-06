@@ -1568,6 +1568,7 @@ class MediaPositionTimeline:
                     replace(
                         link,
                         status=MediaLinkStatus.CONFIRMED,
+                        qualification=MediaReconciliationState.VERIFIED,
                         evidence=(
                             replacement_evidence
                             if replacement_evidence is not None
@@ -1577,7 +1578,13 @@ class MediaPositionTimeline:
                 )
                 continue
             if link.confirmed and replace_confirmed:
-                reconciled.append(replace(link, status=MediaLinkStatus.CANDIDATE))
+                reconciled.append(
+                    replace(
+                        link,
+                        status=MediaLinkStatus.CANDIDATE,
+                        qualification=MediaReconciliationState.OBSERVED,
+                    )
+                )
                 continue
             reconciled.append(link)
         return MediaPositionTimeline(
@@ -1683,6 +1690,12 @@ class MediaPositionTimeline:
                     "timeline link must be an object",
                     code=MediaErrorCode.INVALID_CONTAINER,
                 )
+            raw_evidence_ids = raw_link.get("evidence_ids", [])
+            if type(raw_evidence_ids) is not list:
+                raise MediaContractError(
+                    "link evidence_ids must be a list",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
             links.append(
                 MediaChessLink(
                     source_id=source_id,
@@ -1695,7 +1708,7 @@ class MediaPositionTimeline:
                     segment_id=raw_link.get("segment_id"),
                     position_id=raw_link.get("position_id"),
                     qualification=raw_link.get("qualification"),
-                    evidence_ids=tuple(raw_link.get("evidence_ids", ())),
+                    evidence_ids=tuple(raw_evidence_ids),
                 )
             )
         return cls(
