@@ -299,6 +299,8 @@ class Version2FinalProductApplication(Version2Application):
         """
 
         self._assert_thread()
+        if self.agent.projection.snapshot()["run_id"]:
+            raise RuntimeError("stop the active Agent run before rebinding")
         projection = AgentConversationProjection(
             start_run=start_run,
             cancel_run=cancel_run,
