@@ -140,6 +140,7 @@ env:
   POSITION_EDITOR_TEST_BLOB: 53d03f9daa249ca013af2feb67f889794b172235
   SQUARES_TEST_BLOB: f539b9bb5f7145a04affa27a21ec4e2dc5c0be03
   FULL_PRODUCT_PGN_BLOB: a093ac419098978d6ca614e761d9a2ed687963b1
+  TEACHER_RUNTIME_BINDING_TEST_BLOB: 7771d307728738c277e242d660e7d52c908cb5d3
 
 jobs:
   recovery-hardening:
@@ -306,6 +307,7 @@ jobs:
             "tests/test_version2_release_payload.py"
             "tests/test_version2_release_receipt.py"
             "tests/test_version2_release_ui.py"
+            "tests/test_version2_teacher_session_runtime_binding.py"
             "tests/test_version2_windows_book_open_worker.py"
             "tests/test_w5_native_formclosing_dirty_pgn.py"
             "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
@@ -371,6 +373,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_position_editor.py)" = "$POSITION_EDITOR_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_squares.py)" = "$SQUARES_TEST_BLOB"
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$FULL_PRODUCT_PGN_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_teacher_session_runtime_binding.py)" = "$TEACHER_RUNTIME_BINDING_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
@@ -560,6 +563,7 @@ jobs:
           tests/test_v2_book_html_import.py
           tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_version2_application.py
+          tests/test_version2_teacher_session_runtime_binding.py
           tests/test_version2_shutdown.py
           tests/test_work_v2_shutdown_progress_failure_cleanup.py
           tests/test_version2_composition_startup_cleanup_current.py
@@ -584,6 +588,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_application
+          tests.test_version2_teacher_session_runtime_binding
           tests.test_version2_shutdown
           tests.test_work_v2_shutdown_progress_failure_cleanup
           tests.test_version2_composition_startup_cleanup_current
