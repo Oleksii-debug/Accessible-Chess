@@ -174,18 +174,35 @@ class PgnWebViewBridge:
                     return guarded
                 return self._projection.search(text)
             if command_id == "pgn.comment_edit":
-                self._exact_fields(data, {"text"})
-                text = self._text(data["text"], name="comment text", limit=8000)
+                if set(data) == {"text"}:
+                    text = self._text(data["text"], name="comment text", limit=8000)
+                    slot = None
+                    index = None
+                else:
+                    self._exact_fields(data, {"text", "slot", "index"})
+                    text = self._text(data["text"], name="comment text", limit=8000)
+                    slot = self._text(data["slot"], name="comment slot", limit=16)
+                    index = data["index"]
+                    if type(index) is not int or index < -1 or index > 255:
+                        raise ValueError("comment index is invalid")
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
-                return self._projection.edit_comment(text)
+                return self._projection.edit_comment(text, slot=slot, index=index)
             if command_id == "pgn.comment_delete":
-                self._exact_fields(data, set())
+                if not data:
+                    slot = None
+                    index = None
+                else:
+                    self._exact_fields(data, {"slot", "index"})
+                    slot = self._text(data["slot"], name="comment slot", limit=16)
+                    index = data["index"]
+                    if type(index) is not int or index < 0 or index > 255:
+                        raise ValueError("comment index is invalid")
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
-                return self._projection.delete_comment()
+                return self._projection.delete_comment(slot=slot, index=index)
             if command_id == "pgn.nag_edit":
                 self._exact_fields(data, {"text"})
                 raw = data["text"]
