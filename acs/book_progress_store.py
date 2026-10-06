@@ -400,6 +400,14 @@ def _validate_payload(value: object) -> dict[str, object]:
             "book progress entries are missing",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
+    if (
+        schema_version == BOOK_PROGRESS_STORE_SCHEMA_VERSION
+        and "generation" not in value
+    ):
+        raise BookProgressStoreError(
+            "book progress store generation is missing",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
     raw_entries = value["entries"]
     if type(raw_entries) is not dict:
         raise BookProgressStoreError(
