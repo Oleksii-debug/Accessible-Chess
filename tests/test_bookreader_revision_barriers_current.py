@@ -335,6 +335,67 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         with self.assertRaises(LookupError):
             reader.restore_return_point("handoff")
 
+    def test_provisional_return_point_final_barrier_abort_removes_new_binding(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        reader = BookReader(self.make_book())
+        reader.go_to(1)
+        original_digest = reader._document_revision_digest
+        calls = 0
+
+        def abort_third_revision_read() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise AbortSignal("simulated provisional final barrier abort")
+            return original_digest()
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            side_effect=abort_third_revision_read,
+        ):
+            with self.assertRaises(AbortSignal):
+                with reader.provisional_return_point("handoff") as location:
+                    self.assertEqual(location.index, 1)
+
+        self.assertEqual(calls, 3)
+        with self.assertRaises(LookupError):
+            reader.restore_return_point("handoff")
+
+    def test_provisional_return_point_final_barrier_abort_restores_previous_binding(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        reader = BookReader(self.make_book())
+        reader.go_to(2)
+        reader.save_return_point("handoff")
+        previous_key = reader._return_points["handoff"]
+        reader.go_to(0)
+        original_digest = reader._document_revision_digest
+        calls = 0
+
+        def abort_third_revision_read() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise AbortSignal("simulated provisional final barrier abort")
+            return original_digest()
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            side_effect=abort_third_revision_read,
+        ):
+            with self.assertRaises(AbortSignal):
+                with reader.provisional_return_point("handoff") as location:
+                    self.assertEqual(location.index, 0)
+
+        self.assertEqual(calls, 3)
+        self.assertEqual(reader._return_points["handoff"], previous_key)
+        self.assertEqual(reader.restore_return_point("handoff").index, 2)
+
     def test_provisional_return_point_success_has_final_revision_barrier(self) -> None:
         reader = BookReader(self.make_book())
         reader.go_to(1)
