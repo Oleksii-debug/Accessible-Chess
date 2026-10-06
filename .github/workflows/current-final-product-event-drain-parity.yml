@@ -1,4 +1,4 @@
-name: Final Product Event Drain Parity
+name: Final Product Presentation Safety
 
 on:
   push:
@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 jobs:
-  event-drain-parity:
+  presentation-safety:
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +37,9 @@ jobs:
           python-version: "3.13"
       - name: JavaScript syntax
         run: node --check web/version2_final_product_bootstrap.js
-      - name: Final-product event drain race regression
+      - name: Canonical release presentation regression
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+      - name: Final-product presentation safety regression
         run: node tests/js/version2_final_product_event_drain_serialization_test.js
       - name: Semantic selection executable
         run: node tests/p0_semantic_document_copy_executable.js
