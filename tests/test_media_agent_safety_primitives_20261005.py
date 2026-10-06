@@ -56,7 +56,13 @@ class MediaAgentSafetyPrimitiveTests(unittest.TestCase):
             }
         )
         self.assertIn("Restore Media Position is available", text)
-        self.assertIn("Analysis detached: yes", text)
+        self.assertIn("Board mode: independent analysis", text)
+
+    def test_ordinary_error_letters_do_not_trigger_control_character_rejection(self) -> None:
+        err = PublicApplicationError("Normal request", code="bad_request", details={"field": "position_id"})
+        self.assertEqual(err.status, 400)
+        self.assertEqual(err.message, "Normal request")
+        self.assertEqual(err.public_payload("request-1")["error"]["details"], {"field": "position_id"})
 
     def test_public_error_strips_private_path_metadata(self) -> None:
         err = PublicApplicationError(

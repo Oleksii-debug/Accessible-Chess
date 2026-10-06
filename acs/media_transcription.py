@@ -140,7 +140,7 @@ class TranscriptionRequest:
     def __post_init__(self) -> None:
         if type(self.chunk_id) is not str or not self.chunk_id.strip():
             raise ValueError("chunk_id must be non-empty text")
-        if type(self.audio_path) is not Path:
+        if type(self.audio_path) is not type(Path()):
             raise TypeError("audio_path must be Path")
         if type(self.offset_ms) is not int or self.offset_ms < 0:
             raise ValueError("offset_ms must be non-negative")

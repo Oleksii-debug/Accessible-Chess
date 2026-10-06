@@ -336,9 +336,9 @@ class ChessAgentToolRegistry:
                 source_name=_optional_text(arguments, "source_name"),
                 limit=limit,
             )
-            # GameSearchService owns a thread-affine ACSDB connection. The host
-            # must create and execute this registry on the service owner thread;
-            # moving only the query to a worker thread violates that contract.
+            # The injected service owns a thread-affine SQLite connection.
+            # The host must create/run this registry on that service's owning
+            # worker loop; moving only the query to another thread is invalid.
             page = service.search(query)
             return {
                 "items": [asdict(item) for item in page.items],

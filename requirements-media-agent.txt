@@ -1,0 +1,4 @@
+# Optional media text and local Agent HTTP providers; no model weights/downloaders.
+# Nika-Core donor qualification uses these same upstream versions.
+pysubs2==1.8.1
+httpx==0.28.1

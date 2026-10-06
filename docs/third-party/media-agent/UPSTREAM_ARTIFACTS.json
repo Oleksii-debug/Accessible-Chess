@@ -1,0 +1,16 @@
+[
+  {
+    "wheel": "httpx-0.28.1-py3-none-any.whl",
+    "sha256": "d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad",
+    "license_files": [
+      "httpx-0.28.1.dist-info/licenses/LICENSE.md"
+    ]
+  },
+  {
+    "wheel": "pysubs2-1.8.1-py3-none-any.whl",
+    "sha256": "eb5d8872b7f87208070dd6f0d85fc110b7ad6cc2a7ec422f5b12363e9194e4e4",
+    "license_files": [
+      "pysubs2-1.8.1.dist-info/licenses/LICENSE.txt"
+    ]
+  }
+]

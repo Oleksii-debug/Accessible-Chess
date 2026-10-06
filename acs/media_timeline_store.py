@@ -79,7 +79,7 @@ class TimelineSnapshot:
 
 class MediaTimelineStore:
     def __init__(self, root: Path, *, max_snapshot_bytes: int = _MAX_SNAPSHOT_BYTES) -> None:
-        if type(root) is not Path:
+        if type(root) is not type(Path()):
             raise TypeError("root must be Path")
         if type(max_snapshot_bytes) is not int or max_snapshot_bytes <= 0:
             raise ValueError("max_snapshot_bytes must be positive")
