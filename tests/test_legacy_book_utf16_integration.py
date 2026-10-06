@@ -57,6 +57,28 @@ class LegacyBookUtf16IntegrationTests(unittest.TestCase):
         self.assertEqual(result.pgn_games, 0)
         self.assertFalse(any("Windows-1251" in warning for warning in result.warnings))
 
+    def test_html_utf8_bom_overrides_conflicting_cp1251_meta(self) -> None:
+        html = """<!doctype html>
+<html lang="uk"><head><meta charset="windows-1251"><title>Шахова книга</title></head>
+<body><h1>Етюди</h1><p>Українська книга — позиції та аналіз.</p></body></html>"""
+        result = import_html_book(
+            b"\xef\xbb\xbf" + html.encode("utf-8"),
+            source_name="utf8-bom-conflict.html",
+        )
+
+        self.assertEqual(result.document.title, "Шахова книга")
+        self.assertTrue(
+            any(isinstance(block, Heading) and block.text == "Етюди" for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Українська книга — позиції та аналіз."
+                for block in result.document.blocks
+            )
+        )
+        self.assertFalse(any("Windows-1251" in warning for warning in result.warnings))
+
     def test_malformed_bom_utf8_maps_to_public_encoding_errors(self) -> None:
         text_body = "Українська книга позиції аналіз партія".encode("cp1251")
         with self.assertRaises(BookTextImportError) as text_error:
