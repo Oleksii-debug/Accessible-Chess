@@ -94,7 +94,9 @@
           setTimer(poll, 500);
         }
       }, function () {
-        if (root._agentPollToken === token) announce("Agent status refresh failed.");
+        // Background status polling is best-effort. Do not inject an
+        // unlocalized or repetitive live-region error; explicit commands still
+        // surface their localized failure through the canonical bridge.
       });
     }, 500);
   }
