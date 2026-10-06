@@ -17,6 +17,7 @@ from .position_editor import PositionState, PositionValidationError
 MAX_EPD_CHARS = MAX_FEN_CHARS
 MAX_EPD_OPERATIONS = 256
 MAX_EPD_OPCODE_CHARS = 15
+_MAX_EPD_COUNTER_VALUE = (10 ** MAX_EPD_CHARS) - 1
 
 _OPCODE_RE = re.compile(r"^(?:[a-z][a-z0-9_]{1,14}|[A-Z][A-Za-z0-9_]{0,14})$")
 
@@ -164,6 +165,14 @@ def serialize_epd(record: EpdRecord) -> str:
 
     if type(record) is not EpdRecord:
         raise TypeError("record must be an EpdRecord")
+    if (
+        record.position.halfmove > _MAX_EPD_COUNTER_VALUE
+        or record.position.fullmove > _MAX_EPD_COUNTER_VALUE
+    ):
+        # PositionState intentionally has no format-specific decimal ceiling.
+        # Stop here before Python attempts an enormous integer-to-string
+        # conversion that cannot fit inside one bounded EPD record anyway.
+        raise EpdParseError("serialized EPD is too long")
     fields = record.position.to_fen().split()
     if len(fields) != 6:
         raise EpdParseError("canonical position did not produce six FEN fields")
