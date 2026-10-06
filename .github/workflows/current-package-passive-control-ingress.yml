@@ -1,0 +1,122 @@
+name: Current Package Passive Control Ingress
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - ".github/workflows/current-package-passive-control-ingress.yml"
+      - "acs/version2_package_preflight.py"
+      - "acs/version2_portable_package.py"
+      - "acs/version2_package_assembler.py"
+      - "acs/version2_release_payload.py"
+      - "tests/test_version2_package_preflight.py"
+      - "tests/test_version2_portable_package.py"
+      - "tests/test_version2_package_assembler.py"
+      - "tests/test_version2_release_payload.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-package-passive-control-ingress-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  PREFLIGHT_BLOB: 8b54944644e68e512daee3b6b6f3f9c303d70d8d
+  PORTABLE_BLOB: a474d9698f0e702e206428cb7ec0b206b641ea0d
+  ASSEMBLER_BLOB: cf2b1cdb646c347d08fbdaf624fbbd0529de7c19
+  RELEASE_PAYLOAD_BLOB: be02628203fd41880fbea082cb3fe3424e1f8cc2
+  PREFLIGHT_TEST_BLOB: 7bf2445152189091f5aa2351255a4a35bc1f980b
+  PORTABLE_TEST_BLOB: 2f375d8cdf9df70fcdd404fe346a95ed509aca1f
+  ASSEMBLER_TEST_BLOB: d8c20b6212b6e717ff23b41c398ea12cc0a367f3
+  RELEASE_PAYLOAD_TEST_BLOB: 7821ef50c1ab375306321297658093114998e9dd
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove live base, bounded exact child scope and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+            git fetch --no-tags origin "refs/heads/$BASE_REF"
+            base_sha="$(git rev-parse FETCH_HEAD)"
+          fi
+          test -n "$base_sha"
+          git cat-file -e "$base_sha^{commit}"
+          git merge-base --is-ancestor "$base_sha" HEAD
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-package-passive-control-ingress.yml"
+            "acs/version2_package_assembler.py"
+            "acs/version2_package_preflight.py"
+            "acs/version2_portable_package.py"
+            "acs/version2_release_payload.py"
+            "tests/test_version2_package_assembler.py"
+            "tests/test_version2_package_preflight.py"
+            "tests/test_version2_portable_package.py"
+            "tests/test_version2_release_payload.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse "HEAD:acs/version2_package_preflight.py")" = "$PREFLIGHT_BLOB"
+          test "$(git rev-parse "HEAD:acs/version2_portable_package.py")" = "$PORTABLE_BLOB"
+          test "$(git rev-parse "HEAD:acs/version2_package_assembler.py")" = "$ASSEMBLER_BLOB"
+          test "$(git rev-parse "HEAD:acs/version2_release_payload.py")" = "$RELEASE_PAYLOAD_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_version2_package_preflight.py")" = "$PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_version2_portable_package.py")" = "$PORTABLE_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_version2_package_assembler.py")" = "$ASSEMBLER_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_version2_release_payload.py")" = "$RELEASE_PAYLOAD_TEST_BLOB"
+
+      - name: Compile package authorities and regressions
+        shell: bash
+        run: |
+          python -m py_compile \
+            acs/version2_package_preflight.py \
+            acs/version2_portable_package.py \
+            acs/version2_package_assembler.py \
+            acs/version2_release_payload.py \
+            tests/test_version2_package_preflight.py \
+            tests/test_version2_portable_package.py \
+            tests/test_version2_package_assembler.py \
+            tests/test_version2_release_payload.py
+
+      - name: Run focused and adjacent package contracts
+        shell: bash
+        run: |
+          python -m unittest \
+            tests.test_version2_package_preflight \
+            tests.test_version2_portable_package \
+            tests.test_version2_package_assembler \
+            tests.test_v2_package_required_resources \
+            tests.test_version2_release_payload

@@ -1003,6 +1003,45 @@ class Version2ReleasePayloadTests(unittest.TestCase):
             self._prepare(output)
         self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
+    def test_public_path_controls_reject_active_pathlike_before_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active release-payload path hook executed")
+
+        active = ActivePath()
+        cases = (
+            (active, self.stockfish, self.sounds, self.root / "out-a"),
+            (self.standalone, active, self.sounds, self.root / "out-b"),
+            (self.standalone, self.stockfish, active, self.root / "out-c"),
+            (self.standalone, self.stockfish, self.sounds, active),
+        )
+        for standalone, stockfish, sounds, output in cases:
+            with self.subTest(
+                standalone=type(standalone).__name__,
+                stockfish=type(stockfish).__name__,
+                sounds=type(sounds).__name__,
+                output=type(output).__name__,
+            ):
+                with patch.object(
+                    payload,
+                    "_require_clean_source_tree",
+                    side_effect=AssertionError("release-payload filesystem work must not start"),
+                ) as source_check:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        payload.prepare_version2_release_payload(
+                            standalone,
+                            stockfish,
+                            sounds,
+                            output,
+                        )
+                source_check.assert_not_called()
+                self.assertEqual(touched, [])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
