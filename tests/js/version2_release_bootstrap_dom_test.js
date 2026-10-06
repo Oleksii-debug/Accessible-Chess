@@ -129,6 +129,7 @@ let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
 let failPublicationTransportBeforeEffect = 0;
 let rejectPublicationHostBeforeEffect = 0;
+let rejectHostThenFrozenTransport = 0;
 
 function snapshot(route) {
   const focus = {
@@ -225,6 +226,19 @@ const windowObject = {
             return Promise.reject(new Error("invalid publication acknowledgement"));
           }
           const commit = command === "shell.presentation_commit";
+          if (rejectHostThenFrozenTransport === 2) {
+            rejectHostThenFrozenTransport = 1;
+            return Promise.resolve({
+              kind: "error",
+              payload: { message: "simulated host rejection before frozen transport failure" }
+            });
+          }
+          if (rejectHostThenFrozenTransport === 1) {
+            rejectHostThenFrozenTransport = 0;
+            return Promise.reject(
+              Object.freeze(new Error("simulated frozen publication transport outage"))
+            );
+          }
           if (failPublicationTransportBeforeEffect > 0) {
             failPublicationTransportBeforeEffect -= 1;
             return Promise.reject(new Error("simulated publication transport outage"));
@@ -555,6 +569,29 @@ async function clickRoute(routeId) {
     originalMain.hidden === false && workspace.hidden === true,
     "recovery after retryable host rejection did not preserve canonical Board visibility"
   );
+
+  failNextBookRender = true;
+  rejectHostThenFrozenTransport = 2;
+  const snapshotsBeforeFrozenTransport = snapshotCalls;
+  await clickRoute("books");
+  check(
+    snapshotCalls === snapshotsBeforeFrozenTransport + 2,
+    "frozen transport rejection after host response skipped authority re-check"
+  );
+  check(
+    currentRoute === "books" && pendingShellPublication !== null,
+    "frozen transport rejection lost retryable host publication authority"
+  );
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "frozen transport rejection published malformed Books candidate"
+  );
+  await clickRoute("board");
+  check(
+    currentRoute === "board" && pendingShellPublication === null,
+    "next route did not recover publication after frozen transport rejection"
+  );
+
   // Keep the legacy absolute counters below scoped to their original scenario;
   // the retryability case above has already asserted its own recovery effects.
   shellPublicationRollbacks = 1;
