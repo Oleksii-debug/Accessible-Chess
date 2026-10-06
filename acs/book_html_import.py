@@ -204,7 +204,9 @@ def _inline_style_without_comments(style: str) -> str:
             cursor += 1
             continue
         if char == "/" and cursor + 1 < len(style) and style[cursor + 1] == "*":
-            parts.append(" ")
+            # Preserve a token boundary even when a preceding hexadecimal
+            # CSS escape consumes one following whitespace code point.
+            parts.append("  ")
             end = style.find("*/", cursor + 2)
             if end < 0:
                 break
