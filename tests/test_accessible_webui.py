@@ -109,7 +109,7 @@ class AccessibleWebUiTests(unittest.TestCase):
             self.html,
         )
         self.assertIn(
-            "el('keymap-dialog').addEventListener('close',()=>el('open-keymap').focus())",
+            "el('keymap-dialog').addEventListener('close',()=>{stopCapture(false);el('open-keymap').focus()})",
             self.html,
         )
 
