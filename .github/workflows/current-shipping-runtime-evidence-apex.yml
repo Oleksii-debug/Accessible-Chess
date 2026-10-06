@@ -101,7 +101,6 @@ jobs:
               ".github/workflows/current-runtime-atomicity-successor.yml",
               ".github/workflows/current-runtime-pgn-cancel-successor.yml",
               ".github/workflows/current-shipping-runtime-evidence-apex.yml",
-              ".github/workflows/current-shipping-pgn-cancel-successor.yml",
           }
           if integration != allowed:
               raise SystemExit("CURRENT_SHIPPING_PGN_CI_DESCENDANT_MISMATCH "+repr(sorted(integration)))
