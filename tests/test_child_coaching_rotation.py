@@ -280,6 +280,37 @@ class ChildCoachingRotationTests(unittest.TestCase):
             )
 
 
+    def test_from_record_rejects_active_mapping_and_enum_subclasses_passively(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-passive-record")
+
+        class ActiveDict(dict):
+            def __iter__(self):
+                raise AssertionError("active mapping iteration executed")
+
+            def __getitem__(self, key):
+                raise AssertionError("active mapping lookup executed")
+
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "built-in object",
+        ):
+            RotationPlan.from_record(ActiveDict(plan.to_record()))
+
+        class ActiveText(str):
+            def __hash__(self):
+                raise AssertionError("active enum text hash executed")
+
+            def __eq__(self, other):
+                raise AssertionError("active enum text equality executed")
+
+        round_record = plan.rounds[0].to_record()
+        round_record["activity"] = ActiveText(round_record["activity"])
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "invalid rotation activity",
+        ):
+            RotationRound.from_record(round_record)
+
     def test_rotation_state_constructor_enforces_exact_wire_revision_bound(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-wire-revision")
         with self.assertRaisesRegex(
