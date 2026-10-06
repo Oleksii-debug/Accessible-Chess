@@ -1685,7 +1685,11 @@ def _pgn_candidates(
             continue
 
         start = marker_index + 1
+        skipped_blank_lines = 0
         while start < len(lines) and not lines[start][1].strip():
+            skipped_blank_lines += 1
+            if control_checkpoint is not None and skipped_blank_lines % 128 == 0:
+                control_checkpoint()
             start += 1
         if start >= len(lines) or _PGN_EVENT_RE.match(lines[start][1].strip()) is None:
             continue
@@ -1699,7 +1703,11 @@ def _pgn_candidates(
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
             chunk_lines.append(candidate_line.rstrip())
+        trimmed_blank_lines = 0
         while chunk_lines and not chunk_lines[-1].strip():
+            trimmed_blank_lines += 1
+            if control_checkpoint is not None and trimmed_blank_lines % 128 == 0:
+                control_checkpoint()
             chunk_lines.pop()
         candidate = "\n".join(chunk_lines).strip()
         if candidate:
@@ -1747,7 +1755,14 @@ def _canonical_pgn_games(
         # every branch/comment/tag remains attached to its owning game. Prepare
         # the entire region before publication; never publish a partial split.
         try:
-            sources = [candidate] if len(parsed) == 1 else [serialize_game(game) for game in parsed]
+            if len(parsed) == 1:
+                sources = [candidate]
+            else:
+                sources = []
+                for parsed_game in parsed:
+                    if control_checkpoint is not None:
+                        control_checkpoint()
+                    sources.append(serialize_game(parsed_game))
         except (GameTreeSerializationError, RecursionError, ValueError):
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be split canonically and was ignored")
@@ -1787,7 +1802,10 @@ def _canonical_pgn_games(
             )
     return games
 
-def _asset_set(available_assets: object) -> frozenset[str] | None:
+def _asset_set(
+    available_assets: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> frozenset[str] | None:
     if available_assets is None:
         return None
     if not isinstance(available_assets, (set, frozenset, tuple, list)):
@@ -1801,7 +1819,9 @@ def _asset_set(available_assets: object) -> frozenset[str] | None:
             "available_assets contains too many entries",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
-    for item in available_assets:
+    for item_index, item in enumerate(available_assets, start=1):
+        if control_checkpoint is not None and item_index % 128 == 0:
+            control_checkpoint()
         if type(item) is not str or not item.strip():
             raise BookHtmlImportError(
                 "available_assets entries must be non-empty text",
@@ -1847,7 +1867,7 @@ def import_html_book(
     override_author = _text(author, "author", optional=True)
     override_language = _text(language, "language", optional=True)
     text, raw, legacy_windows_1251 = _source_text(source)
-    assets = _asset_set(available_assets)
+    assets = _asset_set(available_assets, control_checkpoint)
 
     parser = _SemanticHtmlParser(
         available_assets=assets,
