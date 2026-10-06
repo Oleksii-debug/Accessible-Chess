@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PARENT_SHA: 46ce49669c8c16f613c41f256a65c41351ca25c1
+  PARENT_SHA: eace8b671934c1acf6e12a4a59a95bc6274a8f1d
   APP_BLOB: 20f63f53466e401062f8687df1d2546c203c082a
   RELEASE_APP_BLOB: 44228cb4028d295c2cf5e5430781a5df97e124a9
   RELEASE_UI_BLOB: f94c319db2e29838aa2e50e800d7a59ad78f0f6c
@@ -39,6 +39,9 @@ env:
   V2_RELEASE_DOM_TEST_BLOB: 6052ddfde81b98ef842660390be7a033b688bc9a
   PHYSICAL_RECORDER_BLOB: 91ffd7ef6c83f31c502f5fbe594caa49838f7150
   PHYSICAL_HARDENING_TEST_BLOB: 146e403e4e89d08bfc225e46cc21f600d396f0ef
+  PGN_OPEN_WORKER_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
+  PGN_SAVE_TERMINAL_TEST_BLOB: 21c22aca52b4aa6fb3a1bab2509e0a89d19fb290
+  PGN_SAVE_WORKER_TEST_BLOB: 5ddd7c4634dad4bd0e8c4d41b6f7549395220c04
 
 jobs:
   recovery-hardening:
@@ -74,15 +77,16 @@ jobs:
           head_sha="$(git rev-parse HEAD)"
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+            base_sha="${{ github.event.pull_request.base.sha }}"
           else
             test "$head_sha" = "${{ github.sha }}"
+            base_sha="$PARENT_SHA"
           fi
-          git cat-file -e "$PARENT_SHA^{commit}"
-          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
-          git diff --check "$PARENT_SHA"...HEAD
-          mapfile -t paths < <(git diff --name-only "$PARENT_SHA"...HEAD | sort)
+          git cat-file -e "$base_sha^{commit}"
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
-            ".github/workflows/current-shipping-owner-cancel-recovery-order.yml"
             ".github/workflows/current-shipping-recovery-hardening.yml"
             "acs/version2_application.py"
             "acs/version2_package_preflight.py"
@@ -99,6 +103,9 @@ jobs:
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
             "tests/test_v2_windows_import_ui_pump.py"
+            "tests/test_v2_windows_pgn_open_worker.py"
+            "tests/test_v2_windows_pgn_save_terminal_truth.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
             "tests/test_version2_package_preflight.py"
@@ -137,6 +144,9 @@ jobs:
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
           test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$PHYSICAL_HARDENING_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$PGN_OPEN_WORKER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_terminal_truth.py)" = "$PGN_SAVE_TERMINAL_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$PGN_SAVE_WORKER_TEST_BLOB"
 
       - name: Compile changed and integrated boundaries
         run: >-
@@ -163,6 +173,9 @@ jobs:
           tests/test_v2_windows_file_worker_shutdown_fence.py
           tests/test_v2_windows_host_runtime.py
           tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_save_terminal_truth.py
+          tests/test_v2_windows_pgn_save_worker.py
           tests/test_w5_native_formclosing_dirty_pgn.py
 
       - name: Execute recovery, persistence and accessibility contracts
