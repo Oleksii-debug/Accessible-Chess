@@ -294,6 +294,24 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_html_close_recovery_control_failure_preserves_exact_exception(self):
+        failure = SourceReadCancelledError('cancelled during malformed HTML recovery')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 4:
+                raise failure
+
+        malformed = '<p>' * 300 + 'unfinished'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            import_html_book(
+                malformed,
+                source_name='unfinished.html',
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+
     def test_html_control_failure_is_not_translated_into_malformed_source(self):
         failure = RuntimeError('trusted control failure')
         calls = 0
