@@ -344,7 +344,10 @@ class BookReader:
             # recursively re-hash the whole document through location()/go_to().
             self._require_indexed_revision()
             return location
-        except Exception:
+        except BaseException:
+            # Navigation is one publication transaction. Host/test abort signals
+            # are caught at the browser boundary, so an abort-class failure here
+            # must not strand the canonical reader on an unrendered location.
             self._index = previous_index
             raise
 
