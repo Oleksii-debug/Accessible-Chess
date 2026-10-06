@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.book_webview_bridge import BookWebViewBridge
-from acs.book_webview_projection import BookWebViewProjection
+from acs.book_webview_projection import BookWebViewEvent, BookWebViewProjection
 from acs.bookdocument import BookDocument, Paragraph
 from acs.bookreader import BookReader
 from acs.full_product_presenters import BookReaderPresenter
@@ -201,14 +201,8 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
             touched.append("hostile")
             raise AssertionError("V2 projection instance shadow must not execute")
 
-        def canonical(_self):
-            class_calls.append("next")
-            return type("EventHolder", (), {})()
-
         projection.next = hostile  # type: ignore[method-assign]
         bridge = BookWebViewBridge(projection)
-
-        from acs.book_webview_projection import BookWebViewEvent
 
         def canonical_event(_self):
             class_calls.append("next")
