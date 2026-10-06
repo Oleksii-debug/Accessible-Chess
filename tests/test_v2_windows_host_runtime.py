@@ -881,6 +881,49 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         )
         self.assertTrue(runtime.shutdown())
 
+    def test_refused_shutdown_delivers_exact_retained_mailbox_terminal(self) -> None:
+        owner = _Owner()
+        imported_events: list[object] = []
+        runtime = self._runtime(owner, imported_events=imported_events)
+        terminal = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            "library.import",
+            focus_target="library-import-file",
+            processed_games=1,
+            total_games=1,
+            game_count=1,
+        )
+
+        runtime._pump(terminal)
+        self.assertEqual(runtime.import_mailbox.pending_count, 1)
+        self.assertEqual(imported_events, [])
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        self.assertTrue(runtime.resume_after_refused_shutdown())
+
+        self.assertFalse(runtime.closed)
+        self.assertEqual(imported_events, [terminal])
+        self.assertEqual(runtime.import_mailbox.pending_count, 0)
+        self.assertTrue(runtime.shutdown())
+
+    def test_failed_pump_recovery_retires_delegate_and_keeps_runtime_closed(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        with mock.patch.object(
+            runtime._pump,
+            "resume_after_refused_shutdown",
+            return_value=False,
+        ):
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+
+        self.assertTrue(runtime.closed)
+        with self.assertRaisesRegex(RuntimeError, "runtime is closed"):
+            runtime("analysis.restart", {})
+
     def test_refused_shutdown_recovery_is_ui_thread_affine(self) -> None:
         owner = _Owner()
         runtime = self._runtime(owner)
