@@ -52,6 +52,7 @@ _LABELS = {
         "next_game": "Наступна партія",
         "parent": "До батьківського варіанта",
         "search": "Пошук у PGN",
+        "append_moves": "Продовжити лінію",
         "comment_edit": "Додати або змінити коментар",
         "comment_delete": "Видалити коментар",
         "nag_edit": "Змінити NAG",
@@ -86,6 +87,7 @@ _LABELS = {
         "next_game": "Next game",
         "parent": "Return to parent variation",
         "search": "Search PGN",
+        "append_moves": "Continue line",
         "comment_edit": "Add or edit comment",
         "comment_delete": "Delete comment",
         "nag_edit": "Edit NAG",
@@ -463,7 +465,8 @@ class PgnWebViewProjection:
             "actions": (
                 {"action": "pgn.previous_game", "label": labels["previous_game"], "enabled": view.game_index > 0},
                 {"action": "pgn.next_game", "label": labels["next_game"], "enabled": view.game_index + 1 < count},
-                {"action": "pgn.search", "label": labels["search"], "enabled": has_selection},
+                {"action": "pgn.search", "label": labels["search"], "enabled": True},
+                {"action": "pgn.append_moves", "label": labels["append_moves"], "enabled": True},
                 {"action": "pgn.parent", "label": labels["parent"], "enabled": bool(selected and selected.parent_id)},
                 {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": has_selection and not ambiguous_comments},
                 {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": single_comment},
@@ -614,6 +617,11 @@ class PgnWebViewProjection:
                 raise ValueError("PGN variation action requires variation selection")
         self._presenter.dispatch_edit(action_id, self._dispatch, extra=extra)
         return PgnWebViewEvent("delegated", {"action": action_id})
+
+    def append_moves(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("PGN continuation text is invalid")
+        return self._dispatch("pgn.append_moves", {"text": text})
 
     def search(self, text: str) -> PgnWebViewEvent:
         if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
