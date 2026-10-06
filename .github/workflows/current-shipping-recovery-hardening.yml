@@ -515,6 +515,17 @@ jobs:
           acs/webapp_keymap_core.py
           acs/version2_application.py
           acs/version2_package_preflight.py
+          acs/version2_package_assembler.py
+          acs/version2_release_payload.py
+          scripts/build_owner_portable_candidate.py
+          tests/test_owner_portable_candidate.py
+          tests/test_portable_launcher_contract.py
+          tests/test_portable_launcher_window_readiness.py
+          tests/test_position_editor.py
+          tests/test_squares.py
+          tests/test_version2_package_assembler.py
+          tests/test_version2_package_pe_identity.py
+          tests/test_version2_release_payload.py
           acs/version2_portable_package.py
           acs/version2_release_app.py
           acs/version2_release_receipt.py
