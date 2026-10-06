@@ -6,6 +6,7 @@ from acs.epd import (
     EpdOperation,
     EpdParseError,
     EpdRecord,
+    MAX_EPD_CHARS,
     MAX_EPD_OPERATIONS,
     looks_like_epd,
     parse_epd,
@@ -86,6 +87,57 @@ class EpdFormatTests(unittest.TestCase):
         operations = " ".join("noop;" for _ in range(MAX_EPD_OPERATIONS + 1))
         with self.assertRaisesRegex(EpdParseError, "too many operations"):
             parse_epd(START_EPD + " " + operations)
+
+    def test_record_constructor_rejects_duplicate_opcodes(self):
+        position = PositionState.from_fen(START_FEN)
+        with self.assertRaisesRegex(EpdParseError, "^duplicate EPD id operation$"):
+            EpdRecord(
+                position=position,
+                operations=(
+                    EpdOperation("id", '"first"'),
+                    EpdOperation("id", '"second"'),
+                ),
+            )
+
+    def test_direct_operand_representation_is_bounded_and_round_trip_safe(self):
+        for operand, message in (
+            ("", "operand text must not be empty"),
+            (" value", "leading or trailing spaces"),
+            ("value ", "leading or trailing spaces"),
+            ("x" * (MAX_EPD_CHARS + 1), "operand is too long"),
+        ):
+            with self.subTest(operand_length=len(operand), message=message):
+                with self.assertRaisesRegex(EpdParseError, message):
+                    EpdOperation("Xtest", operand)
+
+        empty_string = EpdOperation("Xtest", '""')
+        record = EpdRecord(
+            position=PositionState.from_fen(START_FEN),
+            operations=(empty_string,),
+        )
+        self.assertEqual(parse_epd(record.to_epd()), record)
+
+    def test_serializer_enforces_total_epd_line_budget(self):
+        record = EpdRecord(
+            position=PositionState.from_fen(START_FEN),
+            operations=tuple(
+                EpdOperation(f"X{index}", '"' + ("x" * 255) + '"')
+                for index in range(16)
+            ),
+        )
+        with self.assertRaisesRegex(EpdParseError, "^serialized EPD is too long$"):
+            serialize_epd(record)
+
+    def test_epd_character_budget_is_exact(self):
+        canonical = START_EPD + " noop;"
+        at_limit = canonical + (" " * (MAX_EPD_CHARS - len(canonical)))
+        self.assertEqual(parse_epd(at_limit).position.to_fen(), START_FEN)
+        self.assertTrue(looks_like_epd(at_limit))
+
+        too_long = at_limit + " "
+        with self.assertRaisesRegex(EpdParseError, "^EPD is too long$"):
+            parse_epd(too_long)
+        self.assertFalse(looks_like_epd(too_long))
 
     def test_opcode_grammar_uniqueness_and_private_namespace(self):
         with self.assertRaisesRegex(EpdParseError, "duplicate EPD noop"):
