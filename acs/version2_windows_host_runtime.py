@@ -185,6 +185,12 @@ class Version2WindowsFileWorkflowRuntime:
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow actions require UI thread")
+        # The runtime now makes one action-id decision before delegation, so
+        # preserve the delegate's exact passive-input boundary here as well.
+        # Never execute __eq__ on an active str subclass before fail-closed
+        # validation or before deciding whether retained owner state may run.
+        if type(action_id) is not str:
+            raise TypeError("file action id must be exact text")
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
