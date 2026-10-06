@@ -169,7 +169,7 @@ class StructuredBroadcastTests(unittest.TestCase):
         self.assertEqual(restored.last_sequence, 7)
         self.assertEqual(restored.last_observed_at_ms, 7000)
         self.assertEqual(restored.connection_state, BroadcastConnectionState.DISCONNECTED)
-        self.assertEqual(checkpoint, session.to_checkpoint_json())
+        self.assertEqual(checkpoint, restored.to_checkpoint_json())
 
         replay_canonical = Canonical((game("unused"),))
         replay = restored.apply(
@@ -248,6 +248,18 @@ class StructuredBroadcastTests(unittest.TestCase):
                 "x" * (MAX_BROADCAST_CHECKPOINT_BYTES + 1)
             )
         self.assertEqual(oversized.exception.code, BroadcastErrorCode.INVALID_CHECKPOINT)
+
+        no_games = json.loads(session.to_checkpoint_json())
+        no_games["payload"]["games"] = []
+        no_games["payload_sha256"] = StructuredBroadcastSession._checkpoint_payload_digest(
+            no_games["payload"]
+        )
+        with self.assertRaises(BroadcastContractError) as empty_applied:
+            StructuredBroadcastSession.from_checkpoint_json(json.dumps(no_games))
+        self.assertEqual(
+            empty_applied.exception.code,
+            BroadcastErrorCode.INVALID_CHECKPOINT,
+        )
 
     def test_broadcast_identifiers_are_bounded_before_checkpointing(self):
         with self.assertRaises(BroadcastContractError) as game_id:
