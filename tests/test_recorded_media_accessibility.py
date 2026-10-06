@@ -8,6 +8,8 @@ from acs.media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationState,
+    MediaTimelineBarrier,
     MediaSource,
     MediaSourceKind,
 )
@@ -227,6 +229,51 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertEqual(state["qualification"], "ambiguous")
         self.assertIn("ambiguous", state["statusText"].lower())
         self.assertEqual(state["focusTarget"], "recorded-media-seek")
+
+
+    def test_resync_required_snapshot_is_explicit_and_restore_stays_disabled(self) -> None:
+        timeline = MediaPositionTimeline(
+            "recorded-1",
+            (_link(10_000, "opaque:old-confirmed"),),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="recorded-1",
+                    timestamp_ms=20_000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                    reason="provider discontinuity",
+                ),
+            ),
+        )
+        snapshot = RecordedSyncSnapshot(
+            source_revision="revision-1",
+            cache_fingerprint="cache-fingerprint",
+            plan_digest="plan-digest",
+            source=_source(),
+            timeline=timeline,
+            session=MediaChessSession(
+                MediaCursor("recorded-1", 20_500),
+                "opaque:analysis-only",
+            ),
+        )
+
+        en = RecordedMediaAccessibilityBridge(language="en").snapshot(
+            **_clock_kwargs(),
+            sync_snapshot=snapshot,
+        )
+        self.assertEqual(en["qualification"], "resync_required")
+        self.assertFalse(en["restoreEnabled"])
+        self.assertEqual(en["focusTarget"], "recorded-media-seek")
+        self.assertIn("synchronization was interrupted", en["statusText"].lower())
+        self.assertNotIn("opaque:old-confirmed", repr(en))
+        self.assertNotIn("opaque:analysis-only", repr(en))
+
+        uk = RecordedMediaAccessibilityBridge(language="uk").snapshot(
+            **_clock_kwargs(),
+            sync_snapshot=snapshot,
+        )
+        self.assertEqual(uk["qualification"], "resync_required")
+        self.assertFalse(uk["restoreEnabled"])
+        self.assertIn("Синхронізацію записаного медіа перервано", uk["statusText"])
 
     def test_unlinked_position_is_explicit(self) -> None:
         bridge = RecordedMediaAccessibilityBridge()

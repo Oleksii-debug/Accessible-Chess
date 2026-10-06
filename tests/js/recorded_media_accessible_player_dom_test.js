@@ -182,6 +182,30 @@ async function main() {
   check(candidateRoot.querySelector("#recorded-media-restore").disabled === true, "candidate restore was enabled");
   check(candidateRoot.querySelector("#recorded-media-status").textContent.includes("непідтверджений"), "candidate status text is missing");
 
+
+  const resyncRoot = new FakeElement("div");
+  window.AccessibleChessRecordedMediaPlayer.render(
+    resyncRoot,
+    state({
+      qualification: "resync_required",
+      restoreEnabled: false,
+      statusText: "Синхронізацію записаного медіа перервано для цього часу. Відновлення шахової позиції вимкнено до повторної синхронізації.",
+      focusTarget: "recorded-media-seek",
+    }),
+    async () => {
+      throw new Error("resync-required restore must not dispatch");
+    },
+    false,
+  );
+  check(
+    resyncRoot.querySelector("#recorded-media-restore").disabled === true,
+    "resync-required restore was enabled",
+  );
+  check(
+    resyncRoot.querySelector("#recorded-media-status").textContent.includes("перервано"),
+    "resync-required status text is missing",
+  );
+
   const runningRoot = new FakeElement("div");
   const runningCalls = [];
   window.AccessibleChessRecordedMediaPlayer.render(
