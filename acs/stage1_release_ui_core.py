@@ -975,13 +975,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return EngineNoMoveResolution("1/2-1/2", EndReason.STALEMATE)
 
     def _commit_engine_move(self, move: str) -> None:
-        side = self.board.turn
-        san = self.board.push_text(move)
-        self.sans.append(san)
-        self.move_sides.append(side)
-        self.redo_meta.clear()
-        self.selected_source = None
-        self._record_position_after_move(san, side)
+        # Engine callbacks use the exact same Board/history transaction as
+        # manual moves.  Provider or history failures therefore publish nothing
+        # instead of leaving a moved Board with stale review metadata.
+        san = self._commit_move_text_transaction(move)
         if self._suppress_next_engine_move_sound_for_start:
             self._suppress_next_engine_move_sound_for_start = False
         else:
