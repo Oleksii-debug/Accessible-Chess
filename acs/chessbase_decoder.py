@@ -30,7 +30,15 @@ from .chessbase_integrity import (
     verify_integrity_snapshot,
 )
 from .chesscore import Board, Move
-from .gametree import Comment, MoveNode, PgnGame, TAG_NAME_RE, VariationLine
+from .gametree import (
+    Comment,
+    GameTreeSerializationError,
+    MoveNode,
+    PgnGame,
+    TAG_NAME_RE,
+    VariationLine,
+    serialize_game,
+)
 from .report_paths import report_safe_name
 
 PROTOCOL_ID = "accessible-chess-libcbh-v1"
@@ -713,7 +721,18 @@ def _decode_game(raw: object, expected_index: int, total_budget: list[int]) -> t
             ChessBaseDecodeCode.PROTOCOL_ERROR,
         )
     line.result = result
-    return PgnGame(tags=tags, line=line, source_index=index), None
+    game = PgnGame(tags=tags, line=line, source_index=index)
+    try:
+        # Reuse the canonical GameTree serializer as the representability
+        # authority.  External decoder output must never publish a PgnGame
+        # that a normal Accessible Chess save/export path would reject later.
+        serialize_game(game)
+    except GameTreeSerializationError as exc:
+        raise _decode_error(
+            "ChessBase decoder returned a game that is not representable as canonical PGN",
+            ChessBaseDecodeCode.INVALID_GAME,
+        ) from exc
+    return game, None
 
 
 def decode_chessbase_external(
