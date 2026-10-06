@@ -599,6 +599,9 @@ class AccessibleChessAPI:
             and sum(bool(item["live"]) for item in history_items) == 1
         )
         at_history_end = self._at_history_end()
+        editor_projection["editable"] = bool(
+            editor_projection.get("editable") and history_projection_valid
+        )
         can_history_previous = (
             history_projection_valid and display_view.ply > 0
         )
@@ -633,6 +636,7 @@ class AccessibleChessAPI:
             "reviewCursor": display_view.ply, "historyLength": history_length,
             "historyItems": history_items,
             "reviewStatus": display_view.status, "atHistoryEnd": at_history_end,
+            "historyProjectionValid": history_projection_valid,
             "canHistoryPrevious": can_history_previous,
             "canHistoryNext": can_history_next,
             "canUndo": can_undo, "canRedo": can_redo,

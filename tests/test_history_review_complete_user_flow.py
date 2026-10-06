@@ -127,6 +127,8 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(state["historyLength"], 0)
         self.assertEqual(state["moves"], "Could not read move history.")
         self.assertEqual(state["lastMove"], "Could not read move history.")
+        self.assertFalse(state["historyProjectionValid"])
+        self.assertFalse(state["positionEditor"]["editable"])
         self.assertFalse(state["canUndo"])
         self.assertFalse(state["canRedo"])
         self.assertFalse(state["canHistoryPrevious"])
@@ -150,6 +152,8 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
                 self.assertEqual(state["historyItems"], [])
                 self.assertEqual(state["moves"], "Could not read move history.")
                 self.assertEqual(state["lastMove"], "Could not read move history.")
+                self.assertFalse(state["historyProjectionValid"])
+                self.assertFalse(state["positionEditor"]["editable"])
                 self.assertFalse(state["canUndo"])
                 self.assertFalse(state["canRedo"])
                 self.assertFalse(state["canHistoryPrevious"])
@@ -213,6 +217,8 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         api = AccessibleChessAPI("en")
 
         initial = api.get_state()
+        self.assertTrue(initial["historyProjectionValid"])
+        self.assertTrue(initial["positionEditor"]["editable"])
         self.assertFalse(initial["canUndo"])
         self.assertFalse(initial["canRedo"])
         self.assertFalse(initial["canHistoryPrevious"])
@@ -252,7 +258,7 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / "web" / "index.html"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("const s=state||{},pe=s.positionEditor||{},atEnd=s.atHistoryEnd===true,reviewLocked=!atEnd", html)
+        self.assertIn("const s=state||{},pe=s.positionEditor||{},atEnd=s.atHistoryEnd===true,reviewLocked=!atEnd||s.historyProjectionValid!==true", html)
         self.assertIn("n.disabled=!!locked||reviewLocked", html)
         self.assertIn("n.disabled=!!locked||pe.editable===false", html)
         self.assertIn("undo.disabled=!!locked||s.canUndo!==true", html)
