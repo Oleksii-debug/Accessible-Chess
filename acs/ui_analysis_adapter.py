@@ -529,7 +529,12 @@ class AnalysisPresentationAdapter:
         return snap.lines[selected - 1]
 
     def begin_exploration(self, displayed_fen: str) -> AnalysisExploration:
-        previous_follow_position = self._follow_position
+        previous_follow_position = (
+            self._exploration_follow_position
+            if self._exploration is not None
+            and self._exploration_follow_position is not None
+            else self._follow_position
+        )
         line = self.select_pv(self._selected_pv, displayed_fen)
         if not line.pv or len(line.position_fens) != len(line.pv):
             raise EngineContractError(
