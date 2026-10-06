@@ -95,8 +95,9 @@ do {
     # Do not stop merely because some other MenuBar exists in the process.
     # WebView/host surfaces can appear before the canonical native MenuStrip.
     # Qualification is about the exact AutomationId, so keep polling until the
-    # canonical element is uniquely present or the bounded deadline expires.
-    if($exact.Count -eq 1){ break }
+    # canonical MenuBar is present and that AutomationId is unique process-wide.
+    # A transient duplicate must not be frozen into final evidence prematurely.
+    if($exact.Count -eq 1 -and $anyId.Count -eq 1){ break }
     Start-Sleep -Milliseconds 200
 } while([DateTime]::UtcNow -lt $deadline)
 
