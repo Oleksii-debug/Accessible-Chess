@@ -534,6 +534,39 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(len(parser._captures), 400)
 
+    def test_html_controlled_compaction_matches_uncontrolled_whitespace_semantics(self):
+        import acs.book_html_import as html
+
+        sample = (
+            "  Alpha\tBeta\nGamma\xa0Delta\u2003Epsilon  "
+            + ("word\t" * 2_000)
+            + "tail"
+        )
+        calls = []
+        controlled = html._compact(sample, lambda: calls.append(1))
+        self.assertEqual(controlled, html._compact(sample))
+        self.assertGreater(len(calls), 2)
+
+    def test_html_large_capture_compaction_observes_control_before_block_publication(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<p>" + ("Alpha\tBeta " * 2_000))
+        capture = parser._captures[-1]
+        failure = SourceReadCancelledError("cancelled during HTML text compaction")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._finish_capture(capture)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
     def test_html_body_implicit_head_unwind_observes_control_before_capture_mutation(self):
         parser = _SemanticHtmlParser(available_assets=None)
         parser.feed("<head>" + "<title>" * 300)
@@ -587,7 +620,7 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         def cancel():
             nonlocal calls
             calls += 1
-            if calls == 3:
+            if calls == 5:
                 raise failure
 
         parser.control_checkpoint = cancel

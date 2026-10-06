@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from hashlib import sha256
 from html.parser import HTMLParser
+from io import StringIO
 import re
 from types import MappingProxyType
 from typing import Callable
@@ -511,8 +512,37 @@ def _source_text(source: object) -> tuple[str, bytes, bool]:
     )
 
 
-def _compact(value: str) -> str:
-    return " ".join(value.replace("\xa0", " ").split())
+def _compact(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        # Preserve the historical fast path and its exact Python whitespace
+        # semantics when no active-import cancellation authority is present.
+        return " ".join(value.replace("\xa0", " ").split())
+
+    output = StringIO()
+    wrote_text = False
+    pending_space = False
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        chunk = value[offset : offset + 4_096].replace("\xa0", " ")
+        parts = chunk.split()
+        if not parts:
+            if wrote_text:
+                pending_space = True
+            continue
+        leading_space = chunk[0].isspace()
+        trailing_space = chunk[-1].isspace()
+        if wrote_text and (pending_space or leading_space):
+            output.write(" ")
+        output.write(" ".join(parts))
+        wrote_text = True
+        pending_space = trailing_space
+    # A cancel that races with the final bounded chunk must still win before
+    # the compacted semantic text can be published as a Book block.
+    control_checkpoint()
+    return output.getvalue()
 
 
 def _asset_name(value: str) -> str:
@@ -594,6 +624,12 @@ class _SemanticHtmlParser(HTMLParser):
         except BaseException as exc:
             self._control_failure = exc
             raise
+
+    def _compact_text(self, value: str) -> str:
+        return _compact(
+            value,
+            self._checkpoint if self.control_checkpoint is not None else None,
+        )
 
     def _parser_event_checkpoint(self) -> None:
         """Bound trusted cancellation latency inside a single HTMLParser feed chunk."""
@@ -850,7 +886,7 @@ class _SemanticHtmlParser(HTMLParser):
         fen = self._validate_fen(raw_fen)
         source_anchor = attrs.get("id") or None
         if tag == "img":
-            alt = _compact(attrs.get("alt", "")) or None
+            alt = self._compact_text(attrs.get("alt", "")) or None
             payload = fen + "\0" + (alt or "")
             self._append_block(
                 Diagram(
@@ -991,12 +1027,12 @@ class _SemanticHtmlParser(HTMLParser):
             # directly containing semantic capture so adjacent words cannot collapse.
             self._append_text_boundary()
         if tag == "html" and not self.language:
-            lang = _compact(attrs.get("lang", ""))
+            lang = self._compact_text(attrs.get("lang", ""))
             if lang:
                 self.language = lang
         if tag == "meta":
             name = (attrs.get("name") or attrs.get("property") or "").strip().lower()
-            content = _compact(attrs.get("content", ""))
+            content = self._compact_text(attrs.get("content", ""))
             if content and name in {"author", "dc.creator", "dcterms.creator"} and not self.author:
                 self.author = content
             if content and name in {"language", "dc.language", "dcterms.language"} and not self.language:
@@ -1008,7 +1044,7 @@ class _SemanticHtmlParser(HTMLParser):
                     code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
                 )
             src = attrs.get("src", "").strip()
-            alt = _compact(attrs.get("alt", ""))
+            alt = self._compact_text(attrs.get("alt", ""))
             if src:
                 self.image_references.append(src)
                 local_name = _asset_name(src)
@@ -1247,7 +1283,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
                 )
-            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            segment = self._compact_text("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 identity_text = legacy_text if legacy_identity_available else segment
                 identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
@@ -1260,7 +1296,7 @@ class _SemanticHtmlParser(HTMLParser):
                 legacy_identity_available = False
             cursor = resume_part_index
 
-        trailing = _compact("".join(capture.parts[cursor:]))
+        trailing = self._compact_text("".join(capture.parts[cursor:]))
         if trailing:
             identity_text = legacy_text if legacy_identity_available else trailing
             identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
@@ -1325,7 +1361,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
                 )
-            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            segment = self._compact_text("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 self._insert_block(
                     self._block_identity_index(event.block),
@@ -1333,7 +1369,7 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             cursor = resume_part_index
 
-        trailing = _compact("".join(capture.parts[cursor:]))
+        trailing = self._compact_text("".join(capture.parts[cursor:]))
         if trailing:
             self._append_block(heading_or_fragment(trailing))
 
@@ -1352,7 +1388,7 @@ class _SemanticHtmlParser(HTMLParser):
         )
 
         if captured_list is not None:
-            logical_text = _compact("".join(capture.parts))
+            logical_text = self._compact_text("".join(capture.parts))
             if logical_text:
                 captured_list.identity_items.append(logical_text)
             captured_list.unsupported = True
@@ -1399,7 +1435,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
                 )
-            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            segment = self._compact_text("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 projected = f"• {segment}" if not item_text_started else segment
                 identity_kind = (
@@ -1443,7 +1479,7 @@ class _SemanticHtmlParser(HTMLParser):
                 item_text_started = True
             cursor = resume_part_index
 
-        trailing = _compact("".join(capture.parts[cursor:]))
+        trailing = self._compact_text("".join(capture.parts[cursor:]))
         if trailing:
             projected = f"• {trailing}" if not item_text_started else trailing
             identity_kind = (
@@ -1463,7 +1499,7 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
-        text = _compact(raw)
+        text = self._compact_text(raw)
         if recovered:
             self._warning(f"malformed HTML left an unclosed {capture.tag} element; readable text was recovered")
         if capture.kind == "title":
