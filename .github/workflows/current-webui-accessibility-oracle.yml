@@ -46,7 +46,8 @@ jobs:
             git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
             live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
             test -n "$EVENT_BASE_SHA"
-            test "$EVENT_BASE_SHA" = "$live_base"
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
           else
             live_base="$(git rev-parse HEAD^)"
           fi
