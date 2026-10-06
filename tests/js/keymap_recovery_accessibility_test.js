@@ -15,8 +15,17 @@ function indexFunction(name) {
 
 assert.match(
     html,
-    /id="key-recovery-status" class="block" role="status" aria-live="polite" aria-atomic="true" hidden/,
-    'keymap recovery guidance must be persistent visible/selectable dialog content'
+    /id="key-recovery-status" class="block" hidden/,
+    'keymap recovery guidance must remain persistent visible/selectable dialog content'
+);
+assert.strictEqual(
+    (html.match(/aria-live="polite"/g) || []).length,
+    1,
+    'recovery guidance must use the one shared polite live region instead of a second announcer'
+);
+assert.ok(
+    !/id="key-recovery-status"[^>]*role="status"/.test(html),
+    'recovery guidance must not duplicate the shared live-region status role'
 );
 assert.match(
     html,

@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT: f328be2c8a5d3423d09c1629854f24a3ce7df71d
+  CURRENT_PRODUCT: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
   CURRENT_PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   LAUNCHER_BLOB: 9ffc6677e33637d89d8834ebb6c135ab6d26f3bb
   CONTRACT_TEST_BLOB: 4ae48babd7ada71d38148dfb537982b74140da6b

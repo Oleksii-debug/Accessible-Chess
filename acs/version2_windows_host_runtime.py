@@ -11,14 +11,21 @@ rules.
 
 from collections.abc import Callable, Mapping
 import threading
+from types import MethodType
 from typing import Any
 
+from .acsdb import AcsDatabase
+from .library_export_service import LibraryExportService
 from .pgn_document import PgnDocumentSession
 from .version2_windows_file_workflows import Version2ImportWorkerServices
 from .version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 from .version2_windows_import_ui_pump import (
     Version2ImportUiWakeupPump,
     Version2WinFormsUiPoster,
+)
+from .version2_windows_library_export import (
+    LibraryExportWorkerServices,
+    Version2WindowsLibraryExportDelegate,
 )
 from .version2_windows_native_dialog_ownership import (
     Version2OwnedWindowsFileDialogs,
@@ -56,6 +63,12 @@ class Version2WindowsFileWorkflowRuntime:
         import_ui_ready: Callable[[Version2ImportUiEventMailbox], Any],
         pgn_export_event_sink: Callable[[object], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
+        library_export_event_sink: Callable[[object], Any] | None = None,
+        library_export_delegate: Version2WindowsLibraryExportDelegate | None = None,
+        library_export_worker_services_factory: Callable[
+            [], LibraryExportWorkerServices
+        ]
+        | None = None,
         current_focus_provider: Callable[[], str] | None = None,
         dialog_language_provider: Callable[[], object] | None = None,
         mailbox_max_events: int = 64,
@@ -80,14 +93,42 @@ class Version2WindowsFileWorkflowRuntime:
         ):
             if not callable(callback):
                 raise TypeError(f"{name} must be callable")
+        if library_export_event_sink is not None and not callable(
+            library_export_event_sink
+        ):
+            raise TypeError("library_export_event_sink must be callable")
+        if library_export_delegate is not None and not isinstance(
+            library_export_delegate, Version2WindowsLibraryExportDelegate
+        ):
+            raise TypeError(
+                "library_export_delegate must be Version2WindowsLibraryExportDelegate"
+            )
+        if library_export_worker_services_factory is not None and not callable(
+            library_export_worker_services_factory
+        ):
+            raise TypeError("library_export_worker_services_factory must be callable")
+        if (
+            library_export_delegate is not None
+            and library_export_worker_services_factory is not None
+        ):
+            raise ValueError(
+                "inject either library_export_delegate or worker services factory, not both"
+            )
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
-        if dialog_language_provider is not None and not callable(dialog_language_provider):
+        if dialog_language_provider is not None and not callable(
+            dialog_language_provider
+        ):
             raise TypeError("dialog_language_provider must be callable")
 
         self._ui_thread_id = threading.get_ident()
         self._lock = threading.RLock()
         self._closed = False
+        # Native file dialogs pump the owner message loop. Reserve the exact
+        # Library operation during modal pre-worker setup so a re-entrant
+        # Import/Export command cannot slip past the counterpart busy check
+        # before either delegate has published its worker-running state.
+        self._library_modal_operation = ""
 
         self._mailbox = Version2ImportUiEventMailbox(max_events=mailbox_max_events)
         self._poster = Version2WinFormsUiPoster(
@@ -113,11 +154,30 @@ class Version2WindowsFileWorkflowRuntime:
             forms_loader=export_forms_loader,
             language_provider=dialog_language_provider,
         )
+        if library_export_delegate is None:
+            worker_factory = (
+                library_export_worker_services_factory
+                or self._library_export_worker_factory(import_services_factory)
+            )
+            library_export_delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=self._export_dialogs,
+                worker_services_factory=worker_factory,
+                post_to_ui=self._poster,
+                event_sink=(
+                    pgn_export_event_sink
+                    if library_export_event_sink is None
+                    else library_export_event_sink
+                ),
+                next_delegate=next_delegate,
+                current_focus_provider=current_focus_provider,
+            )
+        self._library_export_delegate = library_export_delegate
+
         self._export_delegate = Version2WindowsPgnExportDelegate(
             dialogs=self._export_dialogs,
             export_selected=export_selected,
             event_sink=pgn_export_event_sink,
-            next_delegate=next_delegate,
+            next_delegate=self._library_export_delegate,
             current_focus_provider=current_focus_provider,
         )
 
@@ -149,6 +209,38 @@ class Version2WindowsFileWorkflowRuntime:
             owner_async_event_sink=self._pump.owner_async_event_sink,
         )
 
+    @staticmethod
+    def _library_export_worker_factory(
+        import_services_factory: Callable[[], Version2ImportWorkerServices],
+    ) -> Callable[[], LibraryExportWorkerServices]:
+        """Derive worker-local Library export ownership from canonical ACSDB services."""
+
+        def create() -> LibraryExportWorkerServices:
+            services = import_services_factory()
+            if type(services) is not Version2ImportWorkerServices:
+                raise TypeError("import services factory returned an invalid bundle")
+            close = services.close
+            if (
+                type(close) is not MethodType
+                or close.__func__ is not AcsDatabase.close
+                or type(close.__self__) is not AcsDatabase
+            ):
+                raise TypeError(
+                    "worker services do not expose their canonical AcsDatabase owner"
+                )
+            database = close.__self__
+            try:
+                library = LibraryExportService(database)
+                return LibraryExportWorkerServices(library, close)
+            except BaseException:
+                try:
+                    close()
+                except BaseException:
+                    pass
+                raise
+
+        return create
+
     @property
     def ui_thread_id(self) -> int:
         return self._ui_thread_id
@@ -161,6 +253,10 @@ class Version2WindowsFileWorkflowRuntime:
     @property
     def import_running(self) -> bool:
         return self._file_delegate.import_running
+
+    @property
+    def export_running(self) -> bool:
+        return self._library_export_delegate.export_running
 
     @property
     def pgn_open_running(self) -> bool:
@@ -185,15 +281,29 @@ class Version2WindowsFileWorkflowRuntime:
     def __call__(self, action_id: str, payload: Mapping[str, object]) -> Any:
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow actions require UI thread")
-        # The runtime now makes one action-id decision before delegation, so
-        # preserve the delegate's exact passive-input boundary here as well.
-        # Never execute __eq__ on an active str subclass before fail-closed
-        # validation or before deciding whether retained owner state may run.
         if type(action_id) is not str:
             raise TypeError("file action id must be exact text")
+
+        library_start = action_id in {"library.import", "library.export"}
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+            modal_operation = self._library_modal_operation
+            if library_start and modal_operation:
+                if modal_operation == "library.import":
+                    raise RuntimeError("Library import is already active")
+                raise RuntimeError("Library export is already active")
+
+        if library_start:
+            # A terminal retained after bounded UI-post failure owns chronology.
+            # Recover it before any newer Library operation can open a dialog.
+            self._library_export_delegate.recover_pending_terminal()
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError(
+                        "Version 2 Windows file workflow runtime closed during Library recovery"
+                    )
+
         delegate_was_fenced = self._file_delegate.shutdown_requested
 
         def cancellation_owns_live_worker() -> bool:
@@ -205,15 +315,7 @@ class Version2WindowsFileWorkflowRuntime:
                 return self._file_delegate.import_running
             return False
 
-        # Cancellation owns only the matching live worker's pre-publication
-        # decision. An unrelated Cancel must not overtake retained accessibility
-        # truth merely because its action id is cancellation-shaped.
         cancel_owns_pending = cancellation_owns_live_worker()
-        # If an owner callback is retained after UI-post failures, running it
-        # before a matching Cancel could publish/commit the pending result first
-        # and make that cancellation observe only "no ... running". Skip owner
-        # callback recovery only while the corresponding worker authority is live;
-        # a mismatched Cancel retains the normal pre-action recovery behavior.
         if not cancel_owns_pending:
             self._pump.request_pending_owner_callback()
             if self._pump.owner_callback_pending:
@@ -221,27 +323,13 @@ class Version2WindowsFileWorkflowRuntime:
                     "Version 2 Windows file workflow owner UI recovery is still pending"
                 )
 
-        # Retained mailbox events are accessibility truth, not background
-        # telemetry. A presentation failure can exhaust its one automatic retry;
-        # the next real owner-thread command is therefore a deterministic recovery
-        # opportunity before any newer command result can overtake that terminal.
-        # Application-side mailbox delivery is transactional, so any remaining
-        # event after this owner-thread attempt means presentation did not commit.
         if self._mailbox.pending_count:
             self._pump.request_pending_wakeup()
-            # The worker can finish concurrently while the UI recovery attempt
-            # runs. Revalidate ownership here instead of trusting the pre-recovery
-            # snapshot; otherwise a stale matching-Cancel decision could emit a
-            # newer no-worker result ahead of the retained terminal.
             if self._mailbox.pending_count and not cancellation_owns_live_worker():
                 raise RuntimeError(
                     "Version 2 Windows file workflow UI recovery is still pending"
                 )
 
-        # Either recovery callback above is an owner boundary and can re-enter
-        # native shutdown. Never dispatch the command against a runtime that was
-        # synchronously closed, or through a delegate that became newly fenced
-        # during this exact recovery transaction.
         with self._lock:
             if self._closed:
                 raise RuntimeError(
@@ -251,10 +339,50 @@ class Version2WindowsFileWorkflowRuntime:
             raise RuntimeError(
                 "Version 2 Windows file workflow runtime fenced during UI recovery"
             )
+
+        # Import and export share worker-local Library/ACSDB ownership and one
+        # accessible Cancel command. They cannot overlap, including the re-entrant
+        # window while a native dialog pumps the WinForms owner loop.
+        if action_id == "library.export" and self.import_running:
+            raise RuntimeError("Library import is already active")
+        if action_id == "library.import" and self.export_running:
+            raise RuntimeError("Library export is already active")
+        if action_id == "library.cancel_import" and self.export_running:
+            if payload is not None and not (type(payload) is dict and not payload):
+                raise ValueError("Library cancellation accepts no payload")
+            if self._file_delegate.shutdown_requested:
+                raise RuntimeError(
+                    "Version 2 Windows file workflow runtime is fenced"
+                )
+            return self._library_export_delegate.cancel_export()
+
+        if library_start:
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("Version 2 Windows file workflow runtime is closed")
+                if self._library_modal_operation:
+                    if self._library_modal_operation == "library.import":
+                        raise RuntimeError("Library import is already active")
+                    raise RuntimeError("Library export is already active")
+                if action_id == "library.export" and self.import_running:
+                    raise RuntimeError("Library import is already active")
+                if action_id == "library.import" and self.export_running:
+                    raise RuntimeError("Library export is already active")
+                self._library_modal_operation = action_id
+            try:
+                return self._file_delegate(action_id, payload)
+            finally:
+                with self._lock:
+                    if self._library_modal_operation == action_id:
+                        self._library_modal_operation = ""
+
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_import(timeout)
+
+    def wait_for_export(self, timeout: float | None = None) -> bool:
+        return self._library_export_delegate.wait_for_export(timeout)
 
     def wait_for_pgn_open(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_pgn_open(timeout)
@@ -286,14 +414,7 @@ class Version2WindowsFileWorkflowRuntime:
         return owner_recovered or mailbox_recovered
 
     def resume_after_refused_shutdown(self) -> bool:
-        """Restore file actions atomically after the owning Form refused to close.
-
-        Application shutdown retires the canonical file delegate and closes its
-        UI pump before durable progress/database publication. If that later
-        publication fails, the still-visible product must recover both halves of
-        this runtime; reopening only the delegate or only the pump would advertise
-        file commands that cannot complete or cannot reach keyboard/NVDA users.
-        """
+        """Restore all native file owners after the owning Form refused to close."""
 
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError(
@@ -306,91 +427,78 @@ class Version2WindowsFileWorkflowRuntime:
             pump_restored = self._pump.resume_after_refused_shutdown()
             if pump_restored is not True:
                 return False
-            # The delegate may synchronously publish an owner-async recovery
-            # terminal (for example PGN Open cancellation). Make the outer
-            # runtime live before that callback can run so presentation/focus
-            # recovery never observes a mixed "pump open, runtime closed" state.
-            # A failed delegate recovery rolls this boundary back below.
             with self._lock:
                 self._closed = False
+
+        def rollback_recovery() -> None:
+            for owner in (self._library_export_delegate, self._file_delegate):
+                try:
+                    owner.shutdown(timeout=0.0)
+                except BaseException:
+                    pass
+            if runtime_was_closed:
+                with self._lock:
+                    self._closed = True
+                try:
+                    self._pump.close()
+                except BaseException:
+                    pass
 
         try:
             delegate_restored = self._file_delegate.resume_after_refused_shutdown()
         except BaseException:
-            if runtime_was_closed:
-                with self._lock:
-                    self._closed = True
-                try:
-                    self._pump.close()
-                except BaseException:
-                    # The delegate recovery failure remains authoritative. A
-                    # secondary pump-close abort is only diagnostic; leaving
-                    # the outer runtime closed is the safe fail-closed state.
-                    pass
+            rollback_recovery()
             raise
         if delegate_restored is not True:
-            if runtime_was_closed:
-                with self._lock:
-                    self._closed = True
-                try:
-                    self._pump.close()
-                except BaseException:
-                    # Do not replace the delegate's explicit refusal with an
-                    # unrelated UI-pump rollback failure.
-                    pass
+            rollback_recovery()
             return False
 
-        # Import terminals are canonical mailbox state, not disposable UI work.
-        # A close attempt can retire the pump after the worker stored such an
-        # event. Re-deliver it only after both runtime halves are live again.
-        self._pump.request_pending_wakeup()
-        # A UI/NVDA observer failure retains the exact canonical mailbox batch.
-        # Liveness alone is not successful recovery: keep file actions fenced
-        # until the retained terminal can actually cross the presentation
-        # boundary, otherwise a visible product could resume with stale
-        # accessible state. The outer runtime stays retryable and the mailbox
-        # remains intact for the next refused-close recovery attempt.
-        if self._mailbox.pending_count:
-            try:
-                self._file_delegate.shutdown(timeout=0.0)
-            except BaseException:
-                # Fencing is best-effort here; the authoritative result is that
-                # recovery did not complete. The application recovery coordinator
-                # will re-retire attempted owners as one transaction.
-                pass
+        try:
+            export_restored = self._library_export_delegate.resume_after_refused_shutdown()
+        except BaseException:
+            rollback_recovery()
+            raise
+        if export_restored is not True:
+            rollback_recovery()
             return False
-        # UI-ready delivery is synchronous on the owner thread. A retained
-        # terminal can therefore re-enter native shutdown before this recovery
-        # boundary returns. Never report the runtime as recovered after that
-        # re-entrant close has fenced it again.
+
+        # Retained import terminals are canonical accessibility state. Re-deliver
+        # only after all owners are live; any observer failure makes recovery
+        # incomplete and re-fences the native worker boundary.
+        self._pump.request_pending_wakeup()
+        if self._mailbox.pending_count:
+            rollback_recovery()
+            return False
         with self._lock:
             if self._closed:
                 return False
-        # A synchronous UI-ready callback can re-enter bounded shutdown. When
-        # that retry times out, the outer runtime remains open but the delegate
-        # has been fenced again. Treat that state as not recovered.
         if self._file_delegate.shutdown_requested:
             return False
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
-        """Cancel/join active file worker before closing the UI pump."""
+        """Cancel/join all native file workers before closing the UI pump."""
 
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow shutdown requires UI thread")
         with self._lock:
             if self._closed:
                 return True
+            if self._library_modal_operation:
+                return False
 
+        # Retire the retryable import/PGN owner first. If it times out, Library
+        # Export remains live and the still-visible product can recover intact.
         stopped = self._file_delegate.shutdown(timeout)
         if not stopped:
-            # Keep the pump/runtime live so a still-running worker can terminate;
-            # caller may retry shutdown. PGN Open publication is already fenced.
+            return False
+        export_stopped = self._library_export_delegate.shutdown(timeout)
+        if not export_stopped:
             return False
 
-        # Cross this outer closed-state boundary before closing the UI pump.
-        # If pump.close() aborts, application-level recovery must restore both
-        # the pump and file delegate rather than observing a half-closed runtime.
+        # Preserve shipping's recoverable outer boundary: mark closed before the
+        # pump close so a pump exception is repaired through the same refused-close
+        # recovery transaction rather than leaving an untracked half-close.
         with self._lock:
             self._closed = True
         self._pump.close()
