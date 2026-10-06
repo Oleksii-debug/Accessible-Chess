@@ -412,6 +412,42 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIs(self.app.training_workspace, prior_training_workspace)
         self.assertIs(self.app.training, prior_training)
 
+    def test_shell_publication_rollback_replay_uses_exact_resolved_checkpoint(self):
+        token = 75
+        prior_shell = self.app.shell._capture_presentation_state()
+        prior_focus = "native-before-publication"
+
+        self.app.shell.open_route("library")
+        self.app._focus = "candidate-focus"
+        self.app.shell._begin_publication_hold()
+        self.app._pending_shell_publication = (
+            token,
+            "screen.library",
+            13,
+            {"kind": "route"},
+            prior_shell,
+            prior_focus,
+            None,
+            None,
+        )
+
+        first = self.app._finish_shell_publication(token, commit=False)
+        self.assertEqual(first["kind"], "presentation-rollback")
+        resolved_route = first["payload"]["route_id"]
+        resolved_focus = first["payload"]["focus_target"]
+
+        # An unrelated later native route/focus change must not rewrite the
+        # semantic result of the already-resolved publication token.
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        replay = self.app._finish_shell_publication(token, commit=False)
+
+        self.assertEqual(replay, first)
+        self.assertEqual(replay["payload"]["route_id"], resolved_route)
+        self.assertEqual(replay["payload"]["focus_target"], resolved_focus)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        self.assertEqual(self.app._focus, "library-search-player")
+
     def test_shell_publication_commit_failure_keeps_exact_retry_authority(self):
         token = 74
         prior_shell = self.app.shell._capture_presentation_state()
