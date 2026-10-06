@@ -142,14 +142,18 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
         for stage in (
+            'L"package-local data ownership transfer"',
+            'L"package-local data directory guard transfer"',
+            'L"core process resume"',
             'L"child process identity report"',
             'L"early child exit-code read"',
             'L"startup window observation"',
         ):
             with self.subTest(stage=stage):
                 stage_at = main.index(stage)
-                prefix = main[max(0, stage_at - 180):stage_at]
+                prefix = main[max(0, stage_at - 240):stage_at]
                 self.assertNotIn("ac_close_child_process_handle();", prefix)
+                self.assertNotIn("TerminateProcess(g_process.hProcess", prefix)
 
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
@@ -538,9 +542,13 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "resume_result = ResumeThread(g_process.hThread)", transfer_start
         )
         transfer = main[transfer_start:transfer_end]
-        self.assertIn("TerminateProcess(g_process.hProcess", transfer)
+        self.assertNotIn("TerminateProcess(g_process.hProcess", transfer)
         self.assertIn("CloseHandle(g_process.hThread)", transfer)
-        self.assertIn("ac_close_child_process_handle()", transfer)
+        self.assertNotIn("ac_close_child_process_handle()", transfer)
+        self.assertIn(
+            'ac_fail(report, L"package-local data directory guard transfer", error)',
+            transfer,
+        )
 
 
 if __name__ == "__main__":
