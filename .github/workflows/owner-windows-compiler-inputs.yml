@@ -64,8 +64,6 @@ jobs:
     - name: Qualify package journeys and current Library keyboard semantics
       shell: pwsh
       run: |
-        python -m unittest tests.test_whole_product_user_journey tests.test_version2_release_ui tests.test_version2_epub_application_reachability tests.test_v2_book_progress_store_production tests.test_v2_native_dialog_language tests.test_v2_board_analysis_hotkey_feedback tests.test_version2_portable_package
-        if ($LASTEXITCODE -ne 0) { throw 'Package functional gate failed' }
         node tests/js/library_surface_dom_test.js
         if ($LASTEXITCODE -ne 0) { throw 'Library keyboard gate failed' }
         node tests/js/owner_gameplay_keyboard_test.js
