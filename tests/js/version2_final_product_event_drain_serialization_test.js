@@ -5,6 +5,7 @@ const fs = require("fs");
 const vm = require("vm");
 
 const source = fs.readFileSync("web/version2_final_product_bootstrap.js", "utf8");
+const releaseSource = fs.readFileSync("web/version2_release_bootstrap.js", "utf8");
 
 function extract(startToken, endToken, label) {
   const start = source.indexOf(startToken);
@@ -13,6 +14,78 @@ function extract(startToken, endToken, label) {
   assert(end > start, label + " end not found");
   return source.slice(start, end);
 }
+
+function extractFrom(text, startToken, endToken, label) {
+  const start = text.indexOf(startToken);
+  const end = text.indexOf(endToken, start);
+  assert(start >= 0, label + " start not found");
+  assert(end > start, label + " end not found");
+  return text.slice(start, end);
+}
+
+// The final-product composition must not regress behind the already-qualified
+// release publication protocol. These blocks are deliberately byte-identical:
+// final-only Teacher/Classes rendering stays outside this shared authority.
+assert.strictEqual(
+  extractFrom(
+    source,
+    "  function areaInvoke(area) {",
+    "  function renderNavigation(snapshot) {",
+    "final publication protocol"
+  ),
+  extractFrom(
+    releaseSource,
+    "  function areaInvoke(area) {",
+    "  function renderNavigation(snapshot) {",
+    "release publication protocol"
+  ),
+  "final-product publication transaction diverged from release authority"
+);
+assert.strictEqual(
+  extractFrom(
+    source,
+    "  function renderNavigation(snapshot) {",
+    "  function renderProductSurface(",
+    "final navigation transaction"
+  ),
+  extractFrom(
+    releaseSource,
+    "  function renderNavigation(snapshot) {",
+    "  function commitShellChrome(",
+    "release navigation transaction"
+  ),
+  "final-product route entry diverged from release publication authority"
+);
+assert.strictEqual(
+  extractFrom(
+    source,
+    "  function snapshotShellPublicationToken(snapshot) {",
+    "  function isVersion2DomainAction(actionId) {",
+    "final orphan recovery"
+  ),
+  extractFrom(
+    releaseSource,
+    "  function snapshotShellPublicationToken(snapshot) {",
+    "  function isVersion2DomainAction(actionId) {",
+    "release orphan recovery"
+  ),
+  "final-product orphaned-publication recovery diverged from release authority"
+);
+assert.strictEqual(
+  extractFrom(
+    source,
+    "  function waitForEventDrainIdle() {",
+    '  documentRef.addEventListener("focusin"',
+    "final event/publication fence"
+  ),
+  extractFrom(
+    releaseSource,
+    "  function waitForEventDrainIdle() {",
+    '  documentRef.addEventListener("focusin"',
+    "release event/publication fence"
+  ),
+  "final-product event drain fence diverged from release authority"
+);
 
 function flush() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -36,10 +109,19 @@ assert(
 );
 
 const drainBlock = extract(
-  "  let eventDrainInFlight = false;",
+  "  function waitForEventDrainIdle() {",
   '  documentRef.addEventListener("focusin"',
-  "final-product event drain block"
+  "final-product event/publication drain block"
 );
+const drainState = `
+let pendingShellPublicationToken = 0;
+let pendingShellPublicationRequestId = 0;
+let shellRouteTransitionInFlight = false;
+let eventDrainInFlight = false;
+let eventDrainPending = false;
+let deferredNativeEventBatch = null;
+let eventDrainIdleWaiters = [];
+`;
 
 let drainCalls = 0;
 let nextDrain = null;
@@ -115,7 +197,9 @@ const context = vm.createContext({
 });
 
 vm.runInContext(
-  drainBlock + "\nthis.__drainEvents = drainEvents;",
+  drainState + drainBlock +
+    "\nthis.__drainEvents = drainEvents;" +
+    "\nthis.__finishRouteTransition = finishRouteTransition;",
   context,
   { filename: "version2_final_product_bootstrap.js#drain" }
 );
@@ -123,6 +207,47 @@ const drainEvents = context.__drainEvents;
 assert.strictEqual(typeof drainEvents, "function", "drainEvents was not executable");
 
 (async () => {
+// A route publication request fences native events before the host token is
+// known. This closes the lost-start-response window.
+vm.runInContext("pendingShellPublicationRequestId = 41;", context);
+drainEvents();
+assert.strictEqual(drainCalls, 0, "pending route publication allowed a native drain");
+assert.strictEqual(
+  vm.runInContext("eventDrainPending", context),
+  true,
+  "pending route publication did not retain a drain request"
+);
+vm.runInContext("pendingShellPublicationRequestId = 0; eventDrainPending = false;", context);
+
+// A native batch already in flight is retained, not published, if route
+// authority becomes pending before the host drain resolves.
+nextDrain = "hold";
+drainEvents();
+assert.strictEqual(drainCalls, 1, "publication race setup did not start native drain");
+vm.runInContext("pendingShellPublicationRequestId = 42;", context);
+heldDrainResolve([{ kind: "status", payload: { focus_target: "library-export-filtered" } }]);
+await flushMany();
+assert.deepStrictEqual(terminalFocus, [], "stale in-flight batch published during route hold");
+assert.strictEqual(
+  vm.runInContext("deferredNativeEventBatch !== null", context),
+  true,
+  "in-flight batch was not retained across route publication"
+);
+vm.runInContext("pendingShellPublicationRequestId = 0;", context);
+context.__finishRouteTransition();
+await flushMany();
+assert.deepStrictEqual(
+  terminalFocus,
+  ["library-export-filtered"],
+  "deferred batch did not resume after route authority cleared"
+);
+
+// Reset counters so the retained serialization regressions keep their simple
+// absolute assertions.
+drainCalls = 0;
+terminalFocus = [];
+nextDrain = null;
+
 // A second timer tick cannot start a concurrent native drain. It is remembered
 // and starts immediately after the first drain settles.
 nextDrain = "hold";
