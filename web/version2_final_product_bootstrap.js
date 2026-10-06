@@ -10,6 +10,16 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  let pendingShellPublicationToken = 0;
+  let shellPublicationRequestSequence = 0;
+  let pendingShellPublicationRequestId = 0;
+  let pendingShellPublicationArea = "";
+  let pendingShellPublicationActionId = "";
+  let shellRouteTransitionInFlight = false;
+  let eventDrainInFlight = false;
+  let eventDrainPending = false;
+  let deferredNativeEventBatch = null;
+  let eventDrainIdleWaiters = [];
 
   function uiText(uk, en) {
     return currentLanguage === "en" ? en : uk;
@@ -399,14 +409,347 @@
       if (!bridge || typeof bridge.v2_browser_command !== "function") {
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
-      return bridge.v2_browser_command(area, command, payload || {}).then(function (result) {
-        if (area === "library" && command === "library.open_game" &&
-            result && result.kind !== "error") {
-          return refresh(true).then(function () { return result; });
+      if (area === "library" && command === "library.open_game") {
+        const openPayload = payload == null ? {} : payload;
+        if (!plainObject(openPayload) || Object.keys(openPayload).length !== 0) {
+          return Promise.reject(new Error("invalid Library Open payload"));
+        }
+        return runPublishedBrowserTransition(
+          bridge,
+          "library",
+          command,
+          uiText("Не вдалося відкрити партію.", "Could not open the game."),
+          false
+        );
+      }
+      return bridge.v2_browser_command(area, command, payload || {});
+    };
+  }
+
+  function shellPublicationToken(result) {
+    if (!plainObject(result) ||
+        (result.kind !== "route" && result.kind !== "delegated") ||
+        !plainObject(result.payload)) {
+      return 0;
+    }
+    const token = result.payload.publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
+  function nextShellPublicationRequestId() {
+    if (shellPublicationRequestSequence >= Number.MAX_SAFE_INTEGER - 1) return 0;
+    shellPublicationRequestSequence += 1;
+    return shellPublicationRequestSequence;
+  }
+
+  function clearPendingShellPublicationStart(requestId) {
+    if (pendingShellPublicationRequestId !== requestId) return;
+    pendingShellPublicationRequestId = 0;
+    pendingShellPublicationArea = "";
+    pendingShellPublicationActionId = "";
+  }
+
+  function startShellPublication(bridge, area, actionId, requestId) {
+    function attempt() {
+      return bridge.v2_browser_command(
+        area,
+        actionId,
+        { publication_protocol: "ack-v1", request_id: requestId }
+      ).then(function (result) {
+        if (plainObject(result) && result.kind === "error") return result;
+        if (!shellPublicationToken(result)) {
+          throw new TypeError("invalid shell publication start");
         }
         return result;
       });
-    };
+    }
+
+    return attempt().catch(function () { return attempt(); });
+  }
+
+  function finishShellPublication(bridge, command, token) {
+    const expectedKind =
+      command === "shell.presentation_commit"
+        ? "presentation-commit"
+        : "presentation-rollback";
+
+    function publicationFailure(hostResponded, cause) {
+      // Normalize every failure into an internal passive record. Promise
+      // rejection values and malformed bridge responses are untrusted: they
+      // may be frozen/sealed objects or Proxies with active property traps.
+      return Object.freeze({
+        hostResponded: hostResponded === true,
+        cause: cause
+      });
+    }
+
+    function attempt() {
+      return bridge.v2_browser_command("shell", command, { token: token }).then(
+        function (result) {
+          try {
+            if (plainObject(result) && result.kind === "error") {
+              throw new Error("shell publication acknowledgement rejected");
+            }
+            if (!plainObject(result) || result.kind !== expectedKind ||
+                !plainObject(result.payload) || result.payload.token !== token) {
+              throw new Error("invalid shell publication acknowledgement");
+            }
+            return result;
+          } catch (error) {
+            // A resolved bridge call is host-response authority even when the
+            // payload itself is malformed or has active accessors.
+            throw publicationFailure(true, error);
+          }
+        },
+        function (error) {
+          // Transport rejection is opaque. Store it only as a cause; never read
+          // from or write to the caller-controlled rejection object.
+          throw publicationFailure(false, error);
+        }
+      );
+    }
+
+    // The Python boundary is idempotent for the same token/outcome. A single
+    // retry therefore closes local bridge response loss without duplicating a
+    // route commit or rollback.
+    return attempt().catch(function (firstFailure) {
+      return attempt().catch(function (secondFailure) {
+        if (firstFailure.hostResponded && !secondFailure.hostResponded) {
+          // At least one attempt reached Python, so preserve that authority even
+          // when the final retry failed only at transport. Re-wrap instead of
+          // mutating the opaque second rejection value.
+          throw publicationFailure(true, secondFailure.cause);
+        }
+        throw secondFailure;
+      });
+    });
+  }
+
+  function clearPendingShellPublication(token) {
+    if (pendingShellPublicationToken !== token) return;
+    pendingShellPublicationToken = 0;
+    if (eventDrainPending || deferredNativeEventBatch !== null) {
+      eventDrainPending = false;
+      global.setTimeout(drainEvents, 0);
+    }
+  }
+
+  function recoverShellPublication(bridge, token, failedMessage, preservePresentation) {
+    return finishShellPublication(
+      bridge,
+      "shell.presentation_rollback",
+      token
+    ).then(function () {
+      if (preservePresentation) {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }
+      return refresh(true).then(function () {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }, function () {
+        announce(failedMessage);
+        return false;
+      });
+    }, function (error) {
+      // A host-level rejection proves only that Python answered. It does not
+      // prove that Python forgot this token: rollback/commit cleanup can fail
+      // internally while the exact publication remains pending and retryable.
+      // Read host authority directly and publish only a snapshot that carries no
+      // pending token. If a token is still present, keep recovery fenced.
+      if (error && error.hostResponded) {
+        if (!bridge || typeof bridge.v2_snapshot !== "function") {
+          announce(failedMessage);
+          return Promise.resolve(false);
+        }
+        return bridge.v2_snapshot().then(function (snapshot) {
+          const hostToken = snapshotShellPublicationToken(snapshot);
+          if (hostToken) {
+            if (hostToken !== token) pendingShellPublicationToken = hostToken;
+            announce(failedMessage);
+            return false;
+          }
+          if (preservePresentation) {
+            clearPendingShellPublication(token);
+            announce(failedMessage);
+            return true;
+          }
+          try {
+            render(snapshot, true);
+          } catch (_) {
+            announce(failedMessage);
+            return false;
+          }
+          clearPendingShellPublication(token);
+          announce(failedMessage);
+          return true;
+        }, function () {
+          announce(failedMessage);
+          return false;
+        });
+      }
+      announce(failedMessage);
+      return false;
+    });
+  }
+
+  function recoverPendingShellPublicationStart(bridge, failedMessage) {
+    const requestId = pendingShellPublicationRequestId;
+    const pendingArea = pendingShellPublicationArea;
+    const pendingActionId = pendingShellPublicationActionId;
+    if (!requestId || !pendingArea || !pendingActionId) return Promise.resolve(true);
+    return startShellPublication(
+      bridge,
+      pendingArea,
+      pendingActionId,
+      requestId
+    ).then(function (result) {
+      if (result && result.kind === "error") {
+        clearPendingShellPublicationStart(requestId);
+        return true;
+      }
+      const token = shellPublicationToken(result);
+      if (!token) return false;
+      clearPendingShellPublicationStart(requestId);
+      pendingShellPublicationToken = token;
+      return recoverShellPublication(bridge, token, failedMessage);
+    }, function () {
+      announce(failedMessage);
+      return false;
+    });
+  }
+
+  function recoverOutstandingShellPublication(bridge, failedMessage) {
+    function continueAfterKnownToken() {
+      return recoverPendingShellPublicationStart(bridge, failedMessage);
+    }
+    if (!pendingShellPublicationToken) return continueAfterKnownToken();
+    const previousToken = pendingShellPublicationToken;
+    return recoverShellPublication(
+      bridge,
+      previousToken,
+      failedMessage
+    ).then(function (recovered) {
+      if (!recovered) return false;
+      return continueAfterKnownToken();
+    });
+  }
+
+  function startPublishedBrowserTransition(
+    bridge,
+    area,
+    actionId,
+    failedMessage,
+    announceHostError
+  ) {
+    const requestId = nextShellPublicationRequestId();
+    if (!requestId) {
+      announce(failedMessage);
+      return Promise.resolve(null);
+    }
+    pendingShellPublicationRequestId = requestId;
+    pendingShellPublicationArea = area;
+    pendingShellPublicationActionId = actionId;
+
+    return startShellPublication(
+      bridge,
+      area,
+      actionId,
+      requestId
+    ).then(function (result) {
+      if (result && result.kind === "error") {
+        clearPendingShellPublicationStart(requestId);
+        if (announceHostError && result.payload) {
+          announce(result.payload.message || "");
+        }
+        return result;
+      }
+      const token = shellPublicationToken(result);
+      if (!token) {
+        announce(failedMessage);
+        return null;
+      }
+      clearPendingShellPublicationStart(requestId);
+      pendingShellPublicationToken = token;
+
+      return refresh(true).then(function () {
+        return finishShellPublication(
+          bridge,
+          "shell.presentation_commit",
+          token
+        ).then(function () {
+          clearPendingShellPublication(token);
+          if (
+            area === "library" &&
+            actionId === "library.open_game" &&
+            result.kind === "delegated"
+          ) {
+            // publication_token is transport authority only. Never leak it into
+            // the strict Library delegated-event schema after commit.
+            return {
+              kind: "delegated",
+              payload: { action: "library.open_game" }
+            };
+          }
+          return result;
+        }, function () {
+          return recoverShellPublication(
+            bridge,
+            token,
+            failedMessage
+          ).then(function () { return null; });
+        });
+      }, function (error) {
+        return recoverShellPublication(
+          bridge,
+          token,
+          failedMessage,
+          !!(error && error.committedPresentationPreserved === true)
+        ).then(function () { return null; });
+      });
+    }, function () {
+      // Keep the exact area/action/request tuple. The host may already have
+      // executed the transition and lost both responses; the next interaction
+      // must replay this request before doing anything new.
+      announce(failedMessage);
+      return null;
+    });
+  }
+
+  function runPublishedBrowserTransition(
+    bridge,
+    area,
+    actionId,
+    failedMessage,
+    announceHostError
+  ) {
+    if (shellRouteTransitionInFlight) return Promise.resolve(null);
+    shellRouteTransitionInFlight = true;
+    return Promise.resolve()
+      .then(waitForEventDrainIdle)
+      .then(function () {
+        return recoverOutstandingShellPublication(bridge, failedMessage);
+      })
+      .then(function (recovered) {
+        if (!recovered) return null;
+        return startPublishedBrowserTransition(
+          bridge,
+          area,
+          actionId,
+          failedMessage,
+          announceHostError
+        );
+      })
+      .then(function (result) {
+        finishRouteTransition();
+        return result;
+      }, function () {
+        announce(failedMessage);
+        finishRouteTransition();
+        return null;
+      });
   }
 
   function renderNavigation(snapshot) {
@@ -419,7 +762,7 @@
     const currentRouteIds = new Set();
     const fragment = documentRef.createDocumentFragment();
     snapshot.navigation.forEach(function (item) {
-      if (!plainObject(item)) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
         throw new TypeError("V2 navigation item is invalid");
       }
       const routeId = item.route_id;
@@ -447,10 +790,17 @@
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", actionId, {}).then(function (result) {
-          if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          refresh(true);
-        }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
+        const failedMessage = uiText(
+          "Не вдалося відкрити розділ.",
+          "Could not open the section."
+        );
+        runPublishedBrowserTransition(
+          bridge,
+          "shell",
+          actionId,
+          failedMessage,
+          true
+        );
       });
       row.appendChild(button);
       fragment.appendChild(row);
@@ -605,10 +955,42 @@
     }
   }
 
+  function snapshotShellPublicationToken(snapshot) {
+    if (!plainObject(snapshot)) return 0;
+    const token = snapshot.shell_publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
   function refresh(restoreFocus) {
     const bridge = api();
     if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve();
-    return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
+    return bridge.v2_snapshot().then(function (snapshot) {
+      const orphanedToken = snapshotShellPublicationToken(snapshot);
+      if (
+        orphanedToken &&
+        !pendingShellPublicationToken &&
+        !pendingShellPublicationRequestId
+      ) {
+        // A WebView reload can erase the browser's request/token memory after
+        // Python already acquired the publication hold. Never render that
+        // unacknowledged candidate as committed state. Recover through the same
+        // idempotent rollback protocol, then read one canonical snapshot.
+        pendingShellPublicationToken = orphanedToken;
+        return recoverShellPublication(
+          bridge,
+          orphanedToken,
+          uiText(
+            "Відновлено попередній розділ після перезапуску подання.",
+            "Restored the previous section after the view restarted."
+          )
+        ).then(function (recovered) {
+          if (!recovered) {
+            throw new Error("orphaned shell publication recovery is still pending");
+          }
+        });
+      }
+      render(snapshot, !!restoreFocus);
+    });
   }
 
   function isVersion2DomainAction(actionId) {
@@ -689,17 +1071,45 @@
     return event.kind !== "error" && event.kind !== "status";
   }
 
-  let eventDrainInFlight = false;
-  let eventDrainPending = false;
+  function waitForEventDrainIdle() {
+    if (!eventDrainInFlight) return Promise.resolve();
+    return new Promise(function (resolve) {
+      eventDrainIdleWaiters.push(resolve);
+    });
+  }
+
+  function browserOwnsPendingShellPublication() {
+    return !!pendingShellPublicationToken || !!pendingShellPublicationRequestId;
+  }
+
+  function finishRouteTransition() {
+    shellRouteTransitionInFlight = false;
+    if (
+      eventDrainPending &&
+      !browserOwnsPendingShellPublication() &&
+      !eventDrainInFlight
+    ) {
+      eventDrainPending = false;
+      drainEvents();
+    }
+  }
 
   function finishEventDrain() {
     eventDrainInFlight = false;
+    const waiters = eventDrainIdleWaiters;
+    eventDrainIdleWaiters = [];
+    waiters.forEach(function (resolve) { resolve(); });
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) return;
     if (!eventDrainPending) return;
     eventDrainPending = false;
     drainEvents();
   }
 
   function drainEvents() {
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) {
+      eventDrainPending = true;
+      return;
+    }
     if (eventDrainInFlight) {
       eventDrainPending = true;
       return;
@@ -710,23 +1120,38 @@
     eventDrainPending = false;
     let drained;
     try {
-      drained = bridge.v2_drain_events();
+      if (deferredNativeEventBatch !== null) {
+        drained = deferredNativeEventBatch;
+        deferredNativeEventBatch = null;
+      } else {
+        drained = bridge.v2_drain_events();
+      }
     } catch (_) {
       finishEventDrain();
       return;
     }
     Promise.resolve(drained).then(function (events) {
       if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
+      if (browserOwnsPendingShellPublication()) {
+        // A route-start response may be lost after Python acquired its hold but
+        // before this browser learned the token. Treat the retained request_id
+        // as the same publication fence so a previously started native-event
+        // drain cannot publish stale UI while route authority is unresolved.
+        deferredNativeEventBatch = events;
+        eventDrainPending = true;
+        return;
+      }
       let needsRefresh = false;
       let queuedTerminalFocus = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
-        const payload = plainObject(event) && plainObject(event.payload) ? event.payload : {};
         if (
+          plainObject(event) &&
           (event.kind === "status" || event.kind === "error") &&
-          validFocusId(payload.focus_target)
+          plainObject(event.payload) &&
+          validFocusId(event.payload.focus_target)
         ) {
-          queuedTerminalFocus = payload.focus_target;
+          queuedTerminalFocus = event.payload.focus_target;
         }
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
         if (refreshRequired) needsRefresh = true;
@@ -739,6 +1164,9 @@
         return chain.then(function () { return refreshStage1(); });
       }, Promise.resolve());
       return repaintBarrier.then(function () {
+        // A repaint owns focus through refresh(true). Raw terminal focus is used
+        // only in the no-repaint path above, so one event can never produce two
+        // competing focus transitions.
         return needsRefresh ? refresh(true) : undefined;
       });
     }).then(finishEventDrain, finishEventDrain);
