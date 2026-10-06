@@ -233,7 +233,10 @@ def _css_ascii_lower(value: str) -> str:
     )
 
 
-def _inline_style_without_comments(style: str) -> str:
+def _inline_style_without_comments(
+    style: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     """Remove real CSS comments as whitespace before bounded display parsing.
 
     Comment-looking text inside quoted CSS strings or behind a backslash escape
@@ -246,6 +249,8 @@ def _inline_style_without_comments(style: str) -> str:
     cursor = 0
     quote: str | None = None
     while cursor < len(style):
+        if control_checkpoint is not None and (cursor + 1) % 4096 == 0:
+            control_checkpoint()
         char = style[cursor]
         if char == "\\":
             parts.append(char)
@@ -279,7 +284,10 @@ def _inline_style_without_comments(style: str) -> str:
         cursor += 1
     return "".join(parts)
 
-def _split_inline_style_declarations(style: str) -> tuple[str, ...]:
+def _split_inline_style_declarations(
+    style: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, ...]:
     """Split only top-level declarations in one bounded inline style."""
 
     declarations: list[str] = []
@@ -289,6 +297,8 @@ def _split_inline_style_declarations(style: str) -> tuple[str, ...]:
     matching = {")": "(", "]": "[", "}": "{"}
     cursor = 0
     while cursor < len(style):
+        if control_checkpoint is not None and (cursor + 1) % 4096 == 0:
+            control_checkpoint()
         char = style[cursor]
         if char == "\\":
             current.append(char)
@@ -330,13 +340,18 @@ def _split_inline_style_declarations(style: str) -> tuple[str, ...]:
     declarations.append("".join(current))
     return tuple(declarations)
 
-def _css_unescape_token(value: str) -> str:
+def _css_unescape_token(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     """Decode CSS escapes for one bounded property/value token."""
 
     parts: list[str] = []
     cursor = 0
     hexdigits = "0123456789abcdefABCDEF"
     while cursor < len(value):
+        if control_checkpoint is not None and (cursor + 1) % 4096 == 0:
+            control_checkpoint()
         char = value[cursor]
         if char != "\\":
             parts.append(char)
@@ -376,7 +391,10 @@ def _css_unescape_token(value: str) -> str:
         cursor += 1
     return "".join(parts)
 
-def _inline_style_hides(style: str) -> bool:
+def _inline_style_hides(
+    style: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
     """Recognize deterministic inline subtree-hiding declarations.
 
     This intentionally is not a CSS engine. display:none and
@@ -388,20 +406,32 @@ def _inline_style_hides(style: str) -> bool:
     effective_display: tuple[str, bool] | None = None
     effective_content_visibility: tuple[str, bool] | None = None
 
-    for declaration in _split_inline_style_declarations(
-        _inline_style_without_comments(style)
+    for declaration_index, declaration in enumerate(
+        _split_inline_style_declarations(
+            _inline_style_without_comments(style, control_checkpoint),
+            control_checkpoint,
+        ),
+        start=1,
     ):
+        if control_checkpoint is not None and declaration_index % 128 == 0:
+            control_checkpoint()
         name, separator, raw_value = declaration.partition(":")
         if not separator:
             continue
         property_name = _css_ascii_lower(
-            _css_unescape_token(name.strip(_CSS_WHITESPACE))
+            _css_unescape_token(
+                name.strip(_CSS_WHITESPACE),
+                control_checkpoint,
+            )
         )
         if property_name not in {"display", "content-visibility"}:
             continue
 
         value = _css_ascii_lower(
-            _css_unescape_token(raw_value.strip(_CSS_WHITESPACE))
+            _css_unescape_token(
+                raw_value.strip(_CSS_WHITESPACE),
+                control_checkpoint,
+            )
         )
         important_match = _CSS_IMPORTANT_RE.search(value)
         important = important_match is not None
@@ -931,7 +961,10 @@ class _SemanticHtmlParser(HTMLParser):
                 continue
             attrs[normalized_name] = value or ""
         aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
-        inline_style_hidden = _inline_style_hides(attrs.get("style", ""))
+        inline_style_hidden = _inline_style_hides(
+            attrs.get("style", ""),
+            self._checkpoint if self.control_checkpoint is not None else None,
+        )
         if "hidden" in attrs or aria_hidden == "true" or inline_style_hidden:
             # HTML hidden, ARIA-hidden=true and deterministic inline
             # display:none are boundaries for this accessibility-first semantic
