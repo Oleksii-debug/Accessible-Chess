@@ -283,7 +283,7 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             output = Path(td) / "receipt.json"
             payload = json.loads(receipt.to_json())
             payload["package_sha256"] = "0" * 64
-            output.write_text(_canonical_json(payload), encoding="utf-8")
+            output.write_bytes(_canonical_json(payload).encode("utf-8"))
 
             with self.assertRaisesRegex(
                 Version2ReleaseReceiptError,
