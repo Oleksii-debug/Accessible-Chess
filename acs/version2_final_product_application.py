@@ -92,6 +92,7 @@ class Version2FinalProductApplication(Version2Application):
         self.agent = AgentConversationWebViewBridge(
             AgentConversationProjection(language=language.value)
         )
+        self._agent_execution_host: object | None = None
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -299,6 +300,8 @@ class Version2FinalProductApplication(Version2Application):
         """
 
         self._assert_thread()
+        if getattr(self, "_agent_execution_host", None) is not None:
+            raise RuntimeError("Agent execution host is already installed")
         if self.agent.projection.snapshot()["run_id"]:
             raise RuntimeError("stop the active Agent run before rebinding")
         projection = AgentConversationProjection(
@@ -313,11 +316,38 @@ class Version2FinalProductApplication(Version2Application):
         """Return the route to fail-closed unavailable state when no run is active."""
 
         self._assert_thread()
+        if getattr(self, "_agent_execution_host", None) is not None:
+            raise RuntimeError("shutdown the Agent execution host before unbinding")
         if self.agent.projection.snapshot()["run_id"]:
             raise RuntimeError("stop the active Agent run before unbinding")
         self.agent = AgentConversationWebViewBridge(
             AgentConversationProjection(language=self.shell.language.value)
         )
+
+    def install_agent_execution_host(self, host: object) -> None:
+        """Attach one host whose shutdown must precede application/database teardown."""
+
+        self._assert_thread()
+        shutdown = getattr(host, "shutdown", None)
+        if not callable(shutdown):
+            raise TypeError("Agent execution host must expose shutdown()")
+        if getattr(self, "_agent_execution_host", None) is not None:
+            raise RuntimeError("Agent execution host is already installed")
+        self._agent_execution_host = host
+
+    def shutdown(self, timeout: float | None = None):
+        """Retire Agent execution before canonical application state is closed."""
+
+        self._assert_thread()
+        host = getattr(self, "_agent_execution_host", None)
+        if host is not None:
+            shutdown = getattr(host, "shutdown", None)
+            if not callable(shutdown):
+                raise TypeError("Agent execution host must expose shutdown()")
+            if shutdown(timeout=timeout) is not True:
+                return False
+            self._agent_execution_host = None
+        return super().shutdown(timeout=timeout)
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
