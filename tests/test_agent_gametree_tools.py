@@ -4,9 +4,18 @@ import asyncio
 import unittest
 
 from acs.agent_gametree_tools import register_gametree_tools
+from acs.agent_model_contracts import (
+    ModelRequest,
+    ModelResponse,
+    ModelUsage,
+    ProviderCapabilities,
+    ProviderKind,
+)
+from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolCall, ToolExecutor, ToolRisk
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.pgn_workspace import PgnWorkspace
+from acs.universal_chess_agent import UniversalChessAgentRuntime
 
 
 PGN = """[Event "Tree One"]
@@ -23,6 +32,37 @@ PGN = """[Event "Tree One"]
 
 1. d4 d5 1-0
 """
+
+
+class _ScriptedProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            provider_id="gametree-fixture",
+            kind=ProviderKind.LOCAL,
+            supports_private_data=True,
+        )
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("unexpected model call")
+        return ModelResponse(
+            request_id=request.request_id,
+            text=self.responses.pop(0),
+            provider_id="gametree-fixture",
+            provider_kind=ProviderKind.LOCAL,
+            model=request.model or "fixture-model",
+            usage=ModelUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+            ),
+        )
 
 
 class AgentGameTreeToolsTests(unittest.TestCase):
@@ -169,6 +209,50 @@ class AgentGameTreeToolsTests(unittest.TestCase):
                 "gametree.previous_game",
             }.issubset(ids)
         )
+
+
+    def test_universal_agent_executes_gametree_navigation_tool_loop(self) -> None:
+        executor = ToolExecutor()
+        ChessAgentToolRegistry(
+            executor=executor,
+            board_provider=lambda: None,
+            board_commands_provider=lambda: None,
+            workspace_provider=lambda: self.workspace,
+        ).register_all()
+
+        provider = _ScriptedProvider(
+            [
+                '{"type":"tool","tool_id":"gametree.next_move","arguments":{}}',
+                '{"type":"tool","tool_id":"gametree.current","arguments":{}}',
+                '{"type":"final","text":"The next move is e5."}',
+            ]
+        )
+        gateway = ModelGateway()
+        gateway.register(provider)
+        runtime = UniversalChessAgentRuntime(
+            gateway=gateway,
+            tools=executor,
+            provider_id="gametree-fixture",
+            model="fixture-model",
+            product_instruction="Use canonical Accessible Chess tools.",
+        )
+
+        result = asyncio.run(
+            runtime.run(
+                run_id="gametree-runtime",
+                user_text="Move one step and tell me the next move.",
+            )
+        )
+
+        self.assertEqual(result.text, "The next move is e5.")
+        self.assertEqual(result.tool_calls, 2)
+        self.assertEqual(result.model_calls, 3)
+        self.assertEqual(self.workspace.cursor.next_move_index, 1)
+        self.assertEqual(len(provider.requests), 3)
+        tool_feedback = provider.requests[2].messages[-1]
+        self.assertEqual(tool_feedback.role, "tool")
+        self.assertIn('"tool_id":"gametree.current"', tool_feedback.content)
+        self.assertIn('"san":"e5"', tool_feedback.content)
 
     def test_workspace_provider_must_return_exact_workspace(self) -> None:
         executor = ToolExecutor()

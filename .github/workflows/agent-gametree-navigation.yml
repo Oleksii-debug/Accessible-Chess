@@ -57,7 +57,7 @@ jobs:
           }
           test "$(git rev-parse HEAD:acs/agent_gametree_tools.py)" = 'aed1e644aa17dc2f27abc4582c53f6ff3995ff3e'
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'de58e9d0232ee5432d76b991fa94bec36ad4a905'
-          test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = 'cbf51a6bbc120e87d468b8a2d2169f273d1497c1'
+          test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '5bfcc0b3d63d1f55f7d64ce3d9587ec510a6a36b'
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = 'b59e6bfff9806dff2092e5c7f93b68daff6407ef'
           test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = '6209c29382105153ae4b22d4d70f9675a931826d'
           echo 'AGENT_GAMETREE_AUTHORITY=PASS'
