@@ -244,5 +244,41 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         self.assertEqual(1, reader.index)
 
 
+    def test_provisional_return_point_rejects_successful_handoff_after_live_drift(self) -> None:
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(1)
+        before_return_points = dict(reader._return_points)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "changed after BookReader creation",
+        ):
+            with reader.provisional_return_point("handoff") as location:
+                self.assertEqual(location.index, 1)
+                book.blocks[1].text = "changed during synchronous handoff"
+
+        self.assertEqual(reader._return_points, before_return_points)
+        with self.assertRaises(LookupError):
+            reader.restore_return_point("handoff")
+
+    def test_provisional_return_point_success_has_final_revision_barrier(self) -> None:
+        reader = BookReader(self.make_book())
+        reader.go_to(1)
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            wraps=reader._document_revision_digest,
+        ) as digest:
+            with reader.provisional_return_point("handoff") as location:
+                self.assertEqual(location.index, 1)
+
+        # save_return_point performs preflight + publication validation; the
+        # context manager adds one final post-handoff revision barrier.
+        self.assertEqual(digest.call_count, 3)
+        self.assertEqual(reader.restore_return_point("handoff").index, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
