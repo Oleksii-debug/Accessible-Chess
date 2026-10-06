@@ -2089,6 +2089,8 @@ def _validate_zip_entries(
             _fail("ZIP directory member has conflicting regular-file mode")
         if not is_directory and file_type == stat.S_IFDIR:
             _fail("ZIP file member has conflicting directory mode")
+        if is_directory and info.file_size != 0:
+            _fail("ZIP directory member must be empty")
         if info.flag_bits & 0x1:
             _fail("encrypted ZIP members are forbidden")
         _register_zip_topology(
