@@ -16,8 +16,12 @@ from typing import Any
 from .full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .pgn_workspace import (
+    MAX_PGN_COMMENT_TEXT_UNITS,
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
+    MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS,
+    MAX_PGN_NAG_TEXT_UNITS,
+    MAX_PGN_SEARCH_TEXT_UNITS,
     _contains_unicode_surrogate,
 )
 
@@ -779,7 +783,7 @@ class PgnWebViewProjection:
         return PgnWebViewEvent("delegated", {"action": action_id})
 
     def append_moves(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS or "\x00" in text:
             raise ValueError("PGN continuation text is invalid")
         return self._dispatch("pgn.append_moves", {"text": text})
 
@@ -817,7 +821,7 @@ class PgnWebViewProjection:
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
 
     def search(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > 4096 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > MAX_PGN_SEARCH_TEXT_UNITS or "\x00" in text:
             raise ValueError("PGN search text is invalid")
         # Search is document-scoped, not move-scoped. A lawful PGN can have
         # tags/result but no moves, so search must work from the canonical root
@@ -858,7 +862,7 @@ class PgnWebViewProjection:
             raise TypeError("PGN main-line comment flag must be bool")
         if type(text) is not str:
             raise TypeError("PGN comment text must be text")
-        if _utf16_units(text) > 8000 or "\x00" in text:
+        if _utf16_units(text) > MAX_PGN_COMMENT_TEXT_UNITS or "\x00" in text:
             raise ValueError("PGN comment text is invalid")
         extra: dict[str, object] = {"text": text}
         if slot is not None or index is not None:
@@ -896,12 +900,12 @@ class PgnWebViewProjection:
         return self._dispatch_selected("pgn.comment_delete", extra=extra)
 
     def edit_nags(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or _utf16_units(text) > 512 or "\x00" in text:
+        if type(text) is not str or _utf16_units(text) > MAX_PGN_NAG_TEXT_UNITS or "\x00" in text:
             raise ValueError("PGN NAG text is invalid")
         return self._dispatch_selected("pgn.nag_edit", extra={"text": text})
 
     def add_variation(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
+        if type(text) is not str or not text.strip() or _utf16_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS or "\x00" in text:
             raise ValueError("PGN variation text is invalid")
         return self._dispatch_selected("pgn.variation_add", extra={"text": text})
 
