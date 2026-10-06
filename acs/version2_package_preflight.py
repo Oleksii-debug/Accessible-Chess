@@ -47,6 +47,9 @@ _WINFORMS_ACCESSIBILITY_SWITCHES = (
 )
 _MAX_APPCONFIG_BYTES = 64 * 1024
 _MAX_RELEASE_MANIFEST_BYTES = 64 * 1024
+# SHA256SUMS is a small release authority, not an arbitrary package member.
+# Keep its whole stable snapshot bounded before materializing it into memory.
+_MAX_CHECKSUMS_BYTES = 32 * 1024 * 1024
 _RELEASE_MANIFEST_MAX_OBJECT_MEMBERS = 64
 _RELEASE_MANIFEST_MAX_KEY_CHARS = 128
 
@@ -303,14 +306,60 @@ def _safe_lstat(path: Path, *, label: str) -> os.stat_result:
     return info
 
 
+def _read_stable_bytes_file(path: Path, *, label: str, max_bytes: int) -> bytes:
+    """Read one bounded metadata file from the exact stable snapshot."""
+    if type(max_bytes) is not int or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    try:
+        with snapshot:
+            return snapshot.read(max_bytes)
+    except Version2PackagePreflightError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read: {type(exc).__name__}")
+
+
 def _sha256(path: Path) -> str:
+    """Hash one exact regular-file snapshot, rejecting concurrent mutation."""
+    before = _safe_lstat(path, label="package file")
+    if not stat.S_ISREG(before.st_mode):
+        _fail("package file must be a regular file")
+
     digest = hashlib.sha256()
+    copied = 0
     try:
         with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
+            opened = os.fstat(handle.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail("package file must remain a regular non-reparse file")
+            if not _same_file_snapshot(before, opened):
+                _fail("package file changed while being opened")
+
+            while True:
+                block = handle.read(1024 * 1024)
+                if not block:
+                    break
+                copied += len(block)
                 digest.update(block)
+
+            after_read = os.fstat(handle.fileno())
+    except Version2PackagePreflightError:
+        raise
     except OSError as exc:
         _fail(f"package file cannot be read: {type(exc).__name__}")
+
+    after_path = _safe_lstat(path, label="package file")
+    if (
+        copied != getattr(after_read, "st_size", None)
+        or not _same_file_snapshot(opened, after_read)
+        or not _same_file_snapshot(after_read, after_path)
+    ):
+        _fail("package file changed while being read")
     return digest.hexdigest()
 
 
@@ -334,7 +383,6 @@ def _stable_change_metadata(st: os.stat_result) -> tuple[int, ...] | None:
     if type(ctime_ns) is not int or ctime_ns < 0:
         return None
     return mtime_ns, ctime_ns
-
 
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
     """Compare pathname/open-handle identity, size and safe change metadata."""
@@ -663,6 +711,145 @@ def _raw_offset_for_pe_section(
     return None
 
 
+def _inspect_windows_pe_stream(
+    source,
+    *,
+    inspect_clr: bool = False,
+) -> tuple[int, int, int, bool] | None:
+    """Inspect PE, subsystem and optional CLR metadata from one open handle."""
+    if type(inspect_clr) is not bool:
+        raise TypeError("inspect_clr must be bool")
+    source.seek(0, os.SEEK_END)
+    file_size = source.tell()
+    source.seek(0)
+    dos_header = source.read(64)
+    identity: tuple[int, int, int, bool] | None = None
+    if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
+        pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
+        if 0x40 <= pe_offset <= file_size - 24:
+            source.seek(pe_offset)
+            pe_header = source.read(24)
+            if len(pe_header) == 24 and pe_header[:4] == b"PE\x00\x00":
+                machine = int.from_bytes(pe_header[4:6], "little")
+                section_count = int.from_bytes(pe_header[6:8], "little")
+                optional_header_size = int.from_bytes(pe_header[20:22], "little")
+                characteristics = int.from_bytes(pe_header[22:24], "little")
+                if (
+                    machine != 0
+                    and 0 < section_count <= 96
+                    and optional_header_size >= 96
+                    and characteristics & 0x0002
+                    and pe_offset + 24 + optional_header_size + (section_count * 40)
+                    <= file_size
+                ):
+                    optional_header = source.read(optional_header_size)
+                    if len(optional_header) == optional_header_size:
+                        optional_magic = int.from_bytes(optional_header[:2], "little")
+                        if (
+                            optional_magic == 0x10B
+                            or (
+                                optional_magic == 0x20B
+                                and optional_header_size >= 112
+                            )
+                        ):
+                            subsystem = int.from_bytes(
+                                optional_header[68:70], "little"
+                            )
+                            has_clr = False
+                            if inspect_clr:
+                                if optional_magic == 0x10B:
+                                    directory_count_offset = 92
+                                    directory_table_offset = 96
+                                else:
+                                    directory_count_offset = 108
+                                    directory_table_offset = 112
+                                if len(optional_header) >= directory_count_offset + 4:
+                                    directory_count = int.from_bytes(
+                                        optional_header[
+                                            directory_count_offset:directory_count_offset + 4
+                                        ],
+                                        "little",
+                                    )
+                                    clr_directory_offset = directory_table_offset + (14 * 8)
+                                    if (
+                                        directory_count > 14
+                                        and len(optional_header) >= clr_directory_offset + 8
+                                    ):
+                                        clr_rva = int.from_bytes(
+                                            optional_header[
+                                                clr_directory_offset:clr_directory_offset + 4
+                                            ],
+                                            "little",
+                                        )
+                                        clr_size = int.from_bytes(
+                                            optional_header[
+                                                clr_directory_offset + 4:clr_directory_offset + 8
+                                            ],
+                                            "little",
+                                        )
+                                        section_table_offset = (
+                                            pe_offset + 24 + optional_header_size
+                                        )
+                                        section_table_size = section_count * 40
+                                        if (
+                                            clr_rva != 0
+                                            and clr_size == 0x48
+                                            and section_table_offset + section_table_size
+                                            <= file_size
+                                        ):
+                                            source.seek(section_table_offset)
+                                            section_table = source.read(section_table_size)
+                                            if len(section_table) == section_table_size:
+                                                clr_offset = _raw_offset_for_pe_section(
+                                                    section_table,
+                                                    section_count=section_count,
+                                                    file_size=file_size,
+                                                    rva=clr_rva,
+                                                    size=0x48,
+                                                )
+                                                if clr_offset is not None:
+                                                    source.seek(clr_offset)
+                                                    clr_header = source.read(0x48)
+                                                    if (
+                                                        len(clr_header) == 0x48
+                                                        and int.from_bytes(
+                                                            clr_header[0:4], "little"
+                                                        ) == 0x48
+                                                    ):
+                                                        metadata_rva = int.from_bytes(
+                                                            clr_header[8:12], "little"
+                                                        )
+                                                        metadata_size = int.from_bytes(
+                                                            clr_header[12:16], "little"
+                                                        )
+                                                        metadata_offset = (
+                                                            _raw_offset_for_pe_section(
+                                                                section_table,
+                                                                section_count=section_count,
+                                                                file_size=file_size,
+                                                                rva=metadata_rva,
+                                                                size=metadata_size,
+                                                            )
+                                                            if metadata_rva != 0
+                                                            and metadata_size >= 4
+                                                            else None
+                                                        )
+                                                        if metadata_offset is not None:
+                                                            source.seek(metadata_offset)
+                                                            has_clr = (
+                                                                source.read(4) == b"BSJB"
+                                                            )
+                            identity = (
+                                machine,
+                                optional_magic,
+                                subsystem,
+                                has_clr,
+                            )
+
+
+    return identity
+
+
 def _inspect_windows_pe_identity(
     path: Path,
     *,
@@ -685,133 +872,10 @@ def _inspect_windows_pe_identity(
         if not _same_file_snapshot(before, opened):
             _fail(f"{label} changed while being opened")
 
-        source.seek(0, os.SEEK_END)
-        file_size = source.tell()
-        source.seek(0)
-        dos_header = source.read(64)
-        identity: tuple[int, int, int, bool] | None = None
-        if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
-            pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
-            if 0x40 <= pe_offset <= file_size - 24:
-                source.seek(pe_offset)
-                pe_header = source.read(24)
-                if len(pe_header) == 24 and pe_header[:4] == b"PE\x00\x00":
-                    machine = int.from_bytes(pe_header[4:6], "little")
-                    section_count = int.from_bytes(pe_header[6:8], "little")
-                    optional_header_size = int.from_bytes(pe_header[20:22], "little")
-                    characteristics = int.from_bytes(pe_header[22:24], "little")
-                    if (
-                        machine != 0
-                        and 0 < section_count <= 96
-                        and optional_header_size >= 96
-                        and characteristics & 0x0002
-                        and pe_offset + 24 + optional_header_size + (section_count * 40)
-                        <= file_size
-                    ):
-                        optional_header = source.read(optional_header_size)
-                        if len(optional_header) == optional_header_size:
-                            optional_magic = int.from_bytes(optional_header[:2], "little")
-                            if (
-                                optional_magic == 0x10B
-                                or (
-                                    optional_magic == 0x20B
-                                    and optional_header_size >= 112
-                                )
-                            ):
-                                subsystem = int.from_bytes(
-                                    optional_header[68:70], "little"
-                                )
-                                has_clr = False
-                                if inspect_clr:
-                                    if optional_magic == 0x10B:
-                                        directory_count_offset = 92
-                                        directory_table_offset = 96
-                                    else:
-                                        directory_count_offset = 108
-                                        directory_table_offset = 112
-                                    if len(optional_header) >= directory_count_offset + 4:
-                                        directory_count = int.from_bytes(
-                                            optional_header[
-                                                directory_count_offset:directory_count_offset + 4
-                                            ],
-                                            "little",
-                                        )
-                                        clr_directory_offset = directory_table_offset + (14 * 8)
-                                        if (
-                                            directory_count > 14
-                                            and len(optional_header) >= clr_directory_offset + 8
-                                        ):
-                                            clr_rva = int.from_bytes(
-                                                optional_header[
-                                                    clr_directory_offset:clr_directory_offset + 4
-                                                ],
-                                                "little",
-                                            )
-                                            clr_size = int.from_bytes(
-                                                optional_header[
-                                                    clr_directory_offset + 4:clr_directory_offset + 8
-                                                ],
-                                                "little",
-                                            )
-                                            section_table_offset = (
-                                                pe_offset + 24 + optional_header_size
-                                            )
-                                            section_table_size = section_count * 40
-                                            if (
-                                                clr_rva != 0
-                                                and clr_size == 0x48
-                                                and section_table_offset + section_table_size
-                                                <= file_size
-                                            ):
-                                                source.seek(section_table_offset)
-                                                section_table = source.read(section_table_size)
-                                                if len(section_table) == section_table_size:
-                                                    clr_offset = _raw_offset_for_pe_section(
-                                                        section_table,
-                                                        section_count=section_count,
-                                                        file_size=file_size,
-                                                        rva=clr_rva,
-                                                        size=0x48,
-                                                    )
-                                                    if clr_offset is not None:
-                                                        source.seek(clr_offset)
-                                                        clr_header = source.read(0x48)
-                                                        if (
-                                                            len(clr_header) == 0x48
-                                                            and int.from_bytes(
-                                                                clr_header[0:4], "little"
-                                                            ) == 0x48
-                                                        ):
-                                                            metadata_rva = int.from_bytes(
-                                                                clr_header[8:12], "little"
-                                                            )
-                                                            metadata_size = int.from_bytes(
-                                                                clr_header[12:16], "little"
-                                                            )
-                                                            metadata_offset = (
-                                                                _raw_offset_for_pe_section(
-                                                                    section_table,
-                                                                    section_count=section_count,
-                                                                    file_size=file_size,
-                                                                    rva=metadata_rva,
-                                                                    size=metadata_size,
-                                                                )
-                                                                if metadata_rva != 0
-                                                                and metadata_size >= 4
-                                                                else None
-                                                            )
-                                                            if metadata_offset is not None:
-                                                                source.seek(metadata_offset)
-                                                                has_clr = (
-                                                                    source.read(4) == b"BSJB"
-                                                                )
-                                identity = (
-                                    machine,
-                                    optional_magic,
-                                    subsystem,
-                                    has_clr,
-                                )
-
+        identity = _inspect_windows_pe_stream(
+            source,
+            inspect_clr=inspect_clr,
+        )
         after_read = os.fstat(source.fileno())
         after_path = _safe_lstat(path, label=label)
         if (
@@ -930,7 +994,11 @@ def _validate_sound_provenance(
         label="sound provenance notice",
     )
     try:
-        text = provenance_path.read_text(encoding="utf-8-sig")
+        text = _read_stable_bytes_file(
+            provenance_path,
+            label="sound provenance notice",
+            max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+        ).decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeError) as exc:
         _fail(f"sound provenance notice is unreadable: {type(exc).__name__}")
     provenance = _json_no_duplicates(text, label="sound provenance notice")
@@ -1041,17 +1109,20 @@ def _validate_sound_inventory(
         label="sound inventory audit notice",
     )
     try:
-        if (
-            source_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
-            or notice_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
-        ):
-            _fail("sound inventory exceeds byte limit")
         source_doc = _json_no_duplicates(
-            source_path.read_text(encoding="utf-8-sig"),
+            _read_stable_bytes_file(
+                source_path,
+                label="packaged sound inventory",
+                max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+            ).decode("utf-8-sig", errors="strict"),
             label="packaged sound inventory",
         )
         notice_doc = _json_no_duplicates(
-            notice_path.read_text(encoding="utf-8-sig"),
+            _read_stable_bytes_file(
+                notice_path,
+                label="sound inventory audit notice",
+                max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+            ).decode("utf-8-sig", errors="strict"),
             label="sound inventory audit notice",
         )
     except Version2PackagePreflightError:
@@ -1166,20 +1237,26 @@ def _validate_sound_inventory(
             min_bytes=45,
         )
         try:
-            if asset.stat().st_size != byte_count:
-                _fail("sound inventory byte size mismatch")
-        except OSError as exc:
-            _fail(f"sound inventory asset cannot be inspected: {type(exc).__name__}")
-        if _sha256(asset) != digest:
-            _fail("sound inventory SHA-256 mismatch")
-        try:
-            with wave.open(str(asset), "rb") as reader:
-                actual_channels = reader.getnchannels()
-                actual_sample_width = reader.getsampwidth()
-                actual_sample_rate = reader.getframerate()
-                actual_frames = reader.getnframes()
-                actual_compression = reader.getcomptype()
-                frame_bytes = reader.readframes(actual_frames)
+            snapshot, actual_digest = _snapshot_regular_file(
+                asset,
+                label="inventory-bound sound asset",
+                max_bytes=_MAX_SOUND_FILE_BYTES,
+            )
+            with snapshot:
+                snapshot.seek(0, os.SEEK_END)
+                actual_size = snapshot.tell()
+                snapshot.seek(0)
+                if actual_size != byte_count:
+                    _fail("sound inventory byte size mismatch")
+                if actual_digest != digest:
+                    _fail("sound inventory SHA-256 mismatch")
+                with wave.open(snapshot, "rb") as reader:
+                    actual_channels = reader.getnchannels()
+                    actual_sample_width = reader.getsampwidth()
+                    actual_sample_rate = reader.getframerate()
+                    actual_frames = reader.getnframes()
+                    actual_compression = reader.getcomptype()
+                    frame_bytes = reader.readframes(actual_frames)
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -1383,7 +1460,11 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
     try:
-        payload = path.read_bytes()
+        payload = _read_stable_bytes_file(
+            path,
+            label="WinForms accessibility app-config",
+            max_bytes=_MAX_APPCONFIG_BYTES,
+        )
     except OSError as exc:
         _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
     if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
@@ -1558,7 +1639,11 @@ def _validate_required_runtime_resources(
         label="packaged sound manifest",
     )
     try:
-        manifest_text = manifest_path.read_text(encoding="utf-8-sig")
+        manifest_text = _read_stable_bytes_file(
+            manifest_path,
+            label="packaged sound manifest",
+            max_bytes=64 * 1024,
+        ).decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeError) as exc:
         _fail(f"packaged sound manifest is unreadable: {type(exc).__name__}")
     manifest = _json_no_duplicates(manifest_text, label="packaged sound manifest")
@@ -1591,16 +1676,22 @@ def _validate_required_runtime_resources(
             min_bytes=45,
         )
         try:
-            with wave.open(str(sound_path), "rb") as reader:
-                if (
-                    reader.getcomptype() != "NONE"
-                    or reader.getsampwidth() not in {1, 2}
-                    or reader.getframerate() <= 0
-                    or reader.getnframes() <= 0
-                ):
-                    _fail(
-                        f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
-                    )
+            snapshot, _ = _snapshot_regular_file(
+                sound_path,
+                label=f"packaged sound asset {event.value}",
+                max_bytes=_MAX_SOUND_FILE_BYTES,
+            )
+            with snapshot:
+                with wave.open(snapshot, "rb") as reader:
+                    if (
+                        reader.getcomptype() != "NONE"
+                        or reader.getsampwidth() not in {1, 2}
+                        or reader.getframerate() <= 0
+                        or reader.getnframes() <= 0
+                    ):
+                        _fail(
+                            f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
+                        )
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -1624,7 +1715,11 @@ def _validate_required_runtime_resources(
         label="Stockfish GPL notice",
     )
     try:
-        notice = notice_path.read_text(encoding="utf-8-sig").casefold()
+        notice = _read_stable_bytes_file(
+            notice_path,
+            label="Stockfish GPL notice",
+            max_bytes=64 * 1024,
+        ).decode("utf-8-sig", errors="strict").casefold()
     except (OSError, UnicodeError) as exc:
         _fail(f"Stockfish GPL notice is unreadable: {type(exc).__name__}")
     if (
@@ -1635,7 +1730,7 @@ def _validate_required_runtime_resources(
         _fail("Stockfish GPL notice is incomplete")
 
 
-def _manifest(root: Path) -> tuple[str, dict[str, object]]:
+def _manifest(root: Path) -> tuple[str, dict[str, object], str]:
     path = root / MANIFEST_NAME
     info = _safe_lstat(path, label="release manifest")
     if not stat.S_ISREG(info.st_mode):
@@ -1687,18 +1782,34 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
         or not _SHA40_RE.fullmatch(integration_sha.casefold())
     ):
         _fail("release manifest integration_sha must be a 40-hex commit")
-    return integration_sha.casefold(), data
+    return integration_sha.casefold(), data, hashlib.sha256(payload).hexdigest()
 
 
-def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
+def _checksums(
+    root: Path,
+    inventory: tuple[str, ...],
+    limits: PackageLimits,
+) -> tuple[dict[str, str], str]:
     path = root / CHECKSUMS_NAME
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
         _fail("checksum inventory must be a file")
     try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        payload = _read_stable_bytes_file(
+            path,
+            label="checksum inventory",
+            max_bytes=min(limits.max_member_bytes, _MAX_CHECKSUMS_BYTES),
+        )
+        lines = payload.decode("utf-8-sig", errors="strict").splitlines()
+        expected_line_count = len(inventory) - 1
+        if len(lines) > expected_line_count:
+            _fail("checksum inventory contains too many entries")
+    except Version2PackagePreflightError:
+        raise
     except (OSError, UnicodeError) as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
+
+    authority_sha256 = hashlib.sha256(payload).hexdigest()
 
     result: dict[str, str] = {}
     folded: set[str] = set()
@@ -1722,7 +1833,21 @@ def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
         actual = _sha256(root.joinpath(*PurePosixPath(relative).parts))
         if actual != expected_digest:
             _fail(f"package checksum mismatch: {relative}")
-    return result
+    return result, authority_sha256
+
+
+def _revalidate_checksums(
+    root: Path,
+    checksums: dict[str, str],
+    checksum_authority_sha256: str,
+) -> None:
+    """Require the validated package bytes to remain unchanged through the final gate."""
+    if _sha256(root / CHECKSUMS_NAME) != checksum_authority_sha256:
+        _fail("checksum inventory changed during package validation")
+    for relative, expected_digest in checksums.items():
+        actual = _sha256(root.joinpath(*PurePosixPath(relative).parts))
+        if actual != expected_digest:
+            _fail(f"package file changed during validation: {relative}")
 
 
 def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:
@@ -1732,38 +1857,58 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         tail = b""
+        source = None
         try:
-            # A PE image can legitimately contain compiler/debug build paths.  Do
-            # not classify those embedded binary strings as package text merely
-            # because UTF-8 error-ignoring happens to expose them.  This is
-            # structure-based, not suffix-only: text renamed to .dll/.exe still
-            # follows the normal path-leak gate.  Credential signatures remain
-            # scanned even inside recognized PE images.
+            before = _safe_lstat(path, label="package hygiene file")
+            if not stat.S_ISREG(before.st_mode):
+                _fail("package hygiene file must be a regular file")
+            source = path.open("rb")
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail("package hygiene file must remain a regular non-reparse file")
+            if not _same_file_snapshot(before, opened):
+                _fail("package hygiene file changed while being opened")
+
+            # A PE image can legitimately contain compiler/debug build paths. Do
+            # not classify those embedded binary strings as package text. The PE
+            # decision and the hygiene scan intentionally share this exact open
+            # handle so a pathname swap cannot make them describe different bytes.
             is_pe_binary = (
                 PurePosixPath(relative).suffix.casefold() in _WINDOWS_PE_BINARY_SUFFIXES
-                and _has_windows_pe_structure(path)
+                and _inspect_windows_pe_stream(source) is not None
             )
-            with path.open("rb") as handle:
-                while True:
-                    block = handle.read(chunk_size)
-                    if not block:
-                        break
-                    window = tail + block
-                    # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
-                    # without treating a large file as a scan exemption.
-                    text = window.decode("utf-8", errors="ignore")
-                    if (
-                        not is_pe_binary
-                        and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
-                    ):
-                        _fail(f"private local path leaked into package text: {relative}")
-                    if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-                        _fail(f"secret-like credential leaked into package text: {relative}")
-                    tail = window[-overlap_bytes:]
+            source.seek(0)
+            while True:
+                block = source.read(chunk_size)
+                if not block:
+                    break
+                window = tail + block
+                # Signatures are ASCII; ignore unrelated invalid UTF-8 bytes
+                # without treating a large file as a scan exemption.
+                text = window.decode("utf-8", errors="ignore")
+                if (
+                    not is_pe_binary
+                    and any(pattern.search(text) for pattern in _PRIVATE_PATH_PATTERNS)
+                ):
+                    _fail(f"private local path leaked into package text: {relative}")
+                if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
+                    _fail(f"secret-like credential leaked into package text: {relative}")
+                tail = window[-overlap_bytes:]
+
+            after_read = os.fstat(source.fileno())
+            after_path = _safe_lstat(path, label="package hygiene file")
+            if (
+                not _same_file_snapshot(opened, after_read)
+                or not _same_file_snapshot(after_read, after_path)
+            ):
+                _fail("package hygiene file changed while being scanned")
         except Version2PackagePreflightError:
             raise
         except OSError as exc:
             _fail(f"package hygiene scan failed: {type(exc).__name__}")
+        finally:
+            if source is not None:
+                source.close()
 
 
 def _normalize_expected_integration_sha(value: str) -> str:
@@ -1785,11 +1930,14 @@ def validate_version2_package_tree(
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
     _validate_required_runtime_resources(root, inventory, limits)
-    integration_sha, _ = _manifest(root)
+    integration_sha, _, manifest_sha256 = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
-    checksums = _checksums(root, inventory)
+    checksums, checksum_authority_sha256 = _checksums(root, inventory, limits)
+    if _sha256(root / MANIFEST_NAME) != manifest_sha256:
+        _fail("release manifest changed during validation")
     _scan_text_hygiene(root, inventory, limits)
+    _revalidate_checksums(root, checksums, checksum_authority_sha256)
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
         inventory=inventory,
