@@ -1,0 +1,102 @@
+name: Book Progress Orphan Backup Recovery
+
+on:
+  push:
+    branches:
+      - fix/book-progress-orphan-backup-recovery-20260929
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/book_progress_store.py'
+      - 'tests/test_v2_book_progress_store.py'
+      - '.github/workflows/book-progress-orphan-backup-recovery.yml'
+      - '.github/workflows/books-progress-backup-recovery.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
+      - 'tests/test_version2_application.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-progress-orphan-backup-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact Product ancestry and bounded ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          product_ref="refs/remotes/origin/$PRODUCT_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:$product_ref"
+          product="$(git rev-parse "$product_ref")"
+          git cat-file -e "$product^{commit}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test -n "$PR_BASE_SHA"
+            git cat-file -e "$PR_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$PR_BASE_SHA" "$product"
+          fi
+          git merge-base --is-ancestor "$product" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
+          changed="$(git diff --name-only "$product" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+            '.github/workflows/books-progress-backup-recovery.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
+            'acs/book_progress_store.py' \
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+          echo 'BOOK_PROGRESS_ORPHAN_BACKUP_SCOPE=PASS'
+
+      - name: Compile progress persistence surface
+        run: >-
+          python -m compileall -q
+          acs/book_progress_store.py
+          tests/test_v2_book_progress_store.py
+
+      - name: Focused Books persistence and importer regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_books_progress_backup_recovery_workflow
+          tests.test_book_board_progress_failure_exact
+          tests.test_version2_application
+          tests.test_bookreader
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Core selftest
+        run: python -m acs.selftest

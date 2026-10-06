@@ -6,12 +6,14 @@ on:
       - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/book_progress_store.py'
+      - 'tests/test_v2_book_progress_store.py'
       - 'acs/version2_application.py'
       - 'acs/version2_release_app.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_v2_native_dialog_language.py'
       - 'tests/test_books_progress_backup_recovery_workflow.py'
+      - '.github/workflows/book-progress-orphan-backup-recovery.yml'
       - '.github/workflows/books-progress-backup-recovery.yml'
       - '.github/workflows/v2-book-progress-production-repair.yml'
       - '.github/workflows/v2-composition-publication-boundary.yml'
@@ -63,9 +65,33 @@ jobs:
             '.github/workflows/v2-book-progress-production-repair.yml'
             'acs/book_progress_store.py'
           )
+
+          orphan_backup_successor=false
+          current_delta="$(git diff --name-only "$product" HEAD | sort)"
+          orphan_expected="$(printf '%s\n' \
+            '.github/workflows/book-progress-orphan-backup-recovery.yml' \
+            '.github/workflows/books-progress-backup-recovery.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
+            'acs/book_progress_store.py' \
+            'tests/test_v2_book_progress_store.py' \
+            'tests/test_version2_application.py' | sort)"
+          if [ "$current_delta" = "$orphan_expected" ]; then
+            test "$(git rev-parse "$product":acs/book_progress_store.py)" = "3c51f524a1e2702903914a2dd9c37c0ed8ebf87b"
+            test "$(git rev-parse "$product":tests/test_v2_book_progress_store.py)" = "52cb2948ec6789b60775e1fa38cae44770baff7a"
+            test "$(git rev-parse HEAD:.github/workflows/book-progress-orphan-backup-recovery.yml)" = "be76da69ae15b039ca90a8d1320c98d29bc6593f"
+            test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "84ef1b7b99c92862436e3a2212c5cdd16647dbb9"
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "ae880d0eb9ec99028f2b7e2dddff57f162211618"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "ae85ba96da66f339a530e2ddbbf311161fb9832e"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "c726668ecae8babf3e051dd958e3bad94b500be5"
+            orphan_backup_successor=true
+          fi
+
           for path in "${protected_paths[@]}"; do
             product_blob="$(git rev-parse "$product:$path")"
             candidate_blob="$(git rev-parse "HEAD:$path")"
+            if [ "$orphan_backup_successor" = true ]; then
+              continue
+            fi
             test "$candidate_blob" = "$product_blob" || {
               printf 'Recovery authority drift requires a dedicated successor gate: %s product=%s candidate=%s\n' \
                 "$path" "$product_blob" "$candidate_blob" >&2
