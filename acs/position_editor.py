@@ -12,6 +12,7 @@ VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 MAX_COORDINATE_POSITION_CHARS = 4096
+_MAX_SQUARE_DIAGNOSTIC_CHARS = 16
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
@@ -310,8 +311,18 @@ def _fill_coordinate_section(
             raise ValueError(f"unknown piece symbol: {tokens[index]}")
         if square in used:
             raise ValueError(f"square {square} is specified more than once")
+        try:
+            result = result.with_piece(square, piece if white else piece.lower())
+        except PositionValidationError as exc:
+            # Public PositionState square ingress deliberately keeps malformed
+            # values generic so hostile objects cannot trigger repr()/coercion.
+            # Here square is already a bounded built-in token materialized by
+            # this parser. Preserve useful detail only for short tokens; never
+            # echo an arbitrarily long paste into an accessible error.
+            if str(exc) == "invalid square" and len(square) <= _MAX_SQUARE_DIAGNOSTIC_CHARS:
+                raise PositionValidationError(f"invalid square: {square!r}") from exc
+            raise
         used.add(square)
-        result = result.with_piece(square, piece if white else piece.lower())
     return result
 
 def _square_index(square: str) -> int:
