@@ -16,7 +16,7 @@ const context = {
   requestAnimationFrame:fn=>fn(),soundStateLoadPromise:Promise.resolve(),
 };
 vm.createContext(context);
-vm.runInContext(source.slice(source.indexOf('async function loadMoveFeedbackSettings()'),source.indexOf('function applySoundLanguage()')),context);
+vm.runInContext(source.slice(source.indexOf('let currentSoundState = null;'),source.indexOf('function applySoundLanguage()')),context);
 vm.runInContext(source.slice(source.indexOf('async function markReady()'),source.indexOf('\ninstallMoveFocusPolicy();')),context);
 (async()=>{
   await context.loadSoundState();
@@ -84,6 +84,70 @@ vm.runInContext(source.slice(source.indexOf('async function markReady()'),source
   assert.equal(feedback.checked,false,'failed feedback write+reload must clear stale requested state');
   assert.equal(feedback.disabled,true,'failed feedback write+reload must leave the control disabled');
 
+  const canonicalSoundState = overrides => Object.assign({
+    ok:true,
+    enabled:true,
+    newGameAnimation:true,
+    volume:80,
+    tickPolicy:'my_turn',
+    tickLastSeconds:0,
+    lowTimePolicy:'my_turn',
+    lowTimeSeconds:30,
+    message:'',
+  }, overrides || {});
+
+  bridge.get_move_feedback_settings = async()=>({ok:true,enabled:false});
+  bridge.get_sound_settings = async()=>canonicalSoundState({ok:false,enabled:false});
+  assert.equal(await context.loadSoundState(),false,'ok:false sound read must not publish state');
+  assert.equal(vm.runInContext('currentSoundState',context),null);
+  for(const id of ['sound-enabled','sound-newgame-animation','sound-volume','sound-tick-policy','sound-tick-last-seconds','sound-low-time-policy','sound-low-time-seconds']) {
+    assert(controls.get(id).disabled,id+' was enabled by non-authoritative sound state');
+  }
+  assert.equal(controls.get('sound-settings-status').textContent,'Unavailable');
+
+  bridge.get_sound_settings = async()=>canonicalSoundState();
+  assert.equal(await context.loadSoundState(),true,'authoritative sound state should recover controls');
+  for(const id of ['sound-enabled','sound-newgame-animation','sound-volume','sound-tick-policy','sound-tick-last-seconds','sound-low-time-policy','sound-low-time-seconds']) {
+    assert(!controls.get(id).disabled,id+' stayed disabled after authoritative sound reload');
+  }
+
+  let resolveSoundWrite = null;
+  bridge.set_sound_volume = ()=>new Promise(resolve=>{resolveSoundWrite=resolve;});
+  controls.get('sound-volume').value = '35';
+  const pendingSoundWrite = context.persistSoundSetting('set_sound_volume',35);
+  assert.equal(vm.runInContext('currentSoundState',context),null,'pending sound write must revoke stale state');
+  for(const id of ['sound-enabled','sound-newgame-animation','sound-volume','sound-tick-policy','sound-tick-last-seconds','sound-low-time-policy','sound-low-time-seconds']) {
+    assert(controls.get(id).disabled,id+' stayed interactive during sound persistence');
+  }
+  resolveSoundWrite(canonicalSoundState({volume:35,message:'Volume 35'}));
+  const soundWriteResult = await pendingSoundWrite;
+  assert.equal(soundWriteResult.ok,true);
+  assert.equal(controls.get('sound-volume').value,'35');
+  for(const id of ['sound-enabled','sound-newgame-animation','sound-volume','sound-tick-policy','sound-tick-last-seconds','sound-low-time-policy','sound-low-time-seconds']) {
+    assert(!controls.get(id).disabled,id+' stayed disabled after authoritative sound write');
+  }
+
+  bridge.set_sound_volume = async()=>canonicalSoundState({ok:false,volume:5,message:'write refused'});
+  bridge.get_sound_settings = async()=>canonicalSoundState({volume:35});
+  controls.get('sound-volume').value = '5';
+  const refusedSoundWrite = await context.persistSoundSetting('set_sound_volume',5);
+  assert.equal(refusedSoundWrite.ok,false);
+  assert.equal(refusedSoundWrite.message,'write refused');
+  assert.equal(controls.get('sound-volume').value,'35','ok:false write must restore canonical sound state');
+  assert.equal(vm.runInContext('currentSoundState.volume',context),35);
+
+  bridge.set_sound_volume = async()=>{throw new Error('private sound write failure');};
+  controls.get('sound-volume').value = '10';
+  const failedSoundWrite = await context.persistSoundSetting('set_sound_volume',10);
+  assert.equal(failedSoundWrite.ok,false);
+  assert.equal(controls.get('sound-volume').value,'35','thrown sound write must restore canonical state');
+  assert.equal(vm.runInContext('currentSoundState.volume',context),35);
+
+  bridge.get_sound_settings = async()=>{
+    reads++;
+    if(failSoundRead) throw new Error('private sound read failure');
+    return canonicalSoundState();
+  };
   failSoundRead = true;
   const failedReload = context.loadSoundState();
   assert.equal(
