@@ -39,7 +39,18 @@ vm.runInContext(source.slice(source.indexOf('async function markReady()'),source
   for(const [id,control] of controls) assert(!control.disabled,id+' stayed disabled');
   assert.equal(context.document.body.dataset.stage1AppReady,'true');
   failSoundRead = true;
-  await context.loadSoundState();
+  const failedReload = context.loadSoundState();
+  assert.equal(
+    vm.runInContext('currentSoundState', context),
+    null,
+    'a reload in progress must revoke stale sound timing authority before awaiting the bridge',
+  );
+  await failedReload;
+  assert.equal(
+    vm.runInContext('currentSoundState', context),
+    null,
+    'a failed canonical reload must not retain stale sound timing authority',
+  );
   for(const id of ['sound-enabled','sound-newgame-animation','sound-volume','sound-tick-policy','sound-tick-last-seconds','sound-low-time-policy','sound-low-time-seconds']) {
     assert(controls.get(id).disabled,id+' stayed active after canonical sound-state read failed');
   }

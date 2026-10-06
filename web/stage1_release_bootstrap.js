@@ -712,6 +712,10 @@ async function loadSoundState() {
     for (const control of controls) {
         if (control) control.disabled = true;
     }
+    // Treat a reload as a fresh authority transaction. While canonical state is
+    // unknown (or if the read fails), NEWGAME presentation must not reuse a
+    // stale timing/variant snapshot from an earlier successful read.
+    currentSoundState = null;
     await loadMoveFeedbackSettings();
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
