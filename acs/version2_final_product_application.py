@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .agent_webview_bridge import AgentConversationWebViewBridge
+from .agent_webview_projection import AgentConversationProjection
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -83,6 +85,13 @@ class Version2FinalProductApplication(Version2Application):
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
         self._teaching_state: TeachingSessionState | None = None
+
+        # The Agent route is always reachable. Until a trusted execution host
+        # binds start/cancel callbacks it is explicitly unavailable and cannot
+        # fabricate model/tool work from browser content.
+        self.agent = AgentConversationWebViewBridge(
+            AgentConversationProjection(language=language.value)
+        )
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -275,11 +284,45 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_state = None
         self._clear_teaching_binding()
 
+    def bind_agent_conversation(
+        self,
+        *,
+        start_run: Callable[[str, str], object],
+        cancel_run: Callable[[str], object],
+    ) -> AgentConversationProjection:
+        """Bind presentation to a trusted host-owned Universal Agent scheduler.
+
+        The callbacks must preserve the execution/threading requirements of the
+        canonical Agent tools. In particular, this method never creates a
+        background chess/Library authority or moves ACSDB access off its owner
+        thread. The returned projection is the host's completion/status sink.
+        """
+
+        self._assert_thread()
+        projection = AgentConversationProjection(
+            start_run=start_run,
+            cancel_run=cancel_run,
+            language=self.shell.language.value,
+        )
+        self.agent = AgentConversationWebViewBridge(projection)
+        return projection
+
+    def unbind_agent_conversation(self) -> None:
+        """Return the route to fail-closed unavailable state when no run is active."""
+
+        self._assert_thread()
+        if self.agent.projection.snapshot()["run_id"]:
+            raise RuntimeError("stop the active Agent run before unbinding")
+        self.agent = AgentConversationWebViewBridge(
+            AgentConversationProjection(language=self.shell.language.value)
+        )
+
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
         if not isinstance(language, UILanguage):
             raise TypeError("full-product language must be UILanguage")
         self._rebuild_education_bridge(language)
+        self.agent.projection.set_language(language.value)
         if self._teacher_state_provider is not None and self._teacher_dispatch is not None:
             projection = TeacherWebViewProjection.from_teaching_session(
                 self._teacher_dispatch,
@@ -302,6 +345,8 @@ class Version2FinalProductApplication(Version2Application):
             if self.education is None:
                 return self._error()
             return asdict(self.education.dispatch(command, payload))
+        if area == "agent":
+            return asdict(self.agent.dispatch(command, payload))
         return super().browser_command(area, command, payload)
 
     def snapshot(self) -> dict[str, object]:
@@ -321,10 +366,12 @@ class Version2FinalProductApplication(Version2Application):
                     if self.education is None
                     else self.education.projection.snapshot()
                 ),
+                "agent": self.agent.projection.snapshot(),
                 "product_status": {
                     "teacher_session_active": self.teacher is not None,
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
+                    "agent_available": self.agent.projection.available,
                     "remote_transport": "not_approved",
                 },
             }
