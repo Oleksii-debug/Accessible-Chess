@@ -1,0 +1,171 @@
+name: Classroom Moderation Server Composition QA
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-moderation-rpc-core-20261002
+    paths:
+      - 'acs/sqlite_classroom_moderation_ledger.py'
+      - 'tests/test_sqlite_classroom_moderation_ledger.py'
+      - '.github/workflows/classroom-moderation-sqlite-ledger.yml'
+      - 'acs/livekit_classroom_moderation_admin.py'
+      - 'tests/test_livekit_classroom_moderation_admin.py'
+      - '.github/workflows/livekit-classroom-moderation-admin.yml'
+      - 'acs/classroom_join_credentials.py'
+      - 'acs/classroom_realtime_media.py'
+      - 'acs/classroom_media_policy_authority.py'
+      - 'tests/test_classroom_media_policy_authority.py'
+      - 'tests/test_classroom_effect_lock_cross_process.py'
+      - 'tests/test_classroom_provider_cancellation_atomicity.py'
+      - '.github/workflows/classroom-distinct-moderation-serialization.yml'
+      - 'tests/test_classroom_moderation_server_composition.py'
+      - 'tests/test_classroom_distinct_moderation_composition.py'
+      - '.github/workflows/classroom-moderation-server-composition.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-moderation-server-composition-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server-composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact QA head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove source-owner ancestry, blobs, and bounded QA scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          LEDGER_OWNER_SHA: e7366ce87e56f4c2580f5212972f4b42dc4465f9
+          CURRENT_LEDGER_OWNER_SHA: 86b3e5f18d2c153beef7eabd5d89c99a1278ffcc
+          ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf
+          POLICY_OWNER_SHA: f6d3df934b59b9fdac1bd917017982d87734daf6
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          test -n "$base"
+          if ! git merge-base --is-ancestor "$base" HEAD; then
+            echo "Current moderation RPC parent $base is not an ancestor of QA HEAD; synchronize the QA branch."
+            exit 1
+          fi
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git merge-base --is-ancestor "$LEDGER_OWNER_SHA" HEAD
+          git merge-base --is-ancestor "$CURRENT_LEDGER_OWNER_SHA" HEAD
+          git merge-base --is-ancestor "$ADMIN_OWNER_SHA" HEAD
+          git merge-base --is-ancestor "$POLICY_OWNER_SHA" HEAD
+
+          for path in \
+            acs/sqlite_classroom_moderation_ledger.py \
+            tests/test_sqlite_classroom_moderation_ledger.py
+          do
+            test "$(git rev-parse "$CURRENT_LEDGER_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+          test "$(git rev-parse HEAD:.github/workflows/classroom-moderation-sqlite-ledger.yml)" = "d46f4605f3a509d0bc0ae11a9989f3df8b35f7fd"
+
+          for path in \
+            acs/livekit_classroom_moderation_admin.py \
+            tests/test_livekit_classroom_moderation_admin.py
+          do
+            test "$(git rev-parse "$ADMIN_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+          test "$(git rev-parse HEAD:.github/workflows/livekit-classroom-moderation-admin.yml)" = "07d1bec542ae0f5f6dd6be47373c5135ce4f80c9"
+
+          for path in \
+            acs/classroom_join_credentials.py \
+            acs/classroom_realtime_media.py \
+            acs/classroom_media_policy_authority.py \
+            tests/test_classroom_media_policy_authority.py \
+            tests/test_classroom_effect_lock_cross_process.py \
+            tests/test_classroom_provider_cancellation_atomicity.py \
+            .github/workflows/classroom-distinct-moderation-serialization.yml
+          do
+            test "$(git rev-parse "$POLICY_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
+          done
+
+          git diff --check "$base...HEAD"
+          changed="$(git diff --name-only "$base...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-distinct-moderation-serialization.yml' \
+            '.github/workflows/classroom-moderation-server-composition.yml' \
+            '.github/workflows/classroom-moderation-sqlite-ledger.yml' \
+            '.github/workflows/livekit-classroom-moderation-admin.yml' \
+            'acs/classroom_join_credentials.py' \
+            'acs/classroom_media_policy_authority.py' \
+            'acs/classroom_realtime_media.py' \
+            'acs/livekit_classroom_moderation_admin.py' \
+            'acs/sqlite_classroom_moderation_ledger.py' \
+            'tests/test_classroom_distinct_moderation_composition.py' \
+            'tests/test_classroom_effect_lock_cross_process.py' \
+            'tests/test_classroom_media_policy_authority.py' \
+            'tests/test_classroom_moderation_server_composition.py' \
+            'tests/test_classroom_provider_cancellation_atomicity.py' \
+            'tests/test_livekit_classroom_moderation_admin.py' \
+            'tests/test_sqlite_classroom_moderation_ledger.py' | sort)"
+          test "$changed" = "$allowed"
+
+          git diff --quiet "$base...HEAD" -- \
+            acs/classroom_moderation_rpc.py \
+            acs/classroom_domain.py \
+            acs/chesscore.py
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile combined server path
+        run: >-
+          python -m py_compile
+          acs/classroom_moderation_rpc.py
+          acs/sqlite_classroom_moderation_ledger.py
+          acs/livekit_classroom_moderation_admin.py
+          acs/classroom_join_credentials.py
+          acs/classroom_realtime_media.py
+          acs/classroom_media_policy_authority.py
+          tests/test_classroom_moderation_server_composition.py
+          tests/test_classroom_distinct_moderation_composition.py
+          tests/test_classroom_effect_lock_cross_process.py
+          tests/test_classroom_provider_cancellation_atomicity.py
+
+      - name: Run exact combined moderation contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_moderation_server_composition
+          tests.test_classroom_distinct_moderation_composition
+          tests.test_sqlite_classroom_moderation_ledger
+          tests.test_livekit_classroom_moderation_admin
+          tests.test_classroom_media_policy_authority
+          tests.test_classroom_effect_lock_cross_process
+          tests.test_classroom_provider_cancellation_atomicity
+          tests.test_classroom_moderation_rpc
+          tests.test_classroom_realtime_media
+
+      - name: Run full repository unittest
+        run: python -m unittest discover -v
+
+      - name: Run full repository pytest
+        run: python -m pytest -q
+
+      - name: Core selftest
+        run: python -m acs.selftest

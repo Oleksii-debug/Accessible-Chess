@@ -1,0 +1,161 @@
+name: LiveKit Classroom Moderation Admin
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-moderation-rpc-core-20261002
+    paths:
+      - 'acs/livekit_classroom_moderation_admin.py'
+      - 'tests/test_livekit_classroom_moderation_admin.py'
+      - '.github/workflows/livekit-classroom-moderation-admin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livekit-classroom-moderation-admin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  moderation-admin:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove retained LiveKit authority on QA composition
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf
+          ADMIN_BLOB: 40aa7d37b80c38fdfaeec145864a76e2daebd664
+          ADMIN_TEST_BLOB: 5707b3facd588b327d493958e20c8709f0dc5739
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
+          test "$HEAD_REF" = "qa/classroom-moderation-server-composition-20261002"
+          git cat-file -e "$ADMIN_OWNER_SHA^{commit}" || git fetch --no-tags origin "$ADMIN_OWNER_SHA"
+          git merge-base --is-ancestor "$ADMIN_OWNER_SHA" HEAD
+          test "$(git rev-parse HEAD:acs/livekit_classroom_moderation_admin.py)" = "$ADMIN_BLOB"
+          test "$(git rev-parse HEAD:tests/test_livekit_classroom_moderation_admin.py)" = "$ADMIN_TEST_BLOB"
+          git fetch --no-tags origin "$EXPECTED_BASE_REF"
+          base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base...HEAD"
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile concrete moderation boundary
+        run: >-
+          python -m py_compile
+          acs/livekit_classroom_moderation_admin.py
+          tests/test_livekit_classroom_moderation_admin.py
+
+      - name: Verify pinned official LiveKit server wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --dest .livekit-sdk livekit-api==1.2.1
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          expected_name = "livekit_api-1.2.1-py3-none-any.whl"
+          expected_sha = "aa15b0a194c9e8167d4261bc61381682df23f98bc6d77760fcded93d2ce4b4ca"
+          files = list(Path(".livekit-sdk").glob("*"))
+          assert len(files) == 1, files
+          assert files[0].name == expected_name, files[0].name
+          assert sha256(files[0].read_bytes()).hexdigest() == expected_sha
+          print("LIVEKIT_ROOM_ADMIN_WHEEL_PIN=PASS")
+          PY
+
+      - name: Install exact LiveKit server SDK
+        run: python -m pip install --disable-pip-version-check -q livekit-api==1.2.1
+
+      - name: Run adapter and canonical moderation/media contracts
+        run: >-
+          python -m unittest -v
+          tests.test_livekit_classroom_moderation_admin
+          tests.test_classroom_moderation_rpc
+          tests.test_classroom_realtime_media
+
+      - name: Prove exact installed room-admin schema surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.metadata
+          from livekit import api
+
+          assert importlib.metadata.version("livekit-api") == "1.2.1"
+          permission = api.ParticipantPermission(
+              can_subscribe=True,
+              can_publish=True,
+              can_publish_data=True,
+              can_publish_sources=[
+                  api.TrackSource.MICROPHONE,
+                  api.TrackSource.CAMERA,
+              ],
+          )
+          clone = api.ParticipantPermission()
+          clone.CopyFrom(permission)
+          assert list(clone.can_publish_sources) == [
+              api.TrackSource.MICROPHONE,
+              api.TrackSource.CAMERA,
+          ]
+          assert clone.can_publish_data is True
+          update = api.UpdateParticipantRequest(
+              room="ci-room",
+              identity="ci-student",
+              permission=clone,
+          )
+          mute = api.MuteRoomTrackRequest(
+              room="ci-room",
+              identity="ci-student",
+              track_sid="TR_ci",
+              muted=True,
+          )
+          identity = api.RoomParticipantIdentity(
+              room="ci-room",
+              identity="ci-student",
+          )
+          assert update.room == mute.room == identity.room == "ci-room"
+          assert update.identity == mute.identity == identity.identity == "ci-student"
+          assert mute.track_sid == "TR_ci" and mute.muted is True
+          assert api.ServerErrorCode.NOT_FOUND == "not_found"
+          assert api.TrackSource.SCREEN_SHARE_AUDIO != api.TrackSource.SCREEN_SHARE
+          print("LIVEKIT_PINNED_ROOM_ADMIN_SCHEMA=PASS")
+          PY
+
+      - name: Prove server-only least-privilege boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'LIVEKIT_API_VERSION = "1.2.1"' acs/livekit_classroom_moderation_admin.py
+          grep -Fq 'can_publish_data' acs/livekit_classroom_moderation_admin.py
+          grep -Fq 'can_publish_sources' acs/livekit_classroom_moderation_admin.py
+          grep -Fq 'SCREEN_SHARE_AUDIO' tests/test_livekit_classroom_moderation_admin.py
+          grep -Fq 'value is False' acs/livekit_classroom_moderation_admin.py
+          ! grep -Eq 'os\.(environ|getenv)|LIVEKIT_API_SECRET|LIVEKIT_API_KEY' \
+            acs/livekit_classroom_moderation_admin.py
+          ! grep -Eq 'http://|https://|requests|aiohttp' acs/livekit_classroom_moderation_admin.py
+
+      - name: Core selftest
+        run: python -m acs.selftest

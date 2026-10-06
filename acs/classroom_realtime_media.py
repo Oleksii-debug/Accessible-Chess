@@ -291,7 +291,7 @@ class ClassroomMediaController:
         board_allowed = self._board_control_allowed(participant)
         sources = self._policies.get(participant)
         if sources is None:
-            sources = _default_source_policies(role)
+            sources = default_source_policies(role)
         return ParticipantMediaPolicy(
             participant_id=participant,
             role=role,
@@ -625,16 +625,11 @@ class ClassroomMediaController:
         return actor, target
 
     def _assert_can_moderate(self, actor_id: str, target_id: str) -> None:
-        actor_role = self._role(actor_id)
-        target_role = self._role(target_id)
-        if actor_role is ClassroomRole.TEACHER:
-            if target_role is ClassroomRole.TEACHER:
-                raise ClassroomMediaError("teacher cannot moderate another teacher")
-            return
-        if actor_role is ClassroomRole.CO_TEACHER:
-            if target_role in {ClassroomRole.STUDENT, ClassroomRole.OBSERVER}:
-                return
-        raise ClassroomMediaError("participant is not allowed to moderate target")
+        if not classroom_media_moderation_allowed(
+            self._role(actor_id),
+            self._role(target_id),
+        ):
+            raise ClassroomMediaError("participant is not allowed to moderate target")
 
     def _role(self, participant_id: str) -> ClassroomRole:
         participant = _id(participant_id, "participant id")
@@ -718,18 +713,41 @@ class ClassroomMediaController:
             raise ClassroomMediaError("media session is not connected")
 
 
-def _default_source_policies(role: ClassroomRole) -> tuple[SourcePolicy, ...]:
-    publish = role in {
+def default_source_policies(
+    role: ClassroomRole | str,
+) -> tuple[SourcePolicy, ...]:
+    """Return canonical role defaults shared by desktop and trusted server policy."""
+
+    normalized = _enum(role, ClassroomRole, "classroom role")
+    publish = normalized in {
         ClassroomRole.TEACHER,
         ClassroomRole.CO_TEACHER,
         ClassroomRole.STUDENT,
     }
-    screen = role in {ClassroomRole.TEACHER, ClassroomRole.CO_TEACHER}
+    screen = normalized in {ClassroomRole.TEACHER, ClassroomRole.CO_TEACHER}
     return (
         SourcePolicy(MediaSource.MICROPHONE, publish_allowed=publish),
         SourcePolicy(MediaSource.CAMERA, publish_allowed=publish),
         SourcePolicy(MediaSource.SCREEN_SHARE, publish_allowed=screen),
     )
+
+
+def classroom_media_moderation_allowed(
+    actor_role: ClassroomRole | str,
+    target_role: ClassroomRole | str,
+) -> bool:
+    """Return the canonical role-pair permission; caller owns identity/self checks."""
+
+    actor = _enum(actor_role, ClassroomRole, "moderation actor role")
+    target = _enum(target_role, ClassroomRole, "moderation target role")
+    if actor is ClassroomRole.TEACHER:
+        return target is not ClassroomRole.TEACHER
+    if actor is ClassroomRole.CO_TEACHER:
+        return target in {ClassroomRole.STUDENT, ClassroomRole.OBSERVER}
+    return False
+
+
+_default_source_policies = default_source_policies
 
 
 def _child_operation_id(root: str, index: int) -> str:
@@ -779,6 +797,8 @@ __all__ = [
     "ClassroomMediaError",
     "ClassroomRole",
     "ClassroomRosterPort",
+    "classroom_media_moderation_allowed",
+    "default_source_policies",
     "JoinCredential",
     "LocalMediaState",
     "MAX_JOIN_TTL_SECONDS",
