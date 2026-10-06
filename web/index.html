@@ -61,24 +61,24 @@ function historyOptionNodes(){return[...el('history-list').querySelectorAll('[ro
 function setHistoryBrowsePly(ply,focusNow=true){const options=historyOptionNodes(),target=options.find(node=>Number(node.dataset.ply)===Number(ply));if(!target)return;historyBrowsePly=Number(ply);options.forEach(node=>{const selected=node===target;node.tabIndex=selected?0:-1;node.setAttribute('aria-selected',selected?'true':'false')});if(focusNow)target.focus({preventScroll:true})}
 function onHistoryListKey(e){const options=historyOptionNodes();if(!options.length)return;const current=options.indexOf(e.currentTarget);let next=current;if(e.key==='ArrowUp')next=Math.max(0,current-1);else if(e.key==='ArrowDown')next=Math.min(options.length-1,current+1);else if(e.key==='Home')next=0;else if(e.key==='End')next=options.length-1;else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();const ply=Number(e.currentTarget.dataset.ply);if(Number.isSafeInteger(ply)&&ply>=0)apiAction('go_to_move',String(ply));return}else return;e.preventDefault();e.stopPropagation();setHistoryBrowsePly(Number(options[next].dataset.ply),true)}
 function renderHistory(items,reviewCursor){
- const list=el('history-list'),active=document.activeElement,hadFocus=!!(active&&list.contains(active)),safe=Array.isArray(items)?items:[],cursor=Number(reviewCursor);
- const itemShapeOk=safe.every(item=>item&&Number.isSafeInteger(Number(item.ply))&&Number(item.ply)>=0&&typeof item.label==='string'&&typeof item.selected==='boolean'&&typeof item.live==='boolean');
+ const list=el('history-list'),active=document.activeElement,hadFocus=!!(active&&list.contains(active)),safe=Array.isArray(items)?items:[],cursor=reviewCursor;
+ const itemShapeOk=safe.every(item=>item&&typeof item.ply==='number'&&Number.isSafeInteger(item.ply)&&item.ply>=0&&typeof item.label==='string'&&typeof item.selected==='boolean'&&typeof item.live==='boolean');
  if(!Number.isSafeInteger(cursor)||cursor<0||!itemShapeOk){list.textContent='';historyBrowsePly=null;return}
- const valid=safe,plies=valid.map(item=>Number(item.ply)),unique=new Set(plies),committed=valid.filter(item=>item.selected===true),live=valid.filter(item=>item.live===true);
+ const valid=safe,plies=valid.map(item=>item.ply),unique=new Set(plies),committed=valid.filter(item=>item.selected===true),live=valid.filter(item=>item.live===true);
  const sequenceOk=valid.length>0&&plies.every((ply,i)=>ply===i)&&unique.size===plies.length;
- const committedOk=committed.length===1&&Number(committed[0].ply)===cursor;
- const liveOk=live.length===1&&Number(live[0].ply)===valid.length-1;
+ const committedOk=committed.length===1&&committed[0].ply===cursor;
+ const liveOk=live.length===1&&live[0].ply===valid.length-1;
  if(!sequenceOk||!committedOk||!liveOk){list.textContent='';historyBrowsePly=null;return}
  const selected=committed.length?committed[0]:null;
- if(!hadFocus||historyBrowsePly===null||!plies.includes(Number(historyBrowsePly)))historyBrowsePly=selected?Number(selected.ply):(valid.length?Number(valid[0].ply):null);
+ if(!hadFocus||historyBrowsePly===null||!plies.includes(Number(historyBrowsePly)))historyBrowsePly=selected?selected.ply:(valid.length?valid[0].ply:null);
  list.textContent='';
  valid.forEach(item=>{
-  const node=document.createElement('li'),ply=Number(item.ply),chosen=ply===Number(historyBrowsePly),currentReview=item.selected===true,liveEnd=item.live===true;
+  const node=document.createElement('li'),ply=item.ply,chosen=ply===Number(historyBrowsePly),currentReview=item.selected===true,liveEnd=item.live===true;
   node.setAttribute('role','option');node.dataset.ply=String(ply);node.tabIndex=chosen?0:-1;node.setAttribute('aria-selected',chosen?'true':'false');
   if(currentReview)node.setAttribute('aria-current','true');
   const qualifiers=[];
   if(currentReview)qualifiers.push(localizedUiText('поточна позиція перегляду','current review position'));
-  if(liveEnd)qualifiers.push(localizedUiText('кінець живої партії','live game end'));
+  if(liveEnd)qualifiers.push(localizedUiText('поточна жива позиція','live current position'));
   if(qualifiers.length)node.setAttribute('aria-label',item.label+'. '+qualifiers.join('. '));
   node.textContent=item.label;node.addEventListener('focus',()=>setHistoryBrowsePly(ply,false));node.addEventListener('keydown',onHistoryListKey);node.addEventListener('click',()=>setHistoryBrowsePly(ply,true));list.appendChild(node)
  });

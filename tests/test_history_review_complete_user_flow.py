@@ -152,6 +152,37 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "cyclic live review history"):
             api._live_line_nodes(CyclicHistory())
 
+    def test_live_line_projection_rejects_duplicate_node_ids(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        live = api.live_history_node
+
+        class DuplicateHistory:
+            @staticmethod
+            def tree_nodes():
+                return [
+                    SimpleNamespace(node_id=live, parent_id=None),
+                    SimpleNamespace(node_id=live, parent_id=None),
+                ]
+
+        with self.assertRaisesRegex(RuntimeError, "duplicate review history node"):
+            api._live_line_nodes(DuplicateHistory())
+
+    def test_live_line_projection_rejects_missing_parent(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        live = api.live_history_node
+
+        class MissingParentHistory:
+            @staticmethod
+            def tree_nodes():
+                return [
+                    SimpleNamespace(node_id=live, parent_id=live + 1000),
+                ]
+
+        with self.assertRaisesRegex(RuntimeError, "live review history node is missing"):
+            api._live_line_nodes(MissingParentHistory())
+
     def test_committed_review_and_live_end_are_distinct_semantic_states(self) -> None:
         api = AccessibleChessAPI("en")
         play(api, "e4", "e5", "Nf3")
@@ -183,12 +214,13 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             "setHistoryBrowsePly(Number(options[next].dataset.ply),true)",
             "aria-current",
             "current review position",
-            "live game end",
+            "live current position",
             "const sequenceOk=valid.length>0&&plies.every((ply,i)=>ply===i)",
             "const committedOk=committed.length===1",
             "const liveOk=live.length===1",
             "ply>=0",
             "History positions",
+            "typeof item.ply==='number'",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
