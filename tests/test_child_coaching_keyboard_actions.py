@@ -9,6 +9,7 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.child_coaching_application import ChildCoachingApplication
+from acs.child_coaching_rotation import advance_rotation
 from acs.child_coaching_rotation_store import ChildCoachingRotationStore
 from acs.child_coaching_store import ChildCoachingTemplateStore
 from acs.classroom_domain import (
