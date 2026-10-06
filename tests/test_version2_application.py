@@ -85,7 +85,7 @@ class Version2ApplicationTests(unittest.TestCase):
             return {"ok": True, "fen": fen, "announcement": "untrusted board presentation"}
 
         self.app._board_dispatch = board_dispatch
-        result = self.app._delegate("position.read_fen", {})
+        result = self.app._delegate("board.read_fen", {})
 
         self.assertEqual({"ok": True, "fen": fen}, result)
         self.assertEqual([("board.read_fen", {})], calls)
@@ -101,7 +101,7 @@ class Version2ApplicationTests(unittest.TestCase):
 
         self.app.shell.set_language(UILanguage.EN)
         self.app._board_dispatch = lambda *_args: {"ok": True, "fen": fen}
-        self.app._delegate("position.read_fen", {})
+        self.app._delegate("board.read_fen", {})
         events = self.app.drain_events()
         self.assertTrue(
             any(
@@ -116,7 +116,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app._board_dispatch = lambda *_args: calls.append(True)
 
         with self.assertRaises(ValueError):
-            self.app._delegate("position.read_fen", {"unexpected": True})
+            self.app._delegate("board.read_fen", {"unexpected": True})
 
         self.assertEqual([], calls)
         self.assertEqual([], self.copied)
@@ -126,7 +126,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app._board_dispatch = lambda *_args: calls.append(True)
         self.app.shell.open_route("library")
 
-        for action in ("position.read_fen", "position.copy_fen"):
+        for action in ("board.read_fen", "position.copy_fen"):
             with self.subTest(action=action):
                 with self.assertRaisesRegex(ValueError, "visible Board"):
                     self.app._delegate(action, {})
