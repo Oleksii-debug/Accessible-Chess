@@ -1506,6 +1506,38 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ):
                 _validate_tree(root)
 
+    def test_tree_rejects_empty_directory_amplification_before_hashing(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            amplification = root / "AccessibleChess" / "amplification"
+            for index in range(250):
+                (amplification / f"empty-{index:03d}").mkdir(parents=True)
+
+            with (
+                patch.object(
+                    preflight,
+                    "_sha256",
+                    side_effect=AssertionError("hashing must not start"),
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "entry-count limit",
+                ),
+            ):
+                _validate_tree(
+                    root,
+                    limits=PackageLimits(
+                        max_files=100,
+                        max_bytes=8 * 1024 * 1024 * 1024,
+                        max_archive_bytes=4 * 1024 * 1024 * 1024,
+                        max_member_bytes=2 * 1024 * 1024 * 1024,
+                        max_compression_ratio=200,
+                        max_text_scan_bytes=2 * 1024 * 1024,
+                    ),
+                )
+
     def test_tree_rejects_member_over_per_file_limit_before_hashing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
