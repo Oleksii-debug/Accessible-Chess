@@ -519,6 +519,7 @@ class _SemanticHtmlParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.available_assets = available_assets
         self.control_checkpoint = control_checkpoint
+        self._control_failure: BaseException | None = None
         self.blocks = []
         self.warnings: list[str] = []
         self._warnings_suppressed = False
@@ -540,6 +541,15 @@ class _SemanticHtmlParser(HTMLParser):
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
+
+    def _checkpoint(self) -> None:
+        if self.control_checkpoint is None:
+            return
+        try:
+            self._checkpoint()
+        except BaseException as exc:
+            self._control_failure = exc
+            raise
 
     def _warning(self, message: str) -> None:
         if self._warnings_suppressed:
@@ -605,7 +615,7 @@ class _SemanticHtmlParser(HTMLParser):
     def _block_identity_index(self, target: object) -> int:
         for index, block in enumerate(self.blocks):
             if self.control_checkpoint is not None and index % 128 == 0:
-                self.control_checkpoint()
+                self._checkpoint()
             if block is target:
                 return index
         raise BookHtmlImportError(
@@ -1414,7 +1424,10 @@ class _SemanticHtmlParser(HTMLParser):
             # Canonical PGN validation still happens only after parsing through
             # the existing D06 round-trip authority; rejected candidates remain
             # readable prose at this location, never guessed chess content.
-            for candidate in _pgn_candidates(raw, self.control_checkpoint):
+            for candidate in _pgn_candidates(
+                raw,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            ):
                 self._append_block(
                     _PgnSlot(
                         candidate=_PgnCandidate(
@@ -1499,14 +1512,14 @@ class _SemanticHtmlParser(HTMLParser):
         recovered_captures = 0
         while self._captures:
             if self.control_checkpoint is not None and recovered_captures % 128 == 0:
-                self.control_checkpoint()
+                self._checkpoint()
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture, recovered=True)
             recovered_captures += 1
         recovered_lists = 0
         while self._lists:
             if self.control_checkpoint is not None and recovered_lists % 128 == 0:
-                self.control_checkpoint()
+                self._checkpoint()
             captured = self._lists.pop()
             captured.unsupported = True
             captured.structural_unsupported = True
@@ -1730,6 +1743,8 @@ def import_html_book(
         except BookHtmlImportError:
             raise
         except Exception as exc:
+            if parser._control_failure is exc:
+                raise
             raise BookHtmlImportError(
                 "HTML book could not be parsed safely",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -1741,6 +1756,8 @@ def import_html_book(
     except BookHtmlImportError:
         raise
     except Exception as exc:
+        if parser._control_failure is exc:
+            raise
         raise BookHtmlImportError(
             "HTML book could not be parsed safely",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
