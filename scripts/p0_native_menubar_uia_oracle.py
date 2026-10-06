@@ -182,6 +182,14 @@ def _uia_menu_handle_binding_checks(
     from_handle = uia.get("menu_from_handle")
     if not isinstance(from_handle, dict):
         from_handle = {}
+    exact_rows = uia.get("exact_menu_bars")
+    exact_row = (
+        exact_rows[0]
+        if isinstance(exact_rows, list)
+        and len(exact_rows) == 1
+        and isinstance(exact_rows[0], dict)
+        else {}
+    )
     return {
         "uia_handle_element_present": bool(from_handle),
         "uia_handle_automation_id_canonical": (
@@ -197,6 +205,13 @@ def _uia_menu_handle_binding_checks(
         "uia_handle_enabled": from_handle.get("enabled") is True,
         "uia_handle_onscreen": from_handle.get("offscreen") is False,
         "uia_handle_probe_clean": not bool(uia.get("menu_from_handle_error")),
+        "uia_exact_row_binds_same_handle": (
+            menu_handle != 0
+            and exact_row.get("automation_id") == "AccessibleChessFullProductMenu"
+            and exact_row.get("control_type") == "ControlType.MenuBar"
+            and exact_row.get("process_id") == pid
+            and exact_row.get("native_window_handle") == menu_handle
+        ),
     }
 
 
