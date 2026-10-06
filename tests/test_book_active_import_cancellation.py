@@ -315,6 +315,24 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 2)
 
+    def test_html_pgn_blank_region_scan_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during PGN blank-region scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 4:
+                raise failure
+
+        visible = "{PGN 1}\n" + ("\n" * 400) + '[Event "Study"]\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._pgn_candidates(visible, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 4)
+
     def test_html_visible_pgn_scan_observes_control_across_large_prose(self):
         import acs.book_html_import as html
 
@@ -508,6 +526,24 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             import_html_book(HTML, source_name='study.html', control_checkpoint=fail)
         self.assertIs(caught.exception, failure)
+
+    def test_html_available_asset_normalization_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during asset normalization")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        assets = [f"images/{index}.png" for index in range(400)]
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._asset_set(assets, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
 
     def test_non_callable_control_is_rejected(self):
         for importer, source, args in ((import_html_book, HTML, {}),
