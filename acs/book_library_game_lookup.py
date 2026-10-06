@@ -119,16 +119,17 @@ class AcsdbBookGameLookup:
         source_index = row.get("source_index")
         if type(source_index) is not int or source_index < 0 or source_index > _SQLITE_INTEGER_MAX:
             raise BookLibraryGameLookupError("stored book game identity is invalid")
-        persisted_warnings = self._stored_warnings(row)
 
         pgn_text = row.get("pgn_text")
-        # Bound the exact stored scalar before strip() or D06 parsing. A corrupt
-        # database row must not force a full scan/allocation beyond the canonical
-        # PGN ingress envelope merely to discover that it is invalid.
+        # Bound the exact stored scalar before strip(), warning JSON decoding or
+        # D06 parsing. A corrupt database row must not force a full scan/allocation
+        # elsewhere in the record before its primary game payload is rejected.
         if type(pgn_text) is not str or len(pgn_text) > MAX_PGN_TEXT_CHARS:
             raise BookLibraryGameLookupError("stored book game is not canonical")
         if not pgn_text.strip():
             raise BookLibraryGameLookupError("stored book game is not canonical")
+
+        persisted_warnings = self._stored_warnings(row)
 
         try:
             games = parse_pgn_text(pgn_text, strict=False)
