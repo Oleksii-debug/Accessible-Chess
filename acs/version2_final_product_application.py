@@ -331,6 +331,7 @@ class Version2FinalProductApplication(Version2Application):
         self._rotation_plan = None
         self._rotation_state = None
         self._rotation_store_revision = None
+        self._refresh_rotation_recovery_for_lesson(plan)
         return state
 
     def stop_teaching_session(self) -> None:
@@ -539,6 +540,31 @@ class Version2FinalProductApplication(Version2Application):
         # A successful integrity probe is not a state reconciliation. Preserve
         # any prior recovery fence until begin_or_resume reloads the exact
         # durable generation into the application-owned plan/state/revision.
+
+    def _refresh_rotation_recovery_for_lesson(self, lesson: LessonSession) -> None:
+        """Refresh read-only durable recovery truth for a newly owned lesson."""
+
+        store = self._rotation_store
+        if store is None:
+            self._rotation_load_error = False
+            return
+        try:
+            loaded = store.load()
+        except Exception:
+            self._rotation_load_error = True
+            return
+        if loaded is None:
+            self._rotation_load_error = False
+            return
+        try:
+            validate_rotation_scope(loaded.plan, lesson)
+        except ChildCoachingRotationError:
+            # A completed foreign lesson can be retired atomically by
+            # begin_or_resume; an incomplete foreign owner must remain visible
+            # as recovery-required before any keyboard mutation is attempted.
+            self._rotation_load_error = loaded.state.phase is not RotationPhase.COMPLETED
+        else:
+            self._rotation_load_error = False
 
     def _rotation_authorities(
         self,
