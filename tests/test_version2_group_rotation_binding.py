@@ -268,6 +268,62 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertEqual(started, loaded.state)
         self.assertNotEqual(old_bytes, self.store.path.read_bytes())
 
+    def test_completed_prior_lesson_rollover_conflict_preserves_concurrent_writer(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.app.plan_classroom_pairings(
+            batch_id="completed-race-pairing",
+            game_session_ids=("game-1", "game-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        state = self.app.bind_current_pairing_to_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.assertEqual("completed", state.phase.value)
+
+        self.app.stop_teaching_session()
+        other = LessonSession(
+            "session-2",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            self.plan.student_ids,
+            self.plan.cohort_id,
+        )
+        self.app.start_teaching_session(other)
+        real_save = self.store.save
+        foreign = b'{"external":"newer-completed-owner"}'
+
+        def concurrent_writer(plan, next_state, *, expected_revision):
+            self.store.path.write_bytes(foreign)
+            return real_save(
+                plan,
+                next_state,
+                expected_revision=expected_revision,
+            )
+
+        with mock.patch.object(self.store, "save", side_effect=concurrent_writer):
+            with self.assertRaises(ChildCoachingRotationStoreConflictError):
+                self.app.begin_or_resume_default_group_rotation("rotation-2")
+
+        self.assertEqual(foreign, self.store.path.read_bytes())
+        self.assertIsNone(self.app._rotation_state)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
     def test_advance_store_io_failure_marks_rotation_recovery_required(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
         with mock.patch.object(
