@@ -426,6 +426,15 @@
     root._pgnFlight = flight;
     const outbound = commandPayload(root, payload, options.omitLease === true);
 
+    function recoverAfterFailure() {
+      if (typeof options.afterFailure !== "function") return;
+      try {
+        options.afterFailure();
+      } catch (_) {
+        // Presentation recovery must never become command/domain authority.
+      }
+    }
+
     Promise.resolve()
       .then(function () { return invoke(command, outbound); })
       .then(
@@ -444,7 +453,11 @@
               root._pgnFlight === flight
             ) {
               root._pgnFlight = null;
-              announceRejected(root, announce, focusBefore);
+              try {
+                announceRejected(root, announce, focusBefore);
+              } finally {
+                recoverAfterFailure();
+              }
             }
             return;
           }
@@ -466,7 +479,11 @@
             return;
           }
           root._pgnFlight = null;
-          announceRejected(root, announce, focusBefore);
+          try {
+            announceRejected(root, announce, focusBefore);
+          } finally {
+            recoverAfterFailure();
+          }
         }
       );
     return true;
@@ -597,6 +614,7 @@
     const title = node("h2", editor.title);
     title.id = "pgn-comment-dialog-title";
     dialog.setAttribute("aria-labelledby", title.id);
+    dialog.setAttribute("aria-busy", "false");
     dialog.appendChild(title);
 
     const label = node("label", editor.label);
@@ -615,8 +633,28 @@
     const cancel = node("button", editor.cancel_label);
     cancel.type = "button";
     let opener = null;
+    let savePending = false;
+
+    function setSavePending(value) {
+      savePending = value === true;
+      save.disabled = savePending || !editor.enabled;
+      cancel.disabled = savePending;
+      textarea.readOnly = savePending;
+      dialog.setAttribute("aria-busy", savePending ? "true" : "false");
+    }
+
+    function recoverEditor() {
+      setSavePending(false);
+      if (!dialog.open) return;
+      textarea.focus({ preventScroll: true });
+      if (typeof textarea.select === "function") textarea.select();
+    }
 
     function closeAndRestore() {
+      // Once a canonical comment mutation is in flight, Cancel/Escape must not
+      // imply that it can be rolled back. Keep modal ownership until the host
+      // reports success/failure or a replacement render takes ownership.
+      if (savePending) return;
       if (dialog.open) dialog.close();
       if (opener && typeof opener.focus === "function") {
         opener.focus({ preventScroll: true });
@@ -624,7 +662,12 @@
     }
 
     save.addEventListener("click", function () {
-      invokeCommand(
+      if (savePending) return;
+      setSavePending(true);
+      // Keep deterministic focus inside the modal on a selectable/copyable,
+      // read-only text surface instead of leaving focus on a disabled button.
+      textarea.focus({ preventScroll: true });
+      const started = invokeCommand(
         root,
         invoke,
         announce,
@@ -632,10 +675,19 @@
         { text: textarea.value },
         {
           afterResult: function (result) {
+            if (result.kind === "error") {
+              recoverEditor();
+              return;
+            }
+            setSavePending(false);
             if (result.kind === "delegated") closeAndRestore();
-          }
+            // A selection result replaces this whole DOM through applyEvent();
+            // that canonical render owns focus, so never restore the stale opener.
+          },
+          afterFailure: recoverEditor
         }
       );
+      if (!started) recoverEditor();
     });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
@@ -649,6 +701,9 @@
       dialog: dialog,
       open: function (button) {
         if (!editor.enabled) return;
+        const activeFlight = root._pgnFlight;
+        const epoch = root._pgnRenderEpoch || 0;
+        if (activeFlight && activeFlight.epoch === epoch) return;
         opener = button;
         dialog.showModal();
         textarea.focus();
