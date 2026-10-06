@@ -6,7 +6,14 @@ from unittest import mock
 
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
-from acs.pgn_service import PgnConcurrentWriteError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
+from acs.pgn_service import (
+    PgnConcurrentWriteError,
+    PgnFileImporter,
+    PgnUnsafePathError,
+    export_game_atomic,
+    open_pgn,
+    save_pgn_atomic,
+)
 
 
 RICH_PGN = '''[Event "Main"]
@@ -209,6 +216,78 @@ class PgnFileServiceTests(unittest.TestCase):
                     save_pgn_atomic(path, games, overwrite=False)
             self.assertIn("Created by another writer", path.read_text(encoding="utf-8"))
 
+    def test_export_parent_replacement_before_payload_fails_closed(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "chosen"
+            parent.mkdir()
+            moved = root / "chosen-original"
+            path = parent / "out.pgn"
+            consumed = False
+            real_named_temporary_file = tempfile.NamedTemporaryFile
+
+            def guarded_games():
+                nonlocal consumed
+                consumed = True
+                yield from games
+
+            def replace_parent_before_temp_open(*args, **kwargs):
+                parent.rename(moved)
+                parent.mkdir()
+                return real_named_temporary_file(*args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.tempfile.NamedTemporaryFile",
+                side_effect=replace_parent_before_temp_open,
+            ):
+                with self.assertRaises(PgnUnsafePathError):
+                    save_pgn_atomic(path, guarded_games())
+
+            self.assertFalse(consumed)
+            self.assertFalse(path.exists())
+            self.assertFalse((moved / "out.pgn").exists())
+            self.assertEqual(list(parent.glob("*.tmp")), [])
+            self.assertEqual(list(moved.glob("*.tmp")), [])
+
+    def test_export_parent_replacement_after_commit_cannot_report_false_success(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "chosen"
+            parent.mkdir()
+            moved = root / "chosen-original"
+            path = parent / "out.pgn"
+
+            import acs.pgn_service as pgn_service_module
+
+            real_fingerprint = pgn_service_module.fingerprint
+
+            def replace_parent_during_final_fingerprint(candidate, *args, **kwargs):
+                parent.rename(moved)
+                parent.mkdir()
+                path.write_text(
+                    '[Event "Replacement path"]\n[Result "*"]\n\n1. d4 *\n',
+                    encoding="utf-8",
+                )
+                return real_fingerprint(candidate, *args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=replace_parent_during_final_fingerprint,
+            ):
+                with self.assertRaises(PgnUnsafePathError):
+                    save_pgn_atomic(path, games)
+
+            self.assertIn(
+                "Prepared",
+                (moved / "out.pgn").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Replacement path",
+                path.read_text(encoding="utf-8"),
+            )
+
     def test_pre_publish_check_aborts_after_fsync_without_publication(self):
         games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
@@ -251,8 +330,8 @@ class PgnFileServiceTests(unittest.TestCase):
             / "pgn-conversion-prepublish-cancel.yml"
         ).read_text(encoding="utf-8")
         required = (
-            "PINNED_PRODUCT_SHA: 8f78c4c88890f07f974b5d552fda7e274beadc50",
-            "PREDECESSOR_PGN_HEAD: ab2cb5b9e9872a5c53598cf82c9699fe02155f16",
+            "PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152",
+            "PREDECESSOR_PGN_HEAD: 8ac3756564b4a2331df5af1062ebf5adc12e4499",
             'test "$live_product" = "$PINNED_PRODUCT_SHA"',
             'git merge-base --is-ancestor "$PREDECESSOR_PGN_HEAD" "$live_product"',
             'git merge-base --is-ancestor "$live_product" HEAD',

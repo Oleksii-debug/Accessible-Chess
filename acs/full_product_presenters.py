@@ -116,6 +116,8 @@ class PgnTreePresenter:
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
+        if type(language) is not UILanguage:
+            raise TypeError("PGN presenter language must be UILanguage")
         self._games = snapshot_pgn_presentation_games(games)
         self._language = language
         self._game_index = 0 if self._games else -1
@@ -136,15 +138,34 @@ class PgnTreePresenter:
         return SurfaceStatus.READY if self._games else SurfaceStatus.EMPTY
 
     def set_language(self, language: UILanguage) -> None:
+        """Rebuild localized labels transactionally before publishing the locale."""
+
+        if type(language) is not UILanguage:
+            raise TypeError("PGN presenter language must be UILanguage")
+        items, selected = self._build_items(
+            game_index=self._game_index,
+            language=language,
+            selected_node_id=self._selected_node_id,
+        )
+        self._items = items
+        self._selected_node_id = selected
         self._language = language
-        self._rebuild()
 
     def select_game(self, index: int) -> PgnGameView:
+        """Select one game without publishing a half-rebuilt presenter state."""
+
+        if type(index) is not int:
+            raise TypeError("PGN game index must be an exact integer")
         if not 0 <= index < len(self._games):
             raise IndexError("PGN game index is outside the collection")
+        items, selected = self._build_items(
+            game_index=index,
+            language=self._language,
+            selected_node_id=None,
+        )
         self._game_index = index
-        self._selected_node_id = None
-        self._rebuild()
+        self._items = items
+        self._selected_node_id = selected
         return self.view()
 
     def next_game(self) -> PgnGameView:
@@ -153,26 +174,43 @@ class PgnTreePresenter:
     def previous_game(self) -> PgnGameView:
         return self.select_game(self._game_index - 1)
 
-    def _rebuild(self) -> None:
-        if self._game_index < 0:
-            self._items = ()
-            self._selected_node_id = None
-            return
-        game = self._games[self._game_index]
+    def _build_items(
+        self,
+        *,
+        game_index: int,
+        language: UILanguage,
+        selected_node_id: str | None,
+    ) -> tuple[tuple[PgnTreeItem, ...], str | None]:
+        """Build one complete candidate tree without mutating live presentation state."""
+
+        if game_index < 0:
+            return (), None
+        game = self._games[game_index]
         validate_pgn_presentation_graph(game)
         items: list[PgnTreeItem] = []
         self._append_line(
             game.line,
             items,
-            line_id=f"g{self._game_index}:main",
+            line_id=f"g{game_index}:main",
             parent_id=None,
             depth=0,
             variation_label=None,
+            language=language,
         )
-        self._items = tuple(items)
-        ids = {item.node_id for item in self._items}
-        if self._selected_node_id not in ids:
-            self._selected_node_id = self._items[0].node_id if self._items else None
+        frozen = tuple(items)
+        ids = {item.node_id for item in frozen}
+        if selected_node_id not in ids:
+            selected_node_id = frozen[0].node_id if frozen else None
+        return frozen, selected_node_id
+
+    def _rebuild(self) -> None:
+        items, selected = self._build_items(
+            game_index=self._game_index,
+            language=self._language,
+            selected_node_id=self._selected_node_id,
+        )
+        self._items = items
+        self._selected_node_id = selected
 
     def _append_line(
         self,
@@ -183,6 +221,7 @@ class PgnTreePresenter:
         parent_id: str | None,
         depth: int,
         variation_label: str | None,
+        language: UILanguage,
     ) -> None:
         if variation_label is not None:
             out.append(
@@ -218,7 +257,7 @@ class PgnTreePresenter:
             # exposing exact before/after slots to read-only semantic readers.
             comments = comments_before + comments_after
             annotation = " ".join(move.nags)
-            accessible_move = _pgn_accessible_move_label(move.san, self._language)
+            accessible_move = _pgn_accessible_move_label(move.san, language)
             label = f"{number}{accessible_move}"
             if annotation:
                 label += f" {annotation}"
@@ -244,10 +283,11 @@ class PgnTreePresenter:
                     parent_id=node_id,
                     depth=depth + 1,
                     variation_label=_localized(
-                        self._language,
+                        language,
                         f"Варіант {variation_index + 1}",
                         f"Variation {variation_index + 1}",
                     ),
+                    language=language,
                 )
 
     def items(self) -> tuple[PgnTreeItem, ...]:
@@ -341,6 +381,18 @@ class LibraryView:
     message: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class _LibraryPresenterState:
+    """Rollback-only snapshot of presentation state, never domain/search state."""
+
+    language: UILanguage
+    pages: tuple[tuple[GameSearchQuery, GameSearchPage], ...]
+    page_index: int
+    selected_game_id: int | None
+    status: SurfaceStatus
+    message: str
+
+
 class LibraryPresenter:
     """Keyboard-stable page/selection projection over :class:`GameSearchService`."""
 
@@ -361,6 +413,27 @@ class LibraryPresenter:
     @property
     def selected_game_id(self) -> int | None:
         return self._selected_game_id
+
+    def _capture_presentation_state(self) -> _LibraryPresenterState:
+        """Capture only browser-visible mutable state for failed-render rollback."""
+        return _LibraryPresenterState(
+            language=self._language,
+            pages=tuple(self._pages),
+            page_index=self._page_index,
+            selected_game_id=self._selected_game_id,
+            status=self._status,
+            message=self._message,
+        )
+
+    def _restore_presentation_state(self, state: _LibraryPresenterState) -> None:
+        if type(state) is not _LibraryPresenterState:
+            raise TypeError("library presentation rollback state is invalid")
+        self._language = state.language
+        self._pages = list(state.pages)
+        self._page_index = state.page_index
+        self._selected_game_id = state.selected_game_id
+        self._status = state.status
+        self._message = state.message
 
     def set_language(self, language: UILanguage) -> None:
         self._language = language

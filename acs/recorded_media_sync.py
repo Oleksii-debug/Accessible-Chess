@@ -21,6 +21,8 @@ from .media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationState,
+    MediaTimelineBarrier,
     MediaSource,
     MediaSourceKind,
     TimelineResolution,
@@ -245,6 +247,52 @@ class RecordedMediaTimelineBuilder:
                 )
         return speech_context
 
+    def _record_barrier(
+        self,
+        frame: BoardFrameEvidence,
+        *,
+        state: MediaReconciliationState,
+        reason: str,
+    ) -> None:
+        barrier = MediaTimelineBarrier(
+            source_id=self.plan.source.source_id,
+            timestamp_ms=frame.timestamp_ms,
+            state=state,
+            evidence_ids=(
+                frame.observation_ref,
+            ) if frame.observation_ref is not None else (),
+            reason=reason,
+        )
+        existing = self.timeline.barrier_at(frame.timestamp_ms)
+        if existing == barrier:
+            return
+        if existing is not None:
+            self.timeline = MediaPositionTimeline(
+                self.timeline.source_id,
+                self.timeline.links,
+                identity=self.timeline.identity,
+                barriers=tuple(
+                    item
+                    for item in self.timeline.barriers
+                    if item.timestamp_ms != frame.timestamp_ms
+                ),
+            )
+        self.timeline = self.timeline.with_barrier(barrier)
+
+    def _without_barrier_at(self, timestamp_ms: int) -> MediaPositionTimeline:
+        if self.timeline.barrier_at(timestamp_ms) is None:
+            return self.timeline
+        return MediaPositionTimeline(
+            self.timeline.source_id,
+            self.timeline.links,
+            identity=self.timeline.identity,
+            barriers=tuple(
+                item
+                for item in self.timeline.barriers
+                if item.timestamp_ms != timestamp_ms
+            ),
+        )
+
     def accept(
         self,
         frame: BoardFrameEvidence,
@@ -255,6 +303,11 @@ class RecordedMediaTimelineBuilder:
         context = self._validate_speech(speech_context)
 
         if frame.disposition is FrameDisposition.TRANSITION:
+            self._record_barrier(
+                frame,
+                state=MediaReconciliationState.RESYNC_REQUIRED,
+                reason="recorded media frame is a transition",
+            )
             return RecordedSyncStep(
                 RecordedSyncStepKind.SKIPPED,
                 frame.timestamp_ms,
@@ -264,6 +317,11 @@ class RecordedMediaTimelineBuilder:
                 ),
             )
         if frame.disposition is FrameDisposition.OCCLUDED:
+            self._record_barrier(
+                frame,
+                state=MediaReconciliationState.RESYNC_REQUIRED,
+                reason="recorded media board is occluded",
+            )
             return RecordedSyncStep(
                 RecordedSyncStepKind.SKIPPED,
                 frame.timestamp_ms,
@@ -286,10 +344,20 @@ class RecordedMediaTimelineBuilder:
 
         if link is None:
             if frame.disposition is FrameDisposition.AMBIGUOUS:
+                self._record_barrier(
+                    frame,
+                    state=MediaReconciliationState.AMBIGUOUS,
+                    reason="recorded media frame remains ambiguous",
+                )
                 text = (
                     "Recorded media frame is ambiguous; canonical position was not changed."
                 )
             else:
+                self._record_barrier(
+                    frame,
+                    state=MediaReconciliationState.OBSERVED,
+                    reason="recorded media frame has no accepted canonical position",
+                )
                 text = (
                     "No canonical chess position was accepted for this recorded frame."
                 )
@@ -321,9 +389,10 @@ class RecordedMediaTimelineBuilder:
                 code=RecordedSyncErrorCode.UNSAFE_CONFIRMATION,
             )
 
+        clean_timeline = self._without_barrier_at(frame.timestamp_ms)
         same_key = tuple(
             item
-            for item in self.timeline.links_at(frame.timestamp_ms)
+            for item in clean_timeline.links_at(frame.timestamp_ms)
             if item.chess_ref == link.chess_ref
         )
         if same_key:
@@ -341,7 +410,7 @@ class RecordedMediaTimelineBuilder:
             )
 
         try:
-            self.timeline = self.timeline.with_link(link)
+            self.timeline = clean_timeline.with_link(link)
         except MediaContractError as exc:
             raise RecordedSyncContractError(
                 "canonical Media Core rejected the recorded-media link",
