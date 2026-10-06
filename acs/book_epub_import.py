@@ -40,6 +40,8 @@ MAX_EPUB_ENTRY_BYTES = 16 * 1024 * 1024
 MAX_EPUB_XML_BYTES = 4 * 1024 * 1024
 MAX_EPUB_XML_ELEMENTS = 100_000
 MAX_EPUB_XML_DEPTH = 128
+MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT = 256
+MAX_EPUB_XML_ATTRIBUTES_TOTAL = 100_000
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
 MAX_EPUB_WARNINGS = 4_096
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
@@ -931,16 +933,24 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
 
     parser = expat.ParserCreate()
     element_count = 0
+    attribute_count = 0
     depth = 0
 
     def reject_declaration(*_args: object) -> None:
         raise _ForbiddenXmlDeclaration()
 
-    def start_element(_name: str, _attrs: dict[str, str]) -> None:
-        nonlocal element_count, depth
+    def start_element(_name: str, attrs: dict[str, str]) -> None:
+        nonlocal element_count, attribute_count, depth
         element_count += 1
         depth += 1
-        if element_count > MAX_EPUB_XML_ELEMENTS or depth > MAX_EPUB_XML_DEPTH:
+        current_attributes = len(attrs)
+        attribute_count += current_attributes
+        if (
+            element_count > MAX_EPUB_XML_ELEMENTS
+            or depth > MAX_EPUB_XML_DEPTH
+            or current_attributes > MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT
+            or attribute_count > MAX_EPUB_XML_ATTRIBUTES_TOTAL
+        ):
             raise _XmlResourceLimit()
 
     def end_element(_name: str) -> None:
