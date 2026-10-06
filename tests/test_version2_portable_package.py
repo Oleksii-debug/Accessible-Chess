@@ -1624,6 +1624,61 @@ class PortableTreeTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertFalse(target.exists())
 
+    def test_zip_publication_cleans_owned_link_if_post_link_stat_fails(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_link = portable_module.os.link
+            real_safe_info = portable_module._safe_info
+            link_created = False
+            injected = False
+
+            def link_then_mark(source, destination, *args, **kwargs):
+                nonlocal link_created
+                real_link(source, destination, *args, **kwargs)
+                if Path(destination) == target:
+                    link_created = True
+
+            def fail_first_post_link_stat(path, *args, **kwargs):
+                nonlocal injected
+                label = kwargs.get("label")
+                if (
+                    link_created
+                    and not injected
+                    and label == "verified portable ZIP archive"
+                ):
+                    injected = True
+                    raise Version2PortablePackageError(
+                        "simulated post-link stat failure"
+                    )
+                return real_safe_info(path, *args, **kwargs)
+
+            with mock.patch.object(
+                portable_module.os,
+                "link",
+                side_effect=link_then_mark,
+            ), mock.patch.object(
+                portable_module,
+                "_safe_info",
+                side_effect=fail_first_post_link_stat,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "simulated post-link stat failure",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(link_created)
+            self.assertTrue(injected)
+            self.assertFalse(target.exists())
+
     def test_zip_publication_rejects_same_inode_mutation_after_link(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
