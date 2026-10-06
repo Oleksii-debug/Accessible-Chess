@@ -20,6 +20,13 @@ class FakeElement {
     this.maxLength = 0;
   }
   appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
+  removeChild(child) {
+    const index = this.children.indexOf(child);
+    if (index < 0) throw new Error("child not found");
+    this.children.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
   replaceChildren(child) { this.children = []; if (child) this.appendChild(child); }
   setAttribute(name, value) { this.attributes[String(name)] = String(value); }
   getAttribute(name) { return this.attributes[String(name)] || ""; }
@@ -89,6 +96,11 @@ async function flush() { await Promise.resolve(); await Promise.resolve(); }
         {id:"agent-turn-1",role:"user",label:"You",text:"Analyze e4"}
       ])}};
     }
+    if (command === "agent.status") {
+      const status = snapshot("completed", []);
+      delete status.transcript;
+      return {kind:"status",payload:{snapshot:status}};
+    }
     if (command === "agent.snapshot") {
       return {kind:"render",payload:{snapshot:snapshot("completed",[
         {id:"agent-turn-1",role:"user",label:"You",text:"Analyze e4"},
@@ -127,6 +139,8 @@ async function flush() { await Promise.resolve(); await Promise.resolve(); }
   const poll = timers.shift();
   poll();
   await flush();
+  check(calls.some((x)=>x[0] === "agent.status"), "active polling retransmitted the full transcript instead of lightweight status");
+  check(calls.some((x)=>x[0] === "agent.snapshot"), "terminal status did not fetch the transcript once");
   const secondTurn = root.querySelector("#agent-turn-2");
   check(Boolean(secondTurn), "assistant completion turn missing");
   const secondBody = secondTurn.descendants().find((x)=>x.tagName === "P");
@@ -134,6 +148,17 @@ async function flush() { await Promise.resolve(); await Promise.resolve(); }
   check(secondBody.style.whiteSpace === "pre-wrap", "assistant multiline text is not visibly/copyably preserved");
   check(root.querySelector("#agent-send").disabled === false, "completion did not restore Send");
   check(root.querySelector("#agent-stop").disabled === true, "completion did not disable Stop");
+
+  window.AccessibleChessAgentSurface.apply(
+    root,
+    {kind:"render",payload:{snapshot:snapshot("completed",[
+      {id:"agent-turn-2",role:"assistant",label:"Assistant",text:"Retained answer"}
+    ])}},
+    invoke,
+    (m)=>announcements.push(String(m))
+  );
+  check(root.querySelector("#agent-turn-1") === null, "expired transcript turn remained in the DOM");
+  check(Boolean(root.querySelector("#agent-turn-2")), "retained transcript turn disappeared");
 
   window.AccessibleChessAgentSurface.render(root, snapshot("running",[
     {id:"agent-turn-1",role:"user",label:"You",text:"Analyze e4"}
