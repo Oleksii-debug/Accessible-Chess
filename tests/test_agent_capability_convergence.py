@@ -65,6 +65,8 @@ class AgentCapabilityConvergenceTests(unittest.TestCase):
             "gametree.next_game",
             "gametree.previous_game",
             "library.open_game",
+            "formats.capabilities",
+            "formats.chessbase_extension",
         }
         self.assertTrue(expected.issubset(specs))
         self.assertEqual(len(specs), len({spec.tool_id for spec in self.executor.specs()}))
@@ -73,6 +75,8 @@ class AgentCapabilityConvergenceTests(unittest.TestCase):
         self.assertIs(specs["gametree.current"].risk, ToolRisk.READ_ONLY)
         self.assertIs(specs["gametree.next_move"].risk, ToolRisk.LOCAL_WRITE)
         self.assertIs(specs["library.open_game"].risk, ToolRisk.LOCAL_WRITE)
+        self.assertIs(specs["formats.capabilities"].risk, ToolRisk.READ_ONLY)
+        self.assertIs(specs["formats.chessbase_extension"].risk, ToolRisk.READ_ONLY)
 
     def test_composed_registry_executes_gametree_and_library_boundaries(self) -> None:
         current = self.execute("gametree.current")

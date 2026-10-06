@@ -84,7 +84,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/format_import_report_service.py)" = 'd834ac643b4998df91594f12caf8dd4dd288b393'
           test "$(git rev-parse HEAD:acs/agent_books_training_tools.py)" = '39862492d461ec4a0d2011c6e2ec40507bebd9ee'
           test "$(git rev-parse HEAD:acs/agent_classroom_tools.py)" = '0dbc5613c13dfb1e8e9e6336fbc950cee8742e9f'
-          test "$(git rev-parse HEAD:tests/test_agent_capability_convergence.py)" = 'd01c910b5fa311bfaf82694c1f14f47411e2e401'
+          test "$(git rev-parse HEAD:tests/test_agent_capability_convergence.py)" = 'ace625e889fc5485d62e892cfaa3c147be8082f4'
           test "$(git rev-parse HEAD:tests/test_agent_continuous_analysis.py)" = 'e90f25468ef3562a3364a734c771f59bcab405f6'
           test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '65e6445dd04d3dc3c7d75c36e0186203a3607d8b'
           test "$(git rev-parse HEAD:tests/test_agent_library_open_game.py)" = '34eb1b9629cdbde21d2e20f6ebd35234f2f9b001'
