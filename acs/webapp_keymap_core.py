@@ -669,27 +669,19 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         blocked = self._temporary_exploration_error()
         if blocked is not None:
             return blocked
-        text = (text or "").strip()
+        if type(text) is not str or len(text) > _webapp.MAX_MOVE_ENTRY_CHARS:
+            return super().make_move(text)
+        text = text.strip()
         if not text:
-            return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
+            return super().make_move(text)
         resolution = self.keymap_service.resolve_alias(BindingContext.MOVE_ENTRY.value, text)
         if resolution is not None:
             return self._dispatch_move_entry_action(str(resolution["actionId"]))
-        if not self._at_history_end():
-            return self._error(self._t("review_before_move"))
-        if not self._position_complete(self.board):
-            return self._error(self._t("setup_incomplete"))
-        try:
-            side = self.board.turn
-            san = self.board.push_text(text)
-            self.sans.append(san)
-            self.move_sides.append(side)
-            self.redo_meta.clear()
-            self.selected_source = None
-            self._record_position_after_move(san, side)
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _shared_spoken_san(san, self.lang))
-        except Exception:
-            return self._error(self._t("move_invalid"))
+        # Do not fall back to AccessibleChessAPI.make_move here: that method
+        # owns the legacy one-letter aliases.  A remapped central keymap must
+        # not silently reactivate those defaults.  Reuse only its canonical
+        # chess-move transaction after central alias resolution has declined.
+        return self._play_move_text(text)
 
     def _dispatch_move_entry_action(self, action_id: str) -> dict[str, Any]:
         handlers = {
