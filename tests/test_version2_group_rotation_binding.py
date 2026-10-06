@@ -284,6 +284,31 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertEqual("review", snap["activity"])
         self.assertFalse(snap["pair_play_bound"])
 
+    def test_bind_outside_pair_round_preserves_domain_error_precedence(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        before = self.store.path.read_bytes()
+        self.app.plan_classroom_pairings(
+            batch_id="premature-subset",
+            game_session_ids=("game-1",),
+            student_ids=("student-1", "student-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "only bind during pair-play rotation",
+        ):
+            self.app.bind_current_pairing_to_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+
+        self.assertEqual(before, self.store.path.read_bytes())
+        self.assertEqual(state, self.app._rotation_state)
+        self.assertFalse(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
     def test_pair_round_rejects_subset_batch_for_all_students_target(self) -> None:
         state = self._reach_pair_round()
         before = self.store.path.read_bytes()

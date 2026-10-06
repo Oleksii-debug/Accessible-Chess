@@ -709,15 +709,16 @@ class Version2FinalProductApplication(Version2Application):
         }
         batch_students.update(batch.unpaired_student_ids)
         expected_students: set[str] | None = None
-        if item.target is RotationTarget.ALL:
-            expected_students = set(lesson.student_ids)
-        elif item.target is RotationTarget.SELECTED:
-            expected_students = set(item.target_ids)
-        # GROUP membership remains owned by the classroom/group authority.
-        if expected_students is not None and batch_students != expected_students:
-            raise RuntimeError(
-                "Pairing batch does not match current rotation target"
-            )
+        if item.activity is RotationActivity.PAIR_PLAY:
+            if item.target is RotationTarget.ALL:
+                expected_students = set(lesson.student_ids)
+            elif item.target is RotationTarget.SELECTED:
+                expected_students = set(item.target_ids)
+            # GROUP membership remains owned by the classroom/group authority.
+            if expected_students is not None and batch_students != expected_students:
+                raise RuntimeError(
+                    "Pairing batch does not match current rotation target"
+                )
         next_state = bind_pair_play_batch(
             plan,
             state,
