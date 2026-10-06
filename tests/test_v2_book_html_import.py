@@ -623,6 +623,140 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_inline_display_none_cannot_publish_reading_or_chess_semantics(self) -> None:
+        source = f"""<html><body>
+<h1>Visible before</h1>
+<section style=" color: red ; DISPLAY : none ">
+  <p>Style-hidden reading text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+  <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible after</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-display-none.html",
+            available_assets={"images/hidden.png"},
+        )
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible before", rendered)
+        self.assertIn("Visible after", rendered)
+        self.assertNotIn("Style-hidden reading text", rendered)
+        self.assertNotIn('[Event "Accessible book demo"]', rendered)
+
+    def test_inline_display_cascade_uses_last_declaration_and_important_precedence(self) -> None:
+        visible_sources = (
+            f"""<html><body>
+<div style="display:none; DISPLAY:block">
+  <p>Visible by later declaration</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</div>
+</body></html>""",
+            f"""<html><body>
+<div style="display: block ! IMPORTANT; display:none">
+  <p>Visible by important declaration</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</div>
+</body></html>""",
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-visible-{index}.html",
+                )
+                self.assertTrue(
+                    any(isinstance(block, Paragraph) for block in result.document.blocks)
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+        hidden = import_html_book(
+            f"""<html><body>
+<div style="display:none!important; display:block">
+  <div data-acs-fen="{Board.START}">Must remain hidden</div>
+</div>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="style-important-hidden.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in hidden.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_inline_visibility_can_be_overridden_by_visible_descendant(self) -> None:
+        source = f"""<html><body>
+<section style="visibility:hidden">
+  <p style="visibility:visible">Visible descendant text</p>
+  <div style="visibility:visible" data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-visibility-descendant-override.html",
+        )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible descendant text"
+                for block in result.document.blocks
+            )
+        )
+        positions = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].fen, Board.START)
+
+    def test_inline_style_hidden_void_element_does_not_hide_following_content(self) -> None:
+        source = f"""<html><body>
+<img style="display:none" src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+<p>Visible after style-hidden image</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-hidden-void.html",
+            available_assets={"images/hidden.png"},
+        )
+
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible after style-hidden image"
+                for block in result.document.blocks
+            )
+        )
+
     def test_hidden_subtree_cannot_publish_reading_or_chess_semantics(self) -> None:
         source = f"""<html><body>
 <h1>Visible before</h1>
