@@ -159,7 +159,6 @@ class Version2BookOpenWorker:
                     self._thread = None
                     self._focus_target = ""
                     self._pending_outcome_kind = None
-                    self._pending_outcome_kind = None
             try:
                 self._emit(BookOpenWorkerEventKind.FAILED, focus_target)
             except BaseException:
@@ -218,6 +217,7 @@ class Version2BookOpenWorker:
                     self._cancel = None
                     self._thread = None
                     self._focus_target = ""
+                    self._pending_outcome_kind = None
 
     def _finish(
         self,
@@ -233,7 +233,7 @@ class Version2BookOpenWorker:
                 # A bounded shutdown can fence this generation but still refuse
                 # the native close while its cancelled thread drains. If recovery
                 # has re-opened the worker, consume only this exact stale owner
-                # and publish one cancelled terminal; this returns keyboard/NVDA
+                # and publish its retained recovery terminal; this returns keyboard/NVDA
                 # state to idle without allowing the prepared result to commit.
                 if self._cancel is cancel:
                     self._cancel = None
