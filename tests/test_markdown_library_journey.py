@@ -8,7 +8,7 @@ from acs.acsdb import AcsDatabase
 from acs.book_library_import import open_book_library_source
 from acs.book_library_game_lookup import AcsdbBookGameLookup
 from acs.book_text_import import import_text_book, BookTextFormat, BookTextImportError
-from acs.bookdocument import Game, Heading, ListBlock, Note, Position
+from acs.bookdocument import Game, Heading, ListBlock, Note, Paragraph, Position
 from acs.chesscore import Board
 from acs.gametree_legality import validate_game_legality
 from acs.library_import_service import LibraryImportService
@@ -133,7 +133,7 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             source_format=BookTextFormat.MARKDOWN,
         )
         valid_paragraphs = [
-            block for block in valid.document.blocks if type(block).__name__ == "Paragraph"
+            block for block in valid.document.blocks if type(block) is Paragraph
         ]
         self.assertEqual([block.text for block in valid_paragraphs], ["quoted text"])
         self.assertTrue(any("block quote structure" in warning for warning in valid.warnings))
@@ -146,7 +146,7 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
                     source_format=BookTextFormat.MARKDOWN,
                 )
                 paragraphs = [
-                    block for block in book.document.blocks if type(block).__name__ == "Paragraph"
+                    block for block in book.document.blocks if type(block) is Paragraph
                 ]
                 self.assertEqual([block.text for block in paragraphs], ["> not a top-level quote"])
                 self.assertFalse(any("block quote structure" in warning for warning in book.warnings))
