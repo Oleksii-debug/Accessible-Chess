@@ -759,10 +759,15 @@
         ) {
           previousActiveElement.focus({ preventScroll: true });
         }
-        if (error && typeof error === "object") {
-          error.committedPresentationPreserved = true;
-        }
-        throw error;
+        // Never mutate an arbitrary thrown value to carry rollback metadata.
+        // Renderers can throw frozen/sealed objects or Proxies with hostile
+        // assignment traps. Wrap the original failure in an internal passive
+        // marker so publication recovery can preserve the restored committed
+        // DOM without invoking caller-controlled hooks.
+        throw {
+          committedPresentationPreserved: true,
+          cause: error
+        };
       }
 
       // Candidate validation/render succeeded. Retire the previously rendered
