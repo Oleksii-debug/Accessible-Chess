@@ -430,6 +430,16 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         spoken = status["announcement"].casefold()
         self.assertTrue("віднов" in spoken or "recovery" in spoken)
         self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        corrupt = store.path.read_bytes()
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+R")
+
+        self.assertEqual(corrupt, store.path.read_bytes())
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
 
     def test_keyboard_status_speaks_recovery_when_durable_rotation_is_corrupt(self) -> None:
         store = self.app._rotation_store
