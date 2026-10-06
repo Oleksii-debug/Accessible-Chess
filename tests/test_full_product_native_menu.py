@@ -215,6 +215,19 @@ class FullProductNativeMenuTests(unittest.TestCase):
         )
         self.assertEqual("&Учитель/Клас", ua[11].label)
 
+    def test_position_menu_read_fen_dispatches_the_canonical_board_action(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        position_menu = next(menu for menu in controller.spec() if menu.menu_id == "position")
+        read_fen = next(
+            item for item in position_menu.items if item.action_id == "board.read_fen"
+        )
+
+        command = controller.activate(read_fen)
+
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("board.read_fen", {})], calls)
+        self.assertEqual([command], commands)
+
     def test_top_level_mnemonics_are_unique_in_each_supported_language(self) -> None:
         expected_visible = {
             UILanguage.EN: (
