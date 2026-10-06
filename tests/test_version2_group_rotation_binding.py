@@ -209,6 +209,9 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             self.plan.cohort_id,
         )
         self.app.start_teaching_session(other)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
         with self.assertRaisesRegex(RuntimeError, "different teaching session"):
             self.app.begin_or_resume_default_group_rotation("rotation-1")
         self.assertTrue(
@@ -252,6 +255,9 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             self.plan.cohort_id,
         )
         self.app.start_teaching_session(other)
+        self.assertFalse(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
 
         started = self.app.begin_or_resume_default_group_rotation("rotation-2")
 
