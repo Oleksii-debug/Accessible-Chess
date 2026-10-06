@@ -96,6 +96,31 @@ def _checkpoint(status: PreprocessStatus, completed: int, total: int) -> Preproc
 
 
 class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
+    def test_playback_nested_media_cursor_must_be_exact_passive_value(self) -> None:
+        class ActiveCursor(MediaCursor):
+            def __getattribute__(self, name):
+                if name in {"source_id", "position_ms"}:
+                    raise AssertionError("active playback cursor getter was executed")
+                return super().__getattribute__(name)
+
+        bridge = RecordedMediaAccessibilityBridge(language="en")
+        cursor = ActiveCursor("recorded-1", 20_500)
+        session = MediaChessSession(cursor, "opaque:session-node")
+        timeline = MediaPositionTimeline(
+            "recorded-1", (_link(20_000, "opaque:confirmed-node"),)
+        )
+        resolution = RecordedPlaybackResolution(
+            session=session,
+            resolution=timeline.resolve_at_or_before(20_500),
+            event=AccessibleRecordedSyncEvent(
+                "Recorded media evidence is synchronized.",
+                "Recorded media evidence is synchronized.",
+            ),
+        )
+
+        with self.assertRaises(RecordedMediaAccessibilityError):
+            bridge.snapshot(**_clock_kwargs(), playback=resolution)
+
     def test_nested_media_cursor_must_be_exact_passive_value(self) -> None:
         class ActiveCursor(MediaCursor):
             def __getattribute__(self, name):
