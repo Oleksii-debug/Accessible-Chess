@@ -57,6 +57,12 @@ class AgentConversationWebViewBridge:
             if command_id == "agent.snapshot":
                 self._exact(data, set())
                 return AgentConversationEvent("render", {"snapshot": self._projection.snapshot()})
+            if command_id == "agent.status":
+                self._exact(data, set())
+                return AgentConversationEvent(
+                    "status",
+                    {"snapshot": self._projection.status_snapshot()},
+                )
             if command_id == "agent.submit":
                 self._exact(data, {"text"})
                 return self._projection.submit(data["text"])
