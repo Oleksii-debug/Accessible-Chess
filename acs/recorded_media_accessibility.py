@@ -204,6 +204,20 @@ def _validate_clock_values(
     return position, duration, playback_state, safe_revision
 
 
+def _validate_playback_resolution(
+    playback: RecordedPlaybackResolution | None,
+) -> RecordedPlaybackResolution | None:
+    if playback is None:
+        return None
+    if type(playback) is not RecordedPlaybackResolution:
+        raise RecordedMediaAccessibilityError("invalid recorded playback resolution")
+    if type(playback.session) is not MediaChessSession:
+        raise RecordedMediaAccessibilityError("invalid recorded playback session")
+    if type(playback.session.media_cursor) is not MediaCursor:
+        raise RecordedMediaAccessibilityError("invalid recorded playback cursor")
+    return playback
+
+
 def _validate_sync_snapshot(snapshot: RecordedSyncSnapshot | None) -> RecordedSyncSnapshot | None:
     if snapshot is None:
         return None
@@ -425,10 +439,7 @@ class RecordedMediaAccessibilityBridge:
                 playback_state=playback_state,
                 revision=revision,
             )
-            if playback is not None and type(playback) is not RecordedPlaybackResolution:
-                raise RecordedMediaAccessibilityError(
-                    "invalid recorded playback resolution"
-                )
+            safe_playback = _validate_playback_resolution(playback)
             safe_sync = _validate_sync_snapshot(sync_snapshot)
             if playback is not None:
                 playback_position = _nonnegative_int(
@@ -439,12 +450,12 @@ class RecordedMediaAccessibilityBridge:
                     raise RecordedMediaAccessibilityError(
                         "recorded playback position disagrees with the current media clock"
                     )
-            if playback is not None and safe_sync is not None:
-                if playback.session.media_cursor.source_id != safe_sync.source.source_id:
+            if safe_playback is not None and safe_sync is not None:
+                if safe_playback.session.media_cursor.source_id != safe_sync.source.source_id:
                     raise RecordedMediaAccessibilityError(
                         "recorded playback and synchronization snapshots use different sources"
                     )
-            qualification = _qualification(playback, safe_sync, position)
+            qualification = _qualification(safe_playback, safe_sync, position)
             preprocess_status, completed, total, cancel_enabled = _validate_progress(
                 preprocess
             )
@@ -458,8 +469,8 @@ class RecordedMediaAccessibilityBridge:
                     )
             labels = _LABELS[self._language]
             restored_event = _event_text(event)
-            if playback is not None:
-                event_text = _event_text(playback.event)
+            if safe_playback is not None:
+                event_text = _event_text(safe_playback.event)
                 if restored_event and restored_event != event_text:
                     raise RecordedMediaAccessibilityError(
                         "playback/event mismatch"
