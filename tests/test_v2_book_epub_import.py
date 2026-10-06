@@ -168,6 +168,51 @@ class EpubXmlStructureBudgetTests(unittest.TestCase):
         self.assertIn("package metadata", str(raised.exception))
 
 
+class EpubRenditionBudgetTests(unittest.TestCase):
+    def test_import_rejects_rootfile_count_above_budget_before_opf_parse(self) -> None:
+        container = b"""<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="OEBPS/alternate.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"""
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            container=container,
+            entries={
+                "OEBPS/alternate.opf": opf,
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
+            },
+        )
+
+        with patch("acs.book_epub_import.MAX_EPUB_RENDITIONS", 1):
+            with self.assertRaises(BookEpubImportError) as raised:
+                import_epub_book(raw, source_name="too-many-renditions.epub")
+        self.assertEqual(raised.exception.code, BookEpubImportErrorCode.RESOURCE_LIMIT)
+        self.assertIn("too many package renditions", str(raised.exception))
+
+    def test_import_accepts_rendition_count_at_exact_budget(self) -> None:
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            entries={
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
+            },
+        )
+
+        with patch("acs.book_epub_import.MAX_EPUB_RENDITIONS", 1):
+            result = import_epub_book(raw, source_name="one-rendition.epub")
+        self.assertEqual(result.spine_documents, 1)
+
+
 class EpubImageReferenceDeduplicationTests(unittest.TestCase):
     def test_duplicate_resolved_images_preserve_first_seen_order_once(self) -> None:
         manifest = """    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>

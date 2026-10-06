@@ -42,6 +42,7 @@ MAX_EPUB_XML_ELEMENTS = 100_000
 MAX_EPUB_XML_DEPTH = 128
 MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT = 256
 MAX_EPUB_XML_ATTRIBUTES_TOTAL = 100_000
+MAX_EPUB_RENDITIONS = 256
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
 MAX_EPUB_WARNINGS = 4_096
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
@@ -1452,6 +1453,11 @@ def _package_rootfiles(
             )
         seen_paths.add(full_path)
         candidates.append(full_path)
+        if len(candidates) > MAX_EPUB_RENDITIONS:
+            raise _error(
+                "EPUB container declares too many package renditions",
+                BookEpubImportErrorCode.RESOURCE_LIMIT,
+            )
         if (element.tail or "").strip():
             raise _error(
                 "EPUB rootfiles section contains invalid text content",
