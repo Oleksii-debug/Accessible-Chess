@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .full_product_ui_shell import concise_user_error
-from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection
+from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
 
 
 class PgnWebViewBridge:
