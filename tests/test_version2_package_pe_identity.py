@@ -195,6 +195,165 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             self.assertFalse(preflight._same_file_snapshot(left, different_inode))
             self.assertFalse(preflight._same_file_snapshot(left, different_size))
 
+    def test_snapshot_rejects_missing_or_noninteger_mtime_metadata(self):
+        valid = _snapshot(dev=5, ino=19)
+        missing = SimpleNamespace(st_dev=5, st_ino=19, st_size=4096)
+        unavailable = _snapshot(dev=5, ino=19, mtime_ns=None)
+        boolean = _snapshot(dev=5, ino=19, mtime_ns=True)
+        text = _snapshot(dev=5, ino=19, mtime_ns="123456789")
+
+        with patch.object(preflight.os.path, "samestat", return_value=True):
+            self.assertFalse(preflight._same_file_snapshot(missing, missing))
+            self.assertFalse(preflight._same_file_snapshot(valid, unavailable))
+            self.assertFalse(preflight._same_file_snapshot(boolean, boolean))
+            self.assertFalse(preflight._same_file_snapshot(text, text))
+
+    def test_snapshot_rejects_missing_invalid_or_changed_size_metadata(self):
+        valid = _snapshot(dev=5, ino=19)
+        missing = SimpleNamespace(
+            st_dev=5,
+            st_ino=19,
+            st_mtime_ns=123456789,
+        )
+        boolean = SimpleNamespace(
+            st_dev=5,
+            st_ino=19,
+            st_size=True,
+            st_mtime_ns=123456789,
+        )
+        negative = _snapshot(dev=5, ino=19, size=-1)
+        changed = _snapshot(dev=5, ino=19, size=4097)
+
+        with patch.object(preflight.os.path, "samestat", return_value=True):
+            self.assertFalse(preflight._same_file_snapshot(missing, missing))
+            self.assertFalse(preflight._same_file_snapshot(boolean, boolean))
+            self.assertFalse(preflight._same_file_snapshot(negative, negative))
+            self.assertFalse(preflight._same_file_snapshot(valid, changed))
+
+    def test_snapshot_rejects_negative_or_changed_mtime_metadata(self):
+        valid = _snapshot(dev=5, ino=19)
+        negative = _snapshot(dev=5, ino=19, mtime_ns=-1)
+        changed = _snapshot(dev=5, ino=19, mtime_ns=123456790)
+
+        with patch.object(preflight.os.path, "samestat", return_value=True):
+            self.assertFalse(preflight._same_file_snapshot(negative, negative))
+            self.assertFalse(preflight._same_file_snapshot(valid, changed))
+
+    def test_checksum_inventory_is_parsed_from_one_stable_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            real_snapshot = preflight._snapshot_regular_file
+
+            with patch.object(
+                preflight,
+                "_snapshot_regular_file",
+                wraps=real_snapshot,
+            ) as snapshots:
+                report = _validate_tree(root)
+
+            checksum_calls = [
+                call
+                for call in snapshots.call_args_list
+                if Path(call.args[0]).name == preflight.CHECKSUMS_NAME
+            ]
+            self.assertEqual(len(checksum_calls), 1)
+            self.assertEqual(
+                checksum_calls[0].kwargs["label"],
+                "checksum inventory",
+            )
+            self.assertEqual(report.integration_sha, "a" * 40)
+
+    def test_checksum_inventory_snapshot_failure_is_authoritative(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            real_snapshot = preflight._snapshot_regular_file
+
+            def snapshot_or_fail(path: Path, *args, **kwargs):
+                if Path(path).name == preflight.CHECKSUMS_NAME:
+                    raise Version2PackagePreflightError(
+                        "checksum inventory changed while being read"
+                    )
+                return real_snapshot(path, *args, **kwargs)
+
+            with patch.object(
+                preflight,
+                "_snapshot_regular_file",
+                side_effect=snapshot_or_fail,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed while being read",
+                ):
+                    _validate_tree(root)
+
+    def test_sha256_reads_one_stable_file_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            payload = b"stable-package-payload"
+            target.write_bytes(payload)
+            real_open = Path.open
+            read_opens = 0
+
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == target and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counting_open):
+                digest = preflight._sha256(target)
+
+            self.assertEqual(
+                digest,
+                preflight.hashlib.sha256(payload).hexdigest(),
+            )
+            self.assertEqual(read_opens, 1)
+
+    def test_sha256_rejects_identity_change_while_opening(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            target.write_bytes(b"stable-package-payload")
+
+            with patch.object(preflight, "_same_file_snapshot", return_value=False):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being opened",
+                ):
+                    preflight._sha256(target)
+
+    def test_sha256_rejects_handle_change_after_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            target.write_bytes(b"stable-package-payload")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                side_effect=(True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being read",
+                ):
+                    preflight._sha256(target)
+
+    def test_sha256_rejects_path_change_after_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            target.write_bytes(b"stable-package-payload")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                side_effect=(True, True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being read",
+                ):
+                    preflight._sha256(target)
+
     def test_pe_validation_rejects_identity_change_while_opening(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "runtime.dll"
