@@ -23,6 +23,33 @@ class _FailingProgressStore:
         raise self.error
 
 
+class _RecoverableWorkerStub:
+    """Native-owner test double with an explicit class-level recovery contract."""
+
+    def __init__(self, *shutdown_results, resume_result=True) -> None:
+        if not shutdown_results:
+            raise ValueError("at least one shutdown result is required")
+        self._shutdown_results = list(shutdown_results)
+        self.resume_result = resume_result
+        self.shutdown_calls: list[object] = []
+        self.resume_calls = 0
+
+    def shutdown(self, timeout=None):
+        self.shutdown_calls.append(timeout)
+        result = (
+            self._shutdown_results.pop(0)
+            if len(self._shutdown_results) > 1
+            else self._shutdown_results[0]
+        )
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    def resume_after_refused_shutdown(self):
+        self.resume_calls += 1
+        return self.resume_result
+
+
 class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
     def _application(self, database: AcsDatabase, analysis: AnalysisService, store) -> Version2Application:
         application = Version2Application(
@@ -48,10 +75,8 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     analysis,
                     _FailingProgressStore(root / "book-progress.json"),
                 )
-                book_worker = mock.Mock()
-                book_worker.shutdown.return_value = False
-                file_worker = mock.Mock()
-                file_worker.shutdown.return_value = True
+                book_worker = _RecoverableWorkerStub(False)
+                file_worker = _RecoverableWorkerStub(True)
                 application._book_open_worker = book_worker
                 application._files = file_worker
 
@@ -60,8 +85,10 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                      mock.patch.object(database, "close", wraps=database.close) as close:
                     self.assertFalse(application.shutdown(timeout=0.25))
 
-                book_worker.shutdown.assert_called_once_with(timeout=0.25)
-                file_worker.shutdown.assert_called_once_with(timeout=0.25)
+                self.assertEqual(book_worker.shutdown_calls, [0.25])
+                self.assertEqual(file_worker.shutdown_calls, [0.25])
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
                 training.assert_not_called()
                 book.assert_not_called()
                 close.assert_not_called()
@@ -374,10 +401,8 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
             store.path = root / "book-progress.json"
             try:
                 application = self._application(database, analysis, store)
-                book_worker = mock.Mock()
-                book_worker.shutdown.side_effect = [False, True]
-                file_worker = mock.Mock()
-                file_worker.shutdown.return_value = True
+                book_worker = _RecoverableWorkerStub(False, True)
+                file_worker = _RecoverableWorkerStub(True)
                 application._book_open_worker = book_worker
                 application._files = file_worker
 
@@ -388,14 +413,10 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 with self.assertRaises(sqlite3.ProgrammingError):
                     database.conn.execute("SELECT 1")
 
-                self.assertEqual(
-                    book_worker.shutdown.call_args_list,
-                    [mock.call(timeout=0.01), mock.call(timeout=0.5)],
-                )
-                self.assertEqual(
-                    file_worker.shutdown.call_args_list,
-                    [mock.call(timeout=0.01), mock.call(timeout=0.5)],
-                )
+                self.assertEqual(book_worker.shutdown_calls, [0.01, 0.5])
+                self.assertEqual(file_worker.shutdown_calls, [0.01, 0.5])
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
                 store.save.assert_called_once_with(
                     application.book_key,
                     application.reader,
@@ -423,10 +444,8 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     analysis,
                     _FailingProgressStore(root / "book-progress.json"),
                 )
-                book_worker = mock.Mock()
-                book_worker.shutdown.side_effect = primary
-                file_worker = mock.Mock()
-                file_worker.shutdown.side_effect = secondary
+                book_worker = _RecoverableWorkerStub(primary)
+                file_worker = _RecoverableWorkerStub(secondary)
                 application._book_open_worker = book_worker
                 application._files = file_worker
 
@@ -437,8 +456,10 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                         application.shutdown(timeout=0.5)
 
                 self.assertIs(caught.exception, primary)
-                book_worker.shutdown.assert_called_once_with(timeout=0.5)
-                file_worker.shutdown.assert_called_once_with(timeout=0.5)
+                self.assertEqual(book_worker.shutdown_calls, [0.5])
+                self.assertEqual(file_worker.shutdown_calls, [0.5])
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
                 training.assert_not_called()
                 book.assert_not_called()
                 close.assert_not_called()
@@ -458,10 +479,8 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     analysis,
                     _FailingProgressStore(root / "book-progress.json"),
                 )
-                book_worker = mock.Mock()
-                book_worker.shutdown.return_value = 1
-                file_worker = mock.Mock()
-                file_worker.shutdown.return_value = True
+                book_worker = _RecoverableWorkerStub(1)
+                file_worker = _RecoverableWorkerStub(True)
                 application._book_open_worker = book_worker
                 application._files = file_worker
 
@@ -470,8 +489,10 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                      mock.patch.object(database, "close", wraps=database.close) as close:
                     self.assertFalse(application.shutdown())
 
-                book_worker.shutdown.assert_called_once_with(timeout=None)
-                file_worker.shutdown.assert_called_once_with(timeout=None)
+                self.assertEqual(book_worker.shutdown_calls, [None])
+                self.assertEqual(file_worker.shutdown_calls, [None])
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
                 training.assert_not_called()
                 book.assert_not_called()
                 close.assert_not_called()

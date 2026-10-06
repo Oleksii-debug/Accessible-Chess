@@ -77,6 +77,7 @@ def _minimal_windows_pe(
     machine: int = 0x8664,
     managed: bool = False,
     subsystem: int = 0x0002,
+    dll: bool = False,
 ) -> bytes:
     """Return a structurally valid minimal PE image for package fixtures."""
     data = bytearray(1024)
@@ -89,7 +90,8 @@ def _minimal_windows_pe(
     data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
     optional_size = 0xF0 if machine == 0x8664 else 0xE0
     data[coff + 16:coff + 18] = optional_size.to_bytes(2, "little")
-    data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
+    characteristics = 0x0022 | (0x2000 if dll else 0)
+    data[coff + 18:coff + 20] = characteristics.to_bytes(2, "little")
     optional = coff + 20
     pe32_plus = machine == 0x8664
     data[optional:optional + 2] = (
@@ -142,6 +144,7 @@ def _make_tree(root: Path) -> None:
                     else 0x8664
                 ),
                 managed=relative in preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
+                dll=True,
             )
         )
 
@@ -1438,6 +1441,14 @@ class Version2PackagePreflightTests(unittest.TestCase):
         builders.append(
             (regular_mode_directory_name, "conflicting regular-file mode")
         )
+
+        def payload_directory(archive):
+            info = zipfile.ZipInfo("AccessibleChess/payload/")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFDIR | 0o755) << 16
+            archive.writestr(info, b"x")
+
+        builders.append((payload_directory, "directory member must be empty"))
 
         for builder, expected in builders:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:

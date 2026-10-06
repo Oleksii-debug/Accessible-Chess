@@ -863,6 +863,65 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_bounded_refused_close_ui_failure_refences_live_import_until_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "bounded-resume-ui-failure.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _BlockingProgressLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            self.assertFalse(runtime.shutdown(0.0))
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime._file_delegate.shutdown_requested)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    self.assertFalse(runtime.resume_after_refused_shutdown())
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime._file_delegate.shutdown_requested)
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertFalse(runtime._file_delegate.shutdown_requested)
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                ],
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_reentrant_import_terminal_recovery_reports_closed_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "reentrant-import-terminal-recovery.pgn"
