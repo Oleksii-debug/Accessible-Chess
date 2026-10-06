@@ -1184,5 +1184,69 @@ class BookActiveImportCancellationTests(unittest.TestCase):
                 self.assertEqual(database.conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0], 0)
 
 
+    def test_html_host_source_name_trim_observes_control_inside_one_token(self):
+        failure = SourceReadCancelledError(
+            "cancelled during HTML host source-name normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            import_html_book(
+                "<p>Readable</p>",
+                source_name=(" " * 20_000) + "book.html",
+                control_checkpoint=cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+
+    def test_html_host_optional_metadata_trim_observes_control(self):
+        failure = SourceReadCancelledError(
+            "cancelled during HTML host title normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            import_html_book(
+                "<p>Readable</p>",
+                source_name="book.html",
+                title=(" " * 20_000) + "Title",
+                control_checkpoint=cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+
+    def test_html_controlled_host_metadata_preserves_strip_semantics(self):
+        plain = import_html_book(
+            "<p>Readable</p>",
+            source_name="\u2003 book.html \u2002",
+            title="\t  Study Title  \n",
+            author="  Author  ",
+            language="\r uk \t",
+        )
+        controlled = import_html_book(
+            "<p>Readable</p>",
+            source_name="\u2003 book.html \u2002",
+            title="\t  Study Title  \n",
+            author="  Author  ",
+            language="\r uk \t",
+            control_checkpoint=lambda: None,
+        )
+
+        self.assertEqual(plain.document.as_dict(), controlled.document.as_dict())
+        self.assertEqual(plain.book_key, controlled.book_key)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,62 @@
+name: Current HTML Host Metadata Cancellation
+
+on:
+  pull_request:
+    branches:
+      - fix/book-html-inert-accessibility-boundary-20261006-ooxple7108
+    paths:
+      - '.github/workflows/current-html-host-metadata-cancellation.yml'
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_active_import_cancellation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-html-host-metadata-cancellation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: 30793fff3edf6dd678788d913704f4581602cec7
+  ACTIVE_TEST_BLOB: 382978bc28dd9346746a8f035176e7212e42e7a2
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prove bounded geometry and exact blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-html-host-metadata-cancellation.yml' \
+            'acs/book_html_import.py' \
+            'tests/test_book_active_import_cancellation.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$ACTIVE_TEST_BLOB"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile changed Python
+        run: python -m py_compile acs/book_html_import.py tests/test_book_active_import_cancellation.py
+      - name: Run active import cancellation regressions
+        run: python -m unittest tests.test_book_active_import_cancellation
