@@ -1858,6 +1858,41 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
     return integration_sha.casefold(), data
 
 
+def _bounded_checksum_lines(text: str, *, max_lines: int) -> list[str]:
+    """Split checksum text without materializing an attacker-sized line list."""
+    if not isinstance(text, str):
+        raise TypeError("text must be str")
+    if type(max_lines) is not int or max_lines < 0:
+        raise ValueError("max_lines must be a non-negative integer")
+
+    lines: list[str] = []
+    start = 0
+    index = 0
+    length = len(text)
+    single_breaks = "\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+    while index < length:
+        char = text[index]
+        width = 0
+        if char == "\r":
+            width = 2 if index + 1 < length and text[index + 1] == "\n" else 1
+        elif char in single_breaks:
+            width = 1
+        if width:
+            if len(lines) >= max_lines:
+                _fail("checksum inventory contains too many entries")
+            lines.append(text[start:index])
+            index += width
+            start = index
+            continue
+        index += 1
+
+    if start < length:
+        if len(lines) >= max_lines:
+            _fail("checksum inventory contains too many entries")
+        lines.append(text[start:])
+    return lines
+
+
 def _checksums(
     root: Path,
     inventory: tuple[str, ...],
@@ -1873,10 +1908,11 @@ def _checksums(
             label="checksum inventory",
             max_bytes=min(limits.max_member_bytes, _MAX_CHECKSUMS_BYTES),
         )
-        lines = payload.decode("utf-8-sig", errors="strict").splitlines()
-        expected_line_count = len(inventory) - 1
-        if len(lines) > expected_line_count:
-            _fail("checksum inventory contains too many entries")
+        text = payload.decode("utf-8-sig", errors="strict")
+        lines = _bounded_checksum_lines(
+            text,
+            max_lines=len(inventory) - 1,
+        )
     except Version2PackagePreflightError:
         raise
     except (OSError, UnicodeError) as exc:
