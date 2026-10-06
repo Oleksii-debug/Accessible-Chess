@@ -188,7 +188,14 @@ class Version2WindowsFileWorkflowRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
-        self._pump.request_pending_owner_callback()
+        # Cancellation owns the pre-publication decision itself. If an owner
+        # callback is retained after UI-post failures, running it before routing
+        # Cancel would publish/commit the pending result first and make the
+        # user's cancellation observe only "no ... running". Let the delegate
+        # resolve its exact pending Open/Save result; the retained callback then
+        # becomes stale and is harmless when recovered later.
+        if action_id not in {"pgn.cancel_open", "pgn.cancel_save"}:
+            self._pump.request_pending_owner_callback()
         return self._file_delegate(action_id, payload)
 
     def wait_for_import(self, timeout: float | None = None) -> bool:
