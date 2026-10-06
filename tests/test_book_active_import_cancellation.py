@@ -284,6 +284,20 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_image_query_is_not_silently_resolved_to_package_asset(self):
+        import acs.book_epub_import as epub
+
+        self.assertEqual(
+            epub._resolved_asset('OEBPS/Text/chapter.xhtml', '../Images/board.png'),
+            'OEBPS/Images/board.png',
+        )
+        self.assertIsNone(
+            epub._resolved_asset(
+                'OEBPS/Text/chapter.xhtml',
+                '../Images/board.png?revision=1',
+            )
+        )
+
     def test_epub_container_link_query_is_rejected_instead_of_stripped(self):
         import acs.book_epub_import as epub
 
