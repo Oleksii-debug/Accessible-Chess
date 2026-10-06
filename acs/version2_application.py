@@ -2492,10 +2492,19 @@ class Version2Application:
         for owner in (self._book_open_worker, self._files):
             if owner is None:
                 continue
+            # Every bound native owner participated in retirement, so every one
+            # must also have an explicit recovery contract before a refused close
+            # can be called recovered. Treating a missing resume method as
+            # success can leave the visible application pointing at a silently
+            # retired owner.
+            attempted.append(owner)
             resume = getattr(type(owner), "resume_after_refused_shutdown", None)
             if not callable(resume):
+                if recovery_error is None:
+                    recovery_error = RuntimeError(
+                        "native worker has no refused-shutdown recovery contract"
+                    )
                 continue
-            attempted.append(owner)
             try:
                 restored = resume(owner)
             except BaseException as error:

@@ -648,6 +648,63 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_missing_worker_recovery_contract_fails_closed_and_retires_all_owners(self) -> None:
+        class NonRecoverableWorker:
+            def __init__(self) -> None:
+                self.shutdown_calls = []
+
+            def shutdown(self, timeout=None):
+                self.shutdown_calls.append(timeout)
+                return True
+
+        class RecoverableWorker:
+            def __init__(self) -> None:
+                self.shutdown_calls = []
+                self.resume_calls = 0
+
+            def shutdown(self, timeout=None):
+                self.shutdown_calls.append(timeout)
+                return True
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            primary = OSError("PRIMARY_PROGRESS_FAILURE")
+            store = mock.Mock()
+            store.path = root / "book-progress.json"
+            store.save.side_effect = primary
+            try:
+                application = self._application(database, analysis, store)
+                book_worker = NonRecoverableWorker()
+                file_worker = RecoverableWorker()
+                application._book_open_worker = book_worker
+                application._files = file_worker
+
+                with self.assertRaises(OSError) as caught:
+                    application.shutdown()
+
+                self.assertIs(caught.exception, primary)
+                self.assertEqual(file_worker.resume_calls, 1)
+                self.assertEqual(book_worker.shutdown_calls, [None, 0.0])
+                self.assertEqual(file_worker.shutdown_calls, [None, 0.0])
+                self.assertIsInstance(
+                    application._native_shutdown_recovery_error,
+                    RuntimeError,
+                )
+                self.assertIn(
+                    "recovery contract",
+                    str(application._native_shutdown_recovery_error),
+                )
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
     def test_successful_worker_recovery_clears_stale_recovery_diagnostic(self) -> None:
         class RecoverableWorker:
             def shutdown(self, timeout=None):
