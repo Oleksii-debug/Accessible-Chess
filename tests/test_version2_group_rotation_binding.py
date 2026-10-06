@@ -484,6 +484,16 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             expected_revision=self.app.education_revision,
         )
 
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.advance_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+        self.assertEqual(durable_before, self.store.path.read_bytes())
+        self.assertEqual(state, self.app._rotation_state)
+
         status = self.app._rotation_keyboard_result()
 
         self.assertTrue(status["recovery_required"])
@@ -491,10 +501,6 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertTrue("recovery" in spoken or "віднов" in spoken)
         self.assertEqual(durable_before, self.store.path.read_bytes())
         self.assertEqual(state, self.app._rotation_state)
-        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
-            self.app.advance_group_rotation(
-                expected_rotation_revision=state.revision
-            )
 
     def test_pair_round_requires_exact_current_pairing_then_advances_to_review(self) -> None:
         state = self._reach_pair_round()

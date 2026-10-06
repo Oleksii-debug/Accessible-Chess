@@ -667,7 +667,11 @@ class Version2FinalProductApplication(Version2Application):
     def _rotation_authorities(
         self,
     ) -> tuple[LessonSession, RotationPlan, RotationState, ChildCoachingRotationStore]:
-        lesson, workspace = self._classroom_orchestration_authorities()
+        try:
+            lesson, workspace = self._classroom_orchestration_authorities()
+        except Exception:
+            self._rotation_load_error = True
+            raise RuntimeError("Group rotation requires recovery") from None
         plan = self._rotation_plan
         state = self._rotation_state
         store = self._rotation_store
@@ -675,8 +679,16 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("No group rotation is active")
         if store is None:
             raise RuntimeError("Group rotation store is unavailable")
-        validate_rotation_scope(plan, lesson)
-        self._validate_rotation_group_scope(plan, lesson, workspace.classroom)
+        try:
+            validate_rotation_scope(plan, lesson)
+            self._validate_rotation_group_scope(
+                plan,
+                lesson,
+                workspace.classroom,
+            )
+        except ChildCoachingRotationError:
+            self._rotation_load_error = True
+            raise RuntimeError("Group rotation requires recovery") from None
         return lesson, plan, state, store
 
     def begin_or_resume_default_group_rotation(
