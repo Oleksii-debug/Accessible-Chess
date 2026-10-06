@@ -651,6 +651,42 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertNotIn(str(source), repr(terminal))
             self.assertNotIn("secret-broken-name", repr(terminal))
 
+    def test_late_cancel_after_worker_failure_does_not_rewrite_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "late-cancel-after-failure.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous-late-cancel.pgn"
+            previous_path.write_text(
+                PGN_TEXT.replace("Async open", "Previous"),
+                encoding="utf-8",
+            )
+            previous = PgnDocumentSession.open(previous_path)
+            controller, _, poster, events, session_box, publications = self._controller(
+                source, previous=previous
+            )
+
+            with mock.patch(
+                "acs.version2_windows_file_workflows.PgnDocumentSession.open",
+                side_effect=RuntimeError("worker preparation failed"),
+            ):
+                started = controller("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(controller.wait_for_pgn_open(2.0))
+
+                cancelling = controller("pgn.cancel_open", {})
+                self.assertEqual(
+                    cancelling.kind,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                )
+                poster.drain()
+
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(publications, [])
+            terminal = events[-1]
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "pgn_open_failed")
+            self.assertFalse(controller.pgn_open_running)
+
     def test_import_cannot_overlap_pgn_open_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "slow.pgn"
