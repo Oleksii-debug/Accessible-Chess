@@ -274,9 +274,11 @@ def main() -> int:
                 def inspect() -> None:
                     try:
                         result["winforms"] = _winforms_snapshot(api, window)
+                        probed_menu_handle = int(result["winforms"].get("menu_handle") or 0)
+                        result["probed_menu_handle"] = probed_menu_handle
                         result["uia"] = _uia_snapshot(
                             os.getpid(),
-                            menu_handle=int(result["winforms"].get("menu_handle") or 0),
+                            menu_handle=probed_menu_handle,
                         )
                         result["winforms_after_uia"] = _winforms_snapshot(api, window)
                     except Exception as exc:
@@ -313,13 +315,17 @@ def main() -> int:
     uia = result.get("uia") or {}
     names = uia.get("top_level_names") or []
     patterns = uia.get("top_level_expand_collapse") or []
-    menu_handle = int(winforms.get("menu_handle") or 0)
+    menu_handle = int(result.get("probed_menu_handle") or 0)
+    post_probe_menu_handle = int(winforms.get("menu_handle") or 0)
     checks = {
         "host_handle_created": bool(winforms.get("host_is_handle_created")),
         "menu_parent_is_host": bool(winforms.get("menu_parent_is_host")),
         "main_menu_strip_is_menu": bool(winforms.get("main_menu_strip_is_menu")),
         "menu_handle_created": bool(winforms.get("menu_is_handle_created")),
         "menu_handle_nonzero": menu_handle != 0,
+        "menu_handle_stable_after_uia": (
+            menu_handle != 0 and post_probe_menu_handle == menu_handle
+        ),
         "winforms_top_level_count_matches_canonical": int(winforms.get("menu_item_count") or 0) == expected_count,
         "uia_exact_menu_bar_count_1": int(uia.get("exact_menu_bar_count") or 0) == 1,
         "uia_top_level_profile_matches_canonical": tuple(names) in (expected_ua, expected_en),
@@ -336,6 +342,7 @@ def main() -> int:
         "machine_scope": "Windows source final-product WinForms plus external process-scoped UIA",
         "checks": checks,
         "winforms": result.get("winforms"),
+        "probed_menu_handle": result.get("probed_menu_handle"),
         "uia": result.get("uia"),
         "winforms_after_uia": result.get("winforms_after_uia"),
         "errors": errors,
