@@ -1,0 +1,68 @@
+name: Stockfish Analysis Time Control
+
+on:
+  pull_request:
+    paths:
+      - 'acs/engine_ports.py'
+      - 'acs/engine.py'
+      - 'acs/analysis_service.py'
+      - 'acs/continuous_analysis.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'web/index.html'
+      - 'tests/test_stockfish_analysis_time_control.py'
+      - '.github/workflows/stockfish-analysis-time-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stockfish-analysis-time-control-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Stockfish analysis surface
+        run: >-
+          python -m compileall -q
+          acs/engine_ports.py
+          acs/engine.py
+          acs/analysis_service.py
+          acs/continuous_analysis.py
+          acs/ui_analysis_adapter.py
+          acs/webapp_keymap_core.py
+          tests/test_stockfish_analysis_time_control.py
+      - name: Stockfish analysis completion regressions
+        run: >-
+          python -m unittest -v
+          tests.test_stockfish_analysis_time_control
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_current_analysis_error_boundary
+          tests.test_current_analysis_passive_dto_boundary
+          tests.test_current_analysis_provider_resource_bounds
+          tests.test_stockfish_runtime
+          tests.test_dev3_uci_failure_recovery
+          tests.test_d03_uci_output_bounds
+          tests.test_release_stockfish_composition
+      - name: Core chess selftest
+        run: python -m acs.selftest
