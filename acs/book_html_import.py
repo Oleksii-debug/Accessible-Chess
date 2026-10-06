@@ -1506,9 +1506,11 @@ def _pgn_candidates(
     lines: list[tuple[int, str]] = []
     line_start = 0
     cursor = 0
+    next_control_offset = 0
     while cursor < len(visible_text):
-        if control_checkpoint is not None and cursor % 16_384 == 0:
+        if control_checkpoint is not None and cursor >= next_control_offset:
             control_checkpoint()
+            next_control_offset = cursor + 16_384
         character = visible_text[cursor]
         if character == "\r":
             lines.append((line_start, visible_text[line_start:cursor]))
