@@ -682,6 +682,8 @@ function text() {
 
 let currentSoundState = null;
 let soundStateLoadPromise = Promise.resolve();
+let soundWriteInFlight = false;
+const soundPolicyValues = new Set(['off', 'my_turn', 'both']);
 
 async function loadMoveFeedbackSettings() {
     const control = byId('move-error-announcements');
@@ -717,47 +719,125 @@ async function persistMoveFeedbackSetting(control, requested) {
     }
 }
 
+function soundSettingElements() {
+    return {
+        enabled: byId('sound-enabled'),
+        newGameAnimation: byId('sound-newgame-animation'),
+        volume: byId('sound-volume'),
+        tickPolicy: byId('sound-tick-policy'),
+        tickLastSeconds: byId('sound-tick-last-seconds'),
+        lowTimePolicy: byId('sound-low-time-policy'),
+        lowTimeSeconds: byId('sound-low-time-seconds'),
+        status: byId('sound-settings-status'),
+    };
+}
+
+function authoritativeSoundState(state) {
+    return !!state
+        && state.ok === true
+        && typeof state.enabled === 'boolean'
+        && typeof state.newGameAnimation === 'boolean'
+        && Number.isInteger(state.volume)
+        && state.volume >= 0
+        && state.volume <= 100
+        && soundPolicyValues.has(state.tickPolicy)
+        && Number.isInteger(state.tickLastSeconds)
+        && state.tickLastSeconds >= 0
+        && state.tickLastSeconds <= 3600
+        && soundPolicyValues.has(state.lowTimePolicy)
+        && Number.isInteger(state.lowTimeSeconds)
+        && state.lowTimeSeconds >= 0
+        && state.lowTimeSeconds <= 3600;
+}
+
+function setSoundControlsDisabled(elements, disabled) {
+    for (const control of [
+        elements.enabled,
+        elements.newGameAnimation,
+        elements.volume,
+        elements.tickPolicy,
+        elements.tickLastSeconds,
+        elements.lowTimePolicy,
+        elements.lowTimeSeconds,
+    ]) {
+        if (control) control.disabled = disabled;
+    }
+}
+
+function applyAuthoritativeSoundState(state, elements = soundSettingElements()) {
+    if (!authoritativeSoundState(state)) return false;
+    currentSoundState = state;
+    if (elements.enabled) elements.enabled.checked = state.enabled;
+    if (elements.newGameAnimation) {
+        elements.newGameAnimation.checked = state.newGameAnimation;
+    }
+    if (elements.volume) elements.volume.value = String(state.volume);
+    if (elements.tickPolicy) elements.tickPolicy.value = state.tickPolicy;
+    if (elements.tickLastSeconds) {
+        elements.tickLastSeconds.value = String(state.tickLastSeconds);
+    }
+    if (elements.lowTimePolicy) elements.lowTimePolicy.value = state.lowTimePolicy;
+    if (elements.lowTimeSeconds) {
+        elements.lowTimeSeconds.value = String(state.lowTimeSeconds);
+    }
+    setSoundControlsDisabled(elements, false);
+    return true;
+}
+
 async function loadSoundState() {
     const a = api();
-    const enabled = byId('sound-enabled');
-    const newGameAnimation = byId('sound-newgame-animation');
-    const volume = byId('sound-volume');
-    const tickPolicy = byId('sound-tick-policy');
-    const tickLastSeconds = byId('sound-tick-last-seconds');
-    const lowTimePolicy = byId('sound-low-time-policy');
-    const lowTimeSeconds = byId('sound-low-time-seconds');
-    const status = byId('sound-settings-status');
-    const controls = [enabled, newGameAnimation, volume, tickPolicy, tickLastSeconds, lowTimePolicy, lowTimeSeconds];
+    const elements = soundSettingElements();
     // Never expose mutable sound controls before their canonical persisted state
     // is known. This runs before the first await and also fail-closes reloads.
-    for (const control of controls) {
-        if (control) control.disabled = true;
-    }
+    setSoundControlsDisabled(elements, true);
     // Treat a reload as a fresh authority transaction. While canonical state is
     // unknown (or if the read fails), NEWGAME presentation must not reuse a
     // stale timing/variant snapshot from an earlier successful read.
     currentSoundState = null;
     await loadMoveFeedbackSettings();
     if (!a || typeof a.get_sound_settings !== 'function') {
-        if (status) status.textContent = text().unavailable;
-        return;
+        if (elements.status) elements.status.textContent = text().unavailable;
+        return false;
     }
     try {
         const state = await a.get_sound_settings();
-        currentSoundState = state;
-        for (const control of controls) {
-            if (control) control.disabled = false;
+        if (!applyAuthoritativeSoundState(state, elements)) {
+            throw new Error('non-authoritative sound settings');
         }
-        if (enabled) enabled.checked = !!state.enabled;
-        if (newGameAnimation) newGameAnimation.checked = state.newGameAnimation !== false;
-        if (volume) volume.value = String(state.volume ?? 80);
-        if (tickPolicy) tickPolicy.value = String(state.tickPolicy ?? 'my_turn');
-        if (tickLastSeconds) tickLastSeconds.value = String(state.tickLastSeconds ?? 0);
-        if (lowTimePolicy) lowTimePolicy.value = String(state.lowTimePolicy ?? 'my_turn');
-        if (lowTimeSeconds) lowTimeSeconds.value = String(state.lowTimeSeconds ?? 30);
-        if (status) status.textContent = '';
+        if (elements.status) elements.status.textContent = '';
+        return true;
     } catch (_) {
-        if (status) status.textContent = text().unavailable;
+        if (elements.status) elements.status.textContent = text().unavailable;
+        return false;
+    }
+}
+
+async function persistSoundSetting(method, ...args) {
+    const elements = soundSettingElements();
+    if (soundWriteInFlight) {
+        return {ok:false, message:text().unavailable};
+    }
+    soundWriteInFlight = true;
+    setSoundControlsDisabled(elements, true);
+    currentSoundState = null;
+    try {
+        const a = api();
+        if (!a || typeof a[method] !== 'function') throw new Error();
+        const result = await a[method](...args);
+        if (!applyAuthoritativeSoundState(result, elements)) {
+            const message = result && typeof result.message === 'string' && result.message
+                ? result.message
+                : text().unavailable;
+            await loadSoundState();
+            return {ok:false, message};
+        }
+        if (elements.status) elements.status.textContent = '';
+        return result;
+    } catch (_) {
+        await loadSoundState();
+        return {ok:false, message:text().unavailable};
+    } finally {
+        soundWriteInFlight = false;
     }
 }
 
