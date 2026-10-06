@@ -34,9 +34,66 @@ from acs.teaching_session import (
     default_policy,
 )
 from acs.version2_final_product_application import Version2FinalProductApplication
+from acs.version2_release_app import create_version2_release_application
 
 
 class Version2GroupRotationBindingTests(unittest.TestCase):
+    def test_release_composition_reaches_final_product_rotation_persistence(self) -> None:
+        class Runtime:
+            def __init__(self, _config) -> None:
+                self.closed = False
+
+            @staticmethod
+            def provider():
+                return object()
+
+            def close(self) -> None:
+                self.closed = True
+
+        class Playback:
+            def play(self, _event, *, volume: int) -> None:
+                self.last_volume = volume
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "release-data"
+            api, application, runtime, _native_factory = create_version2_release_application(
+                data_root=root,
+                runtime_factory=Runtime,
+                sound_playback=Playback(),
+                copy_text=lambda _text: None,
+            )
+            self.addCleanup(application.shutdown)
+            self.addCleanup(runtime.close)
+
+            self.assertIsInstance(application, Version2FinalProductApplication)
+            self.assertIs(api.v2_application, application)
+            self.assertIsNotNone(application._rotation_store)
+            assert application._rotation_store is not None
+            self.assertEqual(
+                root / "child-coaching-rotation.json",
+                application._rotation_store.path,
+            )
+
+            workspace = EducationWorkspace.empty(self._classroom())
+            application.replace_education_workspace(
+                workspace,
+                expected_revision=application.education_revision,
+            )
+            plan = self._plan()
+            application.start_teaching_session(plan)
+            application.shell.open_route("teacher")
+
+            result = application.router.dispatch("teacher.rotation_start_or_resume")
+
+            self.assertEqual("group-rotation", result["kind"])
+            self.assertEqual("active", result["phase"])
+            self.assertEqual(1, result["revision"])
+            durable = application._rotation_store.load()
+            self.assertIsNotNone(durable)
+            assert durable is not None
+            self.assertEqual(plan.session_id, durable.plan.lesson_session_id)
+            self.assertEqual(result["revision"], durable.state.revision)
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
