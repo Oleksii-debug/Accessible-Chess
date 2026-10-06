@@ -10,8 +10,10 @@ on:
       - 'acs/webapp.py'
       - 'acs/webapp_keymap_core.py'
       - 'acs/webapp_keymap.py'
+      - 'acs/stage1_release_ui_core.py'
       - 'tests/test_fen_position_editor_complete_user_flow.py'
       - 'tests/test_ui_analysis_webapp.py'
+      - 'tests/test_stage1_engine_play_ui.py'
       - 'web/index.html'
   workflow_dispatch:
 
@@ -28,7 +30,9 @@ env:
   FEN_FLOW_TEST_BLOB: a855fed6c799247818d3c18e4a25376ccc3de4fd
   KEYMAP_CORE_BLOB: de864523766165431c50ce1bc730235b130e3b8b
   KEYMAP_FACADE_BLOB: 9ac8af3d9c7dc567edc87b29a2ab8be948294543
+  STAGE1_RELEASE_CORE_BLOB: 23f34d05d8e2f216b6755966a2a9e70fe6533dbf
   ANALYSIS_WEBAPP_TEST_BLOB: 7984e3a84f456981397b43998327f6469c91daa0
+  STAGE1_ENGINE_PLAY_TEST_BLOB: cd11110d81a27bfeaa18b573eac34641c1e75bde
   WEB_INDEX_BLOB: 377c9855c054aa590b6dccecef5f6307dc4d8738
 
 jobs:
@@ -72,16 +76,20 @@ jobs:
             'acs/webapp.py' \
             'acs/webapp_keymap_core.py' \
             'acs/webapp_keymap.py' \
+            'acs/stage1_release_ui_core.py' \
             'tests/test_fen_position_editor_complete_user_flow.py' \
             'tests/test_ui_analysis_webapp.py' \
+            'tests/test_stage1_engine_play_ui.py' \
             'web/index.html' | sort)"
           test "$changed" = "$expected_paths"
           test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
           test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
           test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$KEYMAP_CORE_BLOB"
           test "$(git rev-parse HEAD:acs/webapp_keymap.py)" = "$KEYMAP_FACADE_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = "$STAGE1_RELEASE_CORE_BLOB"
           test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$ANALYSIS_WEBAPP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = "$STAGE1_ENGINE_PLAY_TEST_BLOB"
           test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -95,8 +103,10 @@ jobs:
           acs/webapp.py
           acs/webapp_keymap_core.py
           acs/webapp_keymap.py
+          acs/stage1_release_ui_core.py
           tests/test_fen_position_editor_complete_user_flow.py
           tests/test_ui_analysis_webapp.py
+          tests/test_stage1_engine_play_ui.py
 
       - name: Validate WebView JavaScript syntax
         shell: bash
@@ -128,6 +138,7 @@ jobs:
           tests.test_v2_remapped_keyboard_routing
           tests.test_v2_remapped_keyboard_native_editing
           tests.test_stage1_board_action_integration
+          tests.test_stage1_engine_play_ui
 
       - name: Preserve current accessible FEN action and composition contracts
         run: >-
