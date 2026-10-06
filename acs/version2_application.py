@@ -141,6 +141,11 @@ class Version2Application:
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
         self._events = deque(maxlen=64)
+        # Refused-close diagnostics are presentation-independent. Keep them
+        # separate from route/domain events so a failure of the pending shell
+        # publication transaction cannot suppress the accessible explanation
+        # for why the native Form stayed open.
+        self._urgent_events = deque(maxlen=8)
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
@@ -1353,7 +1358,7 @@ class Version2Application:
             "Accessible Chess could not close safely. The window remains open; "
             "try exiting again."
         )
-        self._events.append({"kind": "error", "payload": {"message": message}})
+        self._urgent_events.append({"kind": "error", "payload": {"message": message}})
 
     def _project_board_position(self, position):
         projector = self._board_position_projector
@@ -2096,15 +2101,20 @@ class Version2Application:
         # STARTED and no worker thread ever calls presentation code directly.
         if self._book_open_worker is not None:
             self._book_open_worker.flush_pending_terminal()
+        urgent = tuple(self._urgent_events)
+        self._urgent_events.clear()
         if self._pending_shell_publication is not None:
             # The browser is rendering a candidate route. Preserve every prior
             # native/domain presentation event in order until that route is
             # either committed or rolled back; applying an event to the
             # unpublished DOM would create a second presentation authority.
-            return ()
+            # Refused-close diagnostics are the exception: they describe the
+            # still-live native owner itself and must reach NVDA even when the
+            # publication transaction is the reason shutdown was refused.
+            return urgent
         events = tuple(self._events)
         self._events.clear()
-        return events
+        return events + urgent
 
     def native_command(self, value):
         self._assert_thread()
