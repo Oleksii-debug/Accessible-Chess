@@ -91,6 +91,25 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     )
     assert checks["uia_exact_row_binds_same_handle"] is False
 
+    stale_exact_state = {
+        **canonical,
+        "exact_menu_bars": [
+            {
+                **canonical["exact_menu_bars"][0],
+                "enabled": False,
+                "offscreen": True,
+            }
+        ],
+    }
+    checks = _uia_menu_handle_binding_checks(
+        stale_exact_state,
+        pid=pid,
+        menu_handle=handle,
+    )
+    assert checks["uia_exact_row_enabled"] is False
+    assert checks["uia_exact_row_onscreen"] is False
+    assert checks["uia_from_handle_matches_exact_row"] is False
+
     wrong_identity = {
         **canonical,
         "menu_from_handle": {
