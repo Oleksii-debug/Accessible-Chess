@@ -135,6 +135,45 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.source)
 
+    def test_unready_resumed_child_is_retired_on_fatal_launcher_paths(self):
+        for token in (
+            "static BOOL g_child_cleanup_required = FALSE;",
+            "static void ac_best_effort_retire_unready_child(DWORD exit_code)",
+            "ac_best_effort_retire_unready_child(stable_code);",
+            "ac_best_effort_retire_unready_child(code);",
+            "g_child_cleanup_required = TRUE;",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        resume = main.index("resume_result = ResumeThread(g_process.hThread);")
+        armed = main.index("g_child_cleanup_required = TRUE;", resume)
+        observation = main.index(
+            "wait_result = WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS)",
+            armed,
+        )
+        ready_status = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")')
+        ready_disarm = main.rfind("g_child_cleanup_required = FALSE;", 0, ready_status)
+        self.assertLess(resume, armed)
+        self.assertLess(armed, observation)
+        self.assertLess(observation, ready_disarm)
+        self.assertLess(ready_disarm, ready_status)
+
+        early_exit = main.index("if (wait_result == WAIT_OBJECT_0)")
+        natural_disarm = main.index("g_child_cleanup_required = FALSE;", early_exit)
+        self.assertLess(natural_disarm, main.index("GetExitCodeProcess", early_exit))
+
+        fatal_observation = main[
+            main.index("if (wait_result == WAIT_FAILED)")
+            : main.index("window_ready = ac_has_ready_window")
+        ]
+        self.assertNotIn("CloseHandle(g_process.hProcess)", fatal_observation)
+        self.assertEqual(
+            fatal_observation.count('ac_fail(report, L"startup window observation"'),
+            2,
+        )
+
     def test_early_exit_remains_failure_before_window_proof(self):
         window_ready = self.source.index("window_ready = ac_has_ready_window(g_process.dwProcessId);")
         early_exit = self.source.index("STATUS: FAILED_EARLY_EXIT")
