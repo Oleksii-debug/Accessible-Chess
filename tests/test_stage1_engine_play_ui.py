@@ -101,6 +101,30 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.addCleanup(api.close_analysis)
         return api, selected
 
+    def test_engine_game_start_aborts_if_standard_position_reset_cannot_publish(self) -> None:
+        api, engine = self.make_api()
+        self.assertTrue(api.make_move("e4")["ok"])
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        original = api._prepare_root_state
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated root publication failure")
+
+        api._prepare_root_state = fail
+        try:
+            result = api.start_engine_game("white", 4, 0, 0)
+        finally:
+            api._prepare_root_state = original
+
+        self.assertFalse(result["ok"])
+        self.assertIn("стандартну позицію", result["announcement"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertIsNone(api._engine_session)
+        self.assertEqual(api._engine_game_phase, "idle")
+        self.assertEqual(engine.calls, [])
+
     def test_human_white_move_gets_one_legal_engine_reply(self) -> None:
         api, engine = self.make_api()
 
