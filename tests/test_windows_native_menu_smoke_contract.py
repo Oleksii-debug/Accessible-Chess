@@ -20,13 +20,16 @@ def test_structural_diagnostic_is_a_callable_product_contract() -> None:
     assert callable(native_menu_attachment_state)
 
 
-def test_source_uia_oracle_tracks_full_product_training_menu() -> None:
-    oracle = Path("scripts/p0_native_menubar_uia_oracle.py").read_text(encoding="utf-8")
-    workflow = Path(".github/workflows/p0-native-menubar-uia-runtime.yml").read_text(encoding="utf-8")
+def test_source_uia_oracle_uses_canonical_full_product_menu_profile() -> None:
+    from scripts.p0_native_menubar_uia_oracle import _canonical_top_level_profiles
 
-    assert '"winforms_top_level_count_14"' in oracle
-    assert '"uia_top_level_profile_14"' in oracle
-    assert "len(patterns) == 14" in oracle
-    assert '"Training"' in oracle
-    assert '"Тренування"' in oracle
+    workflow = Path(".github/workflows/p0-native-menubar-uia-runtime.yml").read_text(encoding="utf-8")
+    expected_en, expected_ua = _canonical_top_level_profiles()
+
+    assert len(expected_en) == 14
+    assert len(expected_ua) == 14
+    assert expected_en[10] == "Training"
+    assert expected_ua[10] == "Тренування"
+    assert expected_en[11] == "Teacher/Classroom"
+    assert expected_ua[11] == "Учитель/Клас"
     assert "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb" in workflow
