@@ -1627,6 +1627,92 @@ class Version2ApplicationTests(unittest.TestCase):
             save_book.assert_not_called()
         self.assertFalse(self.app.progress_store.has(trusted.book_key))
 
+    def test_book_open_rejects_active_route_focus_before_candidate_publication(self):
+        candidate = self.root / "book-open-active-route-focus.md"
+        candidate.write_text(
+            "# Candidate\n\nRoute focus must be passive exact text.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_key = self.app.book_key
+        origin_workflow = self.app.book_workflow
+        origin_delegate = self.app.book_delegate
+        origin_books = self.app.books
+        original_open_route = self.app.shell.open_route
+
+        class ActiveFocus(str):
+            touched = False
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("active focus equality must not execute")
+
+            def startswith(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("active focus prefix hook must not execute")
+
+        def open_with_active_focus(route_id):
+            original_open_route(route_id)
+            return ActiveFocus("book-reader")
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=open_with_active_focus,
+        ), patch.object(self.app, "_persist_book_progress") as persist_candidate:
+            with self.assertRaisesRegex(TypeError, "Book route focus is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+
+        persist_candidate.assert_not_called()
+        self.assertFalse(ActiveFocus.touched)
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertEqual(self.app.book_key, origin_key)
+        self.assertIs(self.app.book_workflow, origin_workflow)
+        self.assertIs(self.app.book_delegate, origin_delegate)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
+    def test_book_open_rejects_nontext_route_focus_before_candidate_publication(self):
+        candidate = self.root / "book-open-nontext-route-focus.md"
+        candidate.write_text(
+            "# Candidate\n\nNon-text focus must not publish.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_books = self.app.books
+        original_open_route = self.app.shell.open_route
+
+        def open_with_nontext_focus(route_id):
+            original_open_route(route_id)
+            return object()
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=open_with_nontext_focus,
+        ), patch.object(self.app, "_persist_book_progress") as persist_candidate:
+            with self.assertRaisesRegex(TypeError, "Book route focus is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+
+        persist_candidate.assert_not_called()
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
     def test_book_open_focus_failure_rolls_back_before_owner_or_progress_publication(self):
         candidate = self.root / "book-open-focus-failure.md"
         candidate.write_text(
