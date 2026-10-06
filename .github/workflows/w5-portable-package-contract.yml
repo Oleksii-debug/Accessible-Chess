@@ -158,6 +158,7 @@ jobs:
           tests.test_version2_package_pe_identity
           tests.test_version2_package_assembler
           tests.test_version2_release_payload
+          tests.test_p0_semantic_document_copy
 
       - name: Run canonical portable outer-package contract
         run: python -m unittest -v tests.test_version2_portable_package
