@@ -33,3 +33,73 @@ def test_source_uia_oracle_uses_canonical_full_product_menu_profile() -> None:
     assert expected_en[11] == "Teacher/Classroom"
     assert expected_ua[11] == "Учитель/Клас"
     assert "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb" in workflow
+
+
+def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> None:
+    from scripts.p0_native_menubar_uia_oracle import _uia_menu_handle_binding_checks
+
+    pid = 4242
+    handle = 9001
+    canonical = {
+        "menu_from_handle": {
+            "automation_id": "AccessibleChessFullProductMenu",
+            "control_type": "ControlType.MenuBar",
+            "process_id": pid,
+            "enabled": True,
+            "offscreen": False,
+            "native_window_handle": handle,
+        },
+        "menu_from_handle_error": "",
+    }
+    assert all(
+        _uia_menu_handle_binding_checks(canonical, pid=pid, menu_handle=handle).values()
+    )
+
+    stale = {
+        **canonical,
+        "menu_from_handle": {
+            **canonical["menu_from_handle"],
+            "native_window_handle": handle + 1,
+        },
+    }
+    checks = _uia_menu_handle_binding_checks(stale, pid=pid, menu_handle=handle)
+    assert checks["uia_handle_native_handle_matches"] is False
+
+    wrong_identity = {
+        **canonical,
+        "menu_from_handle": {
+            **canonical["menu_from_handle"],
+            "automation_id": "AccessibleChessMainMenu",
+        },
+    }
+    checks = _uia_menu_handle_binding_checks(
+        wrong_identity,
+        pid=pid,
+        menu_handle=handle,
+    )
+    assert checks["uia_handle_automation_id_canonical"] is False
+
+
+def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_errors() -> None:
+    from scripts.p0_native_menubar_uia_oracle import _uia_menu_handle_binding_checks
+
+    missing = _uia_menu_handle_binding_checks({}, pid=1, menu_handle=7)
+    assert missing["uia_handle_element_present"] is False
+    assert missing["uia_handle_native_handle_matches"] is False
+
+    errored = _uia_menu_handle_binding_checks(
+        {
+            "menu_from_handle": {
+                "automation_id": "AccessibleChessFullProductMenu",
+                "control_type": "ControlType.MenuBar",
+                "process_id": 1,
+                "enabled": True,
+                "offscreen": False,
+                "native_window_handle": 7,
+            },
+            "menu_from_handle_error": "ElementNotAvailableException",
+        },
+        pid=1,
+        menu_handle=7,
+    )
+    assert errored["uia_handle_probe_clean"] is False
