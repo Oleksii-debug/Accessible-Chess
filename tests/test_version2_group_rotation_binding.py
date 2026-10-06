@@ -35,9 +35,24 @@ from acs.teaching_session import (
 )
 from acs.version2_final_product_application import Version2FinalProductApplication
 from acs.version2_release_app import create_version2_release_application
+from acs import version2_release_app as release_app_module
+from acs.version2_education_mutation_release import _final_product_mutation_bindings
+from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
 
 
 class Version2GroupRotationBindingTests(unittest.TestCase):
+    def test_packaged_release_wrapper_can_replace_and_restore_final_product_owner(self) -> None:
+        default_owner = release_app_module.Version2Application
+        self.assertIs(default_owner, Version2FinalProductApplication)
+
+        with _final_product_mutation_bindings():
+            self.assertIs(
+                release_app_module.Version2Application,
+                Version2PackagedStarterApplication,
+            )
+
+        self.assertIs(release_app_module.Version2Application, default_owner)
+
     def test_release_composition_reaches_final_product_rotation_persistence(self) -> None:
         class Runtime:
             def __init__(self, _config) -> None:
