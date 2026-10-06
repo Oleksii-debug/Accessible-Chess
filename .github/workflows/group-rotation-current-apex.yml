@@ -10,6 +10,9 @@ on:
       - acs/classroom_pairing.py
       - acs/version2_final_product_application.py
       - acs/version2_release_app.py
+      - acs/version2_education_mutation_release.py
+      - acs/version2_packaged_starter_application.py
+      - tests/test_v2_packaged_starter_application.py
       - tests/test_child_coaching_rotation.py
       - tests/test_version2_group_rotation_binding.py
       - tests/test_child_coaching_final_product_binding.py
@@ -22,6 +25,9 @@ on:
       - acs/classroom_pairing.py
       - acs/version2_final_product_application.py
       - acs/version2_release_app.py
+      - acs/version2_education_mutation_release.py
+      - acs/version2_packaged_starter_application.py
+      - tests/test_v2_packaged_starter_application.py
       - tests/test_child_coaching_rotation.py
       - tests/test_version2_group_rotation_binding.py
       - tests/test_child_coaching_final_product_binding.py
