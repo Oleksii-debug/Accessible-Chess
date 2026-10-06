@@ -574,11 +574,20 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
             pass
 
         class RecoverableWorker:
+            def __init__(self, *, fail_resume=False) -> None:
+                self.fail_resume = fail_resume
+                self.shutdown_calls = []
+                self.resume_calls = 0
+
             def shutdown(self, timeout=None):
+                self.shutdown_calls.append(timeout)
                 return True
 
             def resume_after_refused_shutdown(self):
-                raise RecoveryAbort("SECONDARY_RECOVERY_FAILURE")
+                self.resume_calls += 1
+                if self.fail_resume:
+                    raise RecoveryAbort("SECONDARY_RECOVERY_FAILURE")
+                return True
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -590,13 +599,19 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
             store.save.side_effect = primary
             try:
                 application = self._application(database, analysis, store)
-                application._book_open_worker = RecoverableWorker()
-                application._files = None
+                book_worker = RecoverableWorker()
+                file_worker = RecoverableWorker(fail_resume=True)
+                application._book_open_worker = book_worker
+                application._files = file_worker
 
                 with self.assertRaises(OSError) as caught:
                     application.shutdown()
 
                 self.assertIs(caught.exception, primary)
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
+                self.assertEqual(book_worker.shutdown_calls, [None, 0.0])
+                self.assertEqual(file_worker.shutdown_calls, [None, 0.0])
                 self.assertIsInstance(
                     application._native_shutdown_recovery_error,
                     RecoveryAbort,
@@ -606,6 +621,35 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
+    def test_successful_worker_recovery_clears_stale_recovery_diagnostic(self) -> None:
+        class RecoverableWorker:
+            def shutdown(self, timeout=None):
+                return True
+
+            def resume_after_refused_shutdown(self):
+                return True
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            store = mock.Mock()
+            store.path = root / "book-progress.json"
+            store.save.side_effect = OSError("PRIMARY_PROGRESS_FAILURE")
+            try:
+                application = self._application(database, analysis, store)
+                application._book_open_worker = RecoverableWorker()
+                application._files = RecoverableWorker()
+                application._native_shutdown_recovery_error = RuntimeError("STALE")
+
+                with self.assertRaises(OSError):
+                    application.shutdown()
+
+                self.assertIsNone(application._native_shutdown_recovery_error)
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
 
 
 if __name__ == "__main__":

@@ -2486,14 +2486,16 @@ class Version2Application:
         if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
 
     def _resume_native_workers_after_refused_shutdown(self) -> None:
-        """Restore only native workers whose retired state is reopenable."""
+        """Restore retired native workers atomically or leave all of them fenced."""
         recovery_error: BaseException | None = None
+        attempted: list[object] = []
         for owner in (self._book_open_worker, self._files):
             if owner is None:
                 continue
             resume = getattr(type(owner), "resume_after_refused_shutdown", None)
             if not callable(resume):
                 continue
+            attempted.append(owner)
             try:
                 restored = resume(owner)
             except BaseException as error:
@@ -2504,8 +2506,25 @@ class Version2Application:
                     recovery_error = RuntimeError(
                         "native worker could not recover after refused shutdown"
                     )
-        if recovery_error is not None:
-            self._native_shutdown_recovery_error = recovery_error
+
+        if recovery_error is None:
+            # A later successful recovery supersedes any diagnostic left by an
+            # earlier refused close.
+            self._native_shutdown_recovery_error = None
+            return
+
+        # Reopening is one recovery transaction. If any owner cannot resume,
+        # best-effort re-retire every owner we attempted so the visible
+        # application never advertises a mixed live/closed native boundary.
+        for owner in reversed(attempted):
+            shutdown = getattr(type(owner), "shutdown", None)
+            if not callable(shutdown):
+                continue
+            try:
+                shutdown(owner, timeout=0.0)
+            except BaseException:
+                pass
+        self._native_shutdown_recovery_error = recovery_error
 
     def shutdown(self, timeout: float | None = None):
         """Cancel and join native import work before closing shared application state.
