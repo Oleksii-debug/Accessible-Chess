@@ -2596,5 +2596,13 @@ class Version2Application:
             # and never replace the primary durability failure.
             self._resume_native_workers_after_refused_shutdown()
             raise progress_error.with_traceback(progress_traceback)
-        self.database.close()
+        try:
+            self.database.close()
+        except BaseException:
+            # A failed ACSDB close leaves native FormClosing in its refused-close
+            # path just like a worker/progress failure. Restore only fully retired
+            # native owners before propagating so a transient database-close error
+            # cannot strand the still-visible application in a half-closed state.
+            self._resume_native_workers_after_refused_shutdown()
+            raise
         return True

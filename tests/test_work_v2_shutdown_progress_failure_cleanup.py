@@ -491,41 +491,68 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
-    def test_database_close_failure_propagates_after_progress_succeeds(self) -> None:
+    def test_database_close_failure_recovers_workers_and_retry_can_finish(self) -> None:
+        class RecoverableWorker:
+            def __init__(self) -> None:
+                self.shutdown_calls = []
+                self.resume_calls = 0
+
+            def shutdown(self, timeout=None):
+                self.shutdown_calls.append(timeout)
+                return True
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                return True
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             database = AcsDatabase(root / "library.acsdb")
             analysis = AnalysisService(lambda: None)
             database_failure = RuntimeError("DATABASE_CLOSE_FAILED")
+            store = mock.Mock()
+            store.path = root / "book-progress.json"
+            close_calls = 0
+            real_close = database.close
+
+            def flaky_close() -> None:
+                nonlocal close_calls
+                close_calls += 1
+                if close_calls == 1:
+                    raise database_failure
+                real_close()
+
             try:
-                application = self._application(
-                    database,
-                    analysis,
-                    _FailingProgressStore(root / "book-progress.json"),
-                )
-                with mock.patch.object(
-                    application,
-                    "save_training_progress",
-                    return_value=None,
-                ), mock.patch.object(
-                    application,
-                    "save_book_progress",
-                    return_value=None,
-                ), mock.patch.object(
-                    database,
-                    "close",
-                    side_effect=database_failure,
-                ) as close:
+                application = self._application(database, analysis, store)
+                book_worker = RecoverableWorker()
+                file_worker = RecoverableWorker()
+                application._book_open_worker = book_worker
+                application._files = file_worker
+
+                with mock.patch.object(database, "close", side_effect=flaky_close):
                     with self.assertRaises(RuntimeError) as caught:
                         application.shutdown()
 
-                self.assertIs(caught.exception, database_failure)
-                close.assert_called_once_with()
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                    self.assertIs(caught.exception, database_failure)
+                    self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                    self.assertEqual(book_worker.resume_calls, 1)
+                    self.assertEqual(file_worker.resume_calls, 1)
+                    self.assertEqual(book_worker.shutdown_calls, [None])
+                    self.assertEqual(file_worker.shutdown_calls, [None])
+
+                    self.assertTrue(application.shutdown())
+
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    database.conn.execute("SELECT 1")
+                self.assertEqual(close_calls, 2)
+                self.assertEqual(book_worker.shutdown_calls, [None, None])
+                self.assertEqual(file_worker.shutdown_calls, [None, None])
+                self.assertEqual(book_worker.resume_calls, 1)
+                self.assertEqual(file_worker.resume_calls, 1)
+                self.assertEqual(store.save.call_count, 2)
             finally:
                 database.close()
                 analysis.close()
-
 
     def test_progress_failure_reopens_retired_native_workers(self) -> None:
         class RecoverableWorker:
