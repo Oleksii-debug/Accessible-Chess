@@ -157,8 +157,159 @@ _PGN_EVENT_RE = re.compile(r'^\[Event\s+"', re.IGNORECASE)
 _PGN_MARKER_RE = re.compile(r'^\{PGN\s+\d+\}\s*$', re.IGNORECASE)
 _END_PGN_RE = re.compile(r'^End of PGN Supplement\s*$', re.IGNORECASE)
 _HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
-_CSS_IMPORTANT_RE = re.compile(r"\s*!\s*important\s*$", re.IGNORECASE)
+_CSS_WHITESPACE = " \t\r\n\f"
+_CSS_IMPORTANT_RE = re.compile(r"[ \t\r\n\f]*![ \t\r\n\f]*important[ \t\r\n\f]*$")
 
+
+def _css_ascii_lower(value: str) -> str:
+    """Apply CSS ASCII case-insensitive folding without Unicode case expansion."""
+
+    return "".join(
+        chr(ord(char) + 32) if "A" <= char <= "Z" else char
+        for char in value
+    )
+
+
+def _inline_style_without_comments(style: str) -> str:
+    """Remove real CSS comments as whitespace before bounded display parsing.
+
+    Comment-looking text inside quoted CSS strings or behind a backslash escape
+    is data, not comment syntax. Preserve it verbatim so bounded display parsing
+    cannot accidentally consume a later real declaration. An unterminated real
+    comment still consumes the remainder.
+    """
+
+    parts: list[str] = []
+    cursor = 0
+    quote: str | None = None
+    while cursor < len(style):
+        char = style[cursor]
+        if char == "\\":
+            parts.append(char)
+            if cursor + 1 < len(style):
+                parts.append(style[cursor + 1])
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if quote is not None:
+            parts.append(char)
+            if char == quote:
+                quote = None
+            cursor += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            parts.append(char)
+            cursor += 1
+            continue
+        if char == "/" and cursor + 1 < len(style) and style[cursor + 1] == "*":
+            parts.append(" ")
+            end = style.find("*/", cursor + 2)
+            if end < 0:
+                break
+            cursor = end + 2
+            continue
+        parts.append(char)
+        cursor += 1
+    return "".join(parts)
+
+def _split_inline_style_declarations(style: str) -> tuple[str, ...]:
+    """Split only top-level declarations in one bounded inline style."""
+
+    declarations: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    nesting: list[str] = []
+    matching = {")": "(", "]": "[", "}": "{"}
+    cursor = 0
+    while cursor < len(style):
+        char = style[cursor]
+        if char == "\\":
+            current.append(char)
+            if cursor + 1 < len(style):
+                current.append(style[cursor + 1])
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            cursor += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            current.append(char)
+            cursor += 1
+            continue
+        if char in "([{":
+            nesting.append(char)
+            current.append(char)
+            cursor += 1
+            continue
+        if char in ")]}":
+            if nesting and nesting[-1] == matching[char]:
+                nesting.pop()
+            current.append(char)
+            cursor += 1
+            continue
+        if char == ";" and not nesting:
+            declarations.append("".join(current))
+            current = []
+            cursor += 1
+            continue
+        current.append(char)
+        cursor += 1
+    declarations.append("".join(current))
+    return tuple(declarations)
+
+def _css_unescape_token(value: str) -> str:
+    """Decode CSS escapes for one bounded property/value token."""
+
+    parts: list[str] = []
+    cursor = 0
+    hexdigits = "0123456789abcdefABCDEF"
+    while cursor < len(value):
+        char = value[cursor]
+        if char != "\\":
+            parts.append(char)
+            cursor += 1
+            continue
+        cursor += 1
+        if cursor >= len(value):
+            # A trailing escape is invalid CSS. Preserve an impossible token
+            # rather than manufacturing a valid display keyword.
+            parts.append("\\")
+            break
+        escaped = value[cursor]
+        if escaped in "\n\r\f":
+            # Backslash + newline is not a valid CSS identifier escape. Keep
+            # an impossible token instead of joining text into display/none.
+            parts.append("\\")
+            parts.append(escaped)
+            cursor += 1
+            continue
+        if escaped in hexdigits:
+            end = cursor
+            while end < len(value) and end - cursor < 6 and value[end] in hexdigits:
+                end += 1
+            codepoint = int(value[cursor:end], 16)
+            if codepoint == 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                parts.append("\uFFFD")
+            else:
+                parts.append(chr(codepoint))
+            cursor = end
+            if cursor < len(value) and value[cursor] in " \t\r\n\f":
+                if value[cursor] == "\r" and cursor + 1 < len(value) and value[cursor + 1] == "\n":
+                    cursor += 2
+                else:
+                    cursor += 1
+            continue
+        parts.append(escaped)
+        cursor += 1
+    return "".join(parts)
 
 def _inline_style_hides(style: str) -> bool:
     """Recognize deterministic inline display:none subtree hiding.
@@ -171,16 +322,22 @@ def _inline_style_hides(style: str) -> bool:
     """
 
     effective_display: tuple[str, bool] | None = None
-    for declaration in style.split(";"):
+    for declaration in _split_inline_style_declarations(_inline_style_without_comments(style)):
         name, separator, raw_value = declaration.partition(":")
-        if not separator or name.strip().casefold() != "display":
+        if (
+            not separator
+            or _css_ascii_lower(
+                _css_unescape_token(name.strip(_CSS_WHITESPACE))
+            ) != "display"
+        ):
             continue
-        value = raw_value.strip()
+        value = _css_ascii_lower(
+            _css_unescape_token(raw_value.strip(_CSS_WHITESPACE))
+        )
         important_match = _CSS_IMPORTANT_RE.search(value)
         important = important_match is not None
         if important_match is not None:
-            value = value[: important_match.start()].strip()
-        value = value.casefold()
+            value = value[: important_match.start()].strip(_CSS_WHITESPACE)
         if not value:
             continue
         if effective_display is not None and effective_display[1] and not important:
@@ -713,7 +870,7 @@ class _SemanticHtmlParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs_list)
-        if tag.lower() not in {"img", "meta", "br", "hr", "input", "link"}:
+        if tag.lower() not in _VOID_TAGS:
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
