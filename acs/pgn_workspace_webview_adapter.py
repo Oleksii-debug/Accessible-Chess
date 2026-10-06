@@ -407,9 +407,14 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         if type(node_id) is not str:
             raise ValueError("PGN action lacks a presentation node")
         cursor = _node_cursor(node_id)
+        main_line_comment = (
+            action_id in {"pgn.comment_edit", "pgn.comment_delete"}
+            and cursor == GameTreeCursor()
+            and payload.get("slot") in {"leading", "trailing"}
+        )
         trusted = self._trusted_target(
             node_id,
-            require_current=True,
+            require_current=not main_line_comment,
             extra={key: value for key, value in payload.items() if key not in {"game_index", "node_id"}},
         )
         if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
@@ -562,6 +567,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         *,
         slot: str | None = None,
         index: int | None = None,
+        main: bool = False,
     ) -> PgnWebViewEvent:
         return self._mutate_and_render(
             lambda: PgnWebViewProjection.edit_comment(
@@ -569,6 +575,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
                 text,
                 slot=slot,
                 index=index,
+                main=main,
             )
         )
 
@@ -583,12 +590,14 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         *,
         slot: str | None = None,
         index: int | None = None,
+        main: bool = False,
     ) -> PgnWebViewEvent:
         return self._mutate_and_render(
             lambda: PgnWebViewProjection.delete_comment(
                 self,
                 slot=slot,
                 index=index,
+                main=main,
             )
         )
 
