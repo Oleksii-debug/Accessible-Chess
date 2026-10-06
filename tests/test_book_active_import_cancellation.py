@@ -284,6 +284,27 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_host_metadata_is_bounded_before_whitespace_normalization(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
+        cases = (
+            ({'source_name': '123456789'},),
+            ({'source_name': 'ok.epub', 'title': '123456789'},),
+            ({'source_name': 'ok.epub', 'author': '123456789'},),
+            ({'source_name': 'ok.epub', 'language': '123456789'},),
+        )
+        with patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 8):
+            for (kwargs,) in cases:
+                with self.subTest(kwargs=kwargs):
+                    with self.assertRaises(epub.BookEpubImportError) as caught:
+                        import_epub_book(raw, **kwargs)
+                    self.assertEqual(
+                        caught.exception.code,
+                        epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+                    )
+                    self.assertIn('BookDocument text field limit', str(caught.exception))
+
     def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
         import acs.book_epub_import as epub
 
