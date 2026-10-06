@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from acs.epd import (
     EpdOperation,
     EpdParseError,
     EpdRecord,
+    MAX_EPD_CHARS,
     MAX_EPD_OPERATIONS,
     looks_like_epd,
     parse_epd,
@@ -76,9 +79,20 @@ class EpdFormatTests(unittest.TestCase):
             parse_epd(START_EPD + " hmvc ١;")
         with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
             parse_epd(START_EPD + " fmvn 0;")
-        signed = parse_epd(START_EPD + " hmvc +7; fmvn +12;")
+        signed_text = START_EPD + " hmvc +7; fmvn +12;"
+        signed = parse_epd(signed_text)
         self.assertEqual(signed.position.halfmove, 7)
         self.assertEqual(signed.position.fullmove, 12)
+        self.assertEqual(signed.to_epd(), signed_text)
+        self.assertEqual(parse_epd(signed.to_epd()), signed)
+
+        zero_padded_text = START_EPD + " hmvc 007; fmvn 0012;"
+        zero_padded = parse_epd(zero_padded_text)
+        self.assertEqual(zero_padded.position.halfmove, 7)
+        self.assertEqual(zero_padded.position.fullmove, 12)
+        self.assertEqual(zero_padded.to_epd(), zero_padded_text)
+        self.assertEqual(parse_epd(zero_padded.to_epd()), zero_padded)
+
         with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
             parse_epd(START_EPD + " hmvc -1;")
 
@@ -86,6 +100,119 @@ class EpdFormatTests(unittest.TestCase):
         operations = " ".join("noop;" for _ in range(MAX_EPD_OPERATIONS + 1))
         with self.assertRaisesRegex(EpdParseError, "too many operations"):
             parse_epd(START_EPD + " " + operations)
+
+    def test_record_counter_operations_must_match_canonical_position(self):
+        position = PositionState.from_fen(f"{START_BOARD} w KQkq - 7 12")
+        with self.assertRaisesRegex(EpdParseError, "hmvc operation does not match"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("hmvc", "8"),),
+            )
+        with self.assertRaisesRegex(EpdParseError, "fmvn operation does not match"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("fmvn", "13"),),
+            )
+        with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("hmvc", "not-a-number"),),
+            )
+        with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
+            EpdRecord(
+                position=position,
+                operations=(EpdOperation("fmvn", "0"),),
+            )
+
+        canonical = EpdRecord(
+            position=position,
+            operations=(
+                EpdOperation("hmvc", "7"),
+                EpdOperation("fmvn", "12"),
+            ),
+        )
+        self.assertEqual(parse_epd(canonical.to_epd()), canonical)
+
+    def test_quoted_escape_sequences_round_trip_without_semicolon_confusion(self):
+        text = START_EPD + r' id "quote: \"; slash: \\";'
+        record = parse_epd(text)
+        self.assertEqual(record.operations, (EpdOperation("id", r'"quote: \"; slash: \\"'),))
+        self.assertEqual(record.to_epd(), text)
+        self.assertEqual(parse_epd(record.to_epd()), record)
+
+        with self.assertRaisesRegex(EpdParseError, "invalid escape"):
+            parse_epd(START_EPD + r' id "bad \n escape";')
+
+    def test_record_constructor_rejects_duplicate_opcodes(self):
+        position = PositionState.from_fen(START_FEN)
+        with self.assertRaisesRegex(EpdParseError, "^duplicate EPD id operation$"):
+            EpdRecord(
+                position=position,
+                operations=(
+                    EpdOperation("id", '"first"'),
+                    EpdOperation("id", '"second"'),
+                ),
+            )
+
+    def test_direct_operand_representation_is_bounded_and_round_trip_safe(self):
+        for operand, message in (
+            ("", "operand text must not be empty"),
+            (" value", "leading or trailing spaces"),
+            ("value ", "leading or trailing spaces"),
+            ("x" * (MAX_EPD_CHARS + 1), "operand is too long"),
+        ):
+            with self.subTest(operand_length=len(operand), message=message):
+                with self.assertRaisesRegex(EpdParseError, message):
+                    EpdOperation("Xtest", operand)
+
+        empty_string = EpdOperation("Xtest", '""')
+        record = EpdRecord(
+            position=PositionState.from_fen(START_FEN),
+            operations=(empty_string,),
+        )
+        self.assertEqual(parse_epd(record.to_epd()), record)
+
+    def test_serializer_rejects_enormous_direct_counters_before_string_conversion(self):
+        base = PositionState.from_fen(START_FEN)
+        position = PositionState(
+            base.pieces,
+            turn=base.turn,
+            castling=base.castling,
+            en_passant=base.en_passant,
+            halfmove=10 ** (MAX_EPD_CHARS + 1),
+            fullmove=1,
+        )
+        record = EpdRecord(position=position)
+
+        with patch.object(
+            PositionState,
+            "to_fen",
+            side_effect=AssertionError("oversized counter must fail before FEN text materialization"),
+        ):
+            with self.assertRaisesRegex(EpdParseError, "^serialized EPD is too long$"):
+                serialize_epd(record)
+
+    def test_serializer_enforces_total_epd_line_budget(self):
+        record = EpdRecord(
+            position=PositionState.from_fen(START_FEN),
+            operations=tuple(
+                EpdOperation(f"X{index}", '"' + ("x" * 255) + '"')
+                for index in range(16)
+            ),
+        )
+        with self.assertRaisesRegex(EpdParseError, "^serialized EPD is too long$"):
+            serialize_epd(record)
+
+    def test_epd_character_budget_is_exact(self):
+        canonical = START_EPD + " noop;"
+        at_limit = canonical + (" " * (MAX_EPD_CHARS - len(canonical)))
+        self.assertEqual(parse_epd(at_limit).position.to_fen(), START_FEN)
+        self.assertTrue(looks_like_epd(at_limit))
+
+        too_long = at_limit + " "
+        with self.assertRaisesRegex(EpdParseError, "^EPD is too long$"):
+            parse_epd(too_long)
+        self.assertFalse(looks_like_epd(too_long))
 
     def test_opcode_grammar_uniqueness_and_private_namespace(self):
         with self.assertRaisesRegex(EpdParseError, "duplicate EPD noop"):
@@ -126,6 +253,50 @@ class EpdFormatTests(unittest.TestCase):
         self.assertFalse(looks_like_epd(hostile))
         self.assertEqual(HostileEpd.length_calls, 0)
 
+    def test_position_editor_exposes_epd_format_guidance_to_screen_readers(self):
+        html = (
+            Path(__file__).resolve().parents[1] / "web" / "index.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '<textarea id="position-input" maxlength="4096" spellcheck="false" aria-describedby="position-format-hint"></textarea>',
+            html,
+        )
+        self.assertIn(
+            '<input id="move-input" type="text" maxlength="4096"',
+            html,
+        )
+        self.assertIn(
+            '<input id="fen-input" type="text" maxlength="4096"',
+            html,
+        )
+        self.assertIn(
+            'id="position-format-hint">Підтримується формат W:/B: або EPD. Для EPD колір ходу береться із самого EPD; селектор «Хід» застосовується до W:/B:. Для FEN використовуйте поле FEN вище.</div>',
+            html,
+        )
+        self.assertIn(
+            "Supports W:/B: or EPD. For EPD, the side to move comes from the EPD itself; the Side to move selector applies to W:/B:. Use the FEN field above for FEN.",
+            html,
+        )
+
+    def test_epd_embedded_turn_overrides_external_position_selector(self):
+        white_epd = START_EPD + " hmvc 0; fmvn 1;"
+        black_epd = f"{START_BOARD} b KQkq - hmvc 0; fmvn 1;"
+
+        self.assertEqual(
+            parse_position_text(white_epd, turn="b", language="en").split()[1],
+            "w",
+        )
+        self.assertEqual(
+            parse_position_text(black_epd, turn="w", language="en").split()[1],
+            "b",
+        )
+
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.set_position_text(white_epd, "b")["ok"])
+        self.assertEqual(api.board.turn, "w")
+        self.assertTrue(api.set_position_text(black_epd, "w")["ok"])
+        self.assertEqual(api.board.turn, "b")
+
     def test_position_text_adapter_makes_epd_reachable_in_accessible_flow(self):
         epd = START_EPD + ' hmvc 3; fmvn 8; id "lesson 1";'
         self.assertEqual(
@@ -136,7 +307,13 @@ class EpdFormatTests(unittest.TestCase):
         api = AccessibleChessAPI(lang="uk")
         result = api.set_position_text(epd)
         self.assertTrue(result["ok"])
+        self.assertEqual(result["announcement"], "Позицію EPD завантажено.")
         self.assertEqual(api.board.fen(), f"{START_BOARD} w KQkq - 3 8")
+
+        api_en = AccessibleChessAPI(lang="en")
+        result_en = api_en.set_position_text(epd)
+        self.assertTrue(result_en["ok"])
+        self.assertEqual(result_en["announcement"], "EPD position loaded.")
 
     def test_malformed_epd_is_localized_and_does_not_mutate_live_board(self):
         malformed = START_EPD + " hmvc invalid;"
@@ -151,6 +328,107 @@ class EpdFormatTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["announcement"], "Некоректний EPD.")
         self.assertEqual(api.board.fen(), before)
+
+    def test_malformed_numeric_epd_tail_is_not_misrouted_as_a_move(self):
+        malformed = START_EPD + " 12"
+        self.assertTrue(looks_like_epd(malformed))
+
+        with self.assertRaisesRegex(ValueError, "^Invalid EPD\\.$"):
+            parse_position_text(malformed, language="en")
+
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+        result = api.make_move(malformed)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Invalid EPD.")
+        self.assertTrue(result["announceMoveErrors"])
+        self.assertEqual(api.board.fen(), before)
+
+    def test_ordinary_six_field_fen_is_never_classified_as_epd(self):
+        for fen in (
+            START_FEN,
+            f"{START_BOARD} b KQkq - 999 123456",
+        ):
+            with self.subTest(fen=fen):
+                self.assertFalse(looks_like_epd(fen))
+
+    def test_epd_move_input_history_recovery_failure_is_atomic(self):
+        api = AccessibleChessAPI(lang="uk")
+        self.assertTrue(api.make_move("e4")["ok"])
+        before_fen = api.board.fen()
+        before_start_fen = api.start_fen
+        before_sans = list(api.sans)
+        before_sides = list(api.move_sides)
+        before_history = api.review_history
+        before_adapter = api.review_adapter
+        before_live_node = api.live_history_node
+
+        epd = START_EPD + ' hmvc 2; fmvn 3; id "atomic";'
+        with patch(
+            "acs.webapp.ReviewHistory",
+            side_effect=RuntimeError("private history failure"),
+        ):
+            result = api.make_move(epd)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["announcement"],
+            "Не вдалося підготувати історію нової позиції.",
+        )
+        self.assertTrue(result["announceMoveErrors"])
+        self.assertNotIn("private history failure", result["announcement"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.start_fen, before_start_fen)
+        self.assertEqual(api.sans, before_sans)
+        self.assertEqual(api.move_sides, before_sides)
+        self.assertIs(api.review_history, before_history)
+        self.assertIs(api.review_adapter, before_adapter)
+        self.assertEqual(api.live_history_node, before_live_node)
+
+    def test_actual_web_move_input_accepts_epd_and_replaces_live_root(self):
+        api = AccessibleChessAPI(lang="uk")
+        self.assertTrue(api.make_move("e4")["ok"])
+        epd = START_EPD + ' hmvc 6; fmvn 9; id "move input";'
+
+        result = api.make_move(epd)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["announcement"], "Позицію EPD завантажено.")
+        self.assertEqual(api.board.fen(), f"{START_BOARD} w KQkq - 6 9")
+        self.assertEqual(api.start_fen, f"{START_BOARD} w KQkq - 6 9")
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+        self.assertEqual(len(api.review_history.tree_nodes()), 1)
+
+    def test_actual_web_move_input_announces_malformed_epd_without_mutation(self):
+        api = AccessibleChessAPI(lang="uk")
+        before = api.board.fen()
+
+        result = api.make_move(START_EPD + " hmvc invalid;")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["announcement"], "Некоректний EPD.")
+        self.assertTrue(result["announceMoveErrors"])
+        self.assertEqual(api.board.fen(), before)
+
+        api_en = AccessibleChessAPI(lang="en")
+        before_en = api_en.board.fen()
+        result_en = api_en.make_move(START_EPD + " fmvn 0;")
+        self.assertFalse(result_en["ok"])
+        self.assertEqual(result_en["announcement"], "Invalid EPD.")
+        self.assertTrue(result_en["announceMoveErrors"])
+        self.assertEqual(api_en.board.fen(), before_en)
+
+    def test_actual_web_move_input_still_leaves_six_field_fen_to_move_parser(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+
+        result = api.make_move(START_FEN)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertNotEqual(result["announcement"], "Position loaded from text editor.")
+        self.assertNotIn("announceMoveErrors", result)
 
     def test_move_entry_routes_epd_without_reclassifying_six_field_fen(self):
         epd_intent = parse_move_entry(START_EPD + " hmvc 4; fmvn 5;")
