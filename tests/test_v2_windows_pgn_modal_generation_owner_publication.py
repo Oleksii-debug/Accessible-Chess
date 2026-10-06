@@ -139,6 +139,65 @@ class WindowsPgnModalGenerationOwnerPublicationTests(unittest.TestCase):
 
         self._run_owner_publication_after_persistence_drift(mutate)
 
+    def test_open_owner_publication_rechecks_cancellation_before_session_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source_path = root / "replacement.pgn"
+            current_path = root / "current.pgn"
+            source_path.write_text('[Event "replacement"]\n\n1. d4 *\n', encoding="utf-8")
+            current_path.write_text('[Event "current"]\n\n1. e4 *\n', encoding="utf-8")
+
+            current = self._session(current_path)
+            prepared = self._session(source_path)
+            prepared_view = prepared.view()
+            cancel_event = threading.Event()
+            events: list[FileWorkflowEvent] = []
+            live_box: list[PgnDocumentSession | None] = [current]
+            reads = 0
+
+            def get_live_session() -> PgnDocumentSession:
+                nonlocal reads
+                reads += 1
+                if reads == 1:
+                    cancel_event.set()
+                return current
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source_path),
+                get_pgn_session=get_live_session,
+                set_pgn_session=lambda session: live_box.__setitem__(0, session),
+                import_services_factory=_noop_services,
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                post_to_ui=lambda callback: None,
+            )
+            generation, _ = self._prepare_worker_state(delegate, cancel_event)
+            expected_generation = delegate._pgn_session_generation(current)
+
+            # The injected cancellation lands after the owner callback's initial
+            # cancellation snapshot, but before its final session publication.
+            # Cancellation remains allowed to win until the publication boundary.
+            delegate._finish_pgn_open_on_owner(
+                generation,
+                prepared,
+                prepared_view,
+                "",
+                "",
+                cancel_event,
+                current,
+                expected_generation,
+            )
+
+            self.assertIs(
+                live_box[0],
+                current,
+                "cancelled Open must not publish the prepared session",
+            )
+            self.assertTrue(events)
+            terminal = events[-1]
+            self.assertIs(terminal.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
+            self.assertEqual(terminal.action_id, "pgn.open")
+
 
 if __name__ == "__main__":
     unittest.main()
