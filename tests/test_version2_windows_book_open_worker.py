@@ -293,6 +293,41 @@ class BookOpenWorkerTests(unittest.TestCase):
             [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
         )
 
+    def test_cancelling_observer_abort_cannot_escape_or_undo_cancel(self) -> None:
+        callbacks = []
+        commits = []
+        events = []
+
+        class CancellingAbort(BaseException):
+            pass
+
+        def sink(event):
+            if event.kind is BookOpenWorkerEventKind.CANCELLING:
+                raise CancellingAbort()
+            events.append(event.kind)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+
+        self.assertTrue(worker.cancel(focus_target="book-cancel"))
+
+        callbacks.pop(0)()
+        self.assertFalse(worker.active)
+        self.assertEqual(commits, [])
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLED,
+            ],
+        )
+
     def test_cancelled_terminal_observer_failure_is_retained_for_retry(self) -> None:
         callbacks = []
         commits = []
