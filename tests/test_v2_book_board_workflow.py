@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -113,6 +114,43 @@ class BookBoardWorkflowTests(unittest.TestCase):
             self._workflow(reader)
 
         self.assertFalse(HostileReader.touched)
+
+    def test_exact_reader_instance_method_shadows_cannot_replace_book_board_authority(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Passive Book Board reader",
+                blocks=[
+                    Position(fen=Board.START, block_id="origin"),
+                    Paragraph(text="Elsewhere", block_id="elsewhere"),
+                ],
+            )
+        )
+        workflow, engine, _analysis = self._workflow(reader)
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("called")
+            raise AssertionError("BookReader instance shadow must not execute")
+
+        reader.location = hostile  # type: ignore[method-assign]
+        reader.block_snapshot = hostile  # type: ignore[method-assign]
+        reader.snapshot = hostile  # type: ignore[method-assign]
+        reader.go_to = hostile  # type: ignore[method-assign]
+
+        opened = workflow.open_current()
+        self.assertEqual(opened.origin.index, 0)
+        self.assertEqual(opened.current_fen, Board.START)
+
+        # Move the externally-owned reader through the concrete authority so
+        # Return must exercise canonical snapshot/location/go_to as well.
+        BookReader.go_to(reader, 1)
+        restored = workflow.return_to_book()
+
+        self.assertEqual(restored.index, 0)
+        self.assertEqual(BookReader.location(reader).index, 0)
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(touched, [])
+        self.assertFalse(workflow.active)
 
     def test_semantic_game_snapshot_is_detached_read_only_and_variation_complete(self) -> None:
         document = BookDocument(
@@ -243,15 +281,18 @@ class BookBoardWorkflowTests(unittest.TestCase):
                 position = Position(fen=Board.START, block_id="bad")
                 document = BookDocument(title="Book", blocks=[position])
                 reader = BookReader(document)
-                corrupted = reader.block_snapshot(0)
+                corrupted = BookReader.block_snapshot(reader, 0)
                 corrupted.fen = invalid_fen  # type: ignore[assignment]
-                reader.block_snapshot = (  # type: ignore[method-assign]
-                    lambda _index, block=corrupted: block
-                )
                 workflow, _engine, _analysis = self._workflow(reader)
 
-                with self.assertRaises(BookBoardWorkflowError) as caught:
-                    workflow.open_current()
+                with mock.patch.object(
+                    BookReader,
+                    "block_snapshot",
+                    autospec=True,
+                    return_value=corrupted,
+                ):
+                    with self.assertRaises(BookBoardWorkflowError) as caught:
+                        workflow.open_current()
                 self.assertEqual(
                     caught.exception.code, BookBoardWorkflowCode.INVALID_POSITION
                 )
@@ -281,15 +322,15 @@ class BookBoardWorkflowTests(unittest.TestCase):
         document = BookDocument(title="Book", blocks=[position])
         reader = BookReader(document)
         workflow, engine, _analysis = self._workflow(reader)
-        original_location = reader.location
+        original_location = BookReader.location
         first_call = True
         changed = Board()
         changed.push_text("e4")
         changed_fen = changed.fen()
 
-        def location_then_mutate():
+        def location_then_mutate(bound_reader: BookReader):
             nonlocal first_call
-            location = original_location()
+            location = original_location(bound_reader)
             if first_call:
                 first_call = False
                 position.fen = changed_fen
@@ -302,11 +343,11 @@ class BookBoardWorkflowTests(unittest.TestCase):
             canonical_inputs.append(value)
             return real_canonical(value)
 
-        reader.location = location_then_mutate  # type: ignore[method-assign]
         workflow._canonical_fen = guarded_canonical  # type: ignore[method-assign]
 
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.open_current()
+        with mock.patch.object(BookReader, "location", location_then_mutate):
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                workflow.open_current()
 
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
         self.assertEqual(
@@ -323,17 +364,16 @@ class BookBoardWorkflowTests(unittest.TestCase):
         document = BookDocument(title="Book", blocks=[position])
         reader = BookReader(document)
         workflow, engine, _analysis = self._workflow(reader)
-        real_snapshot = reader.block_snapshot
+        real_snapshot = BookReader.block_snapshot
 
-        def snapshot_then_mutate(index: int):
-            block = real_snapshot(index)
+        def snapshot_then_mutate(bound_reader: BookReader, index: int):
+            block = real_snapshot(bound_reader, index)
             position.caption = "changed after indexed snapshot"
             return block
 
-        reader.block_snapshot = snapshot_then_mutate  # type: ignore[method-assign]
-
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.open_current()
+        with mock.patch.object(BookReader, "block_snapshot", snapshot_then_mutate):
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                workflow.open_current()
 
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
         self.assertNotIn("BookDocument changed", str(caught.exception))
