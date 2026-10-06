@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - converge/current-runtime-books-pgn-apex-20261006-zftrkmo
+      - converge/current-shipping-runtime-evidence-apex-20261006-zftrkmo
   pull_request:
     branches:
       - converge/current-product-books-provider-20261005-ooxple7
@@ -18,6 +19,7 @@ concurrency:
 
 env:
   PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  RUNTIME_MERGE_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
   PGN_PARENT_SHA: 7acff17b56d1beaf0f0924fa06ab9d00214b4cbe
   BOOKS_PARENT_SHA: b0cb38cad9630cc92dcb848e6bcaf2abfd2ba474
 
@@ -31,22 +33,24 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout exact convergence receipt
+      - name: Checkout exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove two-parent authority and exact union scope
+      - name: Prove fixed runtime receipt and descendant-safe scope
         shell: bash
         run: |
           set -euo pipefail
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$head"
-          receipt="$(git rev-list --parents -n 1 HEAD)"
-          test "$receipt" = "$head $PGN_PARENT_SHA $BOOKS_PARENT_SHA"
-          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          git cat-file -e "$RUNTIME_MERGE_SHA^{commit}"
+          git merge-base --is-ancestor "$RUNTIME_MERGE_SHA" HEAD
+          receipt="$(git rev-list --parents -n 1 "$RUNTIME_MERGE_SHA")"
+          test "$receipt" = "$RUNTIME_MERGE_SHA $PGN_PARENT_SHA $BOOKS_PARENT_SHA"
+          test "$(git merge-base "$PRODUCT_SHA" "$RUNTIME_MERGE_SHA")" = "$PRODUCT_SHA"
           git diff --check "$PRODUCT_SHA"...HEAD
           test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' || true)"
 
@@ -55,24 +59,33 @@ jobs:
           import subprocess
 
           product = os.environ["PRODUCT_SHA"]
+          runtime_merge = os.environ["RUNTIME_MERGE_SHA"]
           pgn = os.environ["PGN_PARENT_SHA"]
           books = os.environ["BOOKS_PARENT_SHA"]
 
-          def paths(a: str, b: str) -> set[str]:
-              output = subprocess.check_output(
-                  ["git", "diff", "--name-only", f"{a}...{b}"],
-                  text=True,
-              )
-              return {line for line in output.splitlines() if line}
+          def triple(a: str, b: str) -> set[str]:
+              out = subprocess.check_output(["git", "diff", "--name-only", f"{a}...{b}"], text=True)
+              return {line for line in out.splitlines() if line}
 
-          expected = paths(product, pgn) | paths(product, books)
-          expected.add(".github/workflows/current-runtime-books-pgn-apex.yml")
-          actual = paths(product, "HEAD")
-          if actual != expected:
-              print("missing:", sorted(expected - actual))
-              print("unexpected:", sorted(actual - expected))
-              raise SystemExit("RUNTIME_CONVERGENCE_SCOPE_MISMATCH")
-          print(f"RUNTIME_CONVERGENCE_PATHS={len(actual)}")
+          def direct(a: str, b: str) -> set[str]:
+              out = subprocess.check_output(["git", "diff", "--name-only", a, b], text=True)
+              return {line for line in out.splitlines() if line}
+
+          expected = triple(product, pgn) | triple(product, books) | {
+              ".github/workflows/current-runtime-books-pgn-apex.yml"
+          }
+          receipt_paths = triple(product, runtime_merge)
+          if receipt_paths != expected:
+              print("receipt missing:", sorted(expected - receipt_paths))
+              print("receipt unexpected:", sorted(receipt_paths - expected))
+              raise SystemExit("RUNTIME_RECEIPT_SCOPE_MISMATCH")
+
+          drift = direct(runtime_merge, "HEAD") & receipt_paths
+          allowed = {".github/workflows/current-runtime-books-pgn-apex.yml"}
+          if not drift <= allowed:
+              print("runtime drift:", sorted(drift - allowed))
+              raise SystemExit("RUNTIME_DESCENDANT_DRIFT")
+          print(f"RUNTIME_RECEIPT_PATHS={len(receipt_paths)}")
           PY
 
           grep -Fq 'if type(row) is not LibraryRowView:' acs/library_webview_projection.py
