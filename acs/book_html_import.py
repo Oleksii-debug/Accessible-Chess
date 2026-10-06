@@ -168,7 +168,7 @@ _CSS_DISPLAY_SINGLE_VALUES = frozenset(
         "table-row-group",
         "table-header-group", "table-footer-group", "table-row", "table-cell",
         "table-column-group", "table-column", "table-caption", "ruby-base",
-        "ruby-text", "ruby-base-container", "ruby-text-container", "inherit",
+        "ruby-text", "ruby-base-container", "ruby-text-container",
         "initial", "unset",
     }
 )
