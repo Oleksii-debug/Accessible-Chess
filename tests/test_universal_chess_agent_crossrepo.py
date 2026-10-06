@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 
 import pytest
 
@@ -98,8 +99,10 @@ def test_agent_executes_real_board_tool_then_returns_final_answer() -> None:
     assert second_messages[-1].role == "tool"
     assert '"tool_id":"board.current"' in second_messages[-1].content
     assert '"legalMoveCount":20' in second_messages[-1].content
-    assert budget.snapshot().incurred == budget.snapshot().ceiling * 0 + budget.snapshot().incurred
-    assert str(budget.snapshot().incurred) == "0.20"
+    snapshot = budget.snapshot()
+    assert snapshot.incurred == Decimal("0")
+    assert snapshot.estimated_unbilled == Decimal("0.20")
+    assert snapshot.available == Decimal("0.80")
 
 
 def test_agent_rejects_unregistered_tool_without_granting_authority() -> None:

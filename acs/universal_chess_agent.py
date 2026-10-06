@@ -22,6 +22,8 @@ from typing import Mapping
 
 from .agent_budget import ModelCostBudget
 from .agent_model_contracts import (
+    ModelFailureEffect,
+    ModelGatewayError,
     ModelMessage,
     ModelRequest,
     PrivacyClass,
@@ -257,6 +259,24 @@ class UniversalChessAgentRuntime:
             pass
         return True
 
+    def _release_or_quarantine_reservation(
+        self,
+        *,
+        request_id: str,
+        reservation: Decimal,
+        failure_effect: ModelFailureEffect | None,
+    ) -> None:
+        if self.budget is None:
+            return
+        if failure_effect is ModelFailureEffect.NO_EFFECT:
+            self.budget.release(request_id)
+            return
+        self.budget.settle(
+            request_id,
+            incurred=Decimal("0"),
+            estimated_unbilled=reservation,
+        )
+
     async def _run_loop(self, *, run_id: str, user_text: str) -> AgentRunResult:
         messages: list[ModelMessage] = [
             ModelMessage(role="system", content=self.system_prompt),
@@ -270,7 +290,9 @@ class UniversalChessAgentRuntime:
                 raise RuntimeError("agent model-call limit reached")
             request_id = f"{run_id}:model:{model_calls + 1}"
             reservation = self.policy.estimated_cost_per_model_call
-            if self.budget is not None and reservation > 0:
+            if self.budget is not None:
+                # A zero estimate still needs a request lifecycle so a later
+                # provider bill can be reconciled instead of becoming orphaned.
                 self.budget.reserve(request_id, reservation)
             try:
                 response = await self.gateway.complete(
@@ -284,18 +306,27 @@ class UniversalChessAgentRuntime:
                         temperature=0.0,
                     )
                 )
+            except ModelGatewayError as exc:
+                self._release_or_quarantine_reservation(
+                    request_id=request_id,
+                    reservation=reservation,
+                    failure_effect=exc.failure_effect,
+                )
+                raise
             except BaseException:
-                if self.budget is not None and reservation > 0:
-                    try:
-                        self.budget.release(request_id)
-                    except ValueError:
-                        pass
+                self._release_or_quarantine_reservation(
+                    request_id=request_id,
+                    reservation=reservation,
+                    failure_effect=None,
+                )
                 raise
             else:
-                if self.budget is not None and reservation > 0:
-                    # Provider-specific exact billing can reconcile later. Until
-                    # then charge the configured conservative per-call estimate.
-                    self.budget.settle(request_id, incurred=reservation)
+                if self.budget is not None:
+                    self.budget.settle(
+                        request_id,
+                        incurred=Decimal("0"),
+                        estimated_unbilled=reservation,
+                    )
             model_calls += 1
 
             kind, value, arguments = _strict_step(
@@ -339,8 +370,6 @@ class UniversalChessAgentRuntime:
             except (TypeError, ValueError) as exc:
                 raise RuntimeError("tool result is not JSON-safe") from exc
 
-            # Preserve the exact model request and exact tool result for the next
-            # turn without exposing any hidden model reasoning.
             messages.append(ModelMessage(role="assistant", content=response.text))
             messages.append(ModelMessage(role="tool", content=tool_text))
 

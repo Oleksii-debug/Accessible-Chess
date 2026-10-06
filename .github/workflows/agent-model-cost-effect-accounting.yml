@@ -1,0 +1,86 @@
+name: Agent Model Cost Effect Accounting
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+    paths:
+      - acs/universal_chess_agent.py
+      - tests/test_agent_model_cost_effect_accounting.py
+      - tests/test_universal_chess_agent_crossrepo.py
+      - .github/workflows/agent-model-cost-effect-accounting.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-model-cost-effect-accounting-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  exact-budget-effect-accounting:
+    name: Exact budget effect accounting (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove pinned parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=6609c35ff5fa0b1f959806866ff7403e70efdbf3
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+          mapfile -t changed < <(git diff --name-only "$BASE"...HEAD | LC_ALL=C sort)
+          expected=(
+            ".github/workflows/agent-model-cost-effect-accounting.yml"
+            "acs/universal_chess_agent.py"
+            "tests/test_agent_model_cost_effect_accounting.py"
+            "tests/test_universal_chess_agent_crossrepo.py"
+          )
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${changed[$i]}" = "${expected[$i]}"
+          done
+          test "$(git hash-object acs/universal_chess_agent.py)" = "be877a142dcb104abcf512a114dd78faca4df059"
+          test "$(git hash-object tests/test_agent_model_cost_effect_accounting.py)" = "595ff2baa8e3e8754bf7480189fdccf1c360f9fb"
+          test "$(git hash-object tests/test_universal_chess_agent_crossrepo.py)" = "c686131a6f60269f577fefe6df932459236ef7f4"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact test runner
+        run: python -m pip install pytest==8.4.2
+
+      - name: Compile model-cost boundary
+        run: >-
+          python -m py_compile
+          acs/agent_budget.py
+          acs/agent_model_contracts.py
+          acs/agent_model_gateway.py
+          acs/agent_tools.py
+          acs/universal_chess_agent.py
+          tests/test_agent_model_cost_effect_accounting.py
+          tests/test_universal_chess_agent_crossrepo.py
+          tests/test_crossrepo_runtime_integration.py
+          tests/test_agent_protocol_json_safety.py
+
+      - name: Run model-cost and retained agent regressions
+        run: >-
+          python -m pytest -q
+          tests/test_agent_model_cost_effect_accounting.py
+          tests/test_universal_chess_agent_crossrepo.py
+          tests/test_crossrepo_runtime_integration.py
+          tests/test_agent_protocol_json_safety.py
