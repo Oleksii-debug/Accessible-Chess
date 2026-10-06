@@ -276,6 +276,48 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("ще не опубліковано", announcement)
         self.assertNotIn("Скасовую", announcement)
 
+    def test_sync_late_cancel_terminal_is_announced_once_by_dispatcher(self):
+        cases = (
+            (
+                "pgn.cancel_open",
+                FileWorkflowEvent(
+                    kind=FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                    action_id="pgn.open",
+                    focus_target="pgn-game-list",
+                ),
+                "Відкриття PGN скасовано",
+            ),
+            (
+                "pgn.cancel_save",
+                FileWorkflowEvent(
+                    kind=FileWorkflowEventKind.PGN_SAVED,
+                    action_id="pgn.save",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                ),
+                "PGN збережено",
+            ),
+        )
+        for action, terminal, expected in cases:
+            with self.subTest(action=action):
+                calls = []
+
+                def files(action_id, payload):
+                    calls.append((action_id, dict(payload)))
+                    return terminal
+
+                self.app.bind_files(files)
+                self.app.drain_events()
+
+                result = self.app._delegate(action, {})
+
+                self.assertIs(result, terminal)
+                self.assertEqual(calls, [(action, {})])
+                events = self.app.drain_events()
+                statuses = [event for event in events if event["kind"] == "status"]
+                self.assertEqual(len(statuses), 1)
+                self.assertIn(expected, statuses[0]["payload"]["announcement"])
+
     def test_pgn_save_preflight_and_postpublication_stale_messages_are_truthful(self):
         preflight = FileWorkflowEvent(
             kind=FileWorkflowEventKind.FAILED,
