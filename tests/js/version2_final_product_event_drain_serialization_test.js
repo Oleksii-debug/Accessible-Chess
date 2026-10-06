@@ -247,6 +247,184 @@ assert.strictEqual(
   "terminal worker event stole newer visible user focus"
 );
 
+
+// Product presentation is a transaction too. A renderer may reject malformed
+// content after touching its candidate DOM; the previously committed screen,
+// exact nodes and keyboard focus must survive that rejection.
+const productRenderBlock = extract(
+  "  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {",
+  "  function render(snapshot, restoreFocus) {",
+  "final-product presentation transaction"
+);
+
+class TxElement {
+  constructor(id) {
+    this.id = id;
+    this.hidden = false;
+    this.children = [];
+  }
+  get childNodes() { return this.children; }
+  replaceChildren(...children) { this.children = children.filter(Boolean); }
+  contains(target) { return this.children.includes(target); }
+}
+
+const txWorkspace = new TxElement("v2-workspace");
+txWorkspace.hidden = true;
+const committedNode = { id: "committed-book", hidden: false };
+txWorkspace.replaceChildren(committedNode);
+const txOriginalMain = { hidden: false };
+const previousFocus = {
+  id: "board-launcher",
+  hidden: false,
+  focus() { txDocument.activeElement = this; }
+};
+const txDocument = { activeElement: previousFocus };
+let restoreProductFocusCalls = 0;
+const candidateNode = { id: "partial-book", hidden: false };
+const renderFailure = new Error("malformed Book candidate");
+let failBookRender = true;
+
+const presentationContext = vm.createContext({
+  Array,
+  documentRef: txDocument,
+  workspace: txWorkspace,
+  originalMain: txOriginalMain,
+  global: {
+    AccessibleChessBookSurface: {
+      render(root) {
+        assert.strictEqual(
+          txOriginalMain.hidden,
+          false,
+          "Stage 1 was hidden before Book candidate validation completed"
+        );
+        assert.strictEqual(
+          txWorkspace.hidden,
+          true,
+          "candidate workspace was exposed before Book validation completed"
+        );
+        root.replaceChildren(candidateNode);
+        txDocument.activeElement = candidateNode;
+        if (failBookRender) throw renderFailure;
+      }
+    }
+  },
+  areaInvoke: () => () => Promise.resolve(),
+  announce: () => {},
+  renderEmptyProduct: () => {},
+  uiText: (_uk, en) => en,
+  restoreProductFocus: () => { restoreProductFocusCalls += 1; },
+  hiddenByAncestor: (target) => !!target.hidden
+});
+vm.runInContext(
+  productRenderBlock + "\nthis.__renderProductSurface = renderProductSurface;",
+  presentationContext,
+  { filename: "version2_final_product_bootstrap.js#presentation" }
+);
+const renderProductSurface = presentationContext.__renderProductSurface;
+
+let observedRenderFailure = null;
+try {
+  renderProductSurface({ books: {} }, "books", "", true, "Books");
+} catch (error) {
+  observedRenderFailure = error;
+}
+assert.strictEqual(observedRenderFailure, renderFailure, "renderer failure identity was replaced");
+assert.strictEqual(txOriginalMain.hidden, false, "failed candidate hid committed Stage 1 UI");
+assert.strictEqual(txWorkspace.hidden, true, "failed candidate exposed uncommitted workspace");
+assert.deepStrictEqual(
+  txWorkspace.children,
+  [committedNode],
+  "failed candidate did not restore exact committed workspace node"
+);
+assert.strictEqual(txDocument.activeElement, previousFocus, "failed candidate did not restore prior focus");
+assert.strictEqual(restoreProductFocusCalls, 0, "failed candidate ran post-commit focus restoration");
+
+failBookRender = false;
+renderProductSurface({ books: {} }, "books", "", false, "Books");
+assert.strictEqual(txOriginalMain.hidden, true, "successful Book candidate did not commit Stage 1 visibility");
+assert.strictEqual(txWorkspace.hidden, false, "successful Book candidate did not expose workspace");
+assert.deepStrictEqual(txWorkspace.children, [candidateNode], "successful Book candidate was not committed");
+assert.strictEqual(
+  restoreProductFocusCalls,
+  1,
+  "first product commit did not re-establish focus after hidden-workspace render"
+);
+
+// The surrounding shell transaction must also roll back candidate language,
+// navigation and route identity if product presentation fails.
+const renderBlock = extract(
+  "  function render(snapshot, restoreFocus) {",
+  "  function refresh(restoreFocus) {",
+  "final-product shell transaction"
+);
+const oldNavNode = { id: "v2-nav-board" };
+const candidateNavNode = { id: "v2-nav-books" };
+const shellNavList = new TxElement("v2-navigation-list");
+shellNavList.replaceChildren(oldNavNode);
+const shellNav = {
+  attributes: {},
+  setAttribute(name, value) { this.attributes[name] = value; }
+};
+const shellNavHeading = { textContent: "Sections" };
+const shellDocument = { documentElement: { lang: "en" } };
+const shownRoutes = [];
+const shellFailure = new Error("candidate presentation rejected");
+const shellWorkspace = new TxElement("v2-workspace");
+const shellOriginalMain = { hidden: false };
+
+const shellContext = vm.createContext({
+  Array,
+  Set,
+  String,
+  currentLanguage: "en",
+  currentRouteId: "board",
+  documentRef: shellDocument,
+  navList: shellNavList,
+  nav: shellNav,
+  navHeading: shellNavHeading,
+  workspace: shellWorkspace,
+  originalMain: shellOriginalMain,
+  productRoutes: new Set(["books"]),
+  captureWorkspaceSelection: () => null,
+  restoreWorkspaceSelection: () => false,
+  uiText: (_uk, en) => en,
+  renderNavigation: () => { shellNavList.replaceChildren(candidateNavNode); },
+  renderProductSurface: () => { throw shellFailure; },
+  restoreStage1Focus: () => false,
+  global: {
+    showStage1Route(routeId) { shownRoutes.push(routeId); }
+  }
+});
+vm.runInContext(
+  renderBlock + "\nthis.__render = render;",
+  shellContext,
+  { filename: "version2_final_product_bootstrap.js#shell-transaction" }
+);
+
+let observedShellFailure = null;
+try {
+  shellContext.__render(
+    {
+      document: { lang: "uk" },
+      screen: { route_id: "books", focus_target: "", heading: "Books" }
+    },
+    true
+  );
+} catch (error) {
+  observedShellFailure = error;
+}
+assert.strictEqual(observedShellFailure, shellFailure, "shell rollback replaced the presentation failure");
+assert.strictEqual(shellContext.currentLanguage, "en", "failed candidate leaked language state");
+assert.strictEqual(shellDocument.documentElement.lang, "en", "failed candidate leaked document language");
+assert.strictEqual(shellContext.currentRouteId, "board", "failed candidate leaked route identity");
+assert.deepStrictEqual(shellNavList.children, [oldNavNode], "failed candidate leaked navigation tree");
+assert.strictEqual(shellNavHeading.textContent, "Sections", "failed candidate leaked navigation heading");
+assert.deepStrictEqual(
+  shownRoutes,
+  ["books", "board"],
+  "shell route was not restored after candidate presentation failure"
+);
+
 console.log("Version 2 final-product event drain serialization contract PASS");
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
