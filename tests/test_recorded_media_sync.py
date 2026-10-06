@@ -12,6 +12,7 @@ from acs.media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationState,
 )
 from acs.media_preprocess import (
     AdaptiveSamplingPolicy,
@@ -175,6 +176,71 @@ class RecordedMediaSyncTests(unittest.TestCase):
                 self.assertEqual(step.kind, RecordedSyncStepKind.SKIPPED)
         self.assertFalse(canonical.called)
         self.assertEqual(builder.timeline.links, ())
+        self.assertEqual(len(builder.timeline.barriers), 2)
+        self.assertTrue(
+            all(
+                barrier.state is MediaReconciliationState.RESYNC_REQUIRED
+                for barrier in builder.timeline.barriers
+            )
+        )
+
+
+    def test_no_link_and_ambiguous_frame_block_stale_confirmed_fallback(self):
+        timeline = MediaPositionTimeline(
+            "video-1",
+            (self.link(0, "tree:old"),),
+        )
+        builder = RecordedMediaTimelineBuilder(
+            self.plan(),
+            Canonical(None, None),
+            timeline=timeline,
+        )
+
+        stable_none = builder.accept(self.frame(timestamp=1000))
+        self.assertEqual(stable_none.kind, RecordedSyncStepKind.NO_LINK)
+        observed = builder.timeline.resolve_at_or_before(1500)
+        self.assertFalse(observed.resolved)
+        self.assertEqual(
+            observed.qualification,
+            MediaReconciliationState.OBSERVED,
+        )
+        self.assertIsNone(observed.chess_ref)
+
+        ambiguous_none = builder.accept(
+            self.frame(
+                timestamp=2000,
+                disposition=FrameDisposition.AMBIGUOUS,
+            )
+        )
+        self.assertEqual(ambiguous_none.kind, RecordedSyncStepKind.NO_LINK)
+        ambiguous = builder.timeline.resolve_at_or_before(2500)
+        self.assertTrue(ambiguous.ambiguous)
+        self.assertEqual(
+            ambiguous.qualification,
+            MediaReconciliationState.AMBIGUOUS,
+        )
+        self.assertIsNone(ambiguous.chess_ref)
+
+    def test_successful_reprocess_replaces_same_timestamp_barrier(self):
+        link = self.link(1000, "tree:new")
+        builder = RecordedMediaTimelineBuilder(
+            self.plan(),
+            Canonical(None, link),
+            timeline=MediaPositionTimeline(
+                "video-1",
+                (self.link(0, "tree:old"),),
+            ),
+        )
+
+        builder.accept(self.frame(timestamp=1000))
+        self.assertIsNotNone(builder.timeline.barrier_at(1000))
+        linked = builder.accept(self.frame(timestamp=1000))
+        self.assertEqual(linked.kind, RecordedSyncStepKind.LINKED)
+        self.assertIsNone(builder.timeline.barrier_at(1000))
+        self.assertEqual(
+            builder.timeline.resolve_at_or_before(1500).chess_ref,
+            "tree:new",
+        )
 
     def test_stale_frame_or_speech_revision_fails_before_canonical_use(self):
         class ExplodingCanonical:

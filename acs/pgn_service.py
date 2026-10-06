@@ -178,6 +178,30 @@ def _source_identity(st: os.stat_result) -> tuple[int, int]:
     return int(st.st_dev), int(st.st_ino)
 
 
+def _export_parent_identity(path: Path) -> tuple[int, int]:
+    """Bind publication to one direct destination-directory object."""
+
+    try:
+        current = path.lstat()
+    except OSError as exc:
+        raise PgnUnsafePathError("PGN export directory could not be bound safely") from exc
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or stat.S_ISLNK(current.st_mode)
+        or _is_reparse_point(current)
+    ):
+        raise PgnUnsafePathError("PGN export parent must be a direct directory")
+    return _source_identity(current)
+
+
+def _assert_bound_export_parent(
+    path: Path,
+    expected_identity: tuple[int, int],
+) -> None:
+    if _export_parent_identity(path) != expected_identity:
+        raise PgnUnsafePathError("PGN export directory changed during save")
+
+
 def _open_direct_source(path: Path):
     """Open one submitted source through the canonical no-follow source primitive."""
 
@@ -644,6 +668,7 @@ def save_pgn_atomic(
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_export_indirection(destination)
+    parent_identity = _export_parent_identity(destination.parent)
 
     tmp_path: Path | None = None
     try:
@@ -657,13 +682,20 @@ def save_pgn_atomic(
             delete=False,
         ) as handle:
             tmp_path = Path(handle.name)
+            # NamedTemporaryFile resolves the parent pathname again. Re-check
+            # the exact directory object before consuming any user chess data,
+            # so a direct-directory substitution cannot redirect the payload.
+            _assert_bound_export_parent(destination.parent, parent_identity)
             _write_games_incrementally(handle, games)
             handle.flush()
             os.fsync(handle.fileno())
 
         _reject_export_indirection(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
         if pre_publish_check is not None:
             pre_publish_check()
+        _reject_export_indirection(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
@@ -680,7 +712,14 @@ def save_pgn_atomic(
             except FileNotFoundError:
                 pass
 
-    return fingerprint(destination)
+    # Publication has committed. Bind the returned provenance to the same
+    # destination-directory object as the write; otherwise a post-commit
+    # directory substitution could make fingerprint() authenticate unrelated
+    # bytes at the same pathname and falsely report them as this save.
+    _assert_bound_export_parent(destination.parent, parent_identity)
+    published = fingerprint(destination)
+    _assert_bound_export_parent(destination.parent, parent_identity)
+    return published
 
 
 def export_game_atomic(
