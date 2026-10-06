@@ -206,6 +206,37 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                     )
                     self.assertIsNone(caught.exception.__cause__)
 
+    def test_merged_warning_provenance_cannot_exceed_canonical_token_budget(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET warnings_json=? WHERE id=?",
+                    (json.dumps(["persisted warning"]), game_id),
+                )
+
+            reparsed = parse_pgn_text(REALISTIC_PGN, strict=False)[0]
+            reparsed.warnings = ["reparsed warning one", "reparsed warning two"]
+
+            with mock.patch(
+                "acs.book_library_game_lookup.MAX_PGN_LEXICAL_TOKENS",
+                2,
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+                return_value=[reparsed],
+            ), mock.patch(
+                "acs.book_library_game_lookup.serialize_game",
+            ) as serializer:
+                with self.assertRaises(BookLibraryGameLookupError) as caught:
+                    AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(
+                str(caught.exception),
+                "stored book game warnings exceed the canonical resource limit",
+            )
+            self.assertIsNone(caught.exception.__cause__)
+            serializer.assert_not_called()
+
     def test_empty_nul_and_whitespace_warning_metadata_fail_closed(self) -> None:
         malformed = (
             '[""]',
