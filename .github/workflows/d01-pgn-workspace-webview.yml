@@ -218,7 +218,7 @@ jobs:
           # identity remains fail-closed.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6|477c0f155a5f3777da71c6e110429a024309dfa6|71418a756ef120509542bf44873e9f01b033e4ae)
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6|477c0f155a5f3777da71c6e110429a024309dfa6|71418a756ef120509542bf44873e9f01b033e4ae|f70aac53dc60ffaacca222ecccd7799741f480cd)
               ;;
             *)
               printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
@@ -273,7 +273,7 @@ jobs:
           # reviewed successor identities; every third identity remains fail-closed.
           adapter_actual="$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)"
           case "$adapter_actual" in
-            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|d35e68c56f0ed38842e9f4c6d50ba75ec055998f)
+            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|d35e68c56f0ed38842e9f4c6d50ba75ec055998f|ba3879d033a2b2a297b4d37318341e6a76150d03)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_workspace_webview_adapter.py actual=%s\n' "$adapter_actual" >&2
@@ -316,7 +316,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|2d92a32c40ad0c532725105e443288bb646a819b)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|2d92a32c40ad0c532725105e443288bb646a819b|0af49d422c4995c166c49d85569c156a93d08106)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -351,7 +351,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1|98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1|98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6|2a81d303d18440f60da7c38ab1eb8668e7f9e92b)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
