@@ -183,9 +183,14 @@ class Version2ReleaseCleanupPrecedenceTests(unittest.TestCase):
         self.assertTrue(webview.window.destroyed)
         self.assertEqual(
             calls,
-            ["application-shutdown", "analysis-close", "runtime-close"],
+            [
+                "application-shutdown",
+                "application-shutdown",
+                "analysis-close",
+                "runtime-close",
+            ],
         )
-        self.assertEqual(app.shutdown_count, 1)
+        self.assertEqual(app.shutdown_count, 2)
         self.assertEqual(runtime.close_count, 1)
 
     def test_create_window_failure_still_runs_complete_cleanup_chain(self) -> None:
