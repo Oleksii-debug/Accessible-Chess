@@ -84,7 +84,7 @@ function snapshot(selectedId) {
       result_label: "Result",
       result: "*",
       tags_heading: "PGN tags",
-      tags: [],
+      tags: [{ name: "Event", value: "Demo" }],
       warnings_heading: "PGN warnings",
       warnings: [],
       tree_heading: "Game tree",
@@ -128,6 +128,21 @@ function snapshot(selectedId) {
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true },
       { action: "pgn.export_selection", label: "Export selection", enabled: true }
     ],
+    metadata_editor: {
+      open_label: "Edit tags and result",
+      title: "PGN metadata",
+      tag_select_label: "Existing tag",
+      new_tag_label: "New tag",
+      tag_name_label: "Tag name",
+      tag_value_label: "Tag value",
+      tag_save_label: "Save tag",
+      tag_delete_label: "Delete tag",
+      result_label: "Result",
+      result_save_label: "Save result",
+      close_label: "Cancel",
+      result: "*",
+      editable_tags: [{ name: "Event", value: "Demo" }]
+    },
     comment_editor: {
       enabled: true,
       value: "",
@@ -471,6 +486,76 @@ async function run() {
   check(!JSON.stringify(calls).includes("expected_record_digest"), "browser learned record digest");
   check(!JSON.stringify(calls).includes("line_path"), "browser learned canonical GameTree path");
   check(announcements.length === 0, "passive PGN render produced live-region spam");
+
+  const metadataCalls = [];
+  const metadataRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    metadataRoot,
+    snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+    (command, payload) => {
+      metadataCalls.push([command, payload || {}]);
+      if (["pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"].indexOf(command) >= 0) {
+        return { kind: "delegated", payload: { action: command } };
+      }
+      throw new Error("unexpected metadata command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const metadataOpen = metadataRoot.descendants().find((item) => item.id === "pgn-metadata-open");
+  check(metadataOpen, "PGN metadata open button missing");
+  metadataOpen.listeners.click();
+  const metadataDialog = metadataRoot.descendants().find((item) => item.id === "pgn-metadata-dialog");
+  check(metadataDialog && metadataDialog.open, "PGN metadata dialog did not open");
+  const tagSelect = metadataDialog.descendants().find((item) => item.id === "pgn-metadata-tag-select");
+  const tagName = metadataDialog.descendants().find((item) => item.id === "pgn-metadata-tag-name");
+  const tagValue = metadataDialog.descendants().find((item) => item.id === "pgn-metadata-tag-value");
+  check(tagSelect && tagName && tagValue, "PGN metadata tag controls missing");
+  tagSelect.value = "Event";
+  tagSelect.listeners.change();
+  check(tagName.value === "Event" && tagValue.value === "Demo", "existing PGN tag was not populated");
+  tagValue.value = "Updated event";
+  const saveTag = metadataDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Save tag"
+  );
+  check(saveTag, "PGN metadata save-tag action missing");
+  saveTag.listeners.click();
+  await flush();
+  check(
+    metadataCalls.length === 1 &&
+      metadataCalls[0][0] === "pgn.tag_edit" &&
+      metadataCalls[0][1].name === "Event" &&
+      metadataCalls[0][1].value === "Updated event",
+    "PGN metadata edit did not send the bounded browser payload"
+  );
+  check(
+    !Object.prototype.hasOwnProperty.call(metadataCalls[0][1], "game_index") &&
+      !Object.prototype.hasOwnProperty.call(metadataCalls[0][1], "content_revision"),
+    "PGN metadata browser payload leaked canonical authority"
+  );
+  check(!metadataDialog.open, "delegated metadata success did not close the dialog");
+  check(document.activeElement === metadataOpen, "metadata success did not restore opener focus");
+
+  metadataOpen.listeners.click();
+  tagSelect.value = "Event";
+  tagSelect.listeners.change();
+  const deleteTag = metadataDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Delete tag"
+  );
+  check(deleteTag && !deleteTag.disabled, "PGN metadata delete action missing");
+  deleteTag.listeners.click();
+  await flush();
+  check(metadataCalls[1][0] === "pgn.tag_delete" && metadataCalls[1][1].name === "Event", "PGN tag delete payload is wrong");
+
+  metadataOpen.listeners.click();
+  const resultSelect = metadataDialog.descendants().find((item) => item.id === "pgn-metadata-result");
+  resultSelect.value = "1-0";
+  const saveResult = metadataDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Save result"
+  );
+  saveResult.listeners.click();
+  await flush();
+  check(metadataCalls[2][0] === "pgn.result_set" && metadataCalls[2][1].result === "1-0", "PGN result payload is wrong");
 
   const busyGate = deferred();
   const busyRoot = new FakeElement("div");
