@@ -1746,7 +1746,7 @@ def _checksums(
     root: Path,
     inventory: tuple[str, ...],
     limits: PackageLimits,
-) -> dict[str, str]:
+) -> tuple[dict[str, str], str]:
     path = root / CHECKSUMS_NAME
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
@@ -1762,6 +1762,8 @@ def _checksums(
         raise
     except (OSError, UnicodeError) as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
+
+    authority_sha256 = hashlib.sha256(payload).hexdigest()
 
     result: dict[str, str] = {}
     folded: set[str] = set()
@@ -1785,7 +1787,21 @@ def _checksums(
         actual = _sha256(root.joinpath(*PurePosixPath(relative).parts))
         if actual != expected_digest:
             _fail(f"package checksum mismatch: {relative}")
-    return result
+    return result, authority_sha256
+
+
+def _revalidate_checksums(
+    root: Path,
+    checksums: dict[str, str],
+    checksum_authority_sha256: str,
+) -> None:
+    """Require the validated package bytes to remain unchanged through the final gate."""
+    if _sha256(root / CHECKSUMS_NAME) != checksum_authority_sha256:
+        _fail("checksum inventory changed during package validation")
+    for relative, expected_digest in checksums.items():
+        actual = _sha256(root.joinpath(*PurePosixPath(relative).parts))
+        if actual != expected_digest:
+            _fail(f"package file changed during validation: {relative}")
 
 
 def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:
@@ -1851,8 +1867,9 @@ def validate_version2_package_tree(
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
-    checksums = _checksums(root, inventory, limits)
+    checksums, checksum_authority_sha256 = _checksums(root, inventory, limits)
     _scan_text_hygiene(root, inventory, limits)
+    _revalidate_checksums(root, checksums, checksum_authority_sha256)
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
         inventory=inventory,
