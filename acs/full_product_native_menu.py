@@ -88,10 +88,10 @@ _TOP_ORDER = (
 _TEXT = {
     UILanguage.EN: {
         "top.file": "&File", "top.game": "&Game", "top.position": "&Position",
-        "top.pgn": "&PGN", "top.library": "&Library", "top.import": "&Import",
-        "top.export": "&Export", "top.engine": "&Engine", "top.analysis": "&Analysis",
+        "top.pgn": "PG&N", "top.library": "&Library", "top.import": "&Import",
+        "top.export": "E&xport", "top.engine": "&Engine", "top.analysis": "&Analysis",
         "top.books": "&Books", "top.training": "&Training",
-        "top.teacher": "&Teacher/Classroom", "top.settings": "&Settings", "top.help": "&Help",
+        "top.teacher": "Teacher/&Classroom", "top.settings": "&Settings", "top.help": "&Help",
         "open_pgn": "Open PGN", "cancel_pgn_open": "Cancel PGN Open", "save_pgn": "Save PGN", "save_pgn_as": "Save PGN As", "cancel_pgn_save": "Cancel PGN Save",
         "import_library": "Import into Library", "export_pgn": "Export selected PGN", "exit": "Exit",
         "convert_pgn": "Convert PGN to UTF-8 (new copy)",
