@@ -24,6 +24,9 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from .bookdocument import (
+    BookDocumentError,
+    MAX_BOOK_TEXT_FIELD_CHARS,
+    MAX_BOOK_DOCUMENT_BLOCKS,
     BookDocument,
     Diagram,
     Game,
@@ -41,7 +44,7 @@ from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 MAX_HTML_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_HTML_VISIBLE_CHARS = 12 * 1024 * 1024
-MAX_HTML_BLOCKS = 50_000
+MAX_HTML_BLOCKS = MAX_BOOK_DOCUMENT_BLOCKS
 MAX_HTML_IMAGES = 10_000
 MAX_HTML_PGN_GAMES = 1_024
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
@@ -487,13 +490,22 @@ def _inline_style_hides(
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     if value is None and optional:
         return None
-    if type(value) is not str or not value.strip():
+    if type(value) is not str:
+        raise BookHtmlImportError(
+            f"{field} must be non-empty text",
+            code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise BookHtmlImportError(
+            f"{field} exceeds the canonical BookDocument text field limit",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+    if not value.strip():
         raise BookHtmlImportError(
             f"{field} must be non-empty text",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
     return value.strip()
-
 
 def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
@@ -1801,17 +1813,36 @@ def _canonical_pgn_games(
 ) -> list[tuple[_PgnCandidate, Game]]:
     games: list[tuple[_PgnCandidate, Game]] = []
     identities: dict[str, int] = {}
-    for candidate_index, candidate_record in enumerate(candidates, start=1):
-        if control_checkpoint is not None:
+    control_failure: BaseException | None = None
+
+    def guarded_control() -> None:
+        nonlocal control_failure
+        if control_checkpoint is None:
+            return
+        try:
             control_checkpoint()
+        except BaseException as exc:
+            control_failure = exc
+            raise
+
+    effective_control = guarded_control if control_checkpoint is not None else None
+    for candidate_index, candidate_record in enumerate(candidates, start=1):
+        if effective_control is not None:
+            effective_control()
         candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored")
             continue
         try:
-            parsed = parse_pgn_text(candidate, strict=False)
-        except (PgnRoundTripError, RecursionError, ValueError):
+            parsed = parse_pgn_text(
+                candidate,
+                strict=False,
+                control_checkpoint=effective_control,
+            )
+        except (PgnRoundTripError, RecursionError, ValueError) as exc:
+            if control_failure is exc:
+                raise
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be represented canonically and was ignored")
             continue
@@ -1834,10 +1865,17 @@ def _canonical_pgn_games(
             else:
                 sources = []
                 for parsed_game in parsed:
-                    if control_checkpoint is not None:
-                        control_checkpoint()
-                    sources.append(serialize_game(parsed_game))
-        except (GameTreeSerializationError, RecursionError, ValueError):
+                    if effective_control is not None:
+                        effective_control()
+                    sources.append(
+                        serialize_game(
+                            parsed_game,
+                            control_checkpoint=effective_control,
+                        )
+                    )
+        except (GameTreeSerializationError, RecursionError, ValueError) as exc:
+            if control_failure is exc:
+                raise
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be split canonically and was ignored")
             continue
@@ -1846,8 +1884,8 @@ def _canonical_pgn_games(
                 f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized"
             )
         for game_index, (game, game_source) in enumerate(zip(parsed, sources), start=1):
-            if control_checkpoint is not None:
-                control_checkpoint()
+            if effective_control is not None:
+                effective_control()
             # Recovery is useful for reading damaged historical sources, but it
             # is not lossless conversion. Preserve canonical diagnostics.
             for warning in game.warnings:
@@ -2084,14 +2122,20 @@ def import_html_book(
         if len(missing) > room and len(warnings) < MAX_HTML_WARNINGS + 1:
             warnings.append("additional missing asset warnings were suppressed")
 
-    document = BookDocument(
-        title=resolved_title,
-        author=override_author or parser.author,
-        language=override_language or parser.language,
-        source_name=display_source,
-        blocks=list(parser.blocks),
-        warnings=list(warnings),
-    )
+    try:
+        document = BookDocument(
+            title=resolved_title,
+            author=override_author or parser.author,
+            language=override_language or parser.language,
+            source_name=display_source,
+            blocks=list(parser.blocks),
+            warnings=list(warnings),
+        )
+    except BookDocumentError as exc:
+        raise BookHtmlImportError(
+            "HTML semantic projection exceeds canonical BookDocument limits",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        ) from exc
     digest = sha256(raw).hexdigest()
     return BookHtmlImportResult(
         document=document,

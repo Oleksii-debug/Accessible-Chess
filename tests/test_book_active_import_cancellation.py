@@ -1144,5 +1144,421 @@ class BookActiveImportCancellationTests(unittest.TestCase):
                 self.assertEqual(database.conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0], 0)
 
 
+    def test_epub_host_metadata_is_bounded_before_whitespace_normalization(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
+        cases = (
+            {'source_name': '123456789'},
+            {'source_name': 'ok.epub', 'title': '123456789'},
+            {'source_name': 'ok.epub', 'author': '123456789'},
+            {'source_name': 'ok.epub', 'language': '123456789'},
+        )
+        with patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 8):
+            for kwargs in cases:
+                with self.subTest(kwargs=kwargs):
+                    with self.assertRaises(epub.BookEpubImportError) as caught:
+                        import_epub_book(raw, **kwargs)
+                    self.assertEqual(
+                        caught.exception.code,
+                        epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+                    )
+                    self.assertIn('BookDocument text field limit', str(caught.exception))
+
+            imported = import_epub_book(raw, source_name='12345678')
+
+        self.assertEqual(imported.document.source_name, '12345678')
+
+    def test_epub_max_source_label_does_not_overflow_nested_html_metadata(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
+        source_name = 's' * 64
+        with (
+            patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 64),
+            patch.object(epub, 'import_html_book', wraps=epub.import_html_book) as html_import,
+        ):
+            imported = import_epub_book(raw, source_name=source_name)
+
+        self.assertEqual(imported.document.source_name, source_name)
+        self.assertEqual(
+            html_import.call_args.kwargs['source_name'],
+            'OEBPS/Text/ch1.xhtml',
+        )
+
+    def test_epub_final_bookdocument_aggregate_overflow_maps_to_resource_limit(self):
+        import acs.book_epub_import as epub
+        from acs.bookdocument import BookDocumentErrorCode
+
+        raw = _simple_epub(b'<html><body><p>Readable semantic text</p></body></html>')
+        failure = epub.BookDocumentError(
+            'BookDocument text exceeds the canonical aggregate limit',
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+        with patch.object(epub, 'BookDocument', side_effect=failure):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                import_epub_book(raw, source_name='book.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('canonical BookDocument limits', str(caught.exception))
+        self.assertIs(caught.exception.__cause__, failure)
+
+    def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter', source_anchor='anchor')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 10):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                epub._rebase_block(block, '1234', 1, 1)
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('source anchor', str(caught.exception))
+
+    def test_epub_rebased_source_anchor_allows_exact_canonical_boundary(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter', source_anchor='abcd')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
+            rebased = epub._rebase_block(block, '123', 1, 1)
+
+        self.assertEqual(rebased.source_anchor, '123#abcd')
+        self.assertTrue(rebased.block_id.startswith('epub-'))
+
+    def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, '_rebase_block', wraps=epub._rebase_block) as rebase:
+            with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 3):
+                with self.assertRaises(epub.BookEpubImportError) as caught:
+                    import_epub_book(raw, source_name='aggregate-limit.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('BookDocument block limit', str(caught.exception))
+        self.assertEqual(rebase.call_count, 3)
+
+    def test_epub_aggregate_blocks_allow_exact_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 4):
+            imported = import_epub_book(raw, source_name='aggregate-boundary.epub')
+
+        self.assertEqual(len(imported.document.blocks), 4)
+        self.assertEqual(imported.spine_documents, 2)
+
+    def test_canonical_pgn_serializer_validation_observes_control_inside_large_warning_collection(self):
+        import acs.gametree as gametree
+        from acs.gametree import PgnGame, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN warning validation')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        game = PgnGame(
+            line=VariationLine(result='*'),
+            warnings=[f'warning {index}' for index in range(300)],
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._validate_game_for_serialization(
+                game,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_serializer_observes_control_inside_large_nag_projection(self):
+        import acs.gametree as gametree
+        from acs.gametree import MoveNode, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN NAG projection')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        line = VariationLine(
+            moves=[MoveNode('e4', move_number='1.', nags=['$1'] * 300)],
+            result='*',
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._serialize_line(line, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 5)
+
+    def test_canonical_pgn_serializer_observes_control_while_snapshotting_large_tags(self):
+        from acs.gametree import PgnGame, VariationLine, serialize_game
+
+        failure = SourceReadCancelledError('cancelled while snapshotting canonical PGN tags')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 9:
+                raise failure
+
+        game = PgnGame(
+            tags={f'Tag{index}': 'value' for index in range(300)},
+            line=VariationLine(result='*'),
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            serialize_game(game, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 9)
+
+    def test_canonical_pgn_serializer_observes_control_inside_large_comment_collection(self):
+        import acs.gametree as gametree
+        from acs.gametree import Comment, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN serialization')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        line = VariationLine(
+            leading_comments=[Comment(f'note {index}', 'brace') for index in range(300)]
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._serialize_line(line, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_control_requires_callable_parse_and_serialize_hooks(self):
+        from acs.gametree import serialize_game
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        source = '[Event "Study"]\n[Result "*"]\n\n*\n'
+        with self.assertRaises(TypeError):
+            parse_pgn_text(source, strict=False, control_checkpoint=True)
+        game = parse_pgn_text(source, strict=False)[0]
+        with self.assertRaises(TypeError):
+            serialize_game(game, control_checkpoint=True)
+
+    def test_canonical_pgn_serializer_control_preserves_exact_output(self):
+        from acs.gametree import serialize_game
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        game = parse_pgn_text(
+            '[Event "Study"]\n[Result "*"]\n\n1. e4 {note} (1. d4 d5) e5 *\n',
+            strict=False,
+        )[0]
+        plain = serialize_game(game)
+        calls = []
+        controlled = serialize_game(game, control_checkpoint=lambda: calls.append(1))
+        self.assertEqual(controlled, plain)
+        self.assertGreater(len(calls), 3)
+
+    def test_html_pgn_collection_threads_control_into_canonical_serializer(self):
+        import acs.gametree as gametree
+
+        failure = ValueError('trusted cancellation-shaped serializer failure')
+        armed = False
+        calls = 0
+        real_serialize = gametree.serialize_game
+
+        def control():
+            nonlocal calls
+            calls += 1
+            if armed:
+                raise failure
+
+        def controlled_serialize(game, *args, **kwargs):
+            nonlocal armed
+            forwarded_control = kwargs.get('control_checkpoint')
+            self.assertTrue(callable(forwarded_control))
+            armed = True
+            return real_serialize(game, *args, **kwargs)
+
+        with patch('acs.book_html_import.serialize_game', side_effect=controlled_serialize):
+            with self.assertRaises(ValueError) as caught:
+                import_html_book(
+                    HTML,
+                    source_name='study.html',
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+        self.assertGreater(calls, 1)
+
+    def test_canonical_pgn_normalization_observes_control_inside_large_comment_collection(self):
+        import acs.pgn_roundtrip as roundtrip
+        from acs.gametree import Comment, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN normalization')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        line = VariationLine(
+            leading_comments=[Comment(f'note {index}', 'brace') for index in range(300)]
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            roundtrip._normalize_and_validate_line(
+                line,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_control_preserves_recovery_semantics(self):
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        source = '[Event "Study"]\n[Result "*"]\n\n1. e4 {note} (1. d4 d5) e5 *\n'
+        plain = parse_pgn_text(source, strict=False)
+        calls = []
+        controlled = parse_pgn_text(
+            source,
+            strict=False,
+            control_checkpoint=lambda: calls.append(1),
+        )
+        self.assertEqual(controlled, plain)
+        self.assertGreater(len(calls), 3)
+
+    def test_canonical_pgn_large_brace_scan_preserves_exact_cancel(self):
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        failure = SourceReadCancelledError('cancelled inside canonical PGN scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 8:
+                raise failure
+
+        source = '[Event "Study"]\n[Result "*"]\n\n1. e4 {' + ('x' * 20_000) + '} *\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parse_pgn_text(
+                source,
+                strict=False,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 8)
+
+    def test_canonical_pgn_preserves_control_failure_even_if_it_is_gametree_error(self):
+        import acs.pgn_roundtrip as roundtrip
+        from acs.gametree import GameTreeContractError, GameTreeErrorCode
+
+        failure = GameTreeContractError(
+            'trusted control failure shaped like parser failure',
+            code=GameTreeErrorCode.INVALID_MODEL,
+        )
+        armed = False
+
+        def control():
+            if armed:
+                raise failure
+
+        def controlled_parse_games(text, control_checkpoint=None):
+            nonlocal armed
+            armed = True
+            self.assertIsNotNone(control_checkpoint)
+            control_checkpoint()
+            return []
+
+        with patch('acs.pgn_roundtrip.parse_games', side_effect=controlled_parse_games):
+            with self.assertRaises(GameTreeContractError) as caught:
+                roundtrip.parse_pgn_text(
+                    '[Event "Study"]\n[Result "*"]\n\n*\n',
+                    strict=False,
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+
+    def test_html_embedded_pgn_threads_control_into_canonical_authority(self):
+        import acs.pgn_roundtrip as roundtrip
+
+        failure = ValueError('trusted cancellation-shaped ValueError from canonical PGN authority')
+        armed = False
+        calls = 0
+
+        def control():
+            nonlocal calls
+            calls += 1
+            if armed:
+                raise failure
+
+        real_parse = roundtrip.parse_pgn_text
+
+        def controlled_parse(*args, **kwargs):
+            nonlocal armed
+            forwarded_control = kwargs.get('control_checkpoint')
+            self.assertTrue(callable(forwarded_control))
+            self.assertIsNot(forwarded_control, control)
+            armed = True
+            return real_parse(*args, **kwargs)
+
+        with patch('acs.book_html_import.parse_pgn_text', side_effect=controlled_parse):
+            with self.assertRaises(ValueError) as caught:
+                import_html_book(
+                    HTML,
+                    source_name='study.html',
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+        self.assertGreater(calls, 1)
+
+
 if __name__ == '__main__':
     unittest.main()
