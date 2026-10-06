@@ -422,6 +422,14 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(resumed.state, MediaPlaybackState.PLAYING)
         self.assertEqual(clock.snapshot(5600).position_ms, 1800)
 
+    def test_clock_pause_during_buffering_honors_explicit_user_pause(self):
+        clock = MediaClock()
+        clock.play(0)
+        clock.buffer(1000)
+        paused = clock.pause(1200)
+        self.assertEqual(paused.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(paused.position_ms, 1000)
+        self.assertEqual(clock.resume(1200).state, MediaPlaybackState.PLAYING)
     def test_clock_fractional_rate_progress_is_not_lost_between_snapshots(self):
         clock = MediaClock()
         clock.play(0)
