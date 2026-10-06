@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +9,9 @@ from acs.webapp_keymap import KeymapAwareAccessibleChessAPI, _asset_root
 
 
 HTML = (_asset_root() / "web" / "index.html").read_text(encoding="utf-8")
+KEYBINDINGS = json.loads(
+    (_asset_root() / "web" / "keybindings.json").read_text(encoding="utf-8")
+)
 
 
 class Issue22ReleaseContractTests(unittest.TestCase):
@@ -33,7 +37,17 @@ class Issue22ReleaseContractTests(unittest.TestCase):
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", HTML)
         self.assertIn("else{input.focus();input.select()}", HTML)
         self.assertIn("el('move-input').addEventListener('keydown'", HTML)
-        self.assertIn("if(e.key==='Enter')", HTML)
+        self.assertIn("keymapActionForEvent(e,'move_entry')", HTML)
+        self.assertIn("if(candidate!=='move.submit')return", HTML)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", HTML)
+        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", HTML)
+
+        move_submit = next(
+            item for item in KEYBINDINGS["actions"] if item["id"] == "move.submit"
+        )
+        self.assertEqual("move_entry", move_submit["registryContext"])
+        self.assertEqual("Enter", move_submit["defaultBinding"])
+        self.assertEqual("Enter", move_submit["binding"])
 
     def test_real_move_entry_e4_changes_core_state(self):
         with TemporaryDirectory() as temp:
