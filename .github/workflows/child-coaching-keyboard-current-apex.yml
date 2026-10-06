@@ -55,7 +55,7 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      ACTIONS_BLOB: 5fc56143b1c485bd7e229f99ca15161c0a7c7c38
+      ACTIONS_BLOB: ef33a8530e43ae78f6a56a6ecf5ba5f5ae9f4b4f
       PROFILE_BLOB: 6428831a30eca80bb8ad96553f381ae274d3f5b0
       WEB_KEYMAP_BLOB: b3690e67d17b6737b70bce9c75c2b68b149205aa
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
@@ -88,7 +88,7 @@ jobs:
               test "$(git hash-object "${path}")" = "$fallback_blob"
             fi
           }
-          assert_inherited acs/full_product_actions.py "$ACTIONS_BLOB"
+          test "$(git hash-object acs/full_product_actions.py)" = "$ACTIONS_BLOB"
           assert_inherited acs/version2_final_product_profile.py "$PROFILE_BLOB"
           assert_inherited web/keybindings.json "$WEB_KEYMAP_BLOB"
           assert_inherited acs/classroom_pairing.py "$PAIRING_BLOB"

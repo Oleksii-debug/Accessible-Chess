@@ -103,7 +103,8 @@ env:
   PORTABLE_LAUNCHER_CONTRACT_TEST_BLOB: 9d82221e8e7933d864f003c2c71718a21f18e432
   CHILD_CONTEXT_WORKFLOW_BLOB: 0f7d016b82863d94e0a485a18f1198330c0dc782
   CHILD_CURRENT_WORKFLOW_BLOB: c49c0a78cef1dc2dbd53a6f3c7e437dfc04e5325
-  CHILD_KEYBOARD_WORKFLOW_BLOB: e149df6429aed8a2347dff0fc5f105e8df27e33f
+  CHILD_KEYBOARD_WORKFLOW_BLOB: 834e8a0a823762397ed12180850e0890c300e4b4
+  SETTINGS_STALE_WRITER_WORKFLOW_BLOB: 2d454d6e5ff0f39d11230a29cb3a785457801cd0
   GROUP_ROTATION_WORKFLOW_BLOB: 46c63ef66f3b2f094a4cfa00685b7420d54f57e2
   CHILD_ROTATION_BLOB: 6db594aa3ab21b637588142a9c9e86ff3c9dd63c
   CHILD_ROTATION_STORE_BLOB: c8f224fa220b1570a71782d27a20c2594551f9a7
@@ -214,6 +215,7 @@ jobs:
             ".github/workflows/owner-gameplay-feedback.yml"
             ".github/workflows/p0-user-oneclick-portable-launcher.yml"
             ".github/workflows/portable-launch-report-reparse-safety.yml"
+            ".github/workflows/settings-stale-writer-current.yml"
             ".github/workflows/sound-scaled-cache-integrity.yml"
             ".github/workflows/w5-release-receipt-contract.yml"
             ".github/workflows/w6-v2-package-assembler.yml"
@@ -337,6 +339,7 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/child-coaching-context-current-apex.yml)" = "$CHILD_CONTEXT_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/child-coaching-current-apex-20261004.yml)" = "$CHILD_CURRENT_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/child-coaching-keyboard-current-apex.yml)" = "$CHILD_KEYBOARD_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/settings-stale-writer-current.yml)" = "$SETTINGS_STALE_WRITER_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/group-rotation-current-apex.yml)" = "$GROUP_ROTATION_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/child_coaching_rotation.py)" = "$CHILD_ROTATION_BLOB"
           test "$(git rev-parse HEAD:acs/child_coaching_rotation_store.py)" = "$CHILD_ROTATION_STORE_BLOB"
@@ -613,6 +616,8 @@ jobs:
           tests.test_owner_gameplay_wav_delivery
           tests.test_v2_windows_upgrade_status_shipping
           tests.test_settings
+          tests.test_settings_read_identity_current
+          tests.test_settings_stale_writer_current
           tests.test_move_entry
           tests.test_notation
           tests.test_position_text_authority
