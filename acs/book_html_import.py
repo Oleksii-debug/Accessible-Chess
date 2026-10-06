@@ -187,12 +187,40 @@ _CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
 _CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby", "math"})
 
 
-def _deterministic_display_value(value: str) -> str | None:
+def _css_whitespace_tokens(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, ...]:
+    """Split CSS whitespace-delimited tokens with bounded cancellation latency."""
+
+    tokens: list[str] = []
+    token_start: int | None = None
+    for index, char in enumerate(value):
+        if control_checkpoint is not None and index % 4_096 == 0:
+            control_checkpoint()
+        if char in _CSS_WHITESPACE:
+            if token_start is not None:
+                tokens.append(value[token_start:index])
+                token_start = None
+            continue
+        if token_start is None:
+            token_start = index
+    if token_start is not None:
+        tokens.append(value[token_start:])
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return tuple(tokens)
+
+
+def _deterministic_display_value(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
     """Return one bounded valid display value, or None for invalid/indeterminate CSS."""
 
-    tokens = tuple(
-        token for token in re.split(r"[ \t\r\n\f]+", value) if token
-    )
+    tokens = _css_whitespace_tokens(value, control_checkpoint)
+    if any(len(token) > 32 for token in tokens):
+        return None
     if len(tokens) == 1 and tokens[0] in _CSS_DISPLAY_SINGLE_VALUES:
         return tokens[0]
     if len(tokens) not in {2, 3} or len(set(tokens)) != len(tokens):
@@ -225,6 +253,8 @@ _CSS_CONTENT_VISIBILITY_VALUES = frozenset(
 def _deterministic_content_visibility_value(value: str) -> str | None:
     """Return one bounded content-visibility value or None if cascade-dependent."""
 
+    if len(value) > 7:
+        return None
     if value in _CSS_CONTENT_VISIBILITY_VALUES:
         return value
     # revert/revert-layer depend on other cascade origins/layers that this
@@ -300,8 +330,16 @@ def _inline_style_without_comments(
             # Preserve a token boundary even when a preceding hexadecimal
             # CSS escape consumes one following whitespace code point.
             parts.append("  ")
-            end = style.find("*/", cursor + 2)
-            if end < 0:
+            end = cursor + 2
+            scanned = 0
+            while end + 1 < len(style):
+                if control_checkpoint is not None and scanned % 4_096 == 0:
+                    control_checkpoint()
+                if style[end] == "*" and style[end + 1] == "/":
+                    break
+                end += 1
+                scanned += 1
+            if end + 1 >= len(style):
                 break
             cursor = end + 2
             continue
@@ -364,6 +402,53 @@ def _split_inline_style_declarations(
         cursor += 1
     declarations.append("".join(current))
     return tuple(declarations)
+
+
+def _controlled_css_strip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Match str.strip(CSS_WHITESPACE) while polling trusted cancellation."""
+
+    if control_checkpoint is None:
+        return value.strip(_CSS_WHITESPACE)
+    start = 0
+    end = len(value)
+    while start < end:
+        if start % 4_096 == 0:
+            control_checkpoint()
+        if value[start] not in _CSS_WHITESPACE:
+            break
+        start += 1
+    scanned_from_end = 0
+    while end > start:
+        if scanned_from_end % 4_096 == 0:
+            control_checkpoint()
+        if value[end - 1] not in _CSS_WHITESPACE:
+            break
+        end -= 1
+        scanned_from_end += 1
+    control_checkpoint()
+    return value[start:end]
+
+
+def _split_css_important(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, bool]:
+    """Remove one trailing CSS !important marker without a long regex scan."""
+
+    trimmed = _controlled_css_strip(value, control_checkpoint)
+    if len(trimmed) < len("!important") or not trimmed.endswith("important"):
+        return trimmed, False
+    prefix = _controlled_css_strip(
+        trimmed[:-len("important")],
+        control_checkpoint,
+    )
+    if not prefix.endswith("!"):
+        return trimmed, False
+    return _controlled_css_strip(prefix[:-1], control_checkpoint), True
+
 
 def _css_unescape_token(
     value: str,
@@ -445,7 +530,7 @@ def _inline_style_hides(
             continue
         property_name = _css_ascii_lower(
             _css_unescape_token(
-                name.strip(_CSS_WHITESPACE),
+                _controlled_css_strip(name, control_checkpoint),
                 control_checkpoint,
             ),
             control_checkpoint,
@@ -455,18 +540,18 @@ def _inline_style_hides(
 
         value = _css_ascii_lower(
             _css_unescape_token(
-                raw_value.strip(_CSS_WHITESPACE),
+                _controlled_css_strip(raw_value, control_checkpoint),
                 control_checkpoint,
             ),
             control_checkpoint,
         )
-        important_match = _CSS_IMPORTANT_RE.search(value)
-        important = important_match is not None
-        if important_match is not None:
-            value = value[: important_match.start()].strip(_CSS_WHITESPACE)
+        value, important = _split_css_important(value, control_checkpoint)
 
         if property_name == "display":
-            deterministic_value = _deterministic_display_value(value)
+            deterministic_value = _deterministic_display_value(
+                value,
+                control_checkpoint,
+            )
             if deterministic_value is None:
                 continue
             if effective_display is not None and effective_display[1] and not important:
@@ -1292,7 +1377,7 @@ class _SemanticHtmlParser(HTMLParser):
             attrs.get("style", ""),
             self._checkpoint if self.control_checkpoint is not None else None,
         )
-        if "hidden" in attrs or "inert" in attrs or aria_hidden == "true" or inline_style_hidden:
+        if "hidden" in attrs or "inert" in attrs or aria_hidden or inline_style_hidden:
             # HTML hidden/inert, ARIA-hidden=true and deterministic inline
             # display:none are boundaries for this accessibility-first semantic
             # import. Text,
@@ -1713,7 +1798,7 @@ class _SemanticHtmlParser(HTMLParser):
                 fallback = Paragraph(
                     text=fallback_text,
                     block_id=self._block_id("ListFallbackItem", fallback_text),
-                    source_anchor=captured_list.self._source_anchor(attrs),
+                    source_anchor=self._source_anchor(captured_list.attrs),
                 )
                 self._insert_block(
                     self._block_identity_index(first_event.block),
@@ -1814,7 +1899,7 @@ class _SemanticHtmlParser(HTMLParser):
             if text and not self.title:
                 self.title = text
             return
-        source_anchor = capture.self._source_anchor(attrs)
+        source_anchor = self._source_anchor(capture.attrs)
         requires_semantic_split = self._inline_requires_split(capture)
         if capture.kind == "list_item" and requires_semantic_split:
             active_list = (
@@ -2019,7 +2104,7 @@ def _pgn_candidates(
             if control_checkpoint is not None and (candidate_line_index - start) % 128 == 0:
                 control_checkpoint()
             candidate_line = lines[candidate_line_index][1]
-            stripped = candidate__controlled_strip(line, control_checkpoint)
+            stripped = _controlled_strip(candidate_line, control_checkpoint)
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
             chunk_lines.append(_controlled_rstrip(candidate_line, control_checkpoint))
