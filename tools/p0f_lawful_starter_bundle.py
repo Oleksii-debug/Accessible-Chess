@@ -489,26 +489,69 @@ def _validate_curation_manifest_evidence(
     }
     if criteria != expected_criteria:
         raise ValueError("curation evidence criteria do not match the qualified policy")
+
+    scanned_records = evidence.get("scanned_records")
+    if (
+        type(scanned_records) is not int
+        or scanned_records < starter_count
+        or scanned_records > CURATION_MAX_SCANNED_GAMES
+    ):
+        raise ValueError("curation evidence scanned_records is outside the qualified range")
+    eligible_records = evidence.get("eligible_records")
+    if (
+        type(eligible_records) is not int
+        or eligible_records < starter_count
+        or eligible_records > scanned_records
+    ):
+        raise ValueError("curation evidence eligible_records is inconsistent")
+    rejected_records = evidence.get("rejected_records")
+    if not isinstance(rejected_records, dict):
+        raise ValueError("curation evidence rejected_records are missing")
+    rejected_total = 0
+    for reason, count in rejected_records.items():
+        if type(reason) is not str or not reason:
+            raise ValueError("curation evidence has an invalid rejection reason")
+        if type(count) is not int or count < 0:
+            raise ValueError("curation evidence has an invalid rejection count")
+        rejected_total += count
+    if eligible_records + rejected_total != scanned_records:
+        raise ValueError("curation evidence scan accounting is inconsistent")
+
     selected = evidence.get("selected_games")
     if not isinstance(selected, list) or len(selected) != starter_count:
         raise ValueError("curation evidence selected_games count does not match starter_count")
-    aggregate = _selected_aggregate_evidence(selected)
-    for key, value in aggregate.items():
-        if evidence.get(key) != value:
-            raise ValueError(f"curation aggregate mismatch for {key}")
 
     records = list(_iter_complete_game_records(io.StringIO(starter_pgn)))
     if len(records) != starter_count:
-        raise ValueError("starter PGN record count does not match curation evidence")
-    expected_hashes = [
-        str(candidate.get("record_sha256", "")).lower()
-        for candidate in selected
-        if isinstance(candidate, dict)
-    ]
-    actual_hashes = [_sha256_bytes(record.encode("utf-8")) for record in records]
-    if expected_hashes != actual_hashes:
-        raise ValueError("curation evidence does not match selected starter PGN records")
+        raise ValueError("starter PGN complete-record count does not match starter_count")
 
+    rebuilt_selected: list[dict[str, object]] = []
+    previous_source_index = 0
+    for candidate, record in zip(selected, records):
+        if not isinstance(candidate, dict):
+            raise ValueError("curation evidence selected game is not a dictionary")
+        source_index = candidate.get("source_index")
+        if (
+            type(source_index) is not int
+            or source_index <= previous_source_index
+            or source_index > scanned_records
+        ):
+            raise ValueError("curation evidence source indexes are not strictly increasing")
+        rebuilt, reason = _candidate_evidence(record, source_index)
+        if rebuilt is None:
+            raise ValueError(
+                "selected starter PGN record is not eligible under the qualified policy: "
+                f"{reason or 'unknown'}"
+            )
+        if candidate != rebuilt:
+            raise ValueError("curation evidence does not match selected starter PGN records")
+        rebuilt_selected.append(rebuilt)
+        previous_source_index = source_index
+
+    aggregate = _selected_aggregate_evidence(rebuilt_selected)
+    for key, value in aggregate.items():
+        if evidence.get(key) != value:
+            raise ValueError(f"curation aggregate mismatch for {key}")
 
 def build_release_bundle_from_curated_pgn(
     destination: str | Path,
@@ -525,15 +568,22 @@ def build_release_bundle_from_curated_pgn(
 
     if type(starter_count) is not int or starter_count < MINIMUM_REAL_GAME_COUNT:
         raise ValueError(f"starter_count must be >= {MINIMUM_REAL_GAME_COUNT}")
-    if starter_pgn.count('[Event "') != starter_count:
-        raise ValueError("starter PGN complete-record count does not match starter_count")
-    if len(source_subset_sha256) != 64 or any(
+    if type(source_subset_sha256) is not str or len(source_subset_sha256) != 64 or any(
         character not in "0123456789abcdefABCDEF" for character in source_subset_sha256
     ):
         raise ValueError("source_subset_sha256 must be a SHA-256 hex digest")
+    if (
+        type(source_compressed_bytes) is not int
+        or source_compressed_bytes <= 0
+        or source_compressed_bytes > DOWNLOAD_LIMIT_BYTES
+    ):
+        raise ValueError("source_compressed_bytes is outside the qualified compressed-size range")
     if type(stress_count) is not int or stress_count <= starter_count:
         raise ValueError("stress_count must be greater than starter_count")
     _validate_curation_manifest_evidence(curation_evidence, starter_count, starter_pgn)
+    actual_subset_sha256 = _sha256_bytes(starter_pgn.encode("utf-8"))
+    if source_subset_sha256.lower() != actual_subset_sha256:
+        raise ValueError("source_subset_sha256 does not match starter PGN bytes")
 
     output = Path(destination)
     output.mkdir(parents=True, exist_ok=True)
