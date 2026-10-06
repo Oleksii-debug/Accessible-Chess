@@ -518,6 +518,31 @@ class PgnWorkspace:
         self._commit_current_game(result.game)
         return result
 
+    def append_moves(self, line_fragment: VariationLine) -> PgnWorkspaceView:
+        """Append a detached legal line fragment at the current line end."""
+        if not isinstance(line_fragment, VariationLine) or not line_fragment.moves:
+            raise ValueError("PGN append requires at least one move")
+        current = resolve_line(self._current_game_ref(), self._cursor.line_path)
+        if self._cursor.next_move_index != len(current.moves):
+            raise _workspace_error(
+                "move insertion requires the end of the current line",
+                PgnWorkspaceErrorCode.CURSOR,
+            )
+        edited = deepcopy(self._current_game_ref())
+        target_line = resolve_line(edited, self._cursor.line_path)
+        fragment = deepcopy(line_fragment)
+        if fragment.leading_comments:
+            fragment.moves[0].comments_before = (
+                list(fragment.leading_comments) + list(fragment.moves[0].comments_before)
+            )
+        target_line.moves.extend(fragment.moves)
+        target_line.trailing_comments.extend(fragment.trailing_comments)
+        next_cursor = GameTreeCursor(
+            self._cursor.line_path,
+            len(target_line.moves),
+        )
+        return self._commit_current_game(edited, cursor=next_cursor)
+
     def add_variation(
         self,
         target: VariationInsertTarget,
