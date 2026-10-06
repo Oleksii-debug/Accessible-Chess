@@ -100,7 +100,10 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             root = self._package(td)
             runtime = root.joinpath(*relative.split("/"))
             runtime.write_bytes(
-                _with_optional_magic(_minimal_windows_pe(machine=0x8664), 0x010B)
+                _with_optional_magic(
+                    _minimal_windows_pe(machine=0x8664, dll=True),
+                    0x010B,
+                )
             )
             _write_checksums(root)
 
@@ -115,11 +118,49 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
             managed = root.joinpath(*relative.split("/"))
-            managed.write_bytes(_minimal_windows_pe(machine=0x014C, managed=True))
+            managed.write_bytes(
+                _minimal_windows_pe(machine=0x014C, managed=True, dll=True)
+            )
             _write_checksums(root)
 
             report = _validate_tree(root)
             self.assertIn(relative, report.inventory)
+
+    def test_native_runtime_requires_dll_image_characteristic(self):
+        relative = "AccessibleChess/webview/lib/runtimes/win-x64/native/WebView2Loader.dll"
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            runtime = root.joinpath(*relative.split("/"))
+            runtime.write_bytes(
+                _minimal_windows_pe(machine=0x8664, dll=False)
+            )
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                r"image kind EXE; expected DLL",
+            ):
+                _validate_tree(root)
+
+    def test_managed_runtime_requires_dll_image_characteristic(self):
+        relative = "AccessibleChess/pythonnet/runtime/Python.Runtime.dll"
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            runtime = root.joinpath(*relative.split("/"))
+            runtime.write_bytes(
+                _minimal_windows_pe(
+                    machine=0x014C,
+                    managed=True,
+                    dll=False,
+                )
+            )
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                r"image kind EXE; expected DLL",
+            ):
+                _validate_tree(root)
 
     def test_native_pe_rejects_truncated_optional_header(self):
         with tempfile.TemporaryDirectory() as td:
