@@ -643,6 +643,7 @@ class AccessibleChessAPI:
         return self._ok("Позиція коректна і готова до гри." if self.lang == "uk" else "Position is valid and ready to play.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        epd_input = looks_like_epd(text)
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
@@ -669,6 +670,9 @@ class AccessibleChessAPI:
             return self._error(self._t("position_history_failed"))
 
         self._publish_root_state(candidate_board, prepared)
+        if epd_input:
+            return self._ok("Позицію EPD завантажено." if self.lang == "uk"
+                            else "EPD position loaded.")
         return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
                         else "Position loaded from text editor.")
 
