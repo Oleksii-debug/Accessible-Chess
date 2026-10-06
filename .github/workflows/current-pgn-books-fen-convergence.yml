@@ -95,21 +95,21 @@ jobs:
               exit 1
             }
           done <<'LOCKS'
-          .github/workflows/d01-pgn-workspace-webview.yml=a40c127cd7ad31ca082cd993ece1f9f1f6ce92a6
+          .github/workflows/d01-pgn-workspace-webview.yml=1c1b4c56b765ef386bdd9e8362fd2d2f5164201c
           .github/workflows/pgn-complete-editing-current.yml=0008b054ad4b19b4d5e99c996fa9a7dbc156b458
           acs/full_product_actions.py=3979e7a3b978715fd1ddfbb9e613f5f889675e8c
           acs/full_product_presenters.py=07c68e56666bcb37f866d91a6317490b83d8a454
           acs/epd.py=eed2fabbb0b3fd7663ba36dfa1f30adc5b3315c5
           acs/move_entry.py=30bd6fd478638030d0042a1418b69a3eb600dc66
           acs/position_text.py=e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
-          acs/pgn_webview_bridge.py=597c46effb1da535d1c61aeb88f1a03465b762c1
-          acs/pgn_webview_projection.py=0af49d422c4995c166c49d85569c156a93d08106
+          acs/pgn_webview_bridge.py=15a83d8bf171f8ad914c434c61442040ed734547
+          acs/pgn_webview_projection.py=8562ba21156466a915d1e72ca89e0029cd04fe44
           acs/pgn_workspace.py=8208afe46c734035db23e66b4f4e9c59d6524cf5
-          acs/pgn_workspace_webview_adapter.py=ba3879d033a2b2a297b4d37318341e6a76150d03
+          acs/pgn_workspace_webview_adapter.py=2819643bfaeb4e14dbb50b14defce3f48e25df17
           acs/version2_pgn_commands.py=6e2a86ffd7204f601ed21973c7ab4eb00b955d57
           acs/webapp.py=51cc882511c3a874f7bce3dfa97eda01df1501c6
-          tests/test_dev1_pgn_webview_projection.py=f7e6f052816c0b2ffcd161d8899c3d225f406a2c
-          tests/test_dev1_pgn_workspace_webview_adapter.py=3f47c86fc6b451f0b2791b838025eb87068d8dc4
+          tests/test_dev1_pgn_webview_projection.py=5703b31a7a24f0b3fed605c373e787ad7413bd33
+          tests/test_dev1_pgn_workspace_webview_adapter.py=08a21803696495d12c53bcfaaff294b1b31b8077
           tests/test_epd.py=2d94011c092e41f91f1ff56419f2d706b6ba575e
           tests/test_fen_editor_turn_and_visible_status.py=ccea833f59cbca7639aebb5d4c7c682bd7032cf8
           tests/test_pgn_complete_editing_user_flow.py=18359190f5e4724c6c2ec7a3ba4567039d6f1844
