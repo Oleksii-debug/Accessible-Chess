@@ -1010,118 +1010,65 @@ function installSoundSettings() {
     fieldset.appendChild(status);
     section.appendChild(fieldset);
 
+    const reportSoundWrite = result => {
+        const ok = !!(result && result.ok === true);
+        const message = result && typeof result.message === 'string' && result.message
+            ? result.message
+            : (ok ? '' : text().unavailable);
+        status.textContent = ok ? '' : message;
+        speak(message);
+    };
+
     enabled.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_sound_enabled !== 'function') return;
-        try {
-            const result = await a.set_sound_enabled(!!enabled.checked);
-            enabled.checked = !!result.enabled;
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_sound_enabled',
+            enabled.checked === true,
+        ));
     });
 
     newGameAnimation.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_newgame_animation_enabled !== 'function') return;
-        try {
-            const result = await a.set_newgame_animation_enabled(!!newGameAnimation.checked);
-            currentSoundState = result;
-            newGameAnimation.checked = result.newGameAnimation !== false;
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_newgame_animation_enabled',
+            newGameAnimation.checked === true,
+        ));
     });
 
     volume.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_sound_volume !== 'function') return;
         const value = Number(volume.value);
-        try {
-            const result = await a.set_sound_volume(Number.isInteger(value) ? value : -1);
-            volume.value = String(result.volume ?? 80);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_sound_volume',
+            Number.isInteger(value) ? value : -1,
+        ));
     });
 
     tickPolicy.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_clock_sound_policy !== 'function') return;
-        try {
-            const result = await a.set_clock_sound_policy(tickPolicy.value);
-            currentSoundState = result;
-            tickPolicy.value = String(result.tickPolicy ?? 'my_turn');
-            tickLastSeconds.value = String(result.tickLastSeconds ?? 0);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_clock_sound_policy',
+            tickPolicy.value,
+        ));
     });
 
     tickLastSeconds.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_clock_sound_last_seconds !== 'function') return;
         const value = Number(tickLastSeconds.value);
-        try {
-            const result = await a.set_clock_sound_last_seconds(
-                Number.isInteger(value) ? value : -1
-            );
-            currentSoundState = result;
-            tickPolicy.value = String(result.tickPolicy ?? 'my_turn');
-            tickLastSeconds.value = String(result.tickLastSeconds ?? 0);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_clock_sound_last_seconds',
+            Number.isInteger(value) ? value : -1,
+        ));
     });
 
     lowTimePolicy.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_low_time_policy !== 'function') return;
-        try {
-            const result = await a.set_low_time_policy(lowTimePolicy.value);
-            currentSoundState = result;
-            lowTimePolicy.value = String(result.lowTimePolicy ?? 'my_turn');
-            lowTimeSeconds.value = String(result.lowTimeSeconds ?? 30);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_low_time_policy',
+            lowTimePolicy.value,
+        ));
     });
 
     lowTimeSeconds.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_low_time_seconds !== 'function') return;
         const value = Number(lowTimeSeconds.value);
-        try {
-            const result = await a.set_low_time_seconds(
-                Number.isInteger(value) ? value : -1
-            );
-            currentSoundState = result;
-            lowTimePolicy.value = String(result.lowTimePolicy ?? 'my_turn');
-            lowTimeSeconds.value = String(result.lowTimeSeconds ?? 30);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_low_time_seconds',
+            Number.isInteger(value) ? value : -1,
+        ));
     });
 
     applySoundLanguage();
