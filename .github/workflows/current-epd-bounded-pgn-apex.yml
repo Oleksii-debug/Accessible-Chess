@@ -11,6 +11,7 @@ on:
       - 'acs/position_text.py'
       - 'acs/webapp.py'
       - 'tests/test_epd.py'
+      - 'web/index.html'
   workflow_dispatch:
 
 permissions:
@@ -24,12 +25,12 @@ env:
   EPD_BLOB: 4fcdc7b108cb1518c49920842432aa505f202560
   MOVE_ENTRY_BLOB: 30bd6fd478638030d0042a1418b69a3eb600dc66
   POSITION_TEXT_BLOB: e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
-  EPD_TEST_BLOB: 18fa5a8622135dd2b38f00ec97bb7cae4201b7e7
+  EPD_TEST_BLOB: 17d66a474192ded1206fac1eaaf22c2f3c86e978
   POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
   MOVE_ENTRY_TEST_BLOB: bceae6b13563625630e2fba43133f4d3efc51659
   POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
   WEBAPP_BLOB: 0a49eb26ae26b9dd390f3d7fcfa33f26e6811f0c
-  WEB_INDEX_BLOB: 10abb7e5d20b75e9569244148714f8db3d079c2a
+  WEB_INDEX_BLOB: b0d80227527992b0d463e1144df8a3e09951a734
   POSITION_EDITOR_TEST_BLOB: 53d03f9daa249ca013af2feb67f889794b172235
   POSITION_PASSIVE_TEST_BLOB: cdcb08afea6cd8c798723dbda33cac48b644b1e8
   FEN_TURN_TEST_BLOB: 17c72639bcc7e6dc84e7c69b2b3b319c3ec744e2
@@ -76,7 +77,8 @@ jobs:
             'acs/move_entry.py' \
             'acs/position_text.py' \
             'acs/webapp.py' \
-            'tests/test_epd.py' | sort)"
+            'tests/test_epd.py' \
+            'web/index.html' | sort)"
           test "$changed" = "$expected_paths"
 
       - name: Bind EPD and retained authority bytes
