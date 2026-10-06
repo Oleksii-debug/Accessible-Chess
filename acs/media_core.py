@@ -87,7 +87,15 @@ class MediaClockSnapshot:
 class MediaClock:
     """Deterministic provider-neutral media clock with explicit host time."""
 
-    __slots__ = ("_position_ms", "_fractional_ms", "_last_now_ms", "_playback_rate", "_duration_ms", "_state", "_revision")
+    __slots__ = (
+        "_position_ms",
+        "_fractional_ms",
+        "_last_now_ms",
+        "_playback_rate",
+        "_duration_ms",
+        "_state",
+        "_revision",
+    )
 
     def __init__(
         self, *, position_ms: int = 0,
@@ -99,9 +107,15 @@ class MediaClock:
             try:
                 duration = _require_nonnegative_int(duration_ms, "duration_ms")
             except MediaContractError as exc:
-                raise MediaContractError(str(exc), code=MediaErrorCode.INVALID_DURATION) from exc
+                raise MediaContractError(
+                    str(exc),
+                    code=MediaErrorCode.INVALID_DURATION,
+                ) from exc
             if self._position_ms > duration:
-                raise MediaContractError("position exceeds media duration", code=MediaErrorCode.INVALID_TIMESTAMP)
+                raise MediaContractError(
+                    "position exceeds media duration",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
         else:
             duration = None
         try:
@@ -127,21 +141,33 @@ class MediaClock:
     @staticmethod
     def _require_rate(value: object) -> float:
         if type(value) not in (int, float) or isinstance(value, bool):
-            raise MediaContractError("playback_rate must be a finite positive number", code=MediaErrorCode.INVALID_CONTAINER)
+            raise MediaContractError(
+                "playback_rate must be a finite positive number",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
         rate = float(value)
         if not math.isfinite(rate) or rate <= 0.0:
-            raise MediaContractError("playback_rate must be a finite positive number", code=MediaErrorCode.INVALID_CONTAINER)
+            raise MediaContractError(
+                "playback_rate must be a finite positive number",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
         return rate
 
     def _materialize(self, now_ms: int) -> None:
         now = self._require_now(now_ms)
         if now < self._last_now_ms:
-            raise MediaContractError("media clock time cannot move backwards", code=MediaErrorCode.INVALID_TIMESTAMP)
+            raise MediaContractError(
+                "media clock time cannot move backwards",
+                code=MediaErrorCode.INVALID_TIMESTAMP,
+            )
         elapsed = now - self._last_now_ms
         if self._state is MediaPlaybackState.PLAYING and elapsed:
             media_elapsed = elapsed * self._playback_rate + self._fractional_ms
             if not math.isfinite(media_elapsed):
-                raise MediaContractError("media clock delta is not representable", code=MediaErrorCode.INVALID_TIMESTAMP)
+                raise MediaContractError(
+                    "media clock delta is not representable",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
             whole_elapsed = int(media_elapsed)
             self._fractional_ms = media_elapsed - whole_elapsed
             self._position_ms += whole_elapsed
@@ -154,7 +180,13 @@ class MediaClock:
         self._last_now_ms = now
 
     def _snapshot(self) -> MediaClockSnapshot:
-        return MediaClockSnapshot(self._position_ms, self._state, self._playback_rate, self._duration_ms, self._revision)
+        return MediaClockSnapshot(
+            self._position_ms,
+            self._state,
+            self._playback_rate,
+            self._duration_ms,
+            self._revision,
+        )
 
     @property
     def revision(self) -> int:
@@ -166,10 +198,11 @@ class MediaClock:
 
     def play(self, now_ms: int) -> MediaClockSnapshot:
         self._materialize(now_ms)
+        if self._state is MediaPlaybackState.ENDED:
+            return self._snapshot()
         if self._duration_ms is not None and self._position_ms >= self._duration_ms:
-            if self._state is not MediaPlaybackState.ENDED:
-                self._state = MediaPlaybackState.ENDED
-                self._revision += 1
+            self._state = MediaPlaybackState.ENDED
+            self._revision += 1
             return self._snapshot()
         if self._state is not MediaPlaybackState.PLAYING:
             self._state = MediaPlaybackState.PLAYING
@@ -206,7 +239,7 @@ class MediaClock:
         if self._duration_ms is not None and position == self._duration_ms:
             self._state = MediaPlaybackState.ENDED
         elif self._state is MediaPlaybackState.ENDED:
-            self._state = MediaPlaybackState.PLAYING
+            self._state = MediaPlaybackState.PAUSED
         self._revision += 1
         return self._snapshot()
 
@@ -223,8 +256,7 @@ class MediaClock:
         self._materialize(now_ms)
         if self._duration_ms is not None:
             self._position_ms = self._duration_ms
-            self._fractional_ms = 0.0
-        if self._state is not MediaPlaybackState.ENDED:
+            self._fractional_ms = 0.0        if self._state is not MediaPlaybackState.ENDED:
             self._state = MediaPlaybackState.ENDED
             self._revision += 1
         return self._snapshot()
