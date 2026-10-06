@@ -767,9 +767,19 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             index += 1
             continue
 
+        # Classify structural line owners before the generic inline-image
+        # projection. A block quote containing an image must remain on the
+        # blockquote fallback path so its marker is not exposed as prose and
+        # its image destination/title cannot escape into readable identity.
+        list_match = _LIST_RE.match(line)
+        quote_match = _QUOTE_RE.match(line)
         image_matches = _iter_semantic_images(line)
         first_image = next(image_matches, None)
-        if first_image is not None and _LIST_RE.match(line) is None:
+        if (
+            first_image is not None
+            and list_match is None
+            and quote_match is None
+        ):
             flush()
             # Keep the historical Paragraph identity for ordinary image
             # references, but derive it from the same bounded recognizer that
@@ -811,8 +821,6 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             index += 1
             continue
 
-        list_match = _LIST_RE.match(line)
-        quote_match = _QUOTE_RE.match(line)
         if list_match:
             flush()
             indent = list_match.group("indent")
