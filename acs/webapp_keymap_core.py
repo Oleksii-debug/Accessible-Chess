@@ -555,9 +555,13 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         try:
             if not self._analysis_origin_matches():
                 raise RuntimeError("analysis origin changed")
-            self.review_history.select_node(self._analysis_origin_node_id)
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            candidate_history.select_node(self._analysis_origin_node_id)
+            # Analysis exploration is the fallible owner here.  Clear it before
+            # publishing the detached review cursor so a failed return cannot
+            # partially move live history.
             self.analysis_ui.return_from_exploration()
-            self.selected_source = None
+            self._publish_review_transaction(candidate_history, candidate_adapter)
             return self._ok(
                 "Повернено точну вихідну позицію аналізу."
                 if self.lang == "uk"
@@ -602,13 +606,17 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
                         },
                     )
                 )
-            inserted = self.review_history.append_branch(
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            inserted = candidate_history.append_branch(
                 self._analysis_origin_node_id,
                 tuple(snapshots),
             )
-            self.review_history.select_node(self._analysis_origin_node_id)
+            candidate_history.select_node(self._analysis_origin_node_id)
+            # Keep the new variation detached until the temporary analysis view
+            # has been released.  A bridge/adapter failure therefore cannot
+            # publish a hidden branch while reporting insertion failure.
             self.analysis_ui.return_from_exploration()
-            self.selected_source = None
+            self._publish_review_transaction(candidate_history, candidate_adapter)
             subject = "Хід" if one_move else "Варіант"
             subject_en = "Move" if one_move else "Variation"
             status = "додано" if inserted.created_count else "вже існує"
