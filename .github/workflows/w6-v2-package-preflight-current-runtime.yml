@@ -42,6 +42,9 @@ env:
   PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
   SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
   SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: 945bb8e927dbf1749ae97f38bf20fed268a60693
+  STABLE_READS_TEST_BLOB: 67624ba28add86fa29a8a9230be635ffa4ab8823
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 2761b8ec6f72601e1afb7d2db071c14f5e3555ea
   CURRENT_HARDENING_BLOB: 967764ce30024d9c4649f2c84b14af9207bb923f
   CURRENT_REQUIRED_RESOURCES_BLOB: 6bfa7920a9aedb4fde7cb52ca305330ab5fdb084
   RESOURCE_REQUIRED_RESOURCES_BLOB: f90081232c9d2ea75ce456b0bd097da123e99e34
@@ -98,13 +101,15 @@ jobs:
             preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
             preflight_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_preflight.py)"
             case "$preflight_pair" in
-              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$STABLE_READS_TEST_BLOB") ;;
               *) echo 'Unqualified canonical preflight/test pair' >&2; exit 1 ;;
             esac
             if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
               test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
             elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
               test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
             fi
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
