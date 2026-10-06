@@ -143,6 +143,16 @@ function snapshot(selectedId) {
 
 async function flush() { await Promise.resolve(); await Promise.resolve(); }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise(function (resolvePromise, rejectPromise) {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise: promise, resolve: resolve, reject: reject };
+}
+
 function pressKey(target, _toolbar, key) {
   let prevented = false;
   const listener = target.listeners.keydown;
@@ -462,6 +472,109 @@ async function run() {
   check(!JSON.stringify(calls).includes("line_path"), "browser learned canonical GameTree path");
   check(announcements.length === 0, "passive PGN render produced live-region spam");
 
+  const busyGate = deferred();
+  const busyRoot = new FakeElement("div");
+  window.AccessibleChessPgnSurface.render(
+    busyRoot,
+    snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+    (command) => {
+      if (command === "pgn.copy_selection") return busyGate.promise;
+      if (command === "pgn.comment_edit") {
+        return {
+          kind: "selection",
+          payload: {
+            snapshot: snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+            focus_target: "pgn-node-aaaaaaaaaaaaaaaaaaaa",
+            announcement: ""
+          }
+        };
+      }
+      throw new Error("unexpected busy command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const busyAll = busyRoot.descendants();
+  const busyCopy = busyAll.find((item) => item.dataset.action === "pgn.copy_selection");
+  const busyEdit = busyAll.find((item) => item.dataset.action === "pgn.comment_edit");
+  const busyTextarea = busyAll.find((item) => item.tagName === "TEXTAREA");
+  const busyDialog = busyTextarea.parentNode;
+  busyCopy.listeners.click();
+  busyEdit.listeners.click();
+  check(!busyDialog.open, "comment dialog opened over an active PGN command");
+  await flush();
+  busyGate.resolve({ kind: "delegated", payload: { action: "pgn.copy_selection" } });
+  await flush();
+  await flush();
+  busyEdit.listeners.click();
+  check(busyDialog.open, "comment dialog did not reopen after active command settled");
+  const busyCancel = busyDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Cancel"
+  );
+  busyCancel.listeners.click();
+
+  const pendingGate = deferred();
+  const pendingRoot = new FakeElement("div");
+  let pendingCalls = 0;
+  window.AccessibleChessPgnSurface.render(
+    pendingRoot,
+    snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+    (command) => {
+      if (command === "pgn.comment_edit") {
+        pendingCalls += 1;
+        return pendingGate.promise;
+      }
+      throw new Error("unexpected pending command " + command);
+    },
+    () => {},
+    "pgn-node-aaaaaaaaaaaaaaaaaaaa"
+  );
+  const pendingAll = pendingRoot.descendants();
+  const pendingEdit = pendingAll.find((item) => item.dataset.action === "pgn.comment_edit");
+  const pendingTextarea = pendingAll.find((item) => item.tagName === "TEXTAREA");
+  const pendingDialog = pendingTextarea.parentNode;
+  const pendingSaveButton = pendingDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Save"
+  );
+  const pendingCancelButton = pendingDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Cancel"
+  );
+  pendingEdit.listeners.click();
+  pendingTextarea.value = "Atomic accessible note";
+  pendingSaveButton.listeners.click();
+  check(pendingSaveButton.disabled, "comment Save stayed enabled while mutation was pending");
+  check(pendingCancelButton.disabled, "comment Cancel stayed enabled while mutation was pending");
+  check(pendingDialog.getAttribute("aria-busy") === "true", "pending comment dialog did not expose aria-busy");
+  let pendingEscapePrevented = false;
+  pendingDialog.listeners.cancel({
+    preventDefault: function () { pendingEscapePrevented = true; }
+  });
+  check(pendingEscapePrevented, "pending comment Escape was not consumed");
+  check(pendingDialog.open, "pending comment Escape closed an in-flight mutation");
+  pendingCancelButton.listeners.click();
+  check(pendingDialog.open, "pending comment Cancel closed an in-flight mutation");
+  pendingSaveButton.listeners.click();
+  await flush();
+  check(pendingCalls === 1, "pending comment save dispatched more than once");
+  pendingGate.resolve({
+    kind: "selection",
+    payload: {
+      snapshot: snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"),
+      focus_target: "pgn-node-aaaaaaaaaaaaaaaaaaaa",
+      announcement: ""
+    }
+  });
+  await flush();
+  await flush();
+  check(
+    !pendingRoot.descendants().includes(pendingDialog),
+    "successful comment mutation did not replace the stale modal DOM"
+  );
+  check(
+    document.activeElement === pendingRoot.querySelectorAll('[role="treeitem"]')[0],
+    "successful comment mutation stole canonical selection focus"
+  );
+
   const rejectedRoot = new FakeElement("div");
   const rejectedAnnouncements = [];
   window.AccessibleChessPgnSurface.render(
@@ -506,6 +619,12 @@ async function run() {
   check(document.activeElement === dialogText, "rejected comment save did not retain editor focus");
   check(dialogAnnouncements.length === 1, "rejected comment save did not announce exactly once");
   check(dialogAnnouncements[0] === "The action could not be completed.", "rejected comment save leaked its error");
+  const rejectedCancel = rejectedDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Cancel"
+  );
+  check(!rejectedSave.disabled, "rejected comment save did not re-enable Save");
+  check(rejectedCancel && !rejectedCancel.disabled, "rejected comment save did not re-enable Cancel");
+  check(rejectedDialog.getAttribute("aria-busy") === "false", "rejected comment save left dialog busy");
   console.log("PGN workspace keyboard/privacy DOM contract PASS");
 }
 run().catch((error) => { console.error(error); process.exitCode = 1; });
