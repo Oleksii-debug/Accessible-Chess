@@ -1,0 +1,86 @@
+name: Agent Books Training Read Contract
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+  push:
+    branches:
+      - feature/agent-books-training-read-20261006-witu11
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-books-training-read-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact parent, scope, and application presentation authority
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PARENT_REF: work/media-agent-crossrepo-intake-20261005
+          PARENT_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/agent-books-training-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/agent-books-training-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'AGENT_BOOKS_TRAINING_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$PARENT_SHA" HEAD
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$PARENT_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n'             '.github/workflows/agent-books-training-read.yml'             'acs/agent_books_training_tools.py'             'acs/chess_agent_tools.py'             'tests/test_agent_books_training_tools.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent Books/Training scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/agent_books_training_tools.py)" = '2ef2b02d4e30d33270be97ef3a3bb6f8dfc55eb9'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'b5c2561c07fecba999db98add8c5abb3c50d8afd'
+          test "$(git rev-parse HEAD:tests/test_agent_books_training_tools.py)" = '792c6d10d2cdb14c2b778b69d19d5eb48f9ce28d'
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '300c0e71d1d714a51722ca4d517235be282bf9ae'
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '1efa223baa961ccb4f1e46283082a657dba7051b'
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = '64f4af6bb8d84ac7347fee1ab43139d4fbf6663a'
+          test "$(git rev-parse HEAD:acs/agent_tools.py)" = 'e432f97740922b7f64d5307c2ee7ae2eb4fd2c73'
+          echo 'AGENT_BOOKS_TRAINING_AUTHORITY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded Agent Books/Training surface
+        run: >-
+          python -m compileall -q
+          acs/agent_books_training_tools.py
+          acs/chess_agent_tools.py
+          tests/test_agent_books_training_tools.py
+
+      - name: Execute Agent Books/Training and canonical presentation regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_books_training_tools
+          tests.test_dev1_books_training_webview_projection
+          tests.test_chess_agent_tools_crossrepo
+
+      - name: Execute core selftest
+        run: python -m acs.selftest
