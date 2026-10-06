@@ -4,7 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from acs.book_progress_store import BookProgressStore
+from acs.book_progress_store import (
+    BookProgressStore,
+    BookProgressStoreError,
+    BookProgressStoreErrorCode,
+    _snapshot_copy,
+    _validate_payload,
+)
 from acs.bookdocument import BookDocument, Heading
 from acs.bookreader import BookReader
 
@@ -69,6 +75,69 @@ class BookProgressPassiveIngressCurrentTests(unittest.TestCase):
                     operation("book:hostile-document", document)
                 self.assertFalse(HostileDocument.touched)
                 self.assertFalse(self.root.exists())
+
+    def test_persisted_mapping_ingress_rejects_active_objects_without_hooks(self) -> None:
+        class ActiveMapping(dict):
+            def __init__(self, *args, **kwargs) -> None:
+                dict.__init__(self, *args, **kwargs)
+                self.touched = False
+
+            def _touch(self):
+                self.touched = True
+                raise AssertionError("rejected mapping hook must not execute")
+
+            def __iter__(self):
+                return self._touch()
+
+            def __len__(self):
+                return self._touch()
+
+            def __contains__(self, key):
+                return self._touch()
+
+            def __getitem__(self, key):
+                return self._touch()
+
+            def items(self):
+                return self._touch()
+
+        snapshot = ActiveMapping(
+            {
+                "schema_version": 2,
+                "current_target": "block:chapter",
+                "return_points": {},
+                "fallback_digests": {},
+            }
+        )
+        with self.assertRaises(BookProgressStoreError) as snapshot_error:
+            _snapshot_copy(snapshot)
+        self.assertEqual(
+            snapshot_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(snapshot.touched)
+
+        root = ActiveMapping(
+            {"schema_version": 2, "generation": 0, "entries": {}}
+        )
+        with self.assertRaises(BookProgressStoreError) as root_error:
+            _validate_payload(root)
+        self.assertEqual(
+            root_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(root.touched)
+
+        entries = ActiveMapping({})
+        with self.assertRaises(BookProgressStoreError) as entries_error:
+            _validate_payload(
+                {"schema_version": 2, "generation": 0, "entries": entries}
+            )
+        self.assertEqual(
+            entries_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(entries.touched)
 
     def test_exact_reader_and_document_keep_round_trip_semantics(self) -> None:
         document = self._document()
