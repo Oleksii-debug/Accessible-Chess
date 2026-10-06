@@ -84,6 +84,7 @@ jobs:
             ".github/workflows/current-position-text-square-localization.yml"
             ".github/workflows/current-product-accessibility-formats-convergence.yml"
             ".github/workflows/current-san-input-budget.yml"
+            ".github/workflows/current-shipping-native-menubar-parity.yml"
             ".github/workflows/current-shipping-recovery-hardening.yml"
             ".github/workflows/current-square-text-bound.yml"
             ".github/workflows/current-webui-accessibility-oracle.yml"
@@ -92,6 +93,7 @@ jobs:
             ".github/workflows/group-rotation-current-apex.yml"
             ".github/workflows/keybindings-current-apex-dom-native.yml"
             ".github/workflows/owner-gameplay-feedback.yml"
+            ".github/workflows/p0-native-menubar-uia-runtime.yml"
             ".github/workflows/p0-user-oneclick-portable-launcher.yml"
             ".github/workflows/portable-launch-report-reparse-safety.yml"
             ".github/workflows/settings-stale-writer-current.yml"
@@ -145,6 +147,7 @@ jobs:
             "packaging/portable_launcher.c"
             "run_accessible_chess_v2.py"
             "scripts/build_owner_portable_candidate.py"
+            "scripts/p0_native_menubar_uia_oracle.py"
             "scripts/record_owner_physical_acceptance.py"
             "tests/js/keymap_recovery_accessibility_test.js"
             "tests/js/library_export_surface_dom_test.js"
@@ -204,6 +207,7 @@ jobs:
             "tests/test_version2_teacher_session_runtime_binding.py"
             "tests/test_version2_windows_book_open_worker.py"
             "tests/test_w5_native_formclosing_dirty_pgn.py"
+            "tests/test_windows_native_menu_smoke_contract.py"
             "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
             "web/full_product_library.js"
             "web/full_product_pgn.js"
@@ -332,6 +336,10 @@ jobs:
             base_sha="$PARENT_SHA"
           fi
           git cat-file -e "$base_sha^{commit}"
+          test "$(git rev-parse HEAD:.github/workflows/current-shipping-native-menubar-parity.yml)" = "4c0a7b0e91a9cd5247b41517983d2d39bbc486ae"
+          test "$(git rev-parse HEAD:.github/workflows/p0-native-menubar-uia-runtime.yml)" = "3fe35515cc30585751a5aa5aa44f2b0651dbd10f"
+          test "$(git rev-parse HEAD:scripts/p0_native_menubar_uia_oracle.py)" = "d4d5ade1838c99f7280a59123f8e070fd71831e3"
+          test "$(git rev-parse HEAD:tests/test_windows_native_menu_smoke_contract.py)" = "4193a51a868a5e28fb99c98e940e6a41375969e8"
           test "$(git rev-parse HEAD:tests/test_owner_portable_candidate.py)" = "a1bc15f4c0f6042351e6949aeef55dbec8616aa4"
           test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "491fab63b7cc0609bb6d8f6d67b9acf06350cc72"
           test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "9d4e7470eb98a68cc5e5fb8dd821147b8ddfca08"
@@ -473,6 +481,8 @@ jobs:
           acs/version2_windows_host_runtime.py
           acs/version2_windows_import_ui_pump.py
           scripts/record_owner_physical_acceptance.py
+          scripts/p0_native_menubar_uia_oracle.py
+          tests/test_windows_native_menu_smoke_contract.py
           tests/test_owner_gameplay_feedback.py
           tests/test_owner_gameplay_wav_delivery.py
           tests/test_v2_windows_upgrade_status_shipping.py
@@ -681,6 +691,7 @@ jobs:
           tests.test_finalize_owner_final_receipt
           tests.test_owner_physical_acceptance
           tests.test_owner_physical_acceptance_json_hardening
+          tests.test_windows_native_menu_smoke_contract
           tests.test_version2_package_zip_topology_preflight
 
       - name: Core selftest
