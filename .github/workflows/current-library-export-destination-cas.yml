@@ -54,7 +54,7 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           SHIPPING_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-          PINNED_SHIPPING_SHA: 75eab74759e4168e626ea36cfd8db552800d5517
+          PINNED_SHIPPING_SHA: b51a66bfb8bb4d7e10001a4714bd6baba76adc6a
           PINNED_PGN_SERVICE_BLOB: 76ae657c9cea85cbb57b5c202bc2954717ce9d58
           PINNED_PGN_EXPORT_HOST_BLOB: 913a74348f1323887d9d880285814a7680869ae1
           PINNED_PGN_COMMANDS_BLOB: 74a94b45597fbdc1607e7b3452df41b88837b42f
