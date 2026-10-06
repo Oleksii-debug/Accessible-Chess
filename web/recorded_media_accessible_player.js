@@ -142,10 +142,10 @@
   }
 
   function runCommand(root, generation, button, invokeCommand, command) {
-    if (!isCurrent(root, generation) || button.disabled) return;
+    if (!isCurrent(root, generation) || button.disabled) return Promise.resolve();
     const previousDisabled = button.disabled;
     button.disabled = true;
-    Promise.resolve()
+    return Promise.resolve()
       .then(() => invokeCommand(command))
       .then((result) => {
         if (!isCurrent(root, generation)) return;
@@ -208,7 +208,7 @@
         if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > state.durationMs) {
           throw new Error("invalid seek value");
         }
-        runCommand(root, generation, seek, invokeCommand, {
+        return runCommand(root, generation, seek, invokeCommand, {
           action: "seek",
           positionMs: numeric,
         });
@@ -219,13 +219,13 @@
       const back = makeButton(nav, BACK_ID, state.backLabel, !state.seekEnabled, SEEK_ID);
       const forward = makeButton(nav, FORWARD_ID, state.forwardLabel, !state.seekEnabled, SEEK_ID);
       back.addEventListener("click", () => {
-        runCommand(root, generation, back, invokeCommand, {
+        return runCommand(root, generation, back, invokeCommand, {
           action: "seek",
           positionMs: Math.max(0, state.positionMs - 10_000),
         });
       });
       forward.addEventListener("click", () => {
-        runCommand(root, generation, forward, invokeCommand, {
+        return runCommand(root, generation, forward, invokeCommand, {
           action: "seek",
           positionMs: Math.min(state.durationMs, state.positionMs + 10_000),
         });
@@ -242,15 +242,15 @@
       STATUS_ID,
     );
     play.addEventListener("click", () => {
-      runCommand(root, generation, play, invokeCommand, { action: state.playAction });
+      return runCommand(root, generation, play, invokeCommand, { action: state.playAction });
     });
     makeButton(controls, RESTORE_ID, state.restoreLabel, !state.restoreEnabled, STATUS_ID)
       .addEventListener("click", function () {
-        runCommand(root, generation, this, invokeCommand, { action: "restore" });
+        return runCommand(root, generation, this, invokeCommand, { action: "restore" });
       });
     makeButton(controls, CANCEL_ID, state.cancelLabel, !state.cancelEnabled, STATUS_ID)
       .addEventListener("click", function () {
-        runCommand(root, generation, this, invokeCommand, { action: "cancel" });
+        return runCommand(root, generation, this, invokeCommand, { action: "cancel" });
       });
     section.appendChild(controls);
 
