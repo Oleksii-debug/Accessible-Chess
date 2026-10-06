@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_actions import FullProductActionRouter
 from acs.full_product_ui_shell import AccessibleShellState, UILanguage
@@ -34,6 +35,27 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.payload["screen"]["route_id"], "board")
         self.assertEqual(command.payload["document"]["lang"], "en")
 
+    def test_failed_language_snapshot_restores_application_shell_locale(self):
+        adapter, _ = self.make_adapter()
+        before = adapter.snapshot()
+        self.assertEqual("uk", before["document"]["lang"])
+
+        with patch.object(
+            adapter,
+            "snapshot",
+            side_effect=RuntimeError("candidate semantic snapshot rejected"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "candidate semantic snapshot rejected"):
+                adapter.set_language("en")
+
+        restored = adapter.snapshot()
+        self.assertEqual("uk", restored["document"]["lang"])
+        self.assertEqual(before["screen"]["heading"], restored["screen"]["heading"])
+
+        committed = adapter.set_language("en")
+        self.assertEqual("en", committed.payload["document"]["lang"])
+        self.assertNotEqual(before["screen"]["heading"], committed.payload["screen"]["heading"])
+
     def test_unknown_language_fails_closed(self):
         adapter, _ = self.make_adapter()
         with self.assertRaises(ValueError):
@@ -47,6 +69,87 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.payload["route_id"], "teacher")
         self.assertEqual(command.payload["focus_target"], "teacher-pointer-input")
         self.assertEqual(calls, [])
+
+    def test_failed_route_snapshot_restores_route_but_preserves_observed_focus(self):
+        adapter, calls = self.make_adapter()
+        before = adapter.snapshot()
+        self.assertEqual("board", before["screen"]["route_id"])
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+        with patch.object(
+            adapter,
+            "snapshot",
+            side_effect=RuntimeError("candidate route snapshot rejected"),
+        ):
+            failed = adapter.activate_action(
+                "screen.teacher",
+                current_focus_id="board-launcher",
+            )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", adapter.shell.current_route.route_id)
+        self.assertEqual("board-launcher", adapter.shell.restore_focus_target())
+        self.assertEqual([], calls)
+
+        committed = adapter.activate_action(
+            "screen.teacher",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual("route", committed.kind)
+        self.assertEqual("teacher", committed.payload["route_id"])
+        self.assertEqual("teacher", adapter.shell.current_route.route_id)
+        adapter.shell.open_route("board")
+        self.assertEqual("board-launcher", adapter.shell.restore_focus_target())
+
+    def test_delegate_failure_restores_shell_route_and_preserves_observed_focus(self):
+        shell = AccessibleShellState(language=UILanguage.EN)
+
+        def delegate(action_id, payload):
+            self.assertEqual("teacher.highlight", action_id)
+            self.assertEqual({"square": "f3"}, payload)
+            shell.open_route("teacher")
+            raise RuntimeError("provider failed after route mutation")
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+        failed = adapter.activate_action(
+            "teacher.highlight",
+            {"square": "f3"},
+            current_focus_id="board-launcher",
+        )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", shell.restore_focus_target())
+        self.assertEqual(
+            "The action could not be completed.",
+            failed.payload["message"],
+        )
+
+    def test_delegate_internal_focus_mutation_does_not_replace_observed_ingress_focus(self):
+        shell = AccessibleShellState(language=UILanguage.EN)
+
+        def delegate(action_id, payload):
+            self.assertEqual("teacher.highlight", action_id)
+            shell.record_focus("delegate-only-focus")
+            shell.open_route("teacher")
+            raise RuntimeError("provider mutated focus before failure")
+
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, delegate),
+        )
+        failed = adapter.activate_action(
+            "teacher.highlight",
+            {"square": "f3"},
+            current_focus_id="board-launcher",
+        )
+
+        self.assertEqual("error", failed.kind)
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", shell.restore_focus_target())
 
     def test_delegated_route_transition_preserves_invoking_focus(self):
         shell = AccessibleShellState(language=UILanguage.EN)
@@ -120,6 +223,16 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
                 self.assertEqual(adapter.shell.restore_focus_target(), "move-input")
                 self.assertEqual(calls, [])
 
+    def test_unknown_action_does_not_preserve_unrecorded_focus(self):
+        adapter, calls = self.make_adapter()
+        command = adapter.activate_action(
+            "not.a.real.action",
+            current_focus_id="board-launcher",
+        )
+        self.assertEqual("error", command.kind)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+        self.assertEqual([], calls)
+
     def test_domain_action_is_delegated_unchanged(self):
         adapter, calls = self.make_adapter()
         command = adapter.activate_action("teacher.highlight", {"square": "f3"})
@@ -170,6 +283,32 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertTrue(command.payload["prevent_default"])
         self.assertFalse(command.payload["editable"])
 
+    def test_active_focus_and_dialog_text_subclasses_fail_before_shell_mutation(self):
+        adapter, _ = self.make_adapter()
+
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active text hook must not execute")
+
+        hostile_focus = HostileText("board-launcher")
+        with self.assertRaisesRegex(TypeError, "focus target id"):
+            adapter.record_focus(hostile_focus)
+        self.assertFalse(HostileText.touched)
+        self.assertEqual("move-input", adapter.shell.restore_focus_target())
+
+        hostile_dialog = HostileText("settings-dialog")
+        failed = adapter.open_dialog(
+            hostile_dialog,
+            opener_focus_id="open-settings",
+            initial_focus_id="settings-list",
+        )
+        self.assertEqual("error", failed.kind)
+        self.assertFalse(HostileText.touched)
+        self.assertIsNone(adapter.shell.active_dialog_id)
+
     def test_dialog_open_close_restores_exact_opener(self):
         adapter, _ = self.make_adapter()
         opened = adapter.open_dialog(
@@ -194,6 +333,7 @@ class FullProductWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(command.kind, "error")
         self.assertEqual(adapter.shell.current_route.route_id, "board")
         self.assertEqual(adapter.shell.active_dialog_id, "help-dialog")
+        self.assertEqual("help-search", adapter.shell.restore_focus_target())
 
     def test_internal_delegate_error_is_sanitized_before_webview_projection(self):
         shell = AccessibleShellState(language=UILanguage.EN)

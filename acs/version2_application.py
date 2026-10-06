@@ -6,7 +6,7 @@ accept worker-thread calls; their exact D07 DTOs never enter a browser payload.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import hashlib
 import hmac
 import json
@@ -24,11 +24,12 @@ from .book_progress_store import (
     BookProgressStoreError,
     BookProgressStoreErrorCode,
 )
+from .bookdocument import BookDocument
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .input_limits import MAX_FEN_CHARS
-from .import_contract import read_source_snapshot
+from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
@@ -44,12 +45,30 @@ from .version2_pgn_commands import Version2PgnCommands
 from .version2_profile import build_version2_shell, build_version2_router, build_version2_webview_adapter
 from .version2_training_workspace import Version2BookTrainingWorkspace
 from .version2_windows_book_board_adapter import Version2WindowsBookBoardActionDelegate, BookBoardUiEventKind
+from .version2_windows_book_open_worker import (
+    BookOpenWorkerEvent,
+    BookOpenWorkerEventKind,
+    Version2BookOpenWorker,
+)
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
 
 
 class _BookBrowserLeaseRejected(ValueError):
     """Rendered Books presentation no longer owns canonical Book intent."""
+
+
+class BookOpenCancelled(RuntimeError):
+    """Trusted Book Open preparation was cancelled before UI publication."""
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedBookOpen:
+    """Immutable semantic result prepared without touching application UI state."""
+
+    book_key: str
+    document: BookDocument
+    warnings: tuple[str, ...]
 
 
 class Version2Application:
@@ -121,7 +140,11 @@ class Version2Application:
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
+        self._book_open_worker: Version2BookOpenWorker | None = None
         self._focus = ""
+        self._shell_publication_sequence = 0
+        self._pending_shell_publication = None
+        self._last_shell_publication_resolution = None
         self.session = None
         self.pgn_board_active = False
         self.pgn = None
@@ -147,6 +170,75 @@ class Version2Application:
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
             raise RuntimeError("V2 application requires the native UI thread")
+
+    @staticmethod
+    def _shell_publication_token(payload):
+        """Validate one browser presentation acknowledgement token."""
+        if type(payload) is not dict or len(payload) != 1:
+            raise ValueError("invalid shell publication acknowledgement")
+        key = next(iter(payload))
+        if type(key) is not str or key != "token":
+            raise ValueError("invalid shell publication acknowledgement")
+        token = payload[key]
+        if type(token) is not int or token <= 0 or token > 9007199254740991:
+            raise ValueError("invalid shell publication acknowledgement")
+        return token
+
+    def _finish_shell_publication(self, token: int, *, commit: bool):
+        """Commit or roll back one browser route only after DOM publication."""
+        pending = self._pending_shell_publication
+        if pending is None:
+            last = self._last_shell_publication_resolution
+            if last is not None and last == (token, commit):
+                if commit:
+                    return {
+                        "kind": "presentation-commit",
+                        "payload": {"token": token},
+                    }
+                return {
+                    "kind": "presentation-rollback",
+                    "payload": {
+                        "token": token,
+                        "route_id": self.shell.current_route.route_id,
+                        "focus_target": self._focus,
+                    },
+                }
+            raise ValueError("stale shell publication acknowledgement")
+        if pending[0] != token:
+            raise ValueError("stale shell publication acknowledgement")
+        self._pending_shell_publication = None
+        if commit:
+            self.shell._end_publication_hold()
+            self._last_shell_publication_resolution = (token, True)
+            return {
+                "kind": "presentation-commit",
+                "payload": {"token": token},
+            }
+
+        (
+            _token,
+            _route_command,
+            _request_id,
+            _projected_route,
+            shell_state,
+            prior_focus,
+            prior_training_workspace,
+            prior_training,
+        ) = pending
+        self.shell._restore_presentation_state(shell_state)
+        self._focus = prior_focus
+        self.training_workspace = prior_training_workspace
+        self.training = prior_training
+        self.shell._end_publication_hold()
+        self._last_shell_publication_resolution = (token, False)
+        return {
+            "kind": "presentation-rollback",
+            "payload": {
+                "token": token,
+                "route_id": self.shell.current_route.route_id,
+                "focus_target": self._focus,
+            },
+        }
 
     @staticmethod
     def _valid_book_browser_token(value):
@@ -282,6 +374,54 @@ class Version2Application:
         self._assert_thread()
         self._files = runtime
 
+    def bind_book_open_worker(self, worker: Version2BookOpenWorker) -> None:
+        self._assert_thread()
+        if not isinstance(worker, Version2BookOpenWorker):
+            raise TypeError("Book Open worker must be Version2BookOpenWorker")
+        if self._book_open_worker is not None:
+            raise RuntimeError("Book Open worker is already bound")
+        self._book_open_worker = worker
+
+    def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
+        self._assert_thread()
+        if not isinstance(event, BookOpenWorkerEvent):
+            raise TypeError("invalid Book Open worker event")
+        english = self.shell.language is UILanguage.EN
+        messages = {
+            BookOpenWorkerEventKind.STARTED: (
+                "Відкриття книги розпочато. Операцію можна скасувати.",
+                "Book opening started. You can cancel the operation.",
+            ),
+            BookOpenWorkerEventKind.CANCELLING: (
+                "Скасовуємо відкриття книги.",
+                "Cancelling Book open.",
+            ),
+            BookOpenWorkerEventKind.CANCELLED: (
+                "Відкриття книги скасовано. Поточний стан не змінено.",
+                "Book open cancelled. Current state was not changed.",
+            ),
+            BookOpenWorkerEventKind.COMPLETED: (
+                "Книгу відкрито.",
+                "Book opened.",
+            ),
+            BookOpenWorkerEventKind.FAILED: (
+                "Не вдалося відкрити книгу. Поточний стан не змінено.",
+                "The book could not be opened. Current state was not changed.",
+            ),
+        }
+        self._events.append(
+            {
+                "kind": "status" if event.kind is not BookOpenWorkerEventKind.FAILED else "error",
+                "payload": {
+                    "announcement": messages[event.kind][english],
+                    "focus_target": event.focus_target,
+                    "book_open_busy": event.kind
+                    in {BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLING},
+                },
+            }
+        )
+        return event
+
     def observe_progress(self, value: LibraryImportProgress):
         if not isinstance(value, LibraryImportProgress): raise TypeError("invalid import progress")
         with self._observation_lock: self._progress = value
@@ -335,14 +475,34 @@ class Version2Application:
         self.pgn_board_active = False
         self._focus = route_focus
 
-    def open_book(self, source: Path):
-        self._assert_thread()
-        # Domain/native Book Open can bypass shell route dispatch. Reject it
-        # before any reader/progress mutation while a modal owns keyboard focus.
-        if self.shell.active_dialog_id is not None:
-            raise ValueError("close the active dialog before opening a book")
-        if self.book_workflow is not None and self.book_workflow.active:
-            raise ValueError("return to the book before opening another source")
+    @staticmethod
+    def prepare_book_open(
+        source: Path,
+        *,
+        cancel_check=None,
+    ) -> PreparedBookOpen:
+        """Read and semantically import one Book without touching live UI state.
+
+        This phase is safe to run outside the application UI thread. It uses the
+        canonical stable-source reader and each format owner\'s existing control
+        checkpoint seam so cancellation is observed during source read/import.
+        """
+
+        if not isinstance(source, Path):
+            raise TypeError("Book source must be a Path")
+        if cancel_check is not None and not callable(cancel_check):
+            raise TypeError("Book Open cancel_check must be callable")
+
+        def checkpoint() -> None:
+            if cancel_check is None:
+                return
+            cancelled = cancel_check()
+            if type(cancelled) is not bool:
+                raise TypeError("Book Open cancel_check must return bool")
+            if cancelled:
+                raise BookOpenCancelled("Book Open preparation cancelled")
+
+        checkpoint()
         suffix = source.suffix.casefold()
         if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
             raise ValueError("unsupported book source")
@@ -352,51 +512,98 @@ class Version2Application:
             limit = MAX_HTML_SOURCE_BYTES
         else:
             limit = MAX_TEXT_SOURCE_BYTES
-        # Book Open and Library must bind the same stable read-only source
-        # authority. A normal path open can follow a reparse point or publish
-        # mixed bytes from a concurrently modified book under a durable key.
-        _, raw = read_source_snapshot(source, max_bytes=limit)
+
+        try:
+            _, raw = read_source_snapshot(
+                source,
+                max_bytes=limit,
+                cancel_check=(None if cancel_check is None else cancel_check),
+            )
+        except SourceReadCancelledError:
+            raise BookOpenCancelled("Book Open preparation cancelled") from None
+        checkpoint()
+        safe_name = report_safe_name(source)
         if suffix == ".epub":
-            imported = import_epub_book(raw, source_name=report_safe_name(source))
+            imported = import_epub_book(
+                raw,
+                source_name=safe_name,
+                control_checkpoint=checkpoint,
+            )
         elif suffix in {".html", ".htm", ".xhtml"}:
-            imported = import_html_book(raw, source_name=report_safe_name(source), available_assets=())
+            imported = import_html_book(
+                raw,
+                source_name=safe_name,
+                available_assets=(),
+                control_checkpoint=checkpoint,
+            )
         else:
             kind = BookTextFormat.TXT if suffix == ".txt" else BookTextFormat.MARKDOWN
-            imported = import_text_book(raw, source_name=report_safe_name(source), source_format=kind)
-        # Persist the old durable state before staging a replacement.
+            imported = import_text_book(
+                raw,
+                source_name=safe_name,
+                source_format=kind,
+                control_checkpoint=checkpoint,
+            )
+        checkpoint()
+        return PreparedBookOpen(
+            book_key=imported.book_key,
+            document=imported.document,
+            warnings=tuple(imported.warnings),
+        )
+
+    def _assert_book_open_allowed(self) -> None:
+        """Reject Book owner replacement before source I/O or UI publication."""
+
+        self._assert_thread()
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before opening a book")
+        if self.book_workflow is not None and self.book_workflow.active:
+            raise ValueError("return to the book before opening another source")
+
+    def commit_prepared_book_open(self, prepared: PreparedBookOpen) -> int:
+        """Transactionally publish one already-prepared Book on the UI thread."""
+
+        self._assert_book_open_allowed()
+        if type(prepared) is not PreparedBookOpen:
+            raise TypeError("prepared Book Open result is invalid")
+
         self.save_training_progress()
         self.save_book_progress()
-        reader = self.progress_store.restore(imported.book_key, imported.document) if self.progress_store.has(imported.book_key) else BookReader(imported.document)
-        workflow = BookBoardWorkflow(reader, self.engine_assistance, game_lookup=AcsdbBookGameLookup(self.database))
-        delegate = Version2WindowsBookBoardActionDelegate(workflow, event_sink=self._book_event, next_delegate=self._board_dispatch)
-        bridge = build_version2_book_webview(reader, workflow, self.router.dispatch, language=self.shell.language)
-        # Rendering is part of accepting an external Book source. Validate the
-        # exact initial projection while every published application owner still
-        # points at the previous Book. This matches bundled starter-content
-        # staging and prevents a malformed/unrenderable import from creating new
-        # durable progress for a Book the user never actually saw open.
+        reader = (
+            self.progress_store.restore(prepared.book_key, prepared.document)
+            if self.progress_store.has(prepared.book_key)
+            else BookReader(prepared.document)
+        )
+        workflow = BookBoardWorkflow(
+            reader,
+            self.engine_assistance,
+            game_lookup=AcsdbBookGameLookup(self.database),
+        )
+        delegate = Version2WindowsBookBoardActionDelegate(
+            workflow,
+            event_sink=self._book_event,
+            next_delegate=self._board_dispatch,
+        )
+        bridge = build_version2_book_webview(
+            reader,
+            workflow,
+            self.router.dispatch,
+            language=self.shell.language,
+        )
         bridge.projection.snapshot()
-        # Do not publish either durable candidate progress or the staged
-        # reader/workflow until shell route ownership has accepted Books. This is
-        # the same transaction boundary used for Board ownership: a hidden or
-        # rejected Book open must not leave an on-disk entry for a source the
-        # user never actually acquired.
+
         origin_route = self.shell.current_route.route_id
         try:
             route_focus = self.shell.open_route("books")
             try:
-                self._persist_book_progress(imported.book_key, reader)
+                self._persist_book_progress(prepared.book_key, reader)
             except BookProgressStoreError as error:
                 if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
                     raise
-                # Atomic replacement already succeeded before this code can be
-                # reported. Storage, not the speculative caller, decides whether
-                # rollback is safe: accept the staged owner only when the current
-                # canonical primary rereads as the exact staged snapshot.
                 try:
                     canonical = self.progress_store.restore_primary(
-                        imported.book_key,
-                        imported.document,
+                        prepared.book_key,
+                        prepared.document,
                     )
                     canonical_matches = canonical.snapshot() == reader.snapshot()
                 except Exception:
@@ -404,16 +611,13 @@ class Version2Application:
                 if not canonical_matches:
                     raise error
         except Exception:
-            # Version2ShellState.open_route() writes its route before restoring
-            # focus. Persistence is also fallible after route acquisition. In
-            # either case recover the previously published route/owner; owner
-            # fields are still untouched at this point.
             if self.shell.current_route.route_id != origin_route:
                 self._focus = self.shell.open_route(origin_route)
             raise
+
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (
             reader,
-            imported.book_key,
+            prepared.book_key,
             workflow,
             delegate,
             bridge,
@@ -421,19 +625,27 @@ class Version2Application:
         self.training_workspace = self.training = None
         self._focus = route_focus
         self._repair_book_block_focus_after_rebind()
-        warning_count = len(imported.warnings)
+        warning_count = len(prepared.warnings)
         if warning_count:
             announcement = (
                 f"Книгу відкрито з попередженнями імпорту: {warning_count}."
                 if self.shell.language is UILanguage.UA
                 else f"Book opened with import warnings: {warning_count}."
             )
-            # Importer diagnostics remain trusted-host data. Publish only the
-            # bounded count through the existing path-free status event.
             self._events.append(
                 {"kind": "status", "payload": {"announcement": announcement}}
             )
         return warning_count
+
+    def open_book(self, source: Path):
+        """Compatibility wrapper preserving current synchronous Book Open."""
+
+        # Preserve the historical fail-before-read authority fence for direct
+        # callers. The commit repeats it because a future background preparation
+        # can race with a modal or Book-Board owner becoming active.
+        self._assert_book_open_allowed()
+        prepared = self.prepare_book_open(source)
+        return self.commit_prepared_book_open(prepared)
 
     def _persist_book_progress(self, book_key, reader):
         """Publish Book progress, offering only explicit bounded backup rollback."""
@@ -1204,15 +1416,27 @@ class Version2Application:
         if action == "library.previous_page": return self.library.projection.previous_page()
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
+        if action == "book.cancel_open":
+            if payload:
+                raise ValueError("Book Open cancellation takes no payload")
+            if self._book_open_worker is None:
+                raise ValueError("Book Open worker is unavailable")
+            if not self._book_open_worker.cancel(focus_target=str(self._focus)):
+                raise ValueError("no Book Open is running")
+            return None
         if action == "book.open":
             if payload:
                 raise ValueError("book file selection belongs to the host")
-            if self.shell.active_dialog_id is not None:
-                raise ValueError("close the active dialog before opening a book")
-            if self.book_workflow is not None and self.book_workflow.active:
-                raise ValueError("return to the book before opening another source")
+            self._assert_book_open_allowed()
+            if self._book_open_worker is not None and self._book_open_worker.active:
+                raise ValueError("Book Open is already running")
             source = self.open_book_dialog()
-            return None if source is None else self.open_book(source)
+            if source is None:
+                return None
+            if self._book_open_worker is not None:
+                self._book_open_worker.start(source, focus_target=str(self._focus))
+                return None
+            return self.open_book(source)
         if action.startswith("book."):
             if self.book_delegate is None: raise ValueError("no book is open")
             if action in self.book_delegate.OWNED_ACTIONS:
@@ -1414,6 +1638,15 @@ class Version2Application:
             empty_authority_payload = payload is None or (
                 type(payload) is dict and len(payload) == 0
             )
+            if (
+                self._pending_shell_publication is not None
+                and area_id != "shell"
+            ):
+                # Until the browser commits or rolls back its route snapshot,
+                # the old DOM may still be interactive while Python already
+                # holds the candidate route. Never reinterpret those stale
+                # surface commands against the unpublished owner.
+                raise ValueError("shell presentation publication is pending")
             if area_id == "review":
                 allowed = {"pgn.open_on_board", "pgn.return", "pgn.board_next_move", "pgn.board_previous_move", "pgn.board_enter_variation", "pgn.board_leave_variation",
                            "book.board_next_move", "book.board_previous_move", "book.board_enter_variation", "book.board_leave_variation", "book.return"}
@@ -1436,7 +1669,43 @@ class Version2Application:
                 if getattr(result, "kind", None) is BookBoardUiEventKind.FAILED: return self._error()
                 return {"kind": "review", "payload": {}}
             if area_id == "shell":
-                if not empty_authority_payload:
+                is_publication_control = (
+                    type(command) is str
+                    and command in {
+                        "shell.presentation_commit",
+                        "shell.presentation_rollback",
+                    }
+                )
+                if is_publication_control:
+                    token = self._shell_publication_token(payload)
+                    return self._finish_shell_publication(
+                        token,
+                        commit=command == "shell.presentation_commit",
+                    )
+
+                publication_protocol = False
+                publication_request_id = None
+                if type(payload) is dict and "publication_protocol" in payload:
+                    keys = tuple(payload)
+                    if (
+                        len(keys) != 2
+                        or any(type(key) is not str for key in keys)
+                        or "request_id" not in payload
+                    ):
+                        raise ValueError("invalid shell publication request")
+                    value = payload["publication_protocol"]
+                    if type(value) is not str or value != "ack-v1":
+                        raise ValueError("unsupported shell publication protocol")
+                    publication_request_id = payload["request_id"]
+                    if (
+                        type(publication_request_id) is not int
+                        or publication_request_id <= 0
+                        or publication_request_id > 9007199254740991
+                    ):
+                        raise ValueError("invalid shell publication request")
+                    publication_protocol = True
+
+                if not empty_authority_payload and not publication_protocol:
                     raise ValueError("shell accepts no authority payload")
                 if (
                     type(command) is not str
@@ -1447,6 +1716,31 @@ class Version2Application:
                     )
                 ):
                     raise ValueError("unsupported shell command")
+                if publication_protocol and not command.startswith("screen."):
+                    raise ValueError("shell publication protocol requires a route command")
+                if publication_protocol and self._pending_shell_publication is not None:
+                    pending = self._pending_shell_publication
+                    if (
+                        pending[1] == command
+                        and pending[2] == publication_request_id
+                    ):
+                        return pending[3]
+                    raise ValueError("shell publication acknowledgement is pending")
+                if (
+                    publication_protocol
+                    and self._shell_publication_sequence >= 9007199254740990
+                ):
+                    raise RuntimeError("shell publication sequence exhausted")
+
+                publication_before = None
+                if publication_protocol:
+                    publication_before = (
+                        self.shell._capture_presentation_state(),
+                        self._focus,
+                        self.training_workspace,
+                        self.training,
+                    )
+
                 training_transition = None
                 if command == "screen.training":
                     # Route changes are modal-blocked by the shell. Apply the same
@@ -1501,6 +1795,27 @@ class Version2Application:
                             projected_screen = projected_snapshot.get("screen")
                             if isinstance(projected_screen, dict):
                                 projected_screen["focus_target"] = self._focus
+                        if publication_protocol:
+                            self._shell_publication_sequence += 1
+                            token = self._shell_publication_sequence
+                            (
+                                prior_shell,
+                                prior_focus,
+                                prior_training_workspace,
+                                prior_training,
+                            ) = publication_before
+                            self.shell._begin_publication_hold()
+                            projected_payload["publication_token"] = token
+                            self._pending_shell_publication = (
+                                token,
+                                command,
+                                publication_request_id,
+                                projected,
+                                prior_shell,
+                                prior_focus,
+                                prior_training_workspace,
+                                prior_training,
+                            )
                 return projected
             if area_id == "training":
                 try:
@@ -1582,8 +1897,14 @@ class Version2Application:
         book_snapshot = None if self.books is None else self.books.projection.snapshot()
         if book_snapshot is not None:
             book_snapshot = self._lease_book_snapshot(book_snapshot)
+        pending_shell_publication_token = (
+            self._pending_shell_publication[0]
+            if self._pending_shell_publication is not None
+            else 0
+        )
         return {
             **self.adapter.snapshot(),
+            "shell_publication_token": pending_shell_publication_token,
             "pgn": pgn_snapshot,
             "library": self.library.projection.snapshot(),
             "books": book_snapshot,
@@ -1595,6 +1916,12 @@ class Version2Application:
 
     def drain_events(self):
         self._assert_thread()
+        if self._pending_shell_publication is not None:
+            # The browser is rendering a candidate route. Preserve every prior
+            # native/domain presentation event in order until that route is
+            # either committed or rolled back; applying an event to the
+            # unpublished DOM would create a second presentation authority.
+            return ()
         events = tuple(self._events)
         self._events.clear()
         return events
@@ -1689,7 +2016,7 @@ class Version2Application:
         # AccessibleShellState owns the one canonical DOM focus-ID contract.
         # Validate there before publishing the token to native-menu ingress so
         # _focus can never diverge from the route-local shell memory.
-        self.shell.record_focus(token)
+        self.shell.record_observed_focus(token)
         self._focus = token
 
     def import_ui_ready(self, mailbox):
@@ -1805,8 +2132,22 @@ class Version2Application:
         failure replace that first progress failure.
         """
         self._assert_thread()
+        if (
+            self._book_open_worker is not None
+            and not self._book_open_worker.shutdown(timeout=timeout)
+        ):
+            return False
         if self._files is not None and not self._files.shutdown(timeout=timeout):
             return False
+        if self._pending_shell_publication is not None:
+            # Native close/Alt+F4 can race a browser route render. An
+            # unacknowledged candidate route is not user-visible authority and
+            # must never become durable merely because shutdown began. Retire
+            # workers first so a refused close can keep the pending browser
+            # transaction alive; once shutdown may proceed, roll it back before
+            # any Training or Book progress publication.
+            token = self._pending_shell_publication[0]
+            self._finish_shell_publication(token, commit=False)
         self.save_training_progress()
         try:
             self.save_book_progress()
