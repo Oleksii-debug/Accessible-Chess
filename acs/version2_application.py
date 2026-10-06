@@ -2478,9 +2478,10 @@ class Version2Application:
         timeout and retry without closing the database when the worker is still
         alive. Every independent native worker retirement is attempted before a
         refused/failed close is reported; shared progress and ACSDB remain untouched
-        unless all workers confirm retirement. Once worker shutdown succeeds, ACSDB
-        cleanup is attempted even if durable Book progress publication fails, without
-        letting a later close failure replace that first progress failure.
+        unless all workers confirm retirement. Once worker shutdown succeeds, both
+        durable progress owners are attempted. Any progress failure keeps ACSDB open
+        so native FormClosing can refuse the close and a later attempt can retry the
+        exact owner state; only successful progress publication permits ACSDB close.
         """
         self._assert_thread()
         retirement_complete = True
