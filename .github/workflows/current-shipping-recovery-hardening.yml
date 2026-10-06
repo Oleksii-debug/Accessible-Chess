@@ -42,6 +42,8 @@ env:
   PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB: 7e39e8051194559bf8c4001161030a70fc5d74ad
   PORTABLE_PACKAGE_BLOB: 052eb84f33bac7339c8ffe22105b6f5f48c6e560
   PORTABLE_PACKAGE_TEST_BLOB: adc17ba32e3a2f0fab6f7fd0f981698c40c34d57
+  RELEASE_RECEIPT_BLOB: 7813a0f81d5f12739d10bf866c47360619c511e2
+  RELEASE_RECEIPT_TEST_BLOB: 071d9ae12a8d476f7792247444f1a7163241470a
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
   V2_RELEASE_DOM_TEST_BLOB: 6052ddfde81b98ef842660390be7a033b688bc9a
   PHYSICAL_RECORDER_BLOB: 91ffd7ef6c83f31c502f5fbe594caa49838f7150
@@ -103,6 +105,7 @@ jobs:
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
             "acs/version2_release_app.py"
+            "acs/version2_release_receipt.py"
             "acs/version2_release_ui.py"
             "acs/version2_windows_book_open_worker.py"
             "acs/version2_windows_file_workflows.py"
@@ -124,6 +127,7 @@ jobs:
             "tests/test_version2_package_preflight.py"
             "tests/test_version2_portable_package.py"
             "tests/test_version2_release_cleanup_precedence.py"
+            "tests/test_version2_release_receipt.py"
             "tests/test_version2_release_ui.py"
             "tests/test_version2_windows_book_open_worker.py"
             "tests/test_w5_native_formclosing_dirty_pgn.py"
@@ -161,6 +165,8 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "$PORTABLE_PACKAGE_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_portable_package.py)" = "$PORTABLE_PACKAGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$RELEASE_RECEIPT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$RELEASE_RECEIPT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
@@ -176,6 +182,7 @@ jobs:
           acs/version2_package_preflight.py
           acs/version2_portable_package.py
           acs/version2_release_app.py
+          acs/version2_release_receipt.py
           acs/version2_release_ui.py
           acs/version2_windows_book_open_worker.py
           acs/version2_windows_file_workflows.py
@@ -191,6 +198,7 @@ jobs:
           tests/test_version2_portable_package.py
           tests/test_version2_release_ui.py
           tests/test_version2_release_cleanup_precedence.py
+          tests/test_version2_release_receipt.py
           tests/test_version2_windows_book_open_worker.py
           tests/test_v2_board_analysis_hotkey_feedback.py
           tests/test_v2_windows_file_worker_shutdown_fence.py
