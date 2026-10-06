@@ -271,6 +271,19 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_p0g_accessible_results.py)" = "$(git rev-parse "$base_sha":tests/test_p0g_accessible_results.py)"
           test "$(git rev-parse HEAD:tests/test_p0g_final_product_runtime_reachability.py)" = "$(git rev-parse "$base_sha":tests/test_p0g_final_product_runtime_reachability.py)"
           test "$(git rev-parse HEAD:tests/test_p0_release_critical_triad_convergence.py)" = "$(git rev-parse "$base_sha":tests/test_p0_release_critical_triad_convergence.py)"
+          test "$(git rev-parse HEAD:scripts/run_p0_packaged_acceptance.ps1)" = "$(git rev-parse "$base_sha":scripts/run_p0_packaged_acceptance.ps1)"
+          test "$(git rev-parse HEAD:scripts/p0_packaged_document_copy_probe.ps1)" = "$(git rev-parse "$base_sha":scripts/p0_packaged_document_copy_probe.ps1)"
+          test "$(git rev-parse HEAD:scripts/p0g_packaged_hotkey_result_probe.ps1)" = "$(git rev-parse "$base_sha":scripts/p0g_packaged_hotkey_result_probe.ps1)"
+          test "$(git rev-parse HEAD:scripts/verify_p0_packaged_document_copy_evidence.py)" = "$(git rev-parse "$base_sha":scripts/verify_p0_packaged_document_copy_evidence.py)"
+          test "$(git rev-parse HEAD:scripts/verify_p0g_packaged_hotkey_result_evidence.py)" = "$(git rev-parse "$base_sha":scripts/verify_p0g_packaged_hotkey_result_evidence.py)"
+          test "$(git rev-parse HEAD:.github/workflows/p0-packaged-document-copy-probe-contract.yml)" = "$(git rev-parse "$base_sha":.github/workflows/p0-packaged-document-copy-probe-contract.yml)"
+          test "$(git rev-parse HEAD:.github/workflows/p0-packaged-release-probe-convergence.yml)" = "$(git rev-parse "$base_sha":.github/workflows/p0-packaged-release-probe-convergence.yml)"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_acceptance_orchestrator.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_acceptance_orchestrator.py)"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_document_copy_probe.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_document_copy_probe.py)"
+          test "$(git rev-parse HEAD:tests/test_p0g_packaged_hotkey_result_probe.py)" = "$(git rev-parse "$base_sha":tests/test_p0g_packaged_hotkey_result_probe.py)"
+          test "$(git rev-parse HEAD:tests/test_p0_packaged_release_probe_convergence.py)" = "$(git rev-parse "$base_sha":tests/test_p0_packaged_release_probe_convergence.py)"
+          test "$(git rev-parse HEAD:tests/test_verify_p0_packaged_document_copy_evidence.py)" = "$(git rev-parse "$base_sha":tests/test_verify_p0_packaged_document_copy_evidence.py)"
+          test "$(git rev-parse HEAD:tests/test_verify_p0g_packaged_hotkey_result_evidence.py)" = "$(git rev-parse "$base_sha":tests/test_verify_p0g_packaged_hotkey_result_evidence.py)"
 
       - name: Compile changed and integrated boundaries
         run: >-
@@ -311,6 +324,14 @@ jobs:
           tests/test_p0g_accessible_results.py
           tests/test_p0g_final_product_runtime_reachability.py
           tests/test_p0_release_critical_triad_convergence.py
+          scripts/verify_p0_packaged_document_copy_evidence.py
+          scripts/verify_p0g_packaged_hotkey_result_evidence.py
+          tests/test_p0_packaged_acceptance_orchestrator.py
+          tests/test_p0_packaged_document_copy_probe.py
+          tests/test_p0g_packaged_hotkey_result_probe.py
+          tests/test_p0_packaged_release_probe_convergence.py
+          tests/test_verify_p0_packaged_document_copy_evidence.py
+          tests/test_verify_p0g_packaged_hotkey_result_evidence.py
           tests/test_ui_native_menu_recovery.py
           tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_version2_application.py
@@ -418,6 +439,12 @@ jobs:
       - name: Execute shipping boundary contracts
         run: >-
           python -m unittest -v
+          tests.test_p0_packaged_acceptance_orchestrator
+          tests.test_p0_packaged_document_copy_probe
+          tests.test_p0g_packaged_hotkey_result_probe
+          tests.test_p0_packaged_release_probe_convergence
+          tests.test_verify_p0_packaged_document_copy_evidence
+          tests.test_verify_p0g_packaged_hotkey_result_evidence
           tests.test_version2_package_preflight
           tests.test_version2_package_preflight_hardening
           tests.test_v2_package_required_resources
