@@ -71,4 +71,4 @@ jobs:
         run: python -m py_compile acs/gametree.py acs/pgn_roundtrip.py acs/book_html_import.py tests/test_book_active_import_cancellation.py
 
       - name: Run canonical PGN and book cancellation regressions
-        run: python -m unittest tests.test_gametree tests.test_d06_pgn_roundtrip tests.test_book_html_pgn_loss_accounting tests.test_book_active_import_cancellation
+        run: python -m unittest tests.test_gametree tests.test_d06_pgn_roundtrip tests.test_v2_pgn_nested_comment_recovery tests.test_pgn_streaming_import tests.test_d06_gametree_persistence_vertical tests.test_book_html_pgn_loss_accounting tests.test_book_active_import_cancellation
