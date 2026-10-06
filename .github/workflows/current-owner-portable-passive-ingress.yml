@@ -3,7 +3,7 @@ name: Current Owner Portable Passive Ingress
 on:
   pull_request:
     branches:
-      - fix/package-passive-control-ingress-20261006-76mubs
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - ".github/workflows/current-owner-portable-passive-ingress.yml"
       - "scripts/build_owner_portable_candidate.py"
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BASE_REF: fix/package-passive-control-ingress-20261006-76mubs
+  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   SCRIPT_BLOB: 0c881127d7f6aaccc0378cf62c06e2b2b3f470b2
   TEST_BLOB: a1bc15f4c0f6042351e6949aeef55dbec8616aa4
 
