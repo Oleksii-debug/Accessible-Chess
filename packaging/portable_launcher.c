@@ -281,7 +281,6 @@ static void ac_error_detail(DWORD code) {
 static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);
     BOOL has_report = report != NULL && report != INVALID_HANDLE_VALUE;
-    ac_close_child_process_handle();
     ac_error_detail(code);
     if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
@@ -315,6 +314,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
             L"\r\n\r\nОсновний процес може ще працювати. Не запускайте другу копію, доки його не буде завершено."
         );
     }
+    ac_close_child_process_handle();
     MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     if (has_report) CloseHandle(report);
     ExitProcess(code == 0 ? 1 : code);
