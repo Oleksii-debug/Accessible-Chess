@@ -264,110 +264,6 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         )
         self.assertGreater(len(calls), 6)
 
-    def test_epub_xml_text_compaction_preserves_split_join_semantics(self):
-        import acs.book_epub_import as epub
-
-        sample = (
-            "  Alpha\tBeta\nGamma\xa0Delta\u2003Epsilon  "
-            + (" word\t" * 3_000)
-            + "tail  "
-        )
-        calls = []
-        controlled = epub._compact_xml_text(sample, lambda: calls.append(1))
-        self.assertEqual(controlled, " ".join(sample.split()))
-        self.assertGreater(len(calls), 3)
-
-    def test_epub_xml_text_compaction_observes_control_inside_one_text_node(self):
-        import acs.book_epub_import as epub
-
-        failure = SourceReadCancelledError(
-            "cancelled during one long EPUB XML text node"
-        )
-        calls = 0
-
-        def cancel():
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise failure
-
-        with self.assertRaises(SourceReadCancelledError) as caught:
-            epub._compact_xml_text("metadata" * 4_000, cancel)
-        self.assertIs(caught.exception, failure)
-        self.assertEqual(calls, 2)
-
-    def test_epub_whitespace_tail_scan_observes_control_inside_one_text_node(self):
-        import acs.book_epub_import as epub
-
-        failure = SourceReadCancelledError(
-            "cancelled during one long EPUB whitespace tail"
-        )
-        calls = 0
-
-        def cancel():
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                raise failure
-
-        with self.assertRaises(SourceReadCancelledError) as caught:
-            epub._has_non_whitespace((" \t\r\n" * 5_000), cancel)
-        self.assertIs(caught.exception, failure)
-        self.assertEqual(calls, 2)
-
-    def test_epub_metadata_value_compaction_threads_control(self):
-        import acs.book_epub_import as epub
-
-        metadata = epub.ET.fromstring(
-            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-            '<dc:title>' + ("Title" * 5_000) + '</dc:title>'
-            '</metadata>'
-        )
-        failure = SourceReadCancelledError(
-            "cancelled during EPUB metadata text normalization"
-        )
-        calls = 0
-
-        def cancel():
-            nonlocal calls
-            calls += 1
-            if calls == 3:
-                raise failure
-
-        with self.assertRaises(SourceReadCancelledError) as caught:
-            epub._metadata_values(metadata, "title", cancel)
-        self.assertIs(caught.exception, failure)
-        self.assertEqual(calls, 3)
-
-    def test_epub_package_tail_scan_observes_control_before_id_walk(self):
-        import acs.book_epub_import as epub
-
-        package = epub.ET.fromstring(
-            _opf(
-                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
-                spine='    <itemref idref="c1"/>',
-            )
-        )
-        package.text = ""
-        package[0].tail = " " * 20_000
-        failure = SourceReadCancelledError(
-            "cancelled during EPUB package mixed-text scan"
-        )
-        calls = 0
-
-        def cancel():
-            nonlocal calls
-            calls += 1
-            if calls == 3:
-                raise failure
-
-        with patch.object(epub, "_validate_package_ids_unique") as id_walk:
-            with self.assertRaises(SourceReadCancelledError) as caught:
-                epub._validate_package_document(package, cancel)
-        self.assertIs(caught.exception, failure)
-        self.assertEqual(calls, 3)
-        id_walk.assert_not_called()
-
     def test_epub_local_zip64_extra_scan_observes_control(self):
         import acs.book_epub_import as epub
 
@@ -536,6 +432,150 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             epub._spine_ids(package, epub._Warnings(), manifest, cancel)
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
+
+    def test_epub_host_metadata_is_bounded_before_whitespace_normalization(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
+        cases = (
+            {'source_name': '123456789'},
+            {'source_name': 'ok.epub', 'title': '123456789'},
+            {'source_name': 'ok.epub', 'author': '123456789'},
+            {'source_name': 'ok.epub', 'language': '123456789'},
+        )
+        with patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 8):
+            for kwargs in cases:
+                with self.subTest(kwargs=kwargs):
+                    with self.assertRaises(epub.BookEpubImportError) as caught:
+                        import_epub_book(raw, **kwargs)
+                    self.assertEqual(
+                        caught.exception.code,
+                        epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+                    )
+                    self.assertIn('BookDocument text field limit', str(caught.exception))
+
+            imported = import_epub_book(raw, source_name='12345678')
+
+        self.assertEqual(imported.document.source_name, '12345678')
+
+    def test_epub_max_source_label_does_not_overflow_nested_html_metadata(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
+        source_name = 's' * 64
+        with (
+            patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 64),
+            patch.object(epub, 'import_html_book', wraps=epub.import_html_book) as html_import,
+        ):
+            imported = import_epub_book(raw, source_name=source_name)
+
+        self.assertEqual(imported.document.source_name, source_name)
+        self.assertEqual(
+            html_import.call_args.kwargs['source_name'],
+            'OEBPS/Text/ch1.xhtml',
+        )
+
+    def test_epub_final_bookdocument_aggregate_overflow_maps_to_resource_limit(self):
+        import acs.book_epub_import as epub
+        from acs.bookdocument import BookDocumentErrorCode
+
+        raw = _simple_epub(b'<html><body><p>Readable semantic text</p></body></html>')
+        failure = epub.BookDocumentError(
+            'BookDocument text exceeds the canonical aggregate limit',
+            code=BookDocumentErrorCode.INVALID_FIELD,
+        )
+        with patch.object(epub, 'BookDocument', side_effect=failure):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                import_epub_book(raw, source_name='book.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('canonical BookDocument limits', str(caught.exception))
+        self.assertIs(caught.exception.__cause__, failure)
+
+    def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter', source_anchor='anchor')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 10):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                epub._rebase_block(block, '1234', 1, 1)
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('source anchor', str(caught.exception))
+
+    def test_epub_rebased_source_anchor_allows_exact_canonical_boundary(self):
+        import acs.book_epub_import as epub
+
+        block = epub.Heading(text='Chapter', source_anchor='abcd')
+        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
+            rebased = epub._rebase_block(block, '123', 1, 1)
+
+        self.assertEqual(rebased.source_anchor, '123#abcd')
+        self.assertTrue(rebased.block_id.startswith('epub-'))
+
+    def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, '_rebase_block', wraps=epub._rebase_block) as rebase:
+            with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 3):
+                with self.assertRaises(epub.BookEpubImportError) as caught:
+                    import_epub_book(raw, source_name='aggregate-limit.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('BookDocument block limit', str(caught.exception))
+        self.assertEqual(rebase.call_count, 3)
+
+    def test_epub_aggregate_blocks_allow_exact_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 4):
+            imported = import_epub_book(raw, source_name='aggregate-boundary.epub')
+
+        self.assertEqual(len(imported.document.blocks), 4)
+        self.assertEqual(imported.spine_documents, 2)
 
     def test_epub_nested_html_control_preserves_order_and_closes_archive_on_cancel(self):
         raw = _simple_epub(HTML.encode('utf-8'))
@@ -1144,149 +1184,933 @@ class BookActiveImportCancellationTests(unittest.TestCase):
                 self.assertEqual(database.conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0], 0)
 
 
-    def test_epub_host_metadata_is_bounded_before_whitespace_normalization(self):
-        import acs.book_epub_import as epub
-
-        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
-        cases = (
-            {'source_name': '123456789'},
-            {'source_name': 'ok.epub', 'title': '123456789'},
-            {'source_name': 'ok.epub', 'author': '123456789'},
-            {'source_name': 'ok.epub', 'language': '123456789'},
+    def test_html_host_source_name_trim_observes_control_inside_one_token(self):
+        failure = SourceReadCancelledError(
+            "cancelled during HTML host source-name normalization"
         )
-        with patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 8):
-            for kwargs in cases:
-                with self.subTest(kwargs=kwargs):
-                    with self.assertRaises(epub.BookEpubImportError) as caught:
-                        import_epub_book(raw, **kwargs)
-                    self.assertEqual(
-                        caught.exception.code,
-                        epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
-                    )
-                    self.assertIn('BookDocument text field limit', str(caught.exception))
+        calls = 0
 
-            imported = import_epub_book(raw, source_name='12345678')
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
 
-        self.assertEqual(imported.document.source_name, '12345678')
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            import_html_book(
+                "<p>Readable</p>",
+                source_name=(" " * 20_000) + "book.html",
+                control_checkpoint=cancel,
+            )
 
-    def test_epub_max_source_label_does_not_overflow_nested_html_metadata(self):
+        self.assertIs(caught.exception, failure)
+
+    def test_html_host_optional_metadata_trim_observes_control(self):
+        failure = SourceReadCancelledError(
+            "cancelled during HTML host title normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            import_html_book(
+                "<p>Readable</p>",
+                source_name="book.html",
+                title=(" " * 20_000) + "Title",
+                control_checkpoint=cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+
+    def test_html_controlled_host_metadata_preserves_strip_semantics(self):
+        plain = import_html_book(
+            "<p>Readable</p>",
+            source_name="\u2003 book.html \u2002",
+            title="\t  Study Title  \n",
+            author="  Author  ",
+            language="\r uk \t",
+        )
+        controlled = import_html_book(
+            "<p>Readable</p>",
+            source_name="\u2003 book.html \u2002",
+            title="\t  Study Title  \n",
+            author="  Author  ",
+            language="\r uk \t",
+            control_checkpoint=lambda: None,
+        )
+
+        self.assertEqual(plain.document.as_dict(), controlled.document.as_dict())
+        self.assertEqual(plain.book_key, controlled.book_key)
+
+
+    def test_epub_host_metadata_normalization_observes_control_inside_one_token(self):
         import acs.book_epub_import as epub
 
-        raw = _simple_epub(b'<html><body><p>Readable</p></body></html>')
-        source_name = 's' * 64
-        with (
-            patch.object(epub, 'MAX_BOOK_TEXT_FIELD_CHARS', 64),
-            patch.object(epub, 'import_html_book', wraps=epub.import_html_book) as html_import,
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB host metadata normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._required_text(
+                (" " * 20_000) + "book.epub",
+                "source_name",
+                cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_controlled_host_metadata_preserves_collapse_semantics(self):
+        import acs.book_epub_import as epub
+
+        sample = "\u2003  Study\tTitle\nwith\rmetadata  \u2002"
+        calls = []
+        controlled = epub._required_text(
+            sample,
+            "title",
+            lambda: calls.append(1),
+        )
+
+        self.assertEqual(controlled, epub._required_text(sample, "title"))
+        self.assertEqual(controlled, "Study Title with metadata")
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_import_threads_control_into_all_host_metadata_fields(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b"<html><body><p>Readable</p></body></html>")
+        real_required = epub._required_text
+        observed = []
+
+        def observing_required(value, field, control_checkpoint=None):
+            observed.append((field, control_checkpoint))
+            return real_required(value, field, control_checkpoint)
+
+        checkpoint = lambda: None
+        with patch.object(epub, "_required_text", side_effect=observing_required):
+            imported = epub.import_epub_book(
+                raw,
+                source_name=" book.epub ",
+                title=" Title ",
+                author=" Author ",
+                language=" uk ",
+                control_checkpoint=checkpoint,
+            )
+
+        self.assertEqual(imported.document.title, "Title")
+        self.assertEqual(imported.document.author, "Author")
+        self.assertEqual(imported.document.language, "uk")
+        self.assertEqual(
+            [field for field, _ in observed],
+            ["source_name", "title", "author", "language"],
+        )
+        self.assertTrue(all(callback is checkpoint for _, callback in observed))
+
+
+    def test_epub_dublin_core_text_normalization_observes_control_inside_one_value(self):
+        import acs.book_epub_import as epub
+        import xml.etree.ElementTree as ET
+
+        metadata = ET.Element("{http://www.idpf.org/2007/opf}metadata")
+        title = ET.SubElement(
+            metadata,
+            "{http://purl.org/dc/elements/1.1/}title",
+        )
+        title.text = (" " * 20_000) + "Study"
+        failure = SourceReadCancelledError(
+            "cancelled during Dublin Core metadata normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._metadata_values(metadata, "title", cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_dublin_core_control_preserves_whitespace_semantics(self):
+        import acs.book_epub_import as epub
+        import xml.etree.ElementTree as ET
+
+        metadata = ET.Element("{http://www.idpf.org/2007/opf}metadata")
+        title = ET.SubElement(
+            metadata,
+            "{http://purl.org/dc/elements/1.1/}title",
+        )
+        title.text = "\u2003  Study\tTitle\nwith\rmetadata  \u2002"
+
+        plain = epub._metadata_values(metadata, "title")
+        calls = []
+        controlled = epub._metadata_values(
+            metadata,
+            "title",
+            lambda: calls.append(1),
+        )
+
+        self.assertEqual(controlled, plain)
+        self.assertEqual(controlled, ["Study Title with metadata"])
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_first_heading_fallback_observes_control_before_late_heading(self):
+        import acs.book_epub_import as epub
+
+        blocks = [object() for _ in range(300)]
+        blocks.append(epub.Heading(text="Late heading"))
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB first-heading fallback"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._first_heading_text(blocks, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_creator_rights_join_observes_control_inside_large_collection(self):
+        import acs.book_epub_import as epub
+
+        values = [f"Creator {index}" for index in range(400)]
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB metadata aggregation"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._controlled_join(values, "; ", cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            epub._controlled_join(["A", "B", "C"], "; ", lambda: None),
+            "A; B; C",
+        )
+
+
+    def test_epub_href_surrounding_whitespace_strip_observes_control(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled while stripping one long EPUB href"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._resolve_package_href(
+                "",
+                (" " * 20_000) + "Text/chapter.xhtml",
+                allow_surrounding_whitespace=True,
+                control_checkpoint=cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_xml_whitespace_scan_observes_control_inside_one_text_node(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long whitespace-only XML text node"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._has_non_whitespace(" " * 20_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_scalar_control_helpers_preserve_python_whitespace_semantics(self):
+        import acs.book_epub_import as epub
+
+        sample = "\u2003\t  Text/chapter.xhtml  \n\u2002"
+        calls = []
+        controlled = epub._controlled_strip(sample, lambda: calls.append(1))
+
+        self.assertEqual(controlled, sample.strip())
+        self.assertFalse(
+            epub._has_non_whitespace(" \t\r\n\u2003", lambda: None)
+        )
+        self.assertTrue(
+            epub._has_non_whitespace(" \t readable \u2002", lambda: None)
+        )
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_mime_checkpointed_slash_scan_preserves_exact_grammar(self):
+        import acs.book_epub_import as epub
+
+        calls = []
+        self.assertEqual(
+            epub._normalized_media_type(
+                "Application/XHTML+XML",
+                context="test",
+                control_checkpoint=lambda: calls.append(1),
+            ),
+            "application/xhtml+xml",
+        )
+        self.assertGreaterEqual(len(calls), 3)
+        for malformed in (
+            "application//xhtml+xml",
+            "/xhtml+xml",
+            "application/",
+            " application/xhtml+xml",
+            "application/xhtml+xml ",
         ):
-            imported = import_epub_book(raw, source_name=source_name)
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(epub.BookEpubImportError):
+                    epub._normalized_media_type(
+                        malformed,
+                        context="test",
+                        control_checkpoint=lambda: None,
+                    )
 
-        self.assertEqual(imported.document.source_name, source_name)
+
+    def test_html_explicit_pgn_long_first_line_strip_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled while trimming one long explicit-PGN line"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        raw = (" " * 20_000) + "{PGN 1}\n[Event \"Study\"]\n"
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._explicit_pgn_pre(raw, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_html_pgn_line_rstrip_observes_control_inside_one_long_line(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled while trimming one long PGN candidate line"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._controlled_rstrip("move" + (" " * 20_000), cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_visible_part_join_observes_control_across_large_part_collection(self):
+        import acs.book_html_import as html
+
+        values = [f"part-{index}" for index in range(400)]
+        failure = SourceReadCancelledError(
+            "cancelled during visible-text assembly"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._controlled_join_strings(values, "", cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
         self.assertEqual(
-            html_import.call_args.kwargs['source_name'],
-            'OEBPS/Text/ch1.xhtml',
+            html._controlled_join_strings(["a", "b", "c"], "-", lambda: None),
+            "a-b-c",
         )
 
-    def test_epub_final_bookdocument_aggregate_overflow_maps_to_resource_limit(self):
-        import acs.book_epub_import as epub
-        from acs.bookdocument import BookDocumentErrorCode
+    def test_html_explicit_pgn_region_count_is_resource_bounded(self):
+        import acs.book_html_import as html
 
-        raw = _simple_epub(b'<html><body><p>Readable semantic text</p></body></html>')
-        failure = epub.BookDocumentError(
-            'BookDocument text exceeds the canonical aggregate limit',
-            code=BookDocumentErrorCode.INVALID_FIELD,
-        )
-        with patch.object(epub, 'BookDocument', side_effect=failure):
-            with self.assertRaises(epub.BookEpubImportError) as caught:
-                import_epub_book(raw, source_name='book.epub')
+        visible = """{PGN 1}
+[Event "One"]
+[Result "*"]
+
+1. e4 *
+{PGN 2}
+[Event "Two"]
+[Result "*"]
+
+1. d4 *
+{PGN 3}
+[Event "Three"]
+[Result "*"]
+
+1. Nf3 *
+"""
+        with patch.object(html, "MAX_HTML_PGN_CANDIDATES", 2):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                html._pgn_candidates(visible, lambda: None)
 
         self.assertEqual(
             caught.exception.code,
-            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
-        self.assertIn('canonical BookDocument limits', str(caught.exception))
-        self.assertIs(caught.exception.__cause__, failure)
+        self.assertIn("too many explicitly marked PGN regions", str(caught.exception))
 
-    def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
-        import acs.book_epub_import as epub
 
-        block = epub.Heading(text='Chapter', source_anchor='anchor')
-        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 10):
-            with self.assertRaises(epub.BookEpubImportError) as caught:
-                epub._rebase_block(block, '1234', 1, 1)
+    def test_html_unicode_source_encoding_observes_control_between_chunks(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled during HTML Unicode source encoding"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._source_text("x" * 50_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_oversized_unicode_source_fails_resource_limit_before_encoding(self):
+        import acs.book_html_import as html
+
+        invalid_unicode = chr(0xD800) * 9
+        with patch.object(html, "MAX_HTML_SOURCE_BYTES", 8):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                html._source_text(invalid_unicode, lambda: None)
 
         self.assertEqual(
             caught.exception.code,
-            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
-        )
-        self.assertIn('source anchor', str(caught.exception))
-
-    def test_epub_rebased_source_anchor_allows_exact_canonical_boundary(self):
-        import acs.book_epub_import as epub
-
-        block = epub.Heading(text='Chapter', source_anchor='abcd')
-        with patch.object(epub, 'MAX_BOOK_SOURCE_ANCHOR_CHARS', 8):
-            rebased = epub._rebase_block(block, '123', 1, 1)
-
-        self.assertEqual(rebased.source_anchor, '123#abcd')
-        self.assertTrue(rebased.block_id.startswith('epub-'))
-
-    def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
-        import acs.book_epub_import as epub
-
-        manifest = '\n'.join((
-            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
-            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
-        ))
-        spine = '\n'.join((
-            '    <itemref idref="c1"/>',
-            '    <itemref idref="c2"/>',
-        ))
-        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
-        raw = _epub(
-            opf=_opf(manifest=manifest, spine=spine),
-            entries={
-                'OEBPS/Text/ch1.xhtml': chapter,
-                'OEBPS/Text/ch2.xhtml': chapter,
-            },
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
 
-        with patch.object(epub, '_rebase_block', wraps=epub._rebase_block) as rebase:
-            with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 3):
-                with self.assertRaises(epub.BookEpubImportError) as caught:
-                    import_epub_book(raw, source_name='aggregate-limit.epub')
+    def test_html_controlled_unicode_source_encoding_preserves_exact_bytes(self):
+        import acs.book_html_import as html
+
+        source = "Zażółć gęślą ♟\n<p>Readable</p>"
+        plain = html._source_text(source)
+        calls = []
+        controlled = html._source_text(source, lambda: calls.append(1))
+
+        self.assertEqual(controlled, plain)
+        self.assertEqual(controlled[1], source.encode("utf-8"))
+        self.assertGreaterEqual(len(calls), 2)
+
+
+    def test_html_markup_names_are_bounded_before_case_normalization(self):
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_MARKUP_NAME_CHARS", 8):
+            parser = html._SemanticHtmlParser(available_assets=None)
+            with self.assertRaises(html.BookHtmlImportError) as start_caught:
+                parser.handle_starttag("x" * 9, [])
+            self.assertEqual(
+                start_caught.exception.code,
+                html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+
+            parser = html._SemanticHtmlParser(available_assets=None)
+            with self.assertRaises(html.BookHtmlImportError) as attr_caught:
+                parser.handle_starttag("div", [("x" * 9, "value")])
+            self.assertEqual(
+                attr_caught.exception.code,
+                html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+
+            parser = html._SemanticHtmlParser(available_assets=None)
+            with self.assertRaises(html.BookHtmlImportError) as end_caught:
+                parser.handle_endtag("x" * 9)
+            self.assertEqual(
+                end_caught.exception.code,
+                html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+
+    def test_html_aria_hidden_trim_observes_control_inside_one_attribute(self):
+        failure = SourceReadCancelledError(
+            "cancelled during aria-hidden normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag(
+                "section",
+                [("aria-hidden", (" " * 20_000) + "true")],
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(parser.blocks, [])
+
+    def test_html_image_src_trim_observes_control_inside_one_attribute(self):
+        failure = SourceReadCancelledError(
+            "cancelled during image src normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag(
+                "img",
+                [("src", (" " * 20_000) + "images/board.png")],
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(parser.image_references, [])
+
+    def test_html_asset_name_controlled_segmentation_preserves_relative_semantics(self):
+        import acs.book_html_import as html
+
+        calls = []
+        self.assertEqual(
+            html._asset_name(
+                " images\\boards/./main.png?size=2#diagram ",
+                lambda: calls.append(1),
+            ),
+            "images/boards/main.png",
+        )
+        self.assertEqual(
+            html._asset_name("../secret.png", lambda: None),
+            "",
+        )
+        self.assertEqual(
+            html._asset_name("https://example.test/board.png", lambda: None),
+            "",
+        )
+        self.assertGreaterEqual(len(calls), 4)
+
+
+    def test_html_block_identity_hash_observes_control_inside_large_payload(self):
+        failure = SourceReadCancelledError(
+            "cancelled during HTML block identity hashing"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._block_id("Paragraph", "x" * 20_000)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser._ids, {})
+
+    def test_html_controlled_block_identity_preserves_exact_digest_and_occurrence(self):
+        plain = _SemanticHtmlParser(available_assets=None)
+        controlled = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=lambda: None,
+        )
+        payload = ("Chess text " * 1_000) + "♟"
 
         self.assertEqual(
-            caught.exception.code,
-            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+            controlled._block_id("Paragraph", payload),
+            plain._block_id("Paragraph", payload),
         )
-        self.assertIn('BookDocument block limit', str(caught.exception))
-        self.assertEqual(rebase.call_count, 3)
+        self.assertEqual(
+            controlled._block_id("Paragraph", payload),
+            plain._block_id("Paragraph", payload),
+        )
 
-    def test_epub_aggregate_blocks_allow_exact_canonical_document_limit(self):
+    def test_html_ordered_start_trim_observes_control_inside_one_attribute(self):
+        failure = SourceReadCancelledError(
+            "cancelled during ordered-list start normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._ordered_start({"start": (" " * 20_000) + "7"})
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_ordered_start_digit_token_is_bounded_before_regex_and_int(self):
+        import acs.book_html_import as html
+
+        parser = _SemanticHtmlParser(available_assets=None)
+        with patch.object(html, "MAX_HTML_LIST_START_CHARS", 8):
+            self.assertEqual(
+                parser._ordered_start({"start": "9" * 9}),
+                (None, False),
+            )
+            self.assertEqual(
+                parser._ordered_start({"start": "12345678"}),
+                (12345678, True),
+            )
+
+
+    def test_html_text_digest_observes_control_inside_large_semantic_payload(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled during HTML semantic digest"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._sha256_text_hex("x" * 20_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_source_digest_observes_control_inside_large_byte_source(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled during HTML source digest"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._sha256_bytes_hex(b"x" * 200_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_controlled_digests_preserve_exact_legacy_hashes(self):
+        import acs.book_html_import as html
+        from hashlib import sha256
+
+        text_value = ("Chess ♟ metadata " * 1_000) + "tail"
+        byte_value = text_value.encode("utf-8")
+        text_calls = []
+        byte_calls = []
+
+        self.assertEqual(
+            html._sha256_text_hex(
+                text_value,
+                lambda: text_calls.append(1),
+            ),
+            sha256(byte_value).hexdigest(),
+        )
+        self.assertEqual(
+            html._sha256_bytes_hex(
+                byte_value,
+                lambda: byte_calls.append(1),
+            ),
+            sha256(byte_value).hexdigest(),
+        )
+        self.assertGreaterEqual(len(text_calls), 2)
+        self.assertGreaterEqual(len(byte_calls), 2)
+
+
+    def test_epub_source_digest_observes_control_inside_large_byte_source(self):
         import acs.book_epub_import as epub
 
-        manifest = '\n'.join((
-            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
-            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
-        ))
-        spine = '\n'.join((
-            '    <itemref idref="c1"/>',
-            '    <itemref idref="c2"/>',
-        ))
-        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
-        raw = _epub(
-            opf=_opf(manifest=manifest, spine=spine),
-            entries={
-                'OEBPS/Text/ch1.xhtml': chapter,
-                'OEBPS/Text/ch2.xhtml': chapter,
-            },
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB source digest"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._sha256_bytes_hex(b"x" * 200_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_rebase_digest_observes_control_and_preserves_legacy_id(self):
+        import acs.book_epub_import as epub
+        from acs.bookdocument import Paragraph
+        from hashlib import sha256
+
+        block = Paragraph(
+            text="Readable",
+            block_id="html-legacy-1",
+            source_anchor="p1",
+        )
+        entry_name = "Text/" + ("chapter-" * 1_000) + ".xhtml"
+        identity = f"{entry_name}\0{3}\0{7}\0{block.block_id}"
+        expected_id = f"epub-{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
+
+        calls = []
+        rebased = epub._rebase_block(
+            block,
+            entry_name,
+            3,
+            7,
+            lambda: calls.append(1),
         )
 
-        with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 4):
-            imported = import_epub_book(raw, source_name='aggregate-boundary.epub')
+        self.assertEqual(rebased.block_id, expected_id)
+        self.assertEqual(rebased.source_anchor, f"{entry_name}#p1")
+        self.assertGreaterEqual(len(calls), 2)
 
-        self.assertEqual(len(imported.document.blocks), 4)
-        self.assertEqual(imported.spine_documents, 2)
+    def test_epub_controlled_source_digest_preserves_exact_book_key_hash(self):
+        import acs.book_epub_import as epub
+        from hashlib import sha256
+
+        value = (b"accessible-chess-epub" * 10_000)
+        calls = []
+        self.assertEqual(
+            epub._sha256_bytes_hex(value, lambda: calls.append(1)),
+            sha256(value).hexdigest(),
+        )
+        self.assertGreaterEqual(len(calls), 2)
+
+
+    def test_html_capture_source_anchor_uses_canonical_capture_attrs(self):
+        imported = import_html_book(
+            '<html><body><p id="p1">Readable</p></body></html>',
+            source_name='capture-anchor.html',
+        )
+
+        self.assertEqual(len(imported.document.blocks), 1)
+        self.assertEqual(imported.document.blocks[0].source_anchor, 'p1')
+
+    def test_html_rich_list_fallback_uses_list_attrs_without_runtime_hook(self):
+        imported = import_html_book(
+            '<html><body><ul id="list"><li>First</li>'
+            '<li id="rich">Before <img alt="Diagram note"> After</li>'
+            '</ul></body></html>',
+            source_name='rich-list.html',
+        )
+
+        self.assertGreaterEqual(len(imported.document.blocks), 3)
+        self.assertTrue(
+            any(
+                getattr(block, 'source_anchor', None) == 'list'
+                for block in imported.document.blocks
+            )
+        )
+
+    def test_html_pgn_candidate_scan_uses_each_candidate_line(self):
+        import acs.book_html_import as html
+
+        candidates = html._pgn_candidates(
+            '{PGN 1}\n[Event "Study"]\n[Result "*"]\n\n1. e4 *\n'
+            'End of PGN Supplement\nAfter'
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertIn('[Event "Study"]', candidates[0].text)
+        self.assertNotIn('After', candidates[0].text)
+
+    def test_html_aria_hidden_true_is_excluded_from_accessible_document(self):
+        imported = import_html_book(
+            '<html><body><section aria-hidden=" true ">'
+            '<p>Secret text</p></section><p>Visible text</p></body></html>',
+            source_name='aria-hidden.html',
+        )
+
+        readable = '\n'.join(
+            getattr(block, 'text', '')
+            for block in imported.document.blocks
+        )
+        self.assertNotIn('Secret text', readable)
+        self.assertIn('Visible text', readable)
+
+
+
+    def test_epub_xml_text_compaction_preserves_split_join_semantics(self):
+        import acs.book_epub_import as epub
+
+        sample = (
+            "  Alpha\tBeta\nGamma\xa0Delta\u2003Epsilon  "
+            + (" word\t" * 3_000)
+            + "tail  "
+        )
+        calls = []
+        controlled = epub._compact_xml_text(sample, lambda: calls.append(1))
+        self.assertEqual(controlled, " ".join(sample.split()))
+        self.assertGreater(len(calls), 3)
+
+    def test_epub_xml_text_compaction_observes_control_inside_one_text_node(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB XML text node"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._compact_xml_text("metadata" * 4_000, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_whitespace_tail_scan_observes_control_inside_one_text_node(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB whitespace tail"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._has_non_whitespace((" \t\r\n" * 5_000), cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_metadata_value_compaction_threads_control(self):
+        import acs.book_epub_import as epub
+
+        metadata = epub.ET.fromstring(
+            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            '<dc:title>' + ("Title" * 5_000) + '</dc:title>'
+            '</metadata>'
+        )
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB metadata text normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._metadata_values(metadata, "title", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_package_tail_scan_observes_control_before_id_walk(self):
+        import acs.book_epub_import as epub
+
+        package = epub.ET.fromstring(
+            _opf(
+                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            )
+        )
+        package.text = ""
+        package[0].tail = " " * 20_000
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB package mixed-text scan"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with patch.object(epub, "_validate_package_ids_unique") as id_walk:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._validate_package_document(package, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        id_walk.assert_not_called()
 
     def test_canonical_pgn_serializer_validation_observes_control_inside_large_warning_collection(self):
         import acs.gametree as gametree
@@ -1559,6 +2383,8 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertTrue(armed)
         self.assertGreater(calls, 1)
 
+
+if __name__ == '__main__':
 
 if __name__ == '__main__':
     unittest.main()
