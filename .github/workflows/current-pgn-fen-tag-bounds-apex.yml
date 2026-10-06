@@ -1,0 +1,112 @@
+name: Current PGN FEN Tag Bounds Apex
+
+on:
+  pull_request:
+    branches:
+      - anchor/s56r8-pgn-fen-47da6c0
+    paths:
+      - '.github/workflows/current-pgn-fen-tag-bounds-apex.yml'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_fen_editor_turn_and_visible_status.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-pgn-fen-tag-bounds-apex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 47da6c05cb484a129df39c08b5fad7acfa06a119
+  PGN_BRIDGE_BLOB: e69f6ad4f8b6da8b3561ae569f4c6817b903548a
+  PGN_WORKSPACE_BLOB: 4728e069d1fbc6f76daaed3116cabbe8ce6c0e0a
+  PGN_ADAPTER_BLOB: 0147d0c3bb744a80d8010b418be644484c5abbee
+  PGN_ADAPTER_TEST_BLOB: 97ffc9efbed003b053f174f82e9082f5288e3d20
+  PGN_FLOW_TEST_BLOB: f46f608474bedfa7d8830294e06e21fb3b24ccae
+  FEN_TURN_TEST_BLOB: b70774b1bd9fbd333733dd4d0dd0d2a23956b9d7
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact base, geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$base" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-pgn-fen-tag-bounds-apex.yml' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_fen_editor_turn_and_visible_status.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$PGN_BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$PGN_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$PGN_ADAPTER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$PGN_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_editor_turn_and_visible_status.py)" = "$FEN_TURN_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/pgn_workspace.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_workspace_webview_adapter.py
+          tests/test_pgn_complete_editing_user_flow.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_fen_editor_turn_and_visible_status.py
+
+      - name: PGN complete editing, workspace and commands
+        run: >-
+          python -m unittest
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: PGN WebView adapter and projection
+        run: >-
+          python -m unittest
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_dev1_pgn_webview_projection
+
+      - name: FEN and keymap turn safety
+        run: >-
+          python -m unittest
+          tests.test_fen_editor_turn_and_visible_status
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
+
+      - name: EPD and position text composition
+        run: >-
+          python -m unittest
+          tests.test_epd
+          tests.test_position_text_authority

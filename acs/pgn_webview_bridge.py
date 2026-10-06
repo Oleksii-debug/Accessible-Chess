@@ -9,6 +9,10 @@ from collections.abc import Mapping
 
 from .full_product_ui_shell import concise_user_error
 from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
+from .pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 
 
 class PgnWebViewBridge:
@@ -144,9 +148,19 @@ class PgnWebViewBridge:
                 return self._projection.next_game()
             if command_id == "pgn.tag_edit":
                 self._exact_fields(data, {"name", "value"})
-                name = self._text(data["name"], name="tag name", limit=80)
+                name = self._text(
+                    data["name"],
+                    name="tag name",
+                    limit=MAX_PGN_EDIT_TAG_NAME_CHARS,
+                )
                 value = data["value"]
-                if type(value) is not str or _utf16_units(value) > 360 or "\x00" in value:
+                if (
+                    type(value) is not str
+                    or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                    or "\x00" in value
+                    or "\r" in value
+                    or "\n" in value
+                ):
                     raise ValueError("tag value is invalid")
                 guarded = presentation_guard()
                 if guarded is not None:
@@ -154,7 +168,11 @@ class PgnWebViewBridge:
                 return self._projection.edit_tag(name, value)
             if command_id == "pgn.tag_delete":
                 self._exact_fields(data, {"name"})
-                name = self._text(data["name"], name="tag name", limit=80)
+                name = self._text(
+                    data["name"],
+                    name="tag name",
+                    limit=MAX_PGN_EDIT_TAG_NAME_CHARS,
+                )
                 guarded = presentation_guard()
                 if guarded is not None:
                     return guarded
