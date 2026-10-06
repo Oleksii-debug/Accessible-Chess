@@ -23,13 +23,14 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
 
         state = api.get_state()
         items = state["historyItems"]
-        self.assertEqual([item["ply"] for item in items], [1, 2, 3, 4])
+        self.assertEqual([item["ply"] for item in items], [0, 1, 2, 3, 4])
         self.assertEqual(sum(bool(item["selected"]) for item in items), 1)
         self.assertTrue(items[-1]["selected"])
         self.assertTrue(items[-1]["live"])
-        self.assertTrue(items[0]["label"].startswith("1."))
-        self.assertTrue(items[1]["label"].startswith("1..."))
-        self.assertTrue(items[2]["label"].startswith("2."))
+        self.assertEqual(items[0]["label"], "Початкова позиція.")
+        self.assertTrue(items[1]["label"].startswith("1."))
+        self.assertTrue(items[2]["label"].startswith("1..."))
+        self.assertTrue(items[3]["label"].startswith("2."))
 
         live_board = api.board
         live_fen = live_board.fen()
@@ -41,6 +42,7 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         selected = [item for item in reviewed["historyItems"] if item["selected"]]
         self.assertEqual([item["ply"] for item in selected], [1])
         self.assertFalse(selected[0]["live"])
+        self.assertFalse(reviewed["historyItems"][0]["selected"])
         self.assertEqual(reviewed["reviewCursor"], 1)
 
     def test_review_board_queries_and_analysis_target_use_historical_position(self) -> None:
@@ -112,6 +114,19 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), live_fen)
         self.assertFalse(api.get_state()["atHistoryEnd"])
 
+    def test_history_list_includes_initial_position_as_canonical_ply_zero(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5")
+
+        start = api.go_to_move("start")
+        self.assertTrue(start["ok"])
+        items = start["historyItems"]
+        self.assertEqual([item["ply"] for item in items], [0, 1, 2])
+        self.assertTrue(items[0]["selected"])
+        self.assertFalse(items[0]["live"])
+        self.assertTrue(items[-1]["live"])
+        self.assertEqual(items[0]["label"], "Initial position.")
+
     def test_history_projection_fails_closed_when_metadata_outgrows_live_line(self) -> None:
         api = AccessibleChessAPI("en")
         play(api, "e4", "e5")
@@ -144,8 +159,9 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertTrue(reviewed["ok"])
 
         items = reviewed["historyItems"]
-        self.assertTrue(items[0]["selected"])
-        self.assertFalse(items[0]["live"])
+        self.assertTrue(items[1]["selected"])
+        self.assertFalse(items[1]["live"])
+        self.assertFalse(items[0]["selected"])
         self.assertFalse(items[-1]["selected"])
         self.assertTrue(items[-1]["live"])
 
@@ -168,15 +184,17 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             "aria-current",
             "current review position",
             "live game end",
-            "const sequenceOk=plies.every((ply,i)=>ply===i+1)",
+            "const sequenceOk=plies.every((ply,i)=>ply===i)",
             "const committedOk=cursor===0?committed.length===0",
             "const liveOk=valid.length===0?live.length===0",
+            "ply>=0",
+            "History positions",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
 
         self.assertIn(
-            "Стрілки вгору і вниз вибирають хід. Enter відкриває позицію після вибраного ходу.",
+            "Стрілки вгору і вниз вибирають позицію. Enter відкриває вибрану позицію.",
             html,
         )
 

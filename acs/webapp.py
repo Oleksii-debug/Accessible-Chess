@@ -228,7 +228,14 @@ class AccessibleChessAPI:
             return []
         if any(side not in {"w", "b"} for side in self.move_sides):
             return []
-        items: list[dict[str, Any]] = []
+        items: list[dict[str, Any]] = [
+            {
+                "ply": 0,
+                "label": self._t("review_start"),
+                "selected": lineage[0] == current_node,
+                "live": lineage[0] == self.live_history_node,
+            }
+        ]
         for ply, (san, side) in enumerate(
             zip(self.sans, self.move_sides),
             start=1,
