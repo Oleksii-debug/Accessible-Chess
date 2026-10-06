@@ -24,6 +24,8 @@ from .cbv_extractor import (
     extract_cbv_external,
 )
 from .chessbase_decoder import (
+    ChessBaseDecodeCode,
+    ChessBaseDecodeError,
     ChessBaseDecodeWarning,
     ExternalChessBaseDecoderConfig,
     decode_chessbase_external,
@@ -36,7 +38,7 @@ from .library_import_service import (
     LibraryImportResult,
     LibraryImportService,
 )
-from .import_contract import verify_source_unchanged
+from .import_contract import SourceFingerprint, fingerprint, verify_source_unchanged
 from .report_paths import report_safe_name
 
 
@@ -223,6 +225,73 @@ def _poll_cancel(cancel_check: CancelCheck | None) -> None:
         raise LibraryImportCancelledError("ChessBase import cancelled")
 
 
+class _BackendFingerprintControlError(RuntimeError):
+    def __init__(self, cause: Exception) -> None:
+        super().__init__("backend fingerprint control checkpoint failed")
+        self.cause = cause
+
+
+def _backend_fingerprint_cancel_check(
+    control_checkpoint: Callable[[], None] | None,
+) -> Callable[[], bool] | None:
+    if control_checkpoint is None:
+        return None
+
+    def poll() -> bool:
+        try:
+            control_checkpoint()
+        except Exception as exc:
+            raise _BackendFingerprintControlError(exc) from exc
+        return False
+
+    return poll
+
+
+def _capture_decoder_backend(
+    config: ExternalChessBaseDecoderConfig,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> SourceFingerprint:
+    """Fingerprint the exact external decoder before consuming its output."""
+
+    try:
+        return fingerprint(
+            config.executable,
+            cancel_check=_backend_fingerprint_cancel_check(control_checkpoint),
+        )
+    except _BackendFingerprintControlError as exc:
+        raise exc.cause
+    except (OSError, ValueError) as exc:
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend failed read-only validation",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        ) from exc
+
+
+def _verify_decoder_backend_unchanged(
+    before: SourceFingerprint,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
+    """Reject decoded data if the executable changed during the operation."""
+
+    try:
+        after = fingerprint(
+            before.path,
+            cancel_check=_backend_fingerprint_cancel_check(control_checkpoint),
+        )
+        unchanged = before.size == after.size and before.sha256 == after.sha256
+    except _BackendFingerprintControlError as exc:
+        raise exc.cause
+    except (OSError, ValueError):
+        unchanged = False
+    if not unchanged:
+        raise ChessBaseDecodeError(
+            "ChessBase decoder backend changed while it was running",
+            code=ChessBaseDecodeCode.BACKEND_INVALID,
+        )
+
+
 class ChessBaseLibraryImportService:
     """Decode a classic CBH family and publish it through one ACSDB transaction."""
 
@@ -249,6 +318,32 @@ class ChessBaseLibraryImportService:
         self._decoder_config = decoder_config
         self._cbv_extractor_config = cbv_extractor_config
 
+    def _decode_with_immutable_backend(
+        self,
+        source_path: Path,
+        *,
+        control_checkpoint: Callable[[], None] | None = None,
+    ):
+        backend = _capture_decoder_backend(
+            self._decoder_config,
+            control_checkpoint=control_checkpoint,
+        )
+        control = (
+            {}
+            if control_checkpoint is None
+            else {"control_checkpoint": control_checkpoint}
+        )
+        decoded = decode_chessbase_external(
+            source_path,
+            self._decoder_config,
+            **control,
+        )
+        _verify_decoder_backend_unchanged(
+            backend,
+            control_checkpoint=control_checkpoint,
+        )
+        return decoded
+
     def _decode_source(self, path: str | Path, *, cancel_check: CancelCheck | None = None):
         """Return decoded games plus path-safe provenance for CBH or CBV."""
 
@@ -258,7 +353,7 @@ class ChessBaseLibraryImportService:
         }
         suffix = source_path.suffix.lower()
         if suffix == ".cbh":
-            decoded = decode_chessbase_external(source_path, self._decoder_config, **control)
+            decoded = self._decode_with_immutable_backend(source_path, **control)
             return (
                 decoded,
                 report_safe_name(decoded.source.primary_path),
@@ -285,9 +380,8 @@ class ChessBaseLibraryImportService:
                 self._cbv_extractor_config,
                 **control,
             )
-            decoded = decode_chessbase_external(
+            decoded = self._decode_with_immutable_backend(
                 extracted.primary_path,
-                self._decoder_config,
                 **control,
             )
             if not verify_source_unchanged(extracted.source, source_path):
