@@ -1,30 +1,28 @@
-name: Current Markdown Tilde Fence Semantics
+name: Current Markdown Nested Quote Projection
 
 on:
   pull_request:
     branches:
-      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+      - fix/markdown-tilde-fence-info-semantics-20261006-sol56
     paths:
+      - '.github/workflows/current-markdown-tilde-fence-semantics.yml'
       - 'acs/book_text_import.py'
       - 'tests/test_markdown_library_journey.py'
-      - '.github/workflows/current-markdown-tilde-fence-semantics.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: current-markdown-tilde-fence-semantics-${{ github.head_ref || github.ref_name }}
+  group: current-markdown-nested-quote-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 env:
-  BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  SOURCE_BLOB: 04e1e14e33d608b1b00d10307c7fe99135c532c7
-  TEST_BLOB: a87c2a5aa2850c1b864aa7320b1b0c54e8635b78
+  SOURCE_BLOB: 18f26a228022f682c0d0948423282dfe29ab4b54
+  TEST_BLOB: 64b4eb5b5abab87448e9b8d425bd3b451d8722a3
 
 jobs:
-  qualify:
-    name: semantic-contract-${{ matrix.os }}
+  exact-head:
     strategy:
       fail-fast: false
       matrix:
@@ -39,31 +37,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove live shipping base and exact bounded delta
+      - name: Prove exact parent and bounded Markdown scope
+        if: github.event_name == 'pull_request'
         shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_BASE_REF: fix/markdown-tilde-fence-info-semantics-20261006-sol56
         run: |
           set -euo pipefail
-          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
-          test "$(git rev-parse HEAD)" = "$expected_head"
-          git fetch --no-tags origin "refs/heads/$BASE_REF"
-          live_base="$(git rev-parse FETCH_HEAD)"
-          test -n "$live_base"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
-            test "${{ github.event.pull_request.base.sha }}" = "$live_base"
-          fi
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base"...HEAD
-          mapfile -t actual < <(git diff --name-only "$live_base"...HEAD | sort)
-          expected=(
-            ".github/workflows/current-markdown-tilde-fence-semantics.yml"
-            "acs/book_text_import.py"
-            "tests/test_markdown_library_journey.py"
-          )
-          test "${#actual[@]}" -eq "${#expected[@]}"
-          for i in "${!expected[@]}"; do
-            test "${actual[$i]}" = "${expected[$i]}"
-          done
+          test "$EVENT_BASE_REF" = "$EXPECTED_BASE_REF"
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EVENT_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-markdown-tilde-fence-semantics.yml' \
+            'acs/book_text_import.py' \
+            'tests/test_markdown_library_journey.py' | sort)"
+          test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/book_text_import.py)" = "$SOURCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_markdown_library_journey.py)" = "$TEST_BLOB"
 
@@ -71,16 +66,14 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Compile bounded Markdown and inherited recovery surfaces
+      - name: Compile Markdown and reader persistence surfaces
         run: >-
           python -m compileall -q
           acs/book_text_import.py
+          acs/bookreader.py
           tests/test_markdown_library_journey.py
           tests/test_v2_book_text_import.py
           tests/test_v2_markdown_semantic_lists.py
-          tests/test_bookdocument.py
-          tests/test_bookreader.py
-          tests/test_v2_book_progress_store.py
 
       - name: Execute Markdown semantic and persistence regressions
         run: >-
