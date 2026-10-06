@@ -15,7 +15,7 @@ concurrency:
 
 env:
   PARENT_SHA: 46ce49669c8c16f613c41f256a65c41351ca25c1
-  APP_BLOB: ade3192b8f35643c6e09e621e7a5fa6c73331405
+  APP_BLOB: b8e2d3d9957fe84a8a419cd9e4b828471e1d022b
   RELEASE_APP_BLOB: c72778ff813b805b03202b858d58a635e603d16c
   RELEASE_UI_BLOB: f94c319db2e29838aa2e50e800d7a59ad78f0f6c
   APP_TEST_BLOB: 2d182948fed151ff40f8500cc4b65226a9a005a6
@@ -98,6 +98,7 @@ jobs:
           acs/version2_windows_file_workflows.py
           acs/version2_windows_host_runtime.py
           tests/test_version2_application.py
+          tests/test_version2_shutdown.py
           tests/test_work_v2_shutdown_progress_failure_cleanup.py
           tests/test_version2_composition_startup_cleanup_current.py
           tests/test_version2_release_ui.py
@@ -107,6 +108,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_version2_application
+          tests.test_version2_shutdown
           tests.test_work_v2_shutdown_progress_failure_cleanup
           tests.test_version2_composition_startup_cleanup_current
           tests.test_version2_release_ui
