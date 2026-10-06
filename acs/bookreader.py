@@ -481,6 +481,7 @@ class BookReader:
         had_previous = validated_name in self._return_points
         previous_key = self._return_points.get(validated_name)
         location = self.save_return_point(validated_name)
+        provisional_key = self._return_points[validated_name]
         try:
             yield location
             # A synchronous handoff may re-enter authoring code and mutate the
@@ -488,6 +489,14 @@ class BookReader:
             # Do not commit a return point for a revision that is no longer the
             # one represented by this reader's immutable semantic index.
             self._require_indexed_revision()
+            # Navigation callbacks may also re-enter this same reader and
+            # overwrite the named return point without changing BookDocument.
+            # The provisional transaction commits only the exact key it
+            # published before handoff; any competing writer fails closed.
+            if self._return_points.get(validated_name) != provisional_key:
+                raise RuntimeError(
+                    "Book reader provisional return point changed during handoff"
+                )
         except BaseException:
             if had_previous:
                 assert previous_key is not None
