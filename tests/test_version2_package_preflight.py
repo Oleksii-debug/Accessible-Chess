@@ -409,6 +409,27 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 label="package path",
             )
 
+    def test_relative_token_bounds_total_depth_and_utf16_length(self):
+        too_deep = "/".join(["a"] * (preflight._MAX_PACKAGE_PATH_COMPONENTS + 1))
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "path-depth limit",
+        ):
+            preflight._relative_token(too_deep, label="package path")
+
+        astral_component = "\U0001f642" * 126
+        utf16_long = "/".join([astral_component] * 130)
+        self.assertLess(len(utf16_long), preflight._MAX_PACKAGE_PATH_UTF16_UNITS)
+        self.assertGreater(
+            len(utf16_long.encode("utf-16-le")) // 2,
+            preflight._MAX_PACKAGE_PATH_UTF16_UNITS,
+        )
+        with self.assertRaisesRegex(
+            Version2PackagePreflightError,
+            "path-length limit",
+        ):
+            preflight._relative_token(utf16_long, label="package path")
+
     def test_relative_token_rejects_malformed_win32_unicode(self):
         with self.assertRaisesRegex(
             Version2PackagePreflightError,
@@ -1661,6 +1682,25 @@ class Version2PackagePreflightTests(unittest.TestCase):
                         max_text_scan_bytes=100,
                     ),
                 )
+
+    def test_zip_rejects_excessive_path_depth_before_readback(self):
+        deep = "AccessibleChess/" + "/".join(
+            ["a"] * preflight._MAX_PACKAGE_PATH_COMPONENTS
+        ) + "/payload.txt"
+        with tempfile.TemporaryDirectory() as td:
+            archive_path = Path(td) / "deep.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(deep, b"hostile")
+
+            with patch(
+                "acs.version2_package_preflight.tempfile.TemporaryDirectory",
+                side_effect=AssertionError("ZIP readback must not start"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "path-depth limit",
+                ):
+                    _validate_zip(archive_path)
 
     def test_zip_rejects_overlong_win32_component_before_readback(self):
         overlong = "\U0001f642" * 126 + "a.txt"
