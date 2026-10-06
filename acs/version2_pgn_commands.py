@@ -190,6 +190,18 @@ class Version2PgnCommands:
     def __call__(self, action_id, payload):
         session = self._session()
         workspace = session.workspace
+        if action_id in {"pgn.game_add", "pgn.game_delete"}:
+            if type(payload) is not dict or set(payload) != _NAVIGATION_TARGET_FIELDS:
+                raise ValueError("invalid PGN game-management payload")
+            self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
+            if action_id == "pgn.game_add":
+                return session.append_new_game()
+            return session.delete_current_game()
         if action_id in {"pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"}:
             if type(payload) is not dict:
                 raise TypeError("PGN metadata command payload must be a built-in dictionary")
