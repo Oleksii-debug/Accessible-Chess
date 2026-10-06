@@ -72,10 +72,15 @@ class EpdFormatTests(unittest.TestCase):
     def test_invalid_and_duplicate_counter_operations_fail_closed(self):
         with self.assertRaisesRegex(EpdParseError, "duplicate EPD hmvc"):
             parse_epd(START_EPD + " hmvc 1; hmvc 2;")
-        with self.assertRaisesRegex(EpdParseError, "unsigned ASCII decimal"):
+        with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
             parse_epd(START_EPD + " hmvc ١;")
         with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
             parse_epd(START_EPD + " fmvn 0;")
+        signed = parse_epd(START_EPD + " hmvc +7; fmvn +12;")
+        self.assertEqual(signed.position.halfmove, 7)
+        self.assertEqual(signed.position.fullmove, 12)
+        with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
+            parse_epd(START_EPD + " hmvc -1;")
 
     def test_operation_budget_is_bounded(self):
         operations = " ".join("noop;" for _ in range(MAX_EPD_OPERATIONS + 1))
