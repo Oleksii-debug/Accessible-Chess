@@ -92,6 +92,40 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         )
         return api, fake
 
+    def test_composed_move_entry_blocks_invalid_editor_position_atomically(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.clear_board()["ok"])
+        self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
+        self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
+        before = api.board.fen()
+
+        result = api.make_move("Ke2")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Некоректна позиція", result["announcement"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(api.sans, [])
+
+    def test_composed_move_entry_history_failure_cannot_partially_publish_move(self):
+        api, _fake = self.make_api()
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        original = api._prepare_live_presentation
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated presentation failure")
+
+        api._prepare_live_presentation = fail
+        try:
+            result = api.make_move("e4")
+        finally:
+            api._prepare_live_presentation = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.sans, [])
+
     def test_missing_composed_engine_is_explicit_not_fake_enabled_state(self):
         with tempfile.TemporaryDirectory() as temp:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(temp) / "keymap.json")
