@@ -183,6 +183,19 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             any("block quote structure" in warning for warning in first.warnings)
         )
 
+    def test_list_image_projection_keeps_flat_list_whitespace_normalization(self):
+        book = import_text_book(
+            "- Before  ![Board](https://example.invalid/board.png)   after\n- Plain   item",
+            source_name="list-spacing.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        lists = [
+            block for block in book.document.blocks if type(block) is ListBlock
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before Board after", "Plain item"])
+
     def test_invalid_tilde_closers_stay_opaque_until_matching_close(self):
         source = (
             "~~~~code`meta\n"
