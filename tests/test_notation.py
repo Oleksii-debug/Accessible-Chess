@@ -1,6 +1,7 @@
 import unittest
 
 from acs.notation import (
+    MAX_SAN_CHARS,
     NotationError,
     format_accessible_compact_san,
     format_san,
@@ -131,6 +132,26 @@ class NotationFormatterTests(unittest.TestCase):
 
         self.assertEqual(format_san("Ke2", "san"), "Ke2")
         self.assertEqual(format_san("Kxe2+", "en_literal"), "king takes e 2, check")
+
+    def test_san_representation_is_bounded_before_normalization(self):
+        # The budget applies to raw input, before strip()/regex work.  A token
+        # at the ceiling may contain harmless surrounding whitespace, but one
+        # extra raw character fails closed on every public SAN formatter path.
+        padded = "e4".center(MAX_SAN_CHARS)
+        self.assertEqual(parse_san(padded).destination, "e4")
+        self.assertEqual(format_san(padded, "san"), "e4")
+
+        oversized = " " * (MAX_SAN_CHARS - 1) + "e4"
+        self.assertGreater(len(oversized), MAX_SAN_CHARS)
+        for operation in (
+            parse_san,
+            lambda value: format_san(value, "san"),
+            lambda value: format_san(value, "uk_literal"),
+            lambda value: format_accessible_compact_san(value, "en"),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaisesRegex(NotationError, "too long"):
+                    operation(oversized)
 
     def test_san_boundary_rejects_active_text_subclasses(self):
         class ActiveText(str):
