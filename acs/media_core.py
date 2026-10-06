@@ -178,7 +178,7 @@ class MediaClock:
 
     def pause(self, now_ms: int) -> MediaClockSnapshot:
         self._materialize(now_ms)
-        if self._state is MediaPlaybackState.PLAYING:
+        if self._state in (MediaPlaybackState.PLAYING, MediaPlaybackState.BUFFERING):
             self._state = MediaPlaybackState.PAUSED
             self._fractional_ms = 0.0
             self._revision += 1
