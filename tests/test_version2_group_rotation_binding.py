@@ -188,6 +188,13 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "different durable group rotation"):
             self.app.begin_or_resume_default_group_rotation("rotation-2")
         self.assertEqual(before, self.store.path.read_bytes())
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+        keyboard = self.app._rotation_keyboard_result()
+        self.assertTrue(keyboard["recovery_required"])
+        spoken = keyboard["announcement"].casefold()
+        self.assertTrue("recovery" in spoken or "віднов" in spoken)
 
     def test_durable_rotation_for_different_lesson_fails_closed(self) -> None:
         self.app.begin_or_resume_default_group_rotation("rotation-1")
