@@ -335,6 +335,83 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         self.assertIn(Board.START, notes[0].text)
         self.assertFalse(any("image reference" in warning for warning in book.warnings))
 
+    def test_nested_blockquote_match_keeps_legacy_one_level_identity(self):
+        from acs.book_text_import import _match_block_quote
+
+        self.assertEqual(
+            _match_block_quote(">> deep"),
+            ("deep", "> deep", 2),
+        )
+        self.assertEqual(
+            _match_block_quote("> > spaced"),
+            ("spaced", "> spaced", 2),
+        )
+        self.assertEqual(
+            _match_block_quote("   >   > deep"),
+            ("deep", "  > deep", 2),
+        )
+        self.assertIsNone(_match_block_quote("    > not top-level"))
+
+    def test_nested_blockquotes_strip_all_structural_markers_and_restore_legacy_targets(self):
+        source = (
+            ">> Deep quote\n"
+            '> > Before ![Board](https://one.invalid/board.png "title") after.'
+        )
+        book = import_text_book(
+            source,
+            source_name="nested-quotes.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        readable = [
+            block
+            for block in book.document.blocks
+            if type(block) in {Paragraph, Note}
+        ]
+        self.assertEqual(
+            [(type(block).__name__, block.text) for block in readable],
+            [
+                ("Paragraph", "Deep quote"),
+                ("Paragraph", "Before"),
+                ("Note", "Board"),
+                ("Paragraph", "after."),
+            ],
+        )
+        self.assertTrue(all(">" not in block.text for block in readable))
+        combined = " ".join(block.text for block in readable)
+        self.assertNotIn("one.invalid", combined)
+        self.assertNotIn("title", combined)
+
+        legacy_plain_id = "markdown-" + sha256(
+            ("Paragraph\0" + "> Deep quote").encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+        legacy_image_lead_id = "markdown-" + sha256(
+            ("Paragraph\0" + "> > Before  after.").encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+        paragraphs = [block for block in book.document.blocks if type(block) is Paragraph]
+        self.assertEqual(paragraphs[0].block_id, legacy_plain_id)
+        self.assertEqual(paragraphs[1].block_id, legacy_image_lead_id)
+
+        for target in (legacy_plain_id, legacy_image_lead_id):
+            with self.subTest(target=target):
+                restored = BookReader.restore_snapshot(
+                    book.document,
+                    {
+                        "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+                        "current_target": f"block:{target}",
+                        "return_points": {},
+                        "fallback_digests": {},
+                    },
+                )
+                self.assertEqual(restored.location().block_id, target)
+
+        self.assertTrue(
+            any("Nested Markdown block quote markers were flattened" in warning for warning in book.warnings)
+        )
+        self.assertTrue(
+            any("image destination was excluded" in warning for warning in book.warnings)
+        )
+
     def test_native_import_action_accepts_markdown_on_worker_and_reopens_database(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'lesson.MD'
