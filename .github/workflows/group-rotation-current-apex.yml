@@ -10,6 +10,7 @@ on:
       - acs/classroom_pairing.py
       - acs/version2_final_product_application.py
       - acs/version2_release_app.py
+      - run_accessible_chess_v2.py
       - acs/version2_education_mutation_release.py
       - acs/version2_packaged_starter_application.py
       - tests/test_v2_packaged_starter_application.py
@@ -25,6 +26,7 @@ on:
       - acs/classroom_pairing.py
       - acs/version2_final_product_application.py
       - acs/version2_release_app.py
+      - run_accessible_chess_v2.py
       - acs/version2_education_mutation_release.py
       - acs/version2_packaged_starter_application.py
       - tests/test_v2_packaged_starter_application.py
@@ -60,6 +62,7 @@ jobs:
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
       FINAL_PRODUCT_APP_BLOB: af72ab19c98a5ca6d139e5635a2d651b51cb84e0
       RELEASE_APP_BLOB: d0a5188175afdc6f3e707745b525abe10c8bf411
+      PACKAGED_V2_ENTRY_BLOB: b6b40023d1e59fb7ec74e30d151d5d009a14bbad
       GROUP_ROTATION_BINDING_TEST_BLOB: fc2f1fe3e48fb42fbf9525d830da76251969ccda
       EDUCATION_RELEASE_BLOB: 12a0681fb69e377ebf65e4bd822d5c02458a0aa5
       PACKAGED_STARTER_APP_BLOB: 67b83f8e605ef7534fc5834064e2c2427a4439b6
@@ -96,6 +99,7 @@ jobs:
           test "$(git hash-object tests/test_child_coaching_rotation_completed_recovery.py)" = "$ROTATION_RECOVERY_TEST_BLOB"
           test "$(git hash-object acs/version2_final_product_application.py)" = "$FINAL_PRODUCT_APP_BLOB"
           test "$(git hash-object acs/version2_release_app.py)" = "$RELEASE_APP_BLOB"
+          test "$(git hash-object run_accessible_chess_v2.py)" = "$PACKAGED_V2_ENTRY_BLOB"
           test "$(git hash-object tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
           git diff --check
 
@@ -111,6 +115,7 @@ jobs:
           acs/classroom_pairing.py
           acs/version2_final_product_application.py
           acs/version2_release_app.py
+          run_accessible_chess_v2.py
           acs/version2_education_mutation_release.py
           acs/version2_packaged_starter_application.py
           tests/test_child_coaching_rotation.py
