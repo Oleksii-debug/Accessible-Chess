@@ -34,7 +34,7 @@ from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
-from .library_webview_projection import LibraryImportPhase
+from .library_webview_projection import LibraryImportPhase, LibraryWebViewEvent
 from .pgn_document import PgnDocumentSession
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
@@ -52,7 +52,43 @@ from .version2_windows_book_open_worker import (
     Version2BookOpenWorker,
 )
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
+from .version2_windows_library_export import LibraryExportHostEvent
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
+
+
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+
+class _BoundedApplicationEventQueue(deque):
+    """Bounded event FIFO that records actual truncation, not mere fullness."""
+
+    def __init__(self, *, maxlen: int) -> None:
+        if type(maxlen) is not int or maxlen <= 0:
+            raise ValueError("event queue maxlen must be a positive integer")
+        super().__init__(maxlen=maxlen)
+        self.overflowed = False
+
+    def append(self, value) -> None:
+        if self.maxlen is not None and len(self) >= self.maxlen:
+            self.overflowed = True
+        super().append(value)
+
+    def appendleft(self, value) -> None:
+        if self.maxlen is not None and len(self) >= self.maxlen:
+            self.overflowed = True
+        super().appendleft(value)
+
+    def extend(self, values) -> None:
+        for value in values:
+            self.append(value)
+
+    def extendleft(self, values) -> None:
+        for value in values:
+            self.appendleft(value)
+
+    def clear(self) -> None:
+        super().clear()
+        self.overflowed = False
 
 
 class _BookBrowserLeaseRejected(ValueError):
@@ -638,6 +674,11 @@ class Version2Application:
         """Reject Book owner replacement before source I/O or UI publication."""
 
         self._assert_thread()
+        # Background Book preparation commits outside ActionRouter.dispatch().
+        # Reuse the shell publication fence explicitly so a worker completion
+        # cannot replace route/Book ownership while the browser is still
+        # deciding whether another candidate route is visible.
+        self.shell._assert_action_dispatch_ready()
         if self.shell.active_dialog_id is not None:
             raise ValueError("close the active dialog before opening a book")
         if self.book_workflow is not None and self.book_workflow.active:
@@ -1556,21 +1597,114 @@ class Version2Application:
         if action == "pgn.export_selection" and not payload and self.pgn is not None:
             return self.pgn.dispatch(action)
         if action == "library.open_game":
-            if not payload: return self.library.projection.open_selected()
-            if set(payload) != {"game_id", "source_id", "source_index"}: raise ValueError("invalid Library game request")
-            row = self.database.get_game(payload["game_id"])
-            if row is None or (row["source_id"], row["source_index"]) != (payload["source_id"], payload["source_index"]):
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before opening a Library game")
+            if payload is None or (type(payload) is dict and not payload):
+                return self.library.projection.open_selected()
+            if (
+                type(payload) is not dict
+                or set(payload) != {"game_id", "source_id", "source_index"}
+            ):
+                raise ValueError("invalid Library game request")
+            game_id = payload["game_id"]
+            source_id = payload["source_id"]
+            source_index = payload["source_index"]
+            if (
+                type(game_id) is not int
+                or game_id <= 0
+                or game_id > _SQLITE_INTEGER_MAX
+                or type(source_id) is not int
+                or source_id <= 0
+                or source_id > _SQLITE_INTEGER_MAX
+                or type(source_index) is not int
+                or source_index < 0
+                or source_index > _SQLITE_INTEGER_MAX
+            ):
+                raise ValueError("invalid Library game request")
+            row = self.database.get_game(game_id)
+            if (
+                type(row) is not dict
+                or type(row.get("source_id")) is not int
+                or type(row.get("source_index")) is not int
+                or (row["source_id"], row["source_index"]) != (source_id, source_index)
+            ):
                 raise ValueError("Library selection is stale")
-            game = AcsdbBookGameLookup(self.database).load_book_game(payload["game_id"])
+            game = AcsdbBookGameLookup(self.database).load_book_game(game_id)
             # Opening a detached Library record must not renumber/write its source.
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
-        if action in {"library.search", "library.reset_filters"}:
-            self._focus = self.shell.open_route("library")
-            return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
-        if action == "library.next_page": return self.library.projection.next_page()
-        if action == "library.previous_page": return self.library.projection.previous_page()
+        if action in {
+            "library.search",
+            "library.reset_filters",
+            "library.next_page",
+            "library.previous_page",
+        }:
+            if payload is not None and not (type(payload) is dict and not payload):
+                raise ValueError("Library navigation accepts no payload")
+            # Native/global Library actions can originate on another route.
+            # Treat the presenter/query/export-selection mutation and shell route
+            # acquisition as one presentation transaction. A failed render or
+            # route publication must leave the exact prior route and Library
+            # presentation authoritative.
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before changing Library state")
+            projection = self.library.projection
+            projection_state = projection._capture_native_navigation_state()
+            shell_state = self.shell._capture_presentation_state()
+            prior_focus = self._focus
+            try:
+                if action == "library.search":
+                    result = projection.search(projection.query)
+                elif action == "library.reset_filters":
+                    result = projection.reset_filters()
+                elif action == "library.next_page":
+                    result = projection.next_page()
+                else:
+                    result = projection.previous_page()
+                if type(result) is not LibraryWebViewEvent or result.kind != "render":
+                    raise ValueError("invalid Library projection result")
+                result_payload = result.payload
+                if type(result_payload) is not dict:
+                    raise ValueError("invalid Library projection result")
+                snapshot = result_payload.get("snapshot")
+                if type(snapshot) is not dict:
+                    raise ValueError("invalid Library projection result")
+                status = snapshot.get("status")
+                if type(status) is not str:
+                    raise ValueError("invalid Library projection status")
+                if status == "error":
+                    message = snapshot.get("message")
+                    raise RuntimeError(
+                        message
+                        if type(message) is str and message.strip()
+                        else "Library action failed"
+                    )
+                if status not in {"ready", "empty"}:
+                    raise ValueError("invalid Library projection status")
+                route_focus = self.shell.open_route("library")
+            except BaseException as primary_error:
+                primary_traceback = primary_error.__traceback__
+                rollback_failed = False
+                try:
+                    projection._restore_native_navigation_state(projection_state)
+                except BaseException:
+                    rollback_failed = True
+                try:
+                    self.shell._restore_presentation_state(shell_state)
+                except BaseException:
+                    rollback_failed = True
+                self._focus = prior_focus
+                if rollback_failed:
+                    raise RuntimeError("Library navigation rollback failed") from primary_error
+                raise primary_error.with_traceback(primary_traceback)
+            self._focus = route_focus
+            return result
+        if (
+            action in {"library.import", "library.export"}
+            and self.shell.active_dialog_id is not None
+        ):
+            raise ValueError("close the active dialog before opening a Library file workflow")
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.cancel_open":
@@ -2003,6 +2137,7 @@ class Version2Application:
                             ) = publication_before
                             self.shell._begin_publication_hold()
                             projected_payload["publication_token"] = token
+                            self._pending_shell_publication_restore = None
                             self._pending_shell_publication = (
                                 token,
                                 command,
@@ -2037,6 +2172,20 @@ class Version2Application:
                     # Stale browser intent is a presentation-recovery request only.
                     # Never reinterpret it against the current Book owner.
                     return self._book_browser_recovery_result()
+            if area_id == "library" and command == "library.open_game":
+                raise ValueError("Library game open requires presentation protocol")
+            if (
+                area_id == "library"
+                and (
+                    self.shell.current_route.route_id != "library"
+                    or self.shell.active_dialog_id is not None
+                )
+            ):
+                # A retained Library WebView is not an authority surface after
+                # route departure or while modal focus is owned elsewhere.
+                # Reject before bridge dispatch so a late/stale DOM command
+                # cannot mutate canonical search, selection or export/import state.
+                raise ValueError("Library command requires the visible Library")
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             pgn_refresh = (
