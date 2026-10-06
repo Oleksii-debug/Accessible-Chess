@@ -1428,20 +1428,29 @@ def _package_rootfiles(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if (container.text or "").strip() or any(
-        (child.tail or "").strip() for child in container
-    ):
+    if (container.text or "").strip():
         raise _error(
             "EPUB container contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    for child_index, child in enumerate(container, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB container contains invalid mixed text",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     # OCF validates container.xml after removing foreign-namespace elements and
     # their contents. Enforce the remaining canonical child order exactly:
     # rootfiles first, followed by at most one optional links section.
-    structural_children = [
-        child for child in container if _is_container_namespace_tag(child.tag)
-    ]
+    structural_children: list[ET.Element] = []
+    for child_index, child in enumerate(container, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if _is_container_namespace_tag(child.tag):
+            structural_children.append(child)
     if (
         not structural_children
         or structural_children[0].tag != _ROOTFILES_TAG
@@ -1462,13 +1471,19 @@ def _package_rootfiles(
         frozenset(),
         context="rootfiles element",
     )
-    if (rootfiles.text or "").strip() or any(
-        (child.tail or "").strip() for child in rootfiles
-    ):
+    if (rootfiles.text or "").strip():
         raise _error(
             "EPUB rootfiles section contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    for child_index, child in enumerate(rootfiles, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB rootfiles section contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     candidates: list[str] = []
     seen_paths: set[str] = set()
@@ -1493,7 +1508,9 @@ def _package_rootfiles(
                 "EPUB rootfile element must be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        for child in element:
+        for child_index, child in enumerate(element, start=1):
+            if control_checkpoint is not None and child_index % 128 == 1:
+                control_checkpoint()
             if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
                 raise _error(
                     "EPUB rootfile element must be empty",
@@ -1542,13 +1559,19 @@ def _package_rootfiles(
             frozenset(),
             context="links element",
         )
-        if (links.text or "").strip() or any(
-            (child.tail or "").strip() for child in links
-        ):
+        if (links.text or "").strip():
             raise _error(
                 "EPUB container links section contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        for child_index, child in enumerate(links, start=1):
+            if control_checkpoint is not None and child_index % 128 == 1:
+                control_checkpoint()
+            if (child.tail or "").strip():
+                raise _error(
+                    "EPUB container links section contains invalid text content",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
         link_count = 0
         for link_index, element in enumerate(links, start=1):
             if control_checkpoint is not None and link_index % 128 == 1:
@@ -1571,7 +1594,9 @@ def _package_rootfiles(
                     "EPUB container link element must be empty",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
-            for child in element:
+            for child_index, child in enumerate(element, start=1):
+                if control_checkpoint is not None and child_index % 128 == 1:
+                    control_checkpoint()
                 if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
                     raise _error(
                         "EPUB container link element must be empty",
