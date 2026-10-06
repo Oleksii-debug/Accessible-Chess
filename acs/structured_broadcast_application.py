@@ -12,6 +12,7 @@ the already-validated final FEN by this application adapter. Media code never
 needs to inspect that FEN.
 """
 
+from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
@@ -25,7 +26,11 @@ from .pgn_roundtrip import parse_pgn_text
 from .structured_broadcast import (
     CanonicalBroadcastGame,
     LICHESS_BROADCAST_PROVIDER,
+    MAX_BROADCAST_GAMES,
 )
+
+
+MAX_CANONICAL_BROADCAST_POSITIONS = 8192
 
 
 class BroadcastApplicationErrorCode(str, Enum):
@@ -179,8 +184,22 @@ class LichessCanonicalBroadcastAdapter:
     references for Media Core.
     """
 
-    def __init__(self) -> None:
-        self._positions: dict[str, ResolvedBroadcastPosition] = {}
+    def __init__(
+        self,
+        *,
+        position_cache_limit: int = MAX_CANONICAL_BROADCAST_POSITIONS,
+    ) -> None:
+        if (
+            type(position_cache_limit) is not int
+            or position_cache_limit < 1
+            or position_cache_limit > MAX_CANONICAL_BROADCAST_POSITIONS
+        ):
+            raise BroadcastApplicationError(
+                "position cache limit is outside the supported bound",
+                code=BroadcastApplicationErrorCode.INVALID_INPUT,
+            )
+        self._position_cache_limit = position_cache_limit
+        self._positions: OrderedDict[str, ResolvedBroadcastPosition] = OrderedDict()
         self._latest_games: dict[str, PgnGame] = {}
 
     def ingest_broadcast_pgn(
@@ -251,10 +270,22 @@ class LichessCanonicalBroadcastAdapter:
                 )
             )
 
+        if len(set(self._latest_games) | seen) > MAX_BROADCAST_GAMES:
+            raise BroadcastApplicationError(
+                "broadcast exceeds the canonical game-count bound",
+                code=BroadcastApplicationErrorCode.CANONICAL_PGN_REJECTED,
+            )
+
         # Publish only after every game in the provider update has passed the
         # complete canonical parse/legality/identity transaction.
         for game_id, _, resolved, game in staged:
-            self._positions.setdefault(resolved.chess_ref, resolved)
+            existing = self._positions.get(resolved.chess_ref)
+            if existing is None:
+                self._positions[resolved.chess_ref] = resolved
+            else:
+                self._positions.move_to_end(resolved.chess_ref)
+            while len(self._positions) > self._position_cache_limit:
+                self._positions.popitem(last=False)
             self._latest_games[game_id] = game
 
         return tuple(item[1] for item in staged)
