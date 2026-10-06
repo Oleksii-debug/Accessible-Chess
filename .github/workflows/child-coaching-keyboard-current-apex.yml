@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 25
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-      ACTIONS_BLOB: 212585455ab3d31e83ed73d2cb8fda94f9c7e010
+      ACTIONS_BLOB: 5fc56143b1c485bd7e229f99ca15161c0a7c7c38
       PROFILE_BLOB: 6428831a30eca80bb8ad96553f381ae274d3f5b0
       WEB_KEYMAP_BLOB: b3690e67d17b6737b70bce9c75c2b68b149205aa
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
