@@ -659,6 +659,12 @@ class StructuredBroadcastSession:
                 )
             games[game.provider_game_id] = game
 
+        if last_sequence is not None and not games:
+            raise BroadcastContractError(
+                "applied broadcast checkpoint has no canonical games",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+
         session._last_sequence = last_sequence
         session._last_observed_at_ms = last_observed_at_ms
         session._last_payload_sha256 = last_payload_sha256
