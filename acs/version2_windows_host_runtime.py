@@ -381,6 +381,9 @@ class Version2WindowsFileWorkflowRuntime:
     def wait_for_import(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_import(timeout)
 
+    def wait_for_export(self, timeout: float | None = None) -> bool:
+        return self._library_export_delegate.wait_for_export(timeout)
+
     def wait_for_pgn_open(self, timeout: float | None = None) -> bool:
         return self._file_delegate.wait_for_pgn_open(timeout)
 
