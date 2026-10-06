@@ -92,7 +92,11 @@ do {
     $bars = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)
     $exact = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $exactCondition)
     $anyId = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $anyIdCondition)
-    if($exact.Count -eq 1 -or $bars.Count -gt 0){ break }
+    # Do not stop merely because some other MenuBar exists in the process.
+    # WebView/host surfaces can appear before the canonical native MenuStrip.
+    # Qualification is about the exact AutomationId, so keep polling until the
+    # canonical element is uniquely present or the bounded deadline expires.
+    if($exact.Count -eq 1){ break }
     Start-Sleep -Milliseconds 200
 } while([DateTime]::UtcNow -lt $deadline)
 
