@@ -82,6 +82,25 @@ class EpdFormatTests(unittest.TestCase):
         with self.assertRaisesRegex(EpdParseError, "too many operations"):
             parse_epd(START_EPD + " " + operations)
 
+    def test_opcode_grammar_uniqueness_and_private_namespace(self):
+        with self.assertRaisesRegex(EpdParseError, "duplicate EPD noop"):
+            parse_epd(START_EPD + " noop; noop value;")
+        with self.assertRaisesRegex(EpdParseError, "invalid EPD opcode"):
+            parse_epd(START_EPD + " a value;")
+        with self.assertRaisesRegex(EpdParseError, "invalid EPD opcode"):
+            parse_epd(START_EPD + " abcdefghijklmnop value;")
+
+        private = parse_epd(START_EPD + " Xcase value;")
+        self.assertEqual(private.operations, (EpdOperation("Xcase", "value"),))
+
+    def test_epd_is_printable_ascii_and_string_payload_is_bounded(self):
+        with self.assertRaisesRegex(EpdParseError, "printable ASCII"):
+            parse_epd(START_EPD + ' id "позиція";')
+        with self.assertRaisesRegex(EpdParseError, "exceeds 255 bytes"):
+            parse_epd(START_EPD + ' id "' + ("x" * 256) + '";')
+        valid = parse_epd(START_EPD + ' id "' + ("x" * 255) + '";')
+        self.assertEqual(len(valid.operations), 1)
+
     def test_invalid_board_is_delegated_to_canonical_fen_representation(self):
         malformed = "9/8/8/8/8/8/8/4K2k w - -"
         self.assertTrue(looks_like_epd(malformed))
