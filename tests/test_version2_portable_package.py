@@ -1624,6 +1624,64 @@ class PortableTreeTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertFalse(target.exists())
 
+    def test_zip_temp_cleanup_does_not_replace_primary_verification_failure(self):
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            root = work / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = work / "candidate.zip"
+            real_safe_info = portable_module._safe_info
+            real_unlink = Path.unlink
+            primary_injected = False
+            cleanup_injected = False
+
+            def fail_readback(path, *args, **kwargs):
+                nonlocal primary_injected
+                if (
+                    not primary_injected
+                    and kwargs.get("label") == "portable ZIP archive readback"
+                ):
+                    primary_injected = True
+                    raise Version2PortablePackageError(
+                        "simulated primary ZIP verification failure"
+                    )
+                return real_safe_info(path, *args, **kwargs)
+
+            def fail_temp_cleanup(path, *args, **kwargs):
+                nonlocal cleanup_injected
+                if (
+                    primary_injected
+                    and not cleanup_injected
+                    and Path(path).suffix == ".tmp"
+                ):
+                    cleanup_injected = True
+                    raise PermissionError("simulated temporary cleanup failure")
+                return real_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(
+                portable_module,
+                "_safe_info",
+                side_effect=fail_readback,
+            ), mock.patch.object(
+                Path,
+                "unlink",
+                new=fail_temp_cleanup,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "simulated primary ZIP verification failure",
+                ):
+                    write_portable_oneclick_zip(
+                        root,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertTrue(primary_injected)
+            self.assertTrue(cleanup_injected)
+            self.assertFalse(target.exists())
+
     def test_zip_publication_cleans_owned_link_if_post_link_stat_fails(self):
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)
