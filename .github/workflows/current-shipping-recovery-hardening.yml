@@ -20,9 +20,10 @@ env:
   PARENT_BRANCH: fix/current-shipping-owner-cancel-recovery-order-20261006-ooxple7
   PARENT_SHA: 46ce49669c8c16f613c41f256a65c41351ca25c1
   APP_BLOB: ceb2a1784663eaa0a3131ff6e2dd85e6cab77323
-  RELEASE_APP_BLOB: b95ec0d6bdba2fbc50961a8dc86b9a85e2d688bd
+  RELEASE_APP_BLOB: 3c04c766bc30e006628335dac9a4963be294c303
   APP_TEST_BLOB: 12498cfcd565208a73bfc69ac43eb9a6f395a48c
   SHUTDOWN_TEST_BLOB: 6794acd56b48adc2ad02d10c2c6eab9dd8fbc8c1
+  STARTUP_TEST_BLOB: 2f0db82697d153f5ee3ead0e4484dc9a004d10cf
 
 jobs:
   recovery-hardening:
@@ -71,6 +72,7 @@ jobs:
             "acs/version2_application.py"
             "acs/version2_release_app.py"
             "tests/test_version2_application.py"
+            "tests/test_version2_composition_startup_cleanup_current.py"
             "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
@@ -80,6 +82,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_application.py)" = "$APP_BLOB"
           test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$RELEASE_APP_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$APP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_composition_startup_cleanup_current.py)" = "$STARTUP_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_work_v2_shutdown_progress_failure_cleanup.py)" = "$SHUTDOWN_TEST_BLOB"
 
       - name: Compile changed and integrated boundaries
