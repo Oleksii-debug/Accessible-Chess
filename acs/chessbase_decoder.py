@@ -35,7 +35,6 @@ from .gametree import (
     GameTreeSerializationError,
     MoveNode,
     PgnGame,
-    TAG_NAME_RE,
     VariationLine,
     serialize_game,
 )
@@ -639,11 +638,6 @@ def _decode_game(raw: object, expected_index: int, total_budget: list[int]) -> t
             )
         name = _bounded_text(item.get("name"), "tag.name", 128)
         value = _bounded_text(item.get("value"), "tag.value", MAX_TAG_CHARS)
-        if TAG_NAME_RE.fullmatch(name) is None or "\r" in value or "\n" in value:
-            raise _decode_error(
-                "ChessBase decoder returned an unrepresentable PGN tag",
-                ChessBaseDecodeCode.PROTOCOL_ERROR,
-            )
         if name in tags:
             raise _decode_error(
                 "ChessBase decoder returned a duplicate tag name",
