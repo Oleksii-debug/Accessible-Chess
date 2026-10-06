@@ -208,6 +208,10 @@ class Version2WindowsFileWorkflowRuntime:
         )
         if not cancel_owns_pending:
             self._pump.request_pending_owner_callback()
+            if self._pump.owner_callback_pending:
+                raise RuntimeError(
+                    "Version 2 Windows file workflow owner UI recovery is still pending"
+                )
 
         # Retained mailbox events are accessibility truth, not background
         # telemetry. A presentation failure can exhaust its one automatic retry;
