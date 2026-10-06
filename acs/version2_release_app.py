@@ -209,19 +209,15 @@ def _install_close_guard_or_shutdown(
             before_shutdown=before_shutdown,
         )
     except BaseException:
-        cleanup_error = None
+        # The close-guard failure is the startup authority. Cleanup is best
+        # effort here; native_runtime_factory performs a second idempotent
+        # retirement attempt before propagating the same primary failure.
         try:
             shutdown_runtime = getattr(file_runtime, "shutdown", None)
-            if not callable(shutdown_runtime) or shutdown_runtime() is not True:
-                cleanup_error = RuntimeError(
-                    "Version 2 unbound native runtime did not shut down"
-                )
-        except BaseException as exc:
-            cleanup_error = exc
-        if cleanup_error is not None:
-            raise RuntimeError(
-                "Version 2 unbound native runtime cleanup failed after close-guard installation failure"
-            ) from cleanup_error
+            if callable(shutdown_runtime):
+                shutdown_runtime()
+        except BaseException:
+            pass
         raise
     return file_runtime
 
