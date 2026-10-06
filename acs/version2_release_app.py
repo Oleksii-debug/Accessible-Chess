@@ -31,6 +31,12 @@ from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .student_progress_store import StudentProgressStore
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
+from .version2_final_product_application import Version2FinalProductApplication
+
+# Mutable release composition seam.  The direct release root defaults to the
+# complete Teacher/Education-capable application, while stacked packaged release
+# wrappers may temporarily replace Version2Application with richer subclasses.
+Version2Application = Version2FinalProductApplication
 from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window

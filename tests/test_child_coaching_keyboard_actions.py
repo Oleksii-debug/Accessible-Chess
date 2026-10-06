@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -208,6 +209,43 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         ]
         self.assertTrue(any("позиція" in item.lower() for item in announcements))
 
+    def test_keyboard_rotation_status_reports_unavailable_store_truth(self) -> None:
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        self.app._rotation_store = None
+        try:
+            status = self._dispatch_chord("Ctrl+Alt+S").value
+        finally:
+            self.app._rotation_store = store
+
+        self.assertEqual("group-rotation", status["kind"])
+        self.assertFalse(status["recovery_required"])
+        self.assertNotIn("revision", status)
+        spoken = status["announcement"].casefold()
+        self.assertTrue("недоступ" in spoken or "unavailable" in spoken)
+        self.assertFalse(self.app.snapshot()["product_status"]["group_rotation_active"])
+
+    def test_keyboard_rotation_status_before_start_is_spoken_without_mutation(self) -> None:
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        self.assertIsNone(self.app._rotation_state)
+        self.assertIsNone(store.load())
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+
+        self.assertEqual("group-rotation", status["kind"])
+        self.assertFalse(status["recovery_required"])
+        self.assertNotIn("revision", status)
+        spoken = status["announcement"].casefold()
+        self.assertTrue("не розпоч" in spoken or "not started" in spoken)
+        self.assertIsNone(self.app._rotation_state)
+        self.assertIsNone(store.load())
+        self.assertEqual(
+            "teacher-pointer-input",
+            self.app.shell.restore_focus_target(),
+        )
+
     def test_keyboard_rotation_pairing_flow_is_semantic_and_cas_backed(self) -> None:
         started = self._dispatch_chord("Ctrl+Alt+R").value
         self.assertEqual("demonstration", started["activity"])
@@ -216,6 +254,8 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         pair = self._dispatch_chord("Ctrl+Alt+N").value
         self.assertEqual("pair_play", pair["activity"])
         self.assertFalse(pair["pair_play_bound"])
+        pair_spoken = pair["announcement"].casefold()
+        self.assertTrue("не прив" in pair_spoken or "not bound" in pair_spoken)
 
         batch = self.app.plan_classroom_pairings(
             batch_id="keyboard-round-1",
@@ -234,6 +274,8 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
 
         bound = self._dispatch_chord("Ctrl+Alt+B").value
         self.assertTrue(bound["pair_play_bound"])
+        bound_spoken = bound["announcement"].casefold()
+        self.assertTrue("прив’язано" in bound_spoken or "pairing bound" in bound_spoken)
         review = self._dispatch_chord("Ctrl+Alt+N").value
         self.assertEqual("review", review["activity"])
         status = self._dispatch_chord("Ctrl+Alt+S").value
@@ -250,6 +292,178 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         self.assertNotIn("white_student_id", status)
         self.assertNotIn("black_student_id", status)
         self.assertNotIn("fen", status)
+
+    def test_keyboard_rotation_recovery_is_spoken_and_blocks_stale_advance(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        self.assertFalse(started["recovery_required"])
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        real_save = store.save
+
+        def publish_then_fail(plan, next_state, *, expected_revision):
+            real_save(
+                plan,
+                next_state,
+                expected_revision=expected_revision,
+            )
+            raise OSError("simulated keyboard post-publication failure")
+
+        with mock.patch.object(store, "save", side_effect=publish_then_fail):
+            with self.assertRaisesRegex(OSError, "post-publication failure"):
+                self._dispatch_chord("Ctrl+Alt+N")
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+N")
+
+        resumed = self._dispatch_chord("Ctrl+Alt+R").value
+        self.assertFalse(resumed["recovery_required"])
+        self.assertEqual(started["revision"] + 1, resumed["revision"])
+        self.assertEqual("teacher", self.app.shell.current_route.route_id)
+        self.assertEqual(
+            "teacher-pointer-input",
+            self.app.shell.restore_focus_target(),
+        )
+
+    def test_keyboard_status_detects_external_durable_advance_without_adopting_it(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        loaded = store.load()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+
+        external_state = advance_rotation(
+            loaded.plan,
+            loaded.state,
+            expected_revision=loaded.state.revision,
+        )
+        store.save(
+            loaded.plan,
+            external_state,
+            expected_revision=loaded.revision,
+        )
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        durable = store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(external_state, durable.state)
+
+    def test_deleted_durable_slot_cannot_be_silently_restarted_in_process(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        store.path.unlink()
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertTrue(status["recovery_required"])
+        self.assertFalse(store.path.exists())
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+R")
+
+        self.assertFalse(store.path.exists())
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+    def test_keyboard_resume_adopts_exact_external_generation_after_status_fence(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        loaded = store.load()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+
+        external_state = advance_rotation(
+            loaded.plan,
+            loaded.state,
+            expected_revision=loaded.state.revision,
+        )
+        external_revision = store.save(
+            loaded.plan,
+            external_state,
+            expected_revision=loaded.revision,
+        )
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertTrue(status["recovery_required"])
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+
+        resumed = self._dispatch_chord("Ctrl+Alt+R").value
+
+        self.assertFalse(resumed["recovery_required"])
+        self.assertEqual(external_state.revision, resumed["revision"])
+        self.assertEqual(external_state, self.app._rotation_state)
+        self.assertEqual(external_revision, self.app._rotation_store_revision)
+        durable = store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(external_state, durable.state)
+        self.assertEqual(external_revision, durable.revision)
+
+    def test_keyboard_status_detects_corruption_after_rotation_started(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        store.path.write_bytes(b"{not-valid-json")
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        corrupt = store.path.read_bytes()
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+R")
+
+        self.assertEqual(corrupt, store.path.read_bytes())
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+    def test_keyboard_status_speaks_recovery_when_durable_rotation_is_corrupt(self) -> None:
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        store.path.write_bytes(b"{not-valid-json")
+
+        # A read-only rebind probes durable integrity without adopting stale
+        # lesson state, so accessibility truth is available before Start/Resume.
+        self.app.bind_child_coaching_rotation_store(store)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertEqual("group-rotation", status["kind"])
+        self.assertTrue(status["recovery_required"])
+        self.assertNotIn("revision", status)
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+        self.assertEqual(
+            "teacher-pointer-input",
+            self.app.shell.restore_focus_target(),
+        )
 
     def test_hidden_route_and_modal_reject_teacher_keyboard_actions_without_mutation(self) -> None:
         selected_before = self.app.prepared_position_snapshot()
@@ -268,6 +482,26 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
             self.app.router.dispatch("teacher.rotation_start_or_resume")
         self.assertIsNone(self.app._rotation_state)
         self.app.shell.close_dialog("teacher-dialog")
+
+    def test_active_action_string_is_rejected_before_hash_or_equality_hooks(self) -> None:
+        calls: list[str] = []
+
+        class ActiveAction(str):
+            def __hash__(self):
+                calls.append("hash")
+                raise AssertionError("active action hash must not run")
+
+            def __eq__(self, other):
+                calls.append("eq")
+                raise AssertionError("active action equality must not run")
+
+        before = self.app.prepared_position_snapshot()
+        with self.assertRaisesRegex(ValueError, "command is malformed"):
+            self.app._delegate(ActiveAction("teacher.rotation_status"), {})
+
+        self.assertEqual([], calls)
+        self.assertEqual(before, self.app.prepared_position_snapshot())
+        self.assertIsNone(self.app._rotation_state)
 
     def test_payload_injection_is_rejected_before_any_teacher_state_change(self) -> None:
         before = self.app.prepared_position_snapshot()

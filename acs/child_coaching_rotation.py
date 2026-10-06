@@ -108,10 +108,12 @@ class RotationRound:
             {"round_id", "activity", "title", "minutes", "target", "target_ids"},
             "rotation round",
         )
+        if type(data["activity"]) is not str or type(data["target"]) is not str:
+            raise ChildCoachingRotationError("rotation round record is not canonical")
         raw_targets = data["target_ids"]
         if type(raw_targets) is not list:
             raise ChildCoachingRotationError("rotation target_ids must be an array")
-        return cls(
+        round_item = cls(
             round_id=data["round_id"],
             activity=data["activity"],
             title=data["title"],
@@ -119,6 +121,9 @@ class RotationRound:
             target=data["target"],
             target_ids=tuple(raw_targets),
         )
+        if round_item.to_record() != data:
+            raise ChildCoachingRotationError("rotation round record is not canonical")
+        return round_item
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +167,10 @@ class RotationPlan:
             raise ChildCoachingRotationError(
                 f"rotation plan exceeds {MAX_TOTAL_ROTATION_MINUTES} minutes"
             )
+        # A RotationPlan is a durable/transportable canonical contract. Enforce
+        # its own wire-size limit at construction so direct from_record/store
+        # recovery cannot create an object that to_json() is forbidden to emit.
+        _bounded_json(self.to_record())
 
     @property
     def total_minutes(self) -> int:
@@ -207,6 +216,8 @@ class RotationPlan:
         )
         if plan.digest != supplied:
             raise ChildCoachingRotationError("rotation plan digest mismatch")
+        if plan.to_record() != data:
+            raise ChildCoachingRotationError("rotation plan record is not canonical")
         return plan
 
     @classmethod
@@ -244,8 +255,13 @@ class RotationState:
             raise ChildCoachingRotationError(
                 "rotation round_index must be a bounded non-negative integer"
             )
-        if type(self.revision) is not int or self.revision < 0:
-            raise ChildCoachingRotationError("rotation revision must be a non-negative integer")
+        if (
+            type(self.revision) is not int
+            or not 0 <= self.revision <= _MAX_WIRE_INTEGER
+        ):
+            raise ChildCoachingRotationError(
+                "rotation revision must be a non-negative integer within exact wire bounds"
+            )
         ref = self.pair_play_batch_ref
         if ref is not None:
             ref = _identifier(ref, "pair-play batch reference")
@@ -286,6 +302,8 @@ class RotationState:
             "rotation state",
         )
         supplied = _digest_text(data["digest"], "rotation state digest")
+        if type(data["phase"]) is not str:
+            raise ChildCoachingRotationError("rotation state record is not canonical")
         state = cls(
             rotation_id=data["rotation_id"],
             plan_digest=data["plan_digest"],
@@ -297,6 +315,8 @@ class RotationState:
         )
         if state.digest != supplied:
             raise ChildCoachingRotationError("rotation state digest mismatch")
+        if state.to_record() != data:
+            raise ChildCoachingRotationError("rotation state record is not canonical")
         return state
 
     @classmethod
@@ -528,13 +548,16 @@ def _version(value: object) -> None:
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise ChildCoachingRotationError(f"{label} must be an object")
+    if type(value) is not dict:
+        raise ChildCoachingRotationError(f"{label} must be a built-in object")
     return value
 
 
 def _exact_keys(data: Mapping[str, object], expected: set[str], label: str) -> None:
-    if set(data) != expected:
+    keys = tuple(data.keys())
+    if any(type(key) is not str for key in keys):
+        raise ChildCoachingRotationError(f"{label} fields are not canonical")
+    if set(keys) != expected:
         raise ChildCoachingRotationError(f"{label} fields are not canonical")
 
 
@@ -556,12 +579,22 @@ def _text(value: object, label: str, limit: int) -> str:
     normalized = value.strip()
     if not normalized or len(normalized) > limit or "\x00" in normalized:
         raise ChildCoachingRotationError(f"{label} is empty or exceeds its limit")
+    try:
+        normalized.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ChildCoachingRotationError(
+            f"{label} must be valid UTF-8 text"
+        ) from exc
     return normalized
 
 
 def _enum(value: object, cls, label: str):
+    if type(value) is cls:
+        return value
+    if type(value) is not str:
+        raise ChildCoachingRotationError(f"invalid {label}")
     try:
-        return value if isinstance(value, cls) else cls(value)
+        return cls(value)
     except (TypeError, ValueError) as exc:
         raise ChildCoachingRotationError(f"invalid {label}") from exc
 
