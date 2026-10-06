@@ -222,6 +222,16 @@ const bridge = {
 const context = vm.createContext({
   Promise,
   MAX_NATIVE_EVENT_BATCH: 64,
+  NATIVE_EVENT_KINDS: new Set([
+    "status",
+    "repaint",
+    "stage-first",
+    "stage-second",
+    "route",
+    "delegated"
+  ]),
+  validRouteId: (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value),
+  validActionId: (value) => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,160}$/.test(value),
   shellRouteTransitionInFlight: false,
   pendingShellPublicationToken: 0,
   pendingShellPublicationRequestId: 0,
@@ -423,6 +433,31 @@ assert.deepStrictEqual(
   terminalFocus,
   terminalBeforeOversized,
   "oversized native event batch changed terminal focus"
+);
+
+// A malformed later event invalidates the complete bounded batch before the
+// first status/focus or presentation side effect from an earlier valid event.
+const appliedBeforeMalformedMixed = appliedEventCount;
+const terminalBeforeMalformedMixed = terminalFocus.slice();
+nextDrain = [
+  { kind: "status", payload: { focus_target: "library-export-filtered" } },
+  { kind: "not-a-native-event", payload: {} }
+];
+drainEvents();
+await flushMany();
+assert.strictEqual(
+  appliedEventCount,
+  appliedBeforeMalformedMixed,
+  "mixed malformed native batch partially reached presentation handlers"
+);
+assert.deepStrictEqual(
+  terminalFocus,
+  terminalBeforeMalformedMixed,
+  "mixed malformed native batch partially changed terminal focus"
+);
+assert(
+  source.includes("if (!validNativeEventBatch(events)) return;"),
+  "native event drain does not preflight the complete bounded batch"
 );
 
 // Announcements are trusted only as bounded primitive strings. A hostile object
