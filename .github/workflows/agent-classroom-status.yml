@@ -1,0 +1,89 @@
+name: Agent Classroom Status Contract
+
+on:
+  pull_request:
+    branches:
+      - feature/agent-books-training-read-20261006-witu11
+  push:
+    branches:
+      - feature/agent-classroom-status-20261006-sol56r8k
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-classroom-status-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact parent, bounded scope, and presentation authority
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PARENT_REF: feature/agent-books-training-read-20261006-witu11
+          PARENT_SHA: fe4efc2806032fadc7b069b696f403e012f8cfbc
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/agent-classroom-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/agent-classroom-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'AGENT_CLASSROOM_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$PARENT_SHA" HEAD
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$PARENT_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/agent-classroom-status.yml' \
+            'acs/agent_classroom_tools.py' \
+            'acs/chess_agent_tools.py' \
+            'tests/test_agent_classroom_tools.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent classroom scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/agent_classroom_tools.py)" = '0dbc5613c13dfb1e8e9e6336fbc950cee8742e9f'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = '110dc20a09973b8e62aeec4c916c7f43793a5b25'
+          test "$(git rev-parse HEAD:tests/test_agent_classroom_tools.py)" = '53b1d91d33f0ee15b54e8341484b2173f3705061'
+          test "$(git rev-parse HEAD:acs/version2_final_product_application.py)" = 'b90927d8e026a9debfca5cd7d7d095bb1f40413d'
+          test "$(git rev-parse HEAD:acs/teacher_webview_projection.py)" = '135546114d1ae3b1fe925b44525a0a40af60be00'
+          test "$(git rev-parse HEAD:acs/agent_tools.py)" = 'e432f97740922b7f64d5307c2ee7ae2eb4fd2c73'
+          echo 'AGENT_CLASSROOM_PRESENTATION_AUTHORITY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded Agent classroom surface
+        run: >-
+          python -m compileall -q
+          acs/agent_classroom_tools.py
+          acs/chess_agent_tools.py
+          tests/test_agent_classroom_tools.py
+
+      - name: Execute Agent classroom and inherited Agent regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_classroom_tools
+          tests.test_agent_books_training_tools
+          tests.test_chess_agent_tools_crossrepo
+
+      - name: Execute core selftest
+        run: python -m acs.selftest
