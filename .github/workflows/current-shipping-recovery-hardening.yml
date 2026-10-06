@@ -396,20 +396,6 @@ jobs:
           test "$(git rev-parse HEAD:scripts/run_p0_packaged_acceptance.ps1)" = "$(git rev-parse "$base_sha":scripts/run_p0_packaged_acceptance.ps1)"
           test "$(git rev-parse HEAD:scripts/p0_packaged_document_copy_probe.ps1)" = "$(git rev-parse "$base_sha":scripts/p0_packaged_document_copy_probe.ps1)"
           test "$(git rev-parse HEAD:scripts/p0g_packaged_hotkey_result_probe.ps1)" = "$(git rev-parse "$base_sha":scripts/p0g_packaged_hotkey_result_probe.ps1)"
-          test "$(git rev-parse HEAD:.github/workflows/current-book-markdown-ordered-list-semantics.yml)" = "f46fc10fe6ca4afd397504ed7f6635aa388170b6"
-          test "$(git rev-parse HEAD:.github/workflows/current-book-progress-passive-ingress.yml)" = "5dd4abedb865ee4c29c25fc87474889fdc351f4e"
-          test "$(git rev-parse HEAD:.github/workflows/current-epub-xml-structure-bounds.yml)" = "39b1250e550cb66cacc0df1343b954bb2ba52363"
-          test "$(git rev-parse HEAD:.github/workflows/current-legacy-utf8-bom-authority.yml)" = "7ee7f325a18d475ea5608ba01b3ef94b1bcd4c29"
-          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "e08b9033caefc310243b6d9bb93394a03abca6e7"
-          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = "185aa736cf87bc38cfe7a125bdc2bc6efd068c1b"
-          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "9679133f914839439bc42b63c4d79064b9c49bdd"
-          test "$(git rev-parse HEAD:acs/book_text_import.py)" = "d9fbde3983315c9e6d54f6b85904b5d04704730e"
-          test "$(git rev-parse HEAD:acs/legacy_text_encoding.py)" = "1f38fe854aa73440c7269c46fa6a725df6340cdb"
-          test "$(git rev-parse HEAD:tests/test_book_progress_passive_ingress_current.py)" = "fdc34f0637c2b26c2e5e70bab63c973204bb6481"
-          test "$(git rev-parse HEAD:tests/test_legacy_book_utf16_integration.py)" = "b33ec4dccdade25d5d6746442d5de4dedee66271"
-          test "$(git rev-parse HEAD:tests/test_legacy_text_encoding.py)" = "d1c1be00a21451a3a73b075f205c78f1a7c86295"
-          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = "44a2ff310e15621615d92e0084d47dfca950dda1"
-          test "$(git rev-parse HEAD:tests/test_v2_book_text_import.py)" = "8ff7816c586792ad82b8cf418f0c4050d7acbbd5"
           test "$(git rev-parse HEAD:scripts/verify_p0_packaged_document_copy_evidence.py)" = "$(git rev-parse "$base_sha":scripts/verify_p0_packaged_document_copy_evidence.py)"
           test "$(git rev-parse HEAD:scripts/verify_p0g_packaged_hotkey_result_evidence.py)" = "$(git rev-parse "$base_sha":scripts/verify_p0g_packaged_hotkey_result_evidence.py)"
           test "$(git rev-parse HEAD:.github/workflows/p0-packaged-document-copy-probe-contract.yml)" = "$(git rev-parse "$base_sha":.github/workflows/p0-packaged-document-copy-probe-contract.yml)"
@@ -425,6 +411,25 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_stage1_packaged_focus_origin_contract.py)" = "$(git rev-parse "$base_sha":tests/test_stage1_packaged_focus_origin_contract.py)"
           test "$(git rev-parse HEAD:tests/test_current_launcher_resource_contract.py)" = "$(git rev-parse "$base_sha":tests/test_current_launcher_resource_contract.py)"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_core_guard.py)" = "$(git rev-parse "$base_sha":tests/test_portable_launcher_core_guard.py)"
+
+      - name: Prove absorbed Book format and progress blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:.github/workflows/current-book-markdown-ordered-list-semantics.yml)" = "f46fc10fe6ca4afd397504ed7f6635aa388170b6"
+          test "$(git rev-parse HEAD:.github/workflows/current-book-progress-passive-ingress.yml)" = "5dd4abedb865ee4c29c25fc87474889fdc351f4e"
+          test "$(git rev-parse HEAD:.github/workflows/current-epub-xml-structure-bounds.yml)" = "39b1250e550cb66cacc0df1343b954bb2ba52363"
+          test "$(git rev-parse HEAD:.github/workflows/current-legacy-utf8-bom-authority.yml)" = "7ee7f325a18d475ea5608ba01b3ef94b1bcd4c29"
+          test "$(git rev-parse HEAD:.github/workflows/v2-book-progress-production-repair.yml)" = "e08b9033caefc310243b6d9bb93394a03abca6e7"
+          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = "185aa736cf87bc38cfe7a125bdc2bc6efd068c1b"
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "9679133f914839439bc42b63c4d79064b9c49bdd"
+          test "$(git rev-parse HEAD:acs/book_text_import.py)" = "d9fbde3983315c9e6d54f6b85904b5d04704730e"
+          test "$(git rev-parse HEAD:acs/legacy_text_encoding.py)" = "1f38fe854aa73440c7269c46fa6a725df6340cdb"
+          test "$(git rev-parse HEAD:tests/test_book_progress_passive_ingress_current.py)" = "fdc34f0637c2b26c2e5e70bab63c973204bb6481"
+          test "$(git rev-parse HEAD:tests/test_legacy_book_utf16_integration.py)" = "b33ec4dccdade25d5d6746442d5de4dedee66271"
+          test "$(git rev-parse HEAD:tests/test_legacy_text_encoding.py)" = "d1c1be00a21451a3a73b075f205c78f1a7c86295"
+          test "$(git rev-parse HEAD:tests/test_v2_book_epub_import.py)" = "44a2ff310e15621615d92e0084d47dfca950dda1"
+          test "$(git rev-parse HEAD:tests/test_v2_book_text_import.py)" = "8ff7816c586792ad82b8cf418f0c4050d7acbbd5"
 
       - name: Compile changed and integrated boundaries
         run: >-
