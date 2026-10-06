@@ -65,7 +65,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 training.assert_not_called()
                 book.assert_not_called()
                 close.assert_not_called()
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -131,7 +131,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 self.assertIsNone(
                     getattr(application, "_native_shutdown_recovery_error", None)
                 )
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
 
                 release.set()
                 # The worker posts exactly one stale terminal back to this UI
@@ -203,7 +203,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 callbacks.pop(0)()
                 self.assertEqual(commits, [])
                 self.assertEqual(len(application._events), event_count)
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 if book_worker is not None:
                     book_worker.shutdown(timeout=2)
@@ -250,7 +250,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     application._native_shutdown_recovery_error,
                     RuntimeError,
                 )
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -295,7 +295,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 self.assertIs(caught.exception, primary)
                 self.assertEqual(failed.resume_calls, 1)
                 self.assertEqual(retired.resume_calls, 1)
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -317,7 +317,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 application._files = file_worker
 
                 self.assertFalse(application.shutdown(timeout=0.01))
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
 
                 self.assertTrue(application.shutdown(timeout=0.5))
                 with self.assertRaises(sqlite3.ProgrammingError):
@@ -377,7 +377,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 training.assert_not_called()
                 book.assert_not_called()
                 close.assert_not_called()
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -410,7 +410,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 training.assert_not_called()
                 book.assert_not_called()
                 close.assert_not_called()
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -456,7 +456,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 book.assert_not_called()
                 close.assert_not_called()
                 self.assertEqual(application._pending_shell_publication, (17,))
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -505,7 +505,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 self.assertEqual(book_worker.resume_calls, 1)
                 self.assertEqual(file_worker.resume_calls, 1)
                 self.assertEqual(application._pending_shell_publication, (29,))
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -525,7 +525,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "synthetic progress publication failure"):
                     application.shutdown()
 
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -546,7 +546,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     application.shutdown()
 
                 self.assertIs(caught.exception, progress_failure)
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
 
                 self.assertTrue(application.shutdown())
                 with self.assertRaises(sqlite3.ProgrammingError):
@@ -592,7 +592,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
 
                 self.assertIs(caught.exception, primary)
                 self.assertEqual(calls, ["training", "book"])
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -627,7 +627,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
 
                 self.assertIs(caught.exception, primary)
                 close.assert_not_called()
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -675,7 +675,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                         application.shutdown()
 
                     self.assertIs(caught.exception, database_failure)
-                    self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                    self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
                     self.assertEqual(book_worker.resume_calls, 1)
                     self.assertEqual(file_worker.resume_calls, 1)
                     self.assertEqual(book_worker.shutdown_calls, [None])
@@ -732,7 +732,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 self.assertEqual(file_worker.shutdown_calls, [0.25])
                 self.assertEqual(book_worker.resume_calls, 1)
                 self.assertEqual(file_worker.resume_calls, 1)
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -784,7 +784,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     application._native_shutdown_recovery_error,
                     RecoveryAbort,
                 )
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -841,7 +841,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     "recovery contract",
                     str(application._native_shutdown_recovery_error),
                 )
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
@@ -871,7 +871,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                     application.shutdown()
 
                 self.assertIsNone(application._native_shutdown_recovery_error)
-                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+                self.assertEqual(tuple(database.conn.execute("SELECT 1").fetchone()), (1,))
             finally:
                 database.close()
                 analysis.close()
