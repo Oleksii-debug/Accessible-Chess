@@ -172,6 +172,11 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
             raise AssertionError("instance-level BookWebViewProjection hook must not execute")
 
         projection.next = hostile  # type: ignore[method-assign]
+        projection.snapshot = hostile  # type: ignore[method-assign]
+        projection._snapshot_from_block = hostile  # type: ignore[method-assign]
+        projection._render = hostile  # type: ignore[method-assign]
+        projection._navigate = hostile  # type: ignore[method-assign]
+        projection._result_announcement = hostile  # type: ignore[method-assign]
         projection.generic_error = hostile  # type: ignore[method-assign]
 
         bridge = BookWebViewBridge(projection)
