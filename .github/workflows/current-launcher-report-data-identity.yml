@@ -20,6 +20,7 @@ env:
   CURRENT_PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   LAUNCHER_BLOB: 9ffc6677e33637d89d8834ebb6c135ab6d26f3bb
   CONTRACT_TEST_BLOB: 4ae48babd7ada71d38148dfb537982b74140da6b
+  WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 jobs:
@@ -75,13 +76,15 @@ jobs:
             '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
-            'tests/test_portable_launcher_contract.py' | sort)"
+            'tests/test_portable_launcher_contract.py' \
+            'tests/test_portable_launcher_window_readiness.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected launcher convergence scope:\n%s\n' "$changed" >&2
             exit 1
           }
           test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           echo 'CURRENT_LAUNCHER_IDENTITY_GEOMETRY=PASS'
 
@@ -124,6 +127,7 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$CURRENT_PRODUCT"
           test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
 
       - name: Build native x64 launcher without CRT
         shell: cmd
