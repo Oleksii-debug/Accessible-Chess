@@ -161,6 +161,60 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         self.assertEqual(reader.index, before)
 
 
+    def test_navigation_abort_at_final_revision_barrier_rolls_back_cursor(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        reader = BookReader(self.make_book())
+        before = reader.index
+        original_digest = reader._document_revision_digest
+        calls = 0
+
+        def abort_second_revision_read() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise AbortSignal("simulated final navigation abort")
+            return original_digest()
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            side_effect=abort_second_revision_read,
+        ):
+            with self.assertRaises(AbortSignal):
+                reader.next_block()
+
+        self.assertEqual(before, reader.index)
+        self.assertEqual(calls, 2)
+
+    def test_semantic_navigation_abort_at_final_barrier_rolls_back_cursor(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        reader = BookReader(self.make_book())
+        before = reader.index
+        original_digest = reader._document_revision_digest
+        calls = 0
+
+        def abort_second_revision_read() -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise AbortSignal("simulated semantic-navigation abort")
+            return original_digest()
+
+        with patch.object(
+            reader,
+            "_document_revision_digest",
+            side_effect=abort_second_revision_read,
+        ):
+            with self.assertRaises(AbortSignal):
+                reader.next_heading()
+
+        self.assertEqual(before, reader.index)
+        self.assertEqual(calls, 2)
+
     def test_save_return_point_abort_at_final_revision_barrier_rolls_back_binding(self) -> None:
         class AbortSignal(BaseException):
             pass
