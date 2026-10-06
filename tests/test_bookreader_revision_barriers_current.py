@@ -262,6 +262,40 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         with self.assertRaises(LookupError):
             reader.restore_return_point("handoff")
 
+    def test_provisional_return_point_live_drift_restores_previous_binding(self) -> None:
+        book = self.make_book()
+        reader = BookReader(book)
+        reader.go_to(2)
+        reader.save_return_point("handoff")
+        previous = reader.restore_return_point("handoff")
+        self.assertEqual(previous.index, 2)
+
+        reader.go_to(0)
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "changed after BookReader creation",
+        ):
+            with reader.provisional_return_point("handoff") as location:
+                self.assertEqual(location.index, 0)
+                book.blocks[1].text = "drift while previous binding exists"
+
+        self.assertEqual(reader._return_points["handoff"], previous.target_key)
+
+    def test_new_provisional_return_point_rejects_reentrant_deletion(self) -> None:
+        reader = BookReader(self.make_book())
+        reader.go_to(1)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "provisional return point changed during handoff",
+        ):
+            with reader.provisional_return_point("handoff") as location:
+                self.assertEqual(location.index, 1)
+                reader._return_points.pop("handoff")
+
+        with self.assertRaises(LookupError):
+            reader.restore_return_point("handoff")
+
     def test_provisional_return_point_rejects_reentrant_named_overwrite(self) -> None:
         reader = BookReader(self.make_book())
         reader.go_to(1)
