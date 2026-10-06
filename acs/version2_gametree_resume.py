@@ -14,6 +14,7 @@ import stat
 
 from .gametree_resume import (
     GameTreeResumeCode,
+    GameTreeResumeDurabilityUnknownError,
     GameTreeResumeError,
     GameTreeResumeStore,
     _exclusive_store_lock,
@@ -642,11 +643,18 @@ class Version2GameTreeResumeCoordinator:
         workspace = getattr(session, "workspace", None)
         if not isinstance(workspace, PgnWorkspace):
             raise TypeError("Version 2 PGN session has no canonical workspace")
-        state = self.store.save(
-            workspace.current_game(),
-            workspace.cursor,
-            expected_token=self._token,
-        )
+        try:
+            state = self.store.save(
+                workspace.current_game(),
+                workspace.cursor,
+                expected_token=self._token,
+            )
+        except GameTreeResumeDurabilityUnknownError as error:
+            # Atomic publication already happened. Preserve the exact published
+            # CAS token so a user retry can reconcile/update that generation
+            # instead of falsely acting as the stale pre-publication writer.
+            self._token = error.published_token
+            raise
         self._token = state.token
 
 

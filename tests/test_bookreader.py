@@ -263,6 +263,74 @@ class BookReaderTests(unittest.TestCase):
 
         self.assertEqual(reader.location().block_id, "part-1")
 
+    def test_detached_metadata_rejects_active_text_before_hooks(self):
+        reader = BookReader(
+            BookDocument(
+                "Reader",
+                author="Author",
+                language="en",
+                blocks=[Heading(text="Part", level=1)],
+            )
+        )
+
+        class ActiveText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active metadata length hook must not execute")
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active metadata strip hook must not execute")
+
+        reader._indexed_document.title = ActiveText("forged")
+
+        with self.assertRaisesRegex(TypeError, "indexed Book reading metadata is invalid"):
+            reader.document_title_author_snapshot()
+        with self.assertRaisesRegex(TypeError, "indexed Book reading metadata is invalid"):
+            reader.block_reading_snapshot(0)
+
+        self.assertFalse(ActiveText.touched)
+
+    def test_detached_metadata_rejects_indexed_document_subclass_before_hooks(self):
+        reader = BookReader(self.make_book())
+
+        class HostileDocument(BookDocument):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"title", "author", "language"}:
+                    type(self).touched = True
+                    raise AssertionError("indexed metadata root hook must not execute")
+                return super().__getattribute__(name)
+
+        hostile = HostileDocument.from_dict(reader._indexed_document.as_dict())
+        reader._indexed_document = hostile
+        HostileDocument.armed = True
+
+        with self.assertRaisesRegex(TypeError, "indexed BookDocument metadata root is invalid"):
+            reader.document_language_snapshot()
+
+        self.assertFalse(HostileDocument.touched)
+
+    def test_detached_metadata_snapshots_preserve_canonical_values(self):
+        reader = BookReader(
+            BookDocument(
+                "Reader title",
+                author="Reader author",
+                language="uk",
+                blocks=[Heading(text="Part", level=1)],
+            )
+        )
+
+        self.assertEqual(reader.document_title_author_snapshot(), ("Reader title", "Reader author"))
+        self.assertEqual(reader.document_language_snapshot(), "uk")
+        block, title, author, language = reader.block_reading_snapshot(0)
+        self.assertIs(type(block), Heading)
+        self.assertEqual((title, author, language), ("Reader title", "Reader author", "uk"))
+
     def test_navigation_availability_rechecks_revision_after_semantic_scan(self):
         book = self.make_book()
         reader = BookReader(book)

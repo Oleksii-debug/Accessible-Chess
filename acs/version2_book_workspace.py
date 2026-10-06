@@ -25,6 +25,7 @@ from .book_webview_projection import (
 )
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader
+from .full_product_actions import ActionDispatchResult
 from .full_product_presenters import (
     BookReaderPresenter,
     PgnGameView,
@@ -62,6 +63,7 @@ _SEMANTIC_LABELS = {
         "round": "Тур", "eco": "ECO", "opening": "Дебют",
         "reading_unavailable": "Ходи цієї партії неможливо безпечно показати; шахівниця залишається доступною.",
         "content_unavailable": "Шаховий вміст цієї партії недоступний або невалідний; відкриття на шахівниці вимкнено.",
+        "recovery_warnings": "Шаховий текст відновлено з попередженнями: {count}. Перегляньте попередження перед використанням.",
     },
     UILanguage.EN: {
         "moves": "Moves and variations",
@@ -73,6 +75,7 @@ _SEMANTIC_LABELS = {
         "round": "Round", "eco": "ECO", "opening": "Opening",
         "reading_unavailable": "This game's moves cannot be displayed safely; the board remains available.",
         "content_unavailable": "This game's chess content is unavailable or invalid; opening it on the board is disabled.",
+        "recovery_warnings": "Chess text was recovered with warnings: {count}. Review the warnings before using it.",
     },
 }
 
@@ -90,8 +93,15 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         *,
         language: UILanguage = UILanguage.UA,
     ) -> None:
-        if not isinstance(reader, BookReader) or not isinstance(workflow, BookBoardWorkflow):
+        if type(reader) is not BookReader or type(workflow) is not BookBoardWorkflow:
             raise TypeError("V2 Books requires the canonical reader and workflow")
+        # Exact roots are not enough if they belong to different Books. The
+        # projection reads visible block/metadata state from reader while semantic
+        # GameTree and board actions resolve through the workflow reader. Mixing
+        # those authorities could publish chess content from one Book under the
+        # visible location/metadata of another.
+        if workflow._reader is not reader:
+            raise ValueError("V2 Books reader and workflow must share one authority")
         self._reader = reader
         self._workflow = workflow
         # BookWebViewProjection deliberately accepts only the exact canonical
@@ -100,7 +110,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         super().__init__(BookReaderPresenter(reader, language=language), dispatch, language=language)
 
     def _semantic_tree_snapshot(self, index: int) -> dict[str, object]:
-        mode, game, _workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        mode, game, workflow_warnings = self._workflow.semantic_game_snapshot(index)
+        if (
+            type(workflow_warnings) is not tuple
+            or len(workflow_warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+            or any(type(warning) is not str for warning in workflow_warnings)
+        ):
+            raise _BookSemanticProjectionError("semantic workflow warnings are invalid")
         if (
             type(mode) is not BookBoardMode
             or mode not in {BookBoardMode.GAME, BookBoardMode.VARIATION}
@@ -117,6 +133,8 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             or len(game.warnings) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
         ):
             raise _BookSemanticProjectionError("semantic GameTree metadata is invalid")
+        if len(workflow_warnings) != len(game.warnings):
+            raise _BookSemanticProjectionError("semantic workflow warnings are inconsistent")
         # An exact dict can still contain hostile key/value subclasses. Validate
         # the detached tag table by iteration before any named lookup can invoke
         # user-defined hashing/equality behavior through a malformed DTO.
@@ -650,6 +668,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             previous_depth = item.depth
 
         return {
+            "_recovery_warning_count": len(workflow_warnings),
             "kind": mode.value,
             "label": semantic_label,
             "players_label": players_label,
@@ -664,9 +683,26 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         }
 
     def _workflow_presentation_state(self) -> tuple[bool, int]:
-        revision_before = self._workflow.revision
-        active = self._workflow.active
-        revision_after = self._workflow.revision
+        try:
+            revision_before = self._workflow.revision
+            active = self._workflow.active
+            revision_after = self._workflow.revision
+        except BaseException as exc:
+            raise BookBoardWorkflowError(
+                "Book Board state is unavailable while preparing semantic reading",
+                code=BookBoardWorkflowCode.RETURN_FAILED,
+            ) from exc
+        if (
+            type(revision_before) is not int
+            or revision_before < 0
+            or type(active) is not bool
+            or type(revision_after) is not int
+            or revision_after < 0
+        ):
+            raise BookBoardWorkflowError(
+                "Book Board state is invalid while preparing semantic reading",
+                code=BookBoardWorkflowCode.RETURN_FAILED,
+            )
         if revision_before != revision_after:
             raise BookBoardWorkflowError(
                 "Book Board state changed while preparing semantic reading",
@@ -684,6 +720,13 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         def reading_metadata(value):
             if value is None:
                 return ""
+            # Metadata crosses from the detached reader revision into the
+            # WebView. Low-level corruption of the indexed BookDocument must
+            # fail before len/slice can execute provider-defined text hooks.
+            if type(value) is not str:
+                raise _BookSemanticProjectionError(
+                    "book reading metadata is invalid"
+                )
             # Metadata stays complete in BookDocument; indicate the bounded
             # presentation excerpt rather than scanning a source-sized scalar.
             excerpt = value if len(value) <= 359 else value[:358] + "…"
@@ -699,15 +742,32 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if valid_source_language:
                 snapshot["block"]["content_language"] = source_language
         board_active, workflow_revision = self._workflow_presentation_state()
-        can_open_position = isinstance(
-            semantic,
-            (Position, Diagram, Exercise, VariationTree),
-        )
-        can_open_game = isinstance(semantic, Game)
-        if isinstance(semantic, (Game, VariationTree)):
+        semantic_type = type(semantic)
+        can_open_position = semantic_type in {
+            Position,
+            Diagram,
+            Exercise,
+            VariationTree,
+        }
+        can_open_game = semantic_type is Game
+        if semantic_type in {Game, VariationTree}:
+            recovery_warning_count = 0
             try:
                 semantic_tree = self._semantic_tree_snapshot(block.index)
-                expected_kind = "game" if isinstance(semantic, Game) else "variation"
+                if type(semantic_tree) is not dict:
+                    raise _BookSemanticProjectionError("semantic GameTree snapshot is invalid")
+                recovery_warning_count = semantic_tree.pop(
+                    "_recovery_warning_count",
+                    0,
+                )
+                if (
+                    type(recovery_warning_count) is not int
+                    or not 0 <= recovery_warning_count <= _MAX_BOOK_SEMANTIC_TEXT_ENTRIES
+                ):
+                    raise _BookSemanticProjectionError(
+                        "semantic recovery warning count is invalid"
+                    )
+                expected_kind = "game" if semantic_type is Game else "variation"
                 if semantic_tree.get("kind") != expected_kind:
                     raise _BookSemanticProjectionError(
                         "semantic GameTree mode disagrees with the Book block"
@@ -722,13 +782,29 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     raise
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["content_unavailable"]
-                if isinstance(semantic, Game):
+                if semantic_type is Game:
                     can_open_game = False
                 else:
                     can_open_position = False
             except (_BookSemanticProjectionError, AttributeError, TypeError, ValueError):
                 snapshot["semantic_tree"] = None
                 snapshot["block"]["warning"] = _SEMANTIC_LABELS[self.language]["reading_unavailable"]
+            else:
+                if recovery_warning_count:
+                    recovery_warning = _SEMANTIC_LABELS[self.language][
+                        "recovery_warnings"
+                    ].format(count=recovery_warning_count)
+                    existing_warning = snapshot["block"]["warning"]
+                    combined_warning = (
+                        f"{recovery_warning} {existing_warning}"
+                        if existing_warning
+                        else recovery_warning
+                    )
+                    snapshot["block"]["warning"] = _safe_text(
+                        combined_warning,
+                        language=self.language,
+                        limit=1000,
+                    )
         final_board_active, final_workflow_revision = self._workflow_presentation_state()
         if (
             final_board_active != board_active
@@ -758,24 +834,51 @@ class Version2BookWebViewProjection(BookWebViewProjection):
         return snapshot
 
     def _workflow_action(self, action: str, expected: BookBoardUiEventKind) -> bool:
-        result = self._dispatch(action, {})
-        # A canonical router returns ActionDispatchResult; a composed callback
-        # may already unwrap it. A transition is successful only when the event
-        # belongs to the action we dispatched and the canonical workflow reached
-        # the corresponding state. This prevents stale/misrouted success DTOs
-        # from producing false NVDA success announcements.
-        result = getattr(result, "value", result)
+        try:
+            result = self._dispatch(action, {})
+        except BaseException:
+            # The provider is a host/application boundary. Never let a host abort
+            # bypass the Book bridge's sanitized accessible failure result.
+            return False
+        # A canonical router returns exact ActionDispatchResult while a composed
+        # callback may already return the exact UI event. Keep this boundary
+        # passive: never probe arbitrary wrappers for a value attribute, and
+        # never read fields from provider-defined BookBoardUiEvent subclasses.
+        if type(result) is ActionDispatchResult:
+            if (
+                type(result.action_id) is not str
+                or result.action_id != action
+                or type(result.handled_by_shell) is not bool
+                or result.handled_by_shell
+                or result.route_id is not None
+                or result.focus_target is not None
+            ):
+                return False
+            result = result.value
+        if type(result) is not BookBoardUiEvent:
+            return False
         if (
-            not isinstance(result, BookBoardUiEvent)
-            or result.kind is not expected
+            type(result.kind) is not BookBoardUiEventKind
+            or type(result.action_id) is not str
+            or type(result.revision) is not int
+        ):
+            return False
+        try:
+            workflow_active, workflow_revision = self._workflow_presentation_state()
+        except BaseException:
+            # The action boundary must remain sanitized even if canonical
+            # workflow state was low-level corrupted after dispatch.
+            return False
+        if (
+            result.kind is not expected
             or result.action_id != action
-            or result.revision != self._workflow.revision
+            or result.revision != workflow_revision
         ):
             return False
         if expected is BookBoardUiEventKind.BOARD_OPENED:
-            return self._workflow.active
+            return workflow_active
         if expected is BookBoardUiEventKind.RETURNED_TO_BOOK:
-            return not self._workflow.active
+            return not workflow_active
         return True
 
     def open_position(self) -> BookWebViewEvent:
