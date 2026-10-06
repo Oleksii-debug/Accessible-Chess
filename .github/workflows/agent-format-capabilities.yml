@@ -1,0 +1,89 @@
+name: Agent Format Capability Contract
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+    paths:
+      - acs/chess_agent_tools.py
+      - acs/chessbase_adapter.py
+      - acs/chessbase_decoder.py
+      - tests/test_agent_format_capabilities.py
+      - tests/test_chess_agent_tools_crossrepo.py
+      - .github/workflows/agent-format-capabilities.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-format-capabilities-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact live parent and bounded format-capability scope
+        shell: bash
+        env:
+          PARENT_REF: work/media-agent-crossrepo-intake-20261005
+          PARENT_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
+        run: |
+          set -euo pipefail
+          candidate="$(git rev-parse HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            test "$candidate" = "${{ github.event.pull_request.head.sha }}"
+            test "${{ github.event.pull_request.base.ref }}" = "$PARENT_REF"
+          else
+            test "$candidate" = "$GITHUB_SHA"
+          fi
+
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/format-capability-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/format-capability-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'FORMAT_CAPABILITY_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+
+          test "$(git merge-base "$PARENT_SHA" "$candidate")" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA...$candidate"
+          changed="$(git diff --name-only "$PARENT_SHA...$candidate" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/agent-format-capabilities.yml' \
+            'acs/chess_agent_tools.py' \
+            'tests/test_agent_format_capabilities.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent format-capability scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          echo 'AGENT_FORMAT_CAPABILITY_GEOMETRY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile format capability boundary
+        run: >-
+          python -m compileall -q
+          acs/chess_agent_tools.py
+          acs/chessbase_adapter.py
+          acs/chessbase_decoder.py
+          tests/test_agent_format_capabilities.py
+
+      - name: Execute format and composed tool regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_format_capabilities
+          tests.test_chess_agent_tools_crossrepo

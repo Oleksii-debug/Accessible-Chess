@@ -14,6 +14,12 @@ from typing import Protocol
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
+from .chessbase_adapter import (
+    component_extensions,
+    primary_extensions,
+    recognized_extensions,
+)
+from .chessbase_decoder import PROTOCOL_ID as CHESSBASE_DECODER_PROTOCOL_ID
 from .chesscore import Board
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
 from .squares import square_name
@@ -48,6 +54,30 @@ def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
         raise ChessAgentToolsError(f"{name} must be text")
     value = value.strip()
     return value or None
+
+
+def _canonical_extension(arguments: Mapping[str, object]) -> str:
+    if frozenset(arguments) != frozenset({"extension"}):
+        raise ChessAgentToolsError(
+            "formats.chessbase_extension requires exactly the extension argument"
+        )
+    value = arguments.get("extension")
+    if type(value) is not str:
+        raise ChessAgentToolsError("extension must be text")
+    value = value.strip().lower()
+    if not value:
+        raise ChessAgentToolsError("extension must not be empty")
+    if not value.startswith("."):
+        value = "." + value
+    body = value[1:]
+    if (
+        len(value) > 16
+        or not body
+        or not body.isascii()
+        or not body.isalnum()
+    ):
+        raise ChessAgentToolsError("extension is invalid")
+    return value
 
 
 class MediaAgentBridge:
@@ -157,6 +187,7 @@ class ChessAgentToolRegistry:
             self._register_engine()
         if self.search_service is not None:
             self._register_library()
+        self._register_formats()
         if self.media is not None:
             self._register_media()
         return self.executor.specs()
@@ -365,6 +396,62 @@ class ChessAgentToolRegistry:
                 },
             ),
             search,
+        )
+
+    def _register_formats(self) -> None:
+        recognized = recognized_extensions()
+        primaries = primary_extensions()
+        components = component_extensions()
+        recognized_set = frozenset(recognized)
+        primary_set = frozenset(primaries)
+        component_set = frozenset(components)
+
+        async def capabilities(arguments: Mapping[str, object]) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "formats.capabilities accepts no arguments"
+                )
+            return {
+                "chessBase": {
+                    "recognizedExtensions": list(recognized),
+                    "primaryExtensions": list(primaries),
+                    "componentExtensions": list(components),
+                    "recognitionAuthority": "filename_and_component_layout_only",
+                    "sourceReadOnly": True,
+                    "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                    "decoderBackend": "external_not_bundled",
+                    "neutralOutputRequired": True,
+                }
+            }
+
+        async def chessbase_extension(arguments: Mapping[str, object]) -> object:
+            extension = _canonical_extension(arguments)
+            return {
+                "extension": extension,
+                "recognized": extension in recognized_set,
+                "primarySource": extension in primary_set,
+                "componentOnly": extension in component_set,
+                "recognitionAuthority": "filename_and_component_layout_only",
+                "sourceReadOnly": True,
+                "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                "decoderBackend": "external_not_bundled",
+                "builtInSafeToImport": False,
+            }
+
+        self.executor.register(
+            ToolSpec(
+                "formats.capabilities",
+                "Read canonical format-family capability metadata without reading a user file.",
+            ),
+            capabilities,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.chessbase_extension",
+                "Classify one ChessBase-family extension using the canonical read-only adapter contract.",
+                input_schema={"extension": "extension such as .cbh or cbv"},
+            ),
+            chessbase_extension,
         )
 
     def _register_media(self) -> None:
