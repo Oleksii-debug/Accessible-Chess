@@ -1,12 +1,14 @@
+from io import BytesIO
 import tempfile
 import threading
+import zipfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.chesscore import Board
-from acs.book_html_import import import_html_book, _SemanticHtmlParser
+from acs.book_html_import import import_html_book, _ListCapture, _SemanticHtmlParser
 from acs.book_epub_import import import_epub_book
 from acs.book_text_import import import_text_book, BookTextFormat
 from acs.import_contract import SourceReadCancelledError
@@ -14,7 +16,7 @@ from acs.library_import_service import LibraryImportService
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind, Version2ImportWorkerServices, Version2WindowsFileActionDelegate,
 )
-from test_v2_book_epub_import import _simple_epub
+from test_v2_book_epub_import import _epub, _opf, _simple_epub
 
 
 HTML = ('<html lang="uk"><head><title>Книга</title></head><body>'
@@ -51,6 +53,236 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(original.book_key, controlled.book_key)
         self.assertEqual(original.warnings, controlled.warnings)
         self.assertEqual(controlled.pgn_games, 2)
+
+    def test_epub_central_directory_validation_observes_control(self):
+        import acs.book_epub_import as epub
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
+            for index in range(300):
+                archive.writestr(f'entry-{index:03}.txt', b'x')
+
+        failure = SourceReadCancelledError('cancelled during EPUB central directory validation')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._validate_single_disk_zip_end_records(buffer.getvalue(), cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_archive_index_observes_control_inside_large_package_scan(self):
+        import acs.book_epub_import as epub
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
+            for index in range(300):
+                archive.writestr(f'entry-{index:03}.txt', b'x')
+
+        failure = SourceReadCancelledError('cancelled during EPUB package scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with zipfile.ZipFile(BytesIO(buffer.getvalue()), 'r') as archive:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._archive_index(archive, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_safe_name_segment_scan_observes_control(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError('cancelled during EPUB OCF path scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        name = '/'.join(f'p{index}' for index in range(300))
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._safe_entry_name(name, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_local_zip64_extra_scan_observes_control(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError('cancelled during EPUB ZIP extra scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        extra = b'\x02\x00\x00\x00' * 300
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._local_zip64_sizes(
+                extra,
+                needs_uncompressed=False,
+                needs_compressed=False,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_entry_decompression_observes_control_before_full_payload_read(self):
+        import acs.book_epub_import as epub
+
+        buffer = BytesIO()
+        payload = b'x' * (512 * 1024)
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('large.bin', payload)
+
+        failure = SourceReadCancelledError('cancelled during EPUB entry decompression')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with zipfile.ZipFile(BytesIO(buffer.getvalue()), 'r') as archive:
+            index = {'large.bin': archive.getinfo('large.bin')}
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._read_entry(
+                    archive, index, 'large.bin', control_checkpoint=cancel
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_xml_structure_scan_observes_control_before_tree_materialization(self):
+        import acs.book_epub_import as epub
+
+        data = ('<root>' + '<item />' * 500 + '</root>').encode('utf-8')
+        failure = SourceReadCancelledError('cancelled during EPUB XML scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with patch.object(epub.ET, 'fromstring') as materialize:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._xml_root(data, 'test metadata', cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        materialize.assert_not_called()
+
+    def test_epub_xml_tree_materialization_observes_control_between_chunks(self):
+        import acs.book_epub_import as epub
+
+        data = ("<root>" + ("x" * (192 * 1024)) + "</root>").encode("utf-8")
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB XML tree materialization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._materialize_xml_root(data, "test metadata", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_package_metadata_validation_observes_control_before_id_walk(self):
+        import acs.book_epub_import as epub
+
+        metadata = '''
+    <dc:identifier id="bookid">urn:uuid:test-fixture</dc:identifier>
+    <dc:title>Cancelable package</dc:title>
+    <dc:language>uk</dc:language>
+''' + '\n'.join(
+            f'    <ext:note xmlns:ext="urn:test:ext" id="foreign-{index}">x</ext:note>'
+            for index in range(300)
+        )
+        package = epub.ET.fromstring(
+            _opf(
+                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+                metadata=metadata,
+            )
+        )
+        failure = SourceReadCancelledError('cancelled during EPUB package metadata validation')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 6:
+                raise failure
+
+        with patch.object(epub, '_validate_package_ids_unique') as id_walk:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._validate_package_document(package, cancel)
+        self.assertIs(caught.exception, failure)
+        id_walk.assert_not_called()
+
+    def test_epub_manifest_scan_observes_control_before_full_metadata_walk(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join(
+            f'    <item id="i{index}" href="Text/{index}.xhtml" media-type="application/xhtml+xml"/>'
+            for index in range(300)
+        )
+        package = epub.ET.fromstring(
+            _opf(manifest=manifest, spine='    <itemref idref="i0"/>')
+        )
+        failure = SourceReadCancelledError('cancelled during EPUB manifest scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._manifest_items(package, 'OEBPS', cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_spine_scan_observes_control_before_full_reading_order_walk(self):
+        import acs.book_epub_import as epub
+
+        manifest_text = '\n'.join(
+            f'    <item id="i{index}" href="Text/{index}.xhtml" media-type="application/xhtml+xml"/>'
+            for index in range(300)
+        )
+        spine_text = '\n'.join(
+            f'    <itemref idref="i{index}"/>' for index in range(300)
+        )
+        package = epub.ET.fromstring(
+            _opf(manifest=manifest_text, spine=spine_text)
+        )
+        manifest = epub._manifest_items(package, 'OEBPS')
+        failure = SourceReadCancelledError('cancelled during EPUB spine scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._spine_ids(package, epub._Warnings(), manifest, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
 
     def test_epub_nested_html_control_preserves_order_and_closes_archive_on_cancel(self):
         raw = _simple_epub(HTML.encode('utf-8'))
@@ -106,6 +338,66 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         parse.assert_not_called()
 
+    def test_html_list_aggregation_observes_control(self):
+        failure = SourceReadCancelledError('cancelled during HTML list aggregation')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        captured = _ListCapture(
+            tag='ul',
+            attrs={},
+            items=[f'item {index}' for index in range(300)],
+            identity_items=[f'item {index}' for index in range(300)],
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._emit_list(captured)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_html_visible_pgn_scan_observes_control_across_large_prose(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError('cancelled during visible PGN scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        visible = ('x' * 16_383 + '\r\n') * 4
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._pgn_candidates(visible, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_html_close_recovery_control_failure_preserves_exact_exception(self):
+        failure = SourceReadCancelledError('cancelled during malformed HTML recovery')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 4:
+                raise failure
+
+        malformed = '<p>' * 300 + 'unfinished'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            import_html_book(
+                malformed,
+                source_name='unfinished.html',
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+
     def test_html_control_failure_is_not_translated_into_malformed_source(self):
         failure = RuntimeError('trusted control failure')
         calls = 0
@@ -125,6 +417,85 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             with self.subTest(importer=importer):
                 with self.assertRaises(TypeError):
                     importer(source, source_name='study', control_checkpoint=True, **args)
+
+    def test_native_cancel_interrupts_large_epub_package_scan_before_library_staging(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        source = root / 'study.epub'
+        chapter = b'<html><body><p>Readable chapter</p></body></html>'
+        raw = _epub(
+            opf=_opf(
+                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            ),
+            entries={'OEBPS/Text/ch1.xhtml': chapter},
+            prepend=[(f'Extras/{index:03}.bin', b'x') for index in range(300)],
+        )
+        source.write_bytes(raw)
+        original = source.read_bytes()
+        database = AcsDatabase(root / 'library.acsdb')
+        self.addCleanup(database.close)
+        ready, release, closed = threading.Event(), threading.Event(), threading.Event()
+        events = []
+
+        class Dialogs:
+            def open_pgn(self): return None
+            def save_pgn_as(self, *args): return None
+            def select_library_import(self): return source
+
+        def services():
+            worker_database = AcsDatabase(root / 'library.acsdb')
+            def close():
+                worker_database.close()
+                closed.set()
+            return Version2ImportWorkerServices(
+                LibraryImportService(worker_database), None, close
+            )
+
+        delegate = Version2WindowsFileActionDelegate(
+            dialogs=Dialogs(), get_pgn_session=lambda: None, set_pgn_session=lambda _: None,
+            import_services_factory=services, event_sink=events.append, next_delegate=lambda *_: None,
+        )
+        import acs.book_epub_import as epub
+        validate = epub._validate_local_zip_header
+        calls = 0
+        def pause(archive, info, control_checkpoint=None):
+            nonlocal calls
+            result = validate(archive, info, control_checkpoint)
+            calls += 1
+            if calls == 100:
+                ready.set()
+                if not release.wait(5):
+                    raise RuntimeError('test EPUB scan release timed out')
+            return result
+
+        with patch.object(epub, '_validate_local_zip_header', pause):
+            try:
+                delegate('library.import', {})
+                self.assertTrue(ready.wait(5))
+                delegate('library.cancel_import', {})
+            finally:
+                release.set()
+                self.assertTrue(delegate.wait_for_import(5))
+
+        self.assertTrue(closed.is_set())
+        self.assertEqual(
+            1,
+            sum(event.kind is FileWorkflowEventKind.IMPORT_CANCELLED for event in events),
+        )
+        self.assertFalse(
+            any(
+                event.kind in {FileWorkflowEventKind.FAILED, FileWorkflowEventKind.IMPORT_COMPLETED}
+                for event in events
+            )
+        )
+        self.assertEqual(source.read_bytes(), original)
+        for table in ('sources', 'games', 'import_attempts'):
+            self.assertEqual(
+                database.conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0],
+                0,
+            )
 
     def test_native_cancel_interrupts_actual_html_parser_before_any_library_staging(self):
         temporary = tempfile.TemporaryDirectory()

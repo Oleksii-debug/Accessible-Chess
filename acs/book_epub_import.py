@@ -186,13 +186,20 @@ def _source_bytes(source: object) -> bytes:
     return source
 
 
-def _validate_single_disk_zip_end_records(raw: bytes) -> int:
+def _validate_single_disk_zip_end_records(
+    raw: bytes,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> int:
     signature = b"PK\x05\x06"
     search_start = max(0, len(raw) - (22 + 0xFFFF))
     cursor = len(raw)
     eocd_offset: int | None = None
+    eocd_candidates = 0
     while True:
+        if control_checkpoint is not None and eocd_candidates % 128 == 0:
+            control_checkpoint()
         candidate = raw.rfind(signature, search_start, cursor)
+        eocd_candidates += 1
         if candidate < 0:
             break
         if candidate + 22 <= len(raw):
@@ -339,6 +346,8 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> int:
     central_cursor = central_offset
     observed_entries = 0
     while central_cursor < central_end:
+        if control_checkpoint is not None and observed_entries % 128 == 0:
+            control_checkpoint()
         if (
             central_cursor + 46 > central_end
             or raw[central_cursor : central_cursor + 4] != b"PK\x01\x02"
@@ -399,7 +408,10 @@ def _is_forbidden_ocf_name_character(character: str) -> bool:
     return False
 
 
-def _safe_entry_name(raw_name: object) -> str:
+def _safe_entry_name(
+    raw_name: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     if type(raw_name) is not str or not raw_name or "\x00" in raw_name or "\\" in raw_name:
         raise _error(
             "EPUB contains an unsafe package entry name",
@@ -424,12 +436,17 @@ def _safe_entry_name(raw_name: object) -> str:
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
     parts = candidate.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
-        raise _error(
-            "EPUB contains an unsafe package entry name",
-            BookEpubImportErrorCode.UNSAFE_PACKAGE,
-        )
-    for part in parts:
+    for part_index, part in enumerate(parts, start=1):
+        if control_checkpoint is not None and part_index % 128 == 1:
+            control_checkpoint()
+        if part in {"", ".", ".."}:
+            raise _error(
+                "EPUB contains an unsafe package entry name",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
+    for part_index, part in enumerate(parts, start=1):
+        if control_checkpoint is not None and part_index % 128 == 1:
+            control_checkpoint()
         try:
             encoded_part = part.encode("utf-8")
         except UnicodeEncodeError as exc:
@@ -465,10 +482,14 @@ def _local_zip64_sizes(
     *,
     needs_uncompressed: bool,
     needs_compressed: bool,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[int | None, int | None]:
     zip64_payload: bytes | None = None
     cursor = 0
+    fields_seen = 0
     while cursor < len(extra):
+        if control_checkpoint is not None and fields_seen % 128 == 0:
+            control_checkpoint()
         if cursor + 4 > len(extra):
             raise _error(
                 "EPUB local ZIP extra field is truncated",
@@ -491,6 +512,7 @@ def _local_zip64_sizes(
                 )
             zip64_payload = extra[payload_start:payload_end]
         cursor = payload_end
+        fields_seen += 1
 
     if not (needs_uncompressed or needs_compressed):
         return None, None
@@ -524,7 +546,10 @@ def _local_zip64_sizes(
 def _validate_local_zip_header(
     archive: zipfile.ZipFile,
     info: zipfile.ZipInfo,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[int, int]:
+    if control_checkpoint is not None:
+        control_checkpoint()
     stream = archive.fp
     if stream is None:
         raise _error(
@@ -611,6 +636,7 @@ def _validate_local_zip_header(
         raw_extra,
         needs_uncompressed=needs_zip64_uncompressed,
         needs_compressed=needs_zip64_compressed,
+        control_checkpoint=control_checkpoint,
     )
     if local_flags & (1 << 3):
         # Streaming ZIP64 writers may leave zero placeholders in the local
@@ -733,7 +759,10 @@ def _validate_local_zip_header(
         )
     return extra_length, physical_end
 
-def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
+def _archive_index(
+    archive: zipfile.ZipFile,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> dict[str, zipfile.ZipInfo]:
     infos = archive.infolist()
     if not infos or len(infos) > MAX_EPUB_ENTRIES:
         raise _error(
@@ -764,10 +793,13 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         )
         for index, offset in enumerate(physical_offsets)
     }
-    for info in infos:
+    for entry_index, info in enumerate(infos, start=1):
+        if control_checkpoint is not None and entry_index % 128 == 1:
+            control_checkpoint()
         local_extra_length, local_physical_end = _validate_local_zip_header(
             archive,
             info,
+            control_checkpoint,
         )
         if local_physical_end > next_physical_boundary[info.header_offset]:
             raise _error(
@@ -779,7 +811,7 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
                 "EPUB uses a multi-disk ZIP entry, which OCF does not permit",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
-        name = _safe_entry_name(info.filename)
+        name = _safe_entry_name(info.filename, control_checkpoint)
         if name == "mimetype":
             if info.header_offset != 0:
                 raise _error(
@@ -801,6 +833,8 @@ def _archive_index(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         parts = name.split("/")
         parent_node = 0
         for part_index, raw_part in enumerate(parts):
+            if control_checkpoint is not None and part_index % 128 == 0:
+                control_checkpoint()
             if parent_node in canonical_file_nodes:
                 raise _error(
                     "EPUB package entry path traverses an existing regular file",
@@ -893,6 +927,7 @@ def _read_entry(
     name: str,
     *,
     limit: int = MAX_EPUB_ENTRY_BYTES,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> bytes:
     info = index.get(name)
     if info is None:
@@ -911,12 +946,43 @@ def _read_entry(
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
     try:
-        data = archive.read(info)
+        stream = archive.open(info, "r")
     except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
         raise _error(
             "EPUB package entry could not be read safely",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         ) from exc
+
+    chunks: list[bytes] = []
+    total = 0
+    with stream:
+        while True:
+            # Trusted control is deliberately outside ZIP exception translation.
+            # SourceReadCancelledError is a RuntimeError and must reach the
+            # transaction owner unchanged.
+            if control_checkpoint is not None:
+                control_checkpoint()
+            # Read at most one byte beyond the authenticated central size.
+            # This preserves the old exact-size check while making large
+            # decompression interruptible by the trusted host.
+            request = min(64 * 1024, max(1, info.file_size - total + 1))
+            try:
+                chunk = stream.read(request)
+            except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
+                raise _error(
+                    "EPUB package entry could not be read safely",
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                ) from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > info.file_size or total > limit:
+                raise _error(
+                    "EPUB package entry size is inconsistent",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+    data = b"".join(chunks)
     if len(data) != info.file_size or len(data) > limit:
         raise _error(
             "EPUB package entry size is inconsistent",
@@ -925,12 +991,19 @@ def _read_entry(
     return data
 
 
-def _xml_root(data: bytes, label: str) -> ET.Element:
+def _xml_root(
+    data: bytes,
+    label: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> ET.Element:
     if len(data) > MAX_EPUB_XML_BYTES:
         raise _error(
             f"EPUB {label} exceeds the supported size",
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
+
+    if control_checkpoint is not None:
+        control_checkpoint()
 
     parser = expat.ParserCreate()
     element_count = 0
@@ -943,6 +1016,8 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
     def start_element(_name: str, attrs: dict[str, str]) -> None:
         nonlocal element_count, attribute_count, depth
         element_count += 1
+        if control_checkpoint is not None and element_count % 128 == 1:
+            control_checkpoint()
         depth += 1
         current_attributes = len(attrs)
         attribute_count += current_attributes
@@ -982,8 +1057,26 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         ) from exc
 
+    return _materialize_xml_root(data, label, control_checkpoint)
+
+
+def _materialize_xml_root(
+    data: bytes,
+    label: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> ET.Element:
+    """Materialize already-validated XML without creating a cancellation blind spot."""
+
+    parser = ET.XMLParser(target=ET.TreeBuilder())
+    chunk_size = 64 * 1024
     try:
-        return ET.fromstring(data)
+        for offset in range(0, len(data), chunk_size):
+            if control_checkpoint is not None:
+                control_checkpoint()
+            parser.feed(data[offset : offset + chunk_size])
+        if control_checkpoint is not None:
+            control_checkpoint()
+        return parser.close()
     except ET.ParseError as exc:
         raise _error(
             f"EPUB {label} is malformed",
@@ -1028,9 +1121,15 @@ def _normalized_media_type(value: object, *, context: str) -> str:
     return value.casefold()
 
 
-def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
+def _direct_child(
+    parent: ET.Element,
+    name: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> ET.Element | None:
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
-    for child in parent:
+    for child_index, child in enumerate(parent, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
         if child.tag == wanted:
             return child
     return None
@@ -1039,10 +1138,16 @@ def _direct_child(parent: ET.Element, name: str) -> ET.Element | None:
 def _required_unique_direct_child(
     parent: ET.Element,
     name: str,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> ET.Element:
     """Return the only direct OPF section with this local name."""
     wanted = f"{{{_OPF_NAMESPACE}}}{name}"
-    matches = [child for child in parent if child.tag == wanted]
+    matches: list[ET.Element] = []
+    for child_index, child in enumerate(parent, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if child.tag == wanted:
+            matches.append(child)
     if len(matches) != 1:
         raise _error(
             f"EPUB package must contain exactly one {name} section",
@@ -1051,12 +1156,18 @@ def _required_unique_direct_child(
     return matches[0]
 
 
-def _metadata_values(metadata: ET.Element | None, name: str) -> list[str]:
+def _metadata_values(
+    metadata: ET.Element | None,
+    name: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[str]:
     if metadata is None:
         return []
     wanted = f"{{{_DUBLIN_CORE_NAMESPACE}}}{name}"
     values: list[str] = []
-    for element in metadata:
+    for metadata_index, element in enumerate(metadata, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if element.tag != wanted:
             continue
         if len(element):
@@ -1103,7 +1214,11 @@ def _is_opf_namespace_tag(tag: object) -> bool:
     return type(tag) is str and tag.startswith(f"{{{_OPF_NAMESPACE}}}")
 
 
-def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> None:
+def _validate_package_ids_unique(
+    package: ET.Element,
+    metadata: ET.Element,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     """Reject duplicate EPUB-defined IDs before resolving IDREF semantics."""
 
     seen: set[str] = set()
@@ -1130,14 +1245,19 @@ def _validate_package_ids_unique(package: ET.Element, metadata: ET.Element) -> N
     # conforming collection). Foreign extension elements do not acquire EPUB ID
     # semantics merely by spelling an attribute "id".
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
-    for element in package.iter():
+    for element_index, element in enumerate(package.iter(), start=1):
+        if control_checkpoint is not None and element_index % 128 == 1:
+            control_checkpoint()
         if element.tag in _ID_BEARING_OPF_TAGS or (
             type(element.tag) is str and element.tag.startswith(dc_prefix)
         ):
             record(element)
 
 
-def _validate_package_document(package: ET.Element) -> None:
+def _validate_package_document(
+    package: ET.Element,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     if package.tag != _PACKAGE_TAG:
         raise _error(
             "EPUB package metadata has an invalid OPF root element or namespace",
@@ -1151,13 +1271,20 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if (package.text or "").strip() or any(
-        (child.tail or "").strip() for child in package
-    ):
+    if (package.text or "").strip():
         raise _error(
             "EPUB package contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+
+    for child_index, child in enumerate(package, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB package contains invalid mixed text",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     unique_identifier = package.attrib.get("unique-identifier")
     if not _is_exact_identifier(unique_identifier):
@@ -1166,9 +1293,12 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    structural_children = [
-        child.tag for child in package if _is_opf_namespace_tag(child.tag)
-    ]
+    structural_children: list[str] = []
+    for child_index, child in enumerate(package, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if _is_opf_namespace_tag(child.tag):
+            structural_children.append(child.tag)
     required = (_METADATA_TAG, _MANIFEST_TAG, _SPINE_TAG)
     if (
         tuple(structural_children[:3]) != required
@@ -1202,15 +1332,23 @@ def _validate_package_document(package: ET.Element) -> None:
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    metadata = _required_unique_direct_child(package, "metadata")
-    if (metadata.text or "").strip() or any(
-        (child.tail or "").strip() for child in metadata
-    ):
+    metadata = _required_unique_direct_child(package, "metadata", control_checkpoint)
+    if (metadata.text or "").strip():
         raise _error(
             "EPUB metadata contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    for child in metadata:
+    for metadata_index, child in enumerate(metadata, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB metadata contains invalid mixed text",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+    for metadata_index, child in enumerate(metadata, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if _is_opf_namespace_tag(child.tag) and child.tag not in {
             f"{{{_OPF_NAMESPACE}}}meta",
             f"{{{_OPF_NAMESPACE}}}link",
@@ -1219,9 +1357,11 @@ def _validate_package_document(package: ET.Element) -> None:
                 "EPUB metadata contains an invalid OPF element",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-    _validate_package_ids_unique(package, metadata)
+    _validate_package_ids_unique(package, metadata, control_checkpoint)
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
-    for element in metadata:
+    for metadata_index, element in enumerate(metadata, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if type(element.tag) is not str or not element.tag.startswith(dc_prefix):
             continue
         if len(element):
@@ -1235,12 +1375,12 @@ def _validate_package_document(package: ET.Element) -> None:
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
 
-    if not _metadata_values(metadata, "title"):
+    if not _metadata_values(metadata, "title", control_checkpoint):
         raise _error(
             "EPUB package metadata is missing a non-empty dc:title",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    if not _metadata_values(metadata, "language"):
+    if not _metadata_values(metadata, "language", control_checkpoint):
         raise _error(
             "EPUB package metadata is missing a non-empty dc:language",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1248,7 +1388,9 @@ def _validate_package_document(package: ET.Element) -> None:
 
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
-    for element in metadata:
+    for metadata_index, element in enumerate(metadata, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if element.tag != identifier_tag or element.attrib.get("id") != unique_identifier:
             continue
         if len(element):
@@ -1350,6 +1492,7 @@ def _package_rootfiles(
     container: ET.Element,
     warnings: _Warnings,
     archive_index: dict[str, zipfile.ZipInfo],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[str, ...]:
     _validate_container_attributes(
         container,
@@ -1365,20 +1508,29 @@ def _package_rootfiles(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if (container.text or "").strip() or any(
-        (child.tail or "").strip() for child in container
-    ):
+    if (container.text or "").strip():
         raise _error(
             "EPUB container contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    for child_index, child in enumerate(container, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB container contains invalid mixed text",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     # OCF validates container.xml after removing foreign-namespace elements and
     # their contents. Enforce the remaining canonical child order exactly:
     # rootfiles first, followed by at most one optional links section.
-    structural_children = [
-        child for child in container if _is_container_namespace_tag(child.tag)
-    ]
+    structural_children: list[ET.Element] = []
+    for child_index, child in enumerate(container, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if _is_container_namespace_tag(child.tag):
+            structural_children.append(child)
     if (
         not structural_children
         or structural_children[0].tag != _ROOTFILES_TAG
@@ -1399,17 +1551,25 @@ def _package_rootfiles(
         frozenset(),
         context="rootfiles element",
     )
-    if (rootfiles.text or "").strip() or any(
-        (child.tail or "").strip() for child in rootfiles
-    ):
+    if (rootfiles.text or "").strip():
         raise _error(
             "EPUB rootfiles section contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+    for child_index, child in enumerate(rootfiles, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB rootfiles section contains invalid text content",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     candidates: list[str] = []
     seen_paths: set[str] = set()
-    for element in rootfiles:
+    for rootfile_index, element in enumerate(rootfiles, start=1):
+        if control_checkpoint is not None and rootfile_index % 128 == 1:
+            control_checkpoint()
         if not _is_container_namespace_tag(element.tag):
             # Foreign extension element and all its contents are ignored by OCF.
             continue
@@ -1428,7 +1588,9 @@ def _package_rootfiles(
                 "EPUB rootfile element must be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        for child in element:
+        for child_index, child in enumerate(element, start=1):
+            if control_checkpoint is not None and child_index % 128 == 1:
+                control_checkpoint()
             if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
                 raise _error(
                     "EPUB rootfile element must be empty",
@@ -1477,15 +1639,23 @@ def _package_rootfiles(
             frozenset(),
             context="links element",
         )
-        if (links.text or "").strip() or any(
-            (child.tail or "").strip() for child in links
-        ):
+        if (links.text or "").strip():
             raise _error(
                 "EPUB container links section contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
+        for child_index, child in enumerate(links, start=1):
+            if control_checkpoint is not None and child_index % 128 == 1:
+                control_checkpoint()
+            if (child.tail or "").strip():
+                raise _error(
+                    "EPUB container links section contains invalid text content",
+                    BookEpubImportErrorCode.MALFORMED_PACKAGE,
+                )
         link_count = 0
-        for element in links:
+        for link_index, element in enumerate(links, start=1):
+            if control_checkpoint is not None and link_index % 128 == 1:
+                control_checkpoint()
             if not _is_container_namespace_tag(element.tag):
                 continue
             if element.tag != _LINK_TAG:
@@ -1504,7 +1674,9 @@ def _package_rootfiles(
                     "EPUB container link element must be empty",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
-            for child in element:
+            for child_index, child in enumerate(element, start=1):
+                if control_checkpoint is not None and child_index % 128 == 1:
+                    control_checkpoint()
                 if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
                     raise _error(
                         "EPUB container link element must be empty",
@@ -1570,8 +1742,12 @@ def _package_rootfiles(
     return tuple(candidates)
 
 
-def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
-    manifest = _required_unique_direct_child(package, "manifest")
+def _manifest_items(
+    package: ET.Element,
+    opf_dir: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> dict[str, _ManifestItem]:
+    manifest = _required_unique_direct_child(package, "manifest", control_checkpoint)
     if (manifest.text or "").strip():
         raise _error(
             "EPUB manifest contains invalid text content",
@@ -1579,7 +1755,9 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
         )
     output: dict[str, _ManifestItem] = {}
     resource_owners: dict[str, str] = {}
-    for element in manifest:
+    for manifest_index, element in enumerate(manifest, start=1):
+        if control_checkpoint is not None and manifest_index % 128 == 1:
+            control_checkpoint()
         if element.tag != _ITEM_TAG:
             if _local_name(element.tag) == "item" or _is_opf_namespace_tag(element.tag):
                 raise _error(
@@ -1660,15 +1838,18 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             "EPUB manifest is empty",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    _validate_manifest_fallback_graph(output)
-    _validate_manifest_media_overlays(output)
+    _validate_manifest_fallback_graph(output, control_checkpoint)
+    _validate_manifest_media_overlays(output, control_checkpoint)
     return output
 
 
 def _validate_manifest_media_overlays(
     manifest: dict[str, _ManifestItem],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
-    for item in manifest.values():
+    for item_index, item in enumerate(manifest.values(), start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
         overlay_id = item.media_overlay
         if overlay_id is None:
             continue
@@ -1692,15 +1873,20 @@ def _validate_manifest_media_overlays(
 
 def _validate_manifest_fallback_graph(
     manifest: dict[str, _ManifestItem],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
-    for item in manifest.values():
+    for item_index, item in enumerate(manifest.values(), start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
         if item.fallback is not None and item.fallback not in manifest:
             raise _error(
                 "EPUB manifest fallback references an unknown item",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
 
-    for start_id in manifest:
+    for start_index, start_id in enumerate(manifest, start=1):
+        if control_checkpoint is not None and start_index % 128 == 1:
+            control_checkpoint()
         seen: set[str] = set()
         current_id = start_id
         while True:
@@ -1731,8 +1917,11 @@ def _validate_manifest_resources(
     *,
     package_entry_names: frozenset[str],
     archive_index: dict[str, zipfile.ZipInfo],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
-    for item in manifest.values():
+    for item_index, item in enumerate(manifest.values(), start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
         entry_name = item.entry_name
         if (
             entry_name in package_entry_names
@@ -1755,8 +1944,9 @@ def _spine_ids(
     package: ET.Element,
     warnings: _Warnings,
     manifest: dict[str, _ManifestItem],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> list[str]:
-    spine = _required_unique_direct_child(package, "spine")
+    spine = _required_unique_direct_child(package, "spine", control_checkpoint)
     if (spine.text or "").strip():
         raise _error(
             "EPUB spine contains invalid text content",
@@ -1794,7 +1984,9 @@ def _spine_ids(
     ids: list[str] = []
     seen_ids: set[str] = set()
     has_linear_item = False
-    for element in spine:
+    for spine_index, element in enumerate(spine, start=1):
+        if control_checkpoint is not None and spine_index % 128 == 1:
+            control_checkpoint()
         if element.tag != _ITEMREF_TAG:
             if _local_name(element.tag) == "itemref" or _is_opf_namespace_tag(element.tag):
                 raise _error(
@@ -1955,7 +2147,9 @@ def import_epub_book(
             raise TypeError("control_checkpoint must be callable")
         control_checkpoint()
     raw = _source_bytes(source)
-    expected_archive_entries = _validate_single_disk_zip_end_records(raw)
+    expected_archive_entries = _validate_single_disk_zip_end_records(
+        raw, control_checkpoint
+    )
     display_source = _required_text(source_name, "source_name")
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
@@ -1973,7 +2167,7 @@ def import_epub_book(
     with archive:
         if control_checkpoint is not None:
             control_checkpoint()
-        index = _archive_index(archive)
+        index = _archive_index(archive, control_checkpoint)
         infos = archive.infolist()
         if len(infos) != expected_archive_entries:
             raise _error(
@@ -1990,7 +2184,10 @@ def import_epub_book(
                 "EPUB mimetype entry must not contain a ZIP extra field",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
-        mimetype = _read_entry(archive, index, "mimetype", limit=128)
+        mimetype = _read_entry(
+            archive, index, "mimetype", limit=128,
+            control_checkpoint=control_checkpoint,
+        )
         if mimetype != b"application/epub+zip":
             raise _error(
                 "EPUB mimetype declaration is invalid",
@@ -1998,10 +2195,15 @@ def import_epub_book(
             )
 
         container = _xml_root(
-            _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
+            _read_entry(
+                archive, index, "META-INF/container.xml",
+                limit=MAX_EPUB_XML_BYTES,
+                control_checkpoint=control_checkpoint,
+            ),
             "container metadata",
+            control_checkpoint,
         )
-        opf_names = _package_rootfiles(container, warnings, index)
+        opf_names = _package_rootfiles(container, warnings, index, control_checkpoint)
         package_entry_names = frozenset(opf_names)
         renditions: list[
             tuple[str, ET.Element, dict[str, _ManifestItem], list[str]]
@@ -2016,10 +2218,12 @@ def import_epub_book(
                     index,
                     rendition_name,
                     limit=MAX_EPUB_XML_BYTES,
+                    control_checkpoint=control_checkpoint,
                 ),
                 "package metadata",
+                control_checkpoint,
             )
-            _validate_package_document(rendition_package)
+            _validate_package_document(rendition_package, control_checkpoint)
             rendition_version = rendition_package.attrib["version"]
             if selected_version is None:
                 selected_version = rendition_version
@@ -2033,11 +2237,13 @@ def import_epub_book(
             rendition_manifest = _manifest_items(
                 rendition_package,
                 rendition_dir,
+                control_checkpoint,
             )
             _validate_manifest_resources(
                 rendition_manifest,
                 package_entry_names=package_entry_names,
                 archive_index=index,
+                control_checkpoint=control_checkpoint,
             )
             rendition_warnings = (
                 warnings if rendition_index == 1 else _Warnings()
@@ -2046,8 +2252,11 @@ def import_epub_book(
                 rendition_package,
                 rendition_warnings,
                 rendition_manifest,
+                control_checkpoint,
             )
-            for rendition_item_id in rendition_spine:
+            for spine_index, rendition_item_id in enumerate(rendition_spine, start=1):
+                if control_checkpoint is not None and spine_index % 128 == 1:
+                    control_checkpoint()
                 _supported_manifest_item(
                     rendition_item_id,
                     rendition_manifest,
@@ -2062,16 +2271,17 @@ def import_epub_book(
             )
 
         opf_name, package, manifest, spine = renditions[0]
-        manifest_by_resource = {
-            item.entry_name: item
-            for item in manifest.values()
-        }
+        manifest_by_resource: dict[str, _ManifestItem] = {}
+        for manifest_index, item in enumerate(manifest.values(), start=1):
+            if control_checkpoint is not None and manifest_index % 128 == 1:
+                control_checkpoint()
+            manifest_by_resource[item.entry_name] = item
 
-        metadata = _direct_child(package, "metadata")
-        package_titles = _metadata_values(metadata, "title")
-        creators = _metadata_values(metadata, "creator")
-        languages = _metadata_values(metadata, "language")
-        rights = _metadata_values(metadata, "rights")
+        metadata = _direct_child(package, "metadata", control_checkpoint)
+        package_titles = _metadata_values(metadata, "title", control_checkpoint)
+        creators = _metadata_values(metadata, "creator", control_checkpoint)
+        languages = _metadata_values(metadata, "language", control_checkpoint)
+        rights = _metadata_values(metadata, "rights", control_checkpoint)
 
         blocks = []
         chapter_titles: list[str] = []
@@ -2089,7 +2299,10 @@ def import_epub_book(
                     f"EPUB spine item {item_id!r} uses unsupported media and has no readable HTML fallback"
                 )
                 continue
-            chapter = _read_entry(archive, index, item.entry_name)
+            chapter = _read_entry(
+                archive, index, item.entry_name,
+                control_checkpoint=control_checkpoint,
+            )
             try:
                 imported = import_html_book(
                     chapter,
@@ -2126,11 +2339,17 @@ def import_epub_book(
                 control_checkpoint()
             chapter_titles.append(imported.document.title)
             pgn_games += imported.pgn_games
-            for warning in imported.warnings:
+            for warning_index, warning in enumerate(imported.warnings, start=1):
+                if control_checkpoint is not None and warning_index % 128 == 1:
+                    control_checkpoint()
                 warnings.add(f"spine {chapter_index}: {warning}")
             for block_index, block in enumerate(imported.document.blocks, start=1):
+                if control_checkpoint is not None and block_index % 128 == 1:
+                    control_checkpoint()
                 blocks.append(_rebase_block(block, item.entry_name, chapter_index, block_index))
-            for reference in imported.image_references:
+            for reference_index, reference in enumerate(imported.image_references, start=1):
+                if control_checkpoint is not None and reference_index % 128 == 1:
+                    control_checkpoint()
                 resolved = _resolved_asset(item.entry_name, reference)
                 if resolved is None:
                     warnings.add(f"spine {chapter_index}: an external or unsafe image reference was not resolved")

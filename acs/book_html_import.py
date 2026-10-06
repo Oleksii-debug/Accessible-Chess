@@ -510,9 +510,16 @@ def _explicit_pgn_pre(raw: str) -> bool:
 
 
 class _SemanticHtmlParser(HTMLParser):
-    def __init__(self, *, available_assets: frozenset[str] | None) -> None:
+    def __init__(
+        self,
+        *,
+        available_assets: frozenset[str] | None,
+        control_checkpoint: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.available_assets = available_assets
+        self.control_checkpoint = control_checkpoint
+        self._control_failure: BaseException | None = None
         self.blocks = []
         self.warnings: list[str] = []
         self._warnings_suppressed = False
@@ -534,6 +541,15 @@ class _SemanticHtmlParser(HTMLParser):
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
+
+    def _checkpoint(self) -> None:
+        if self.control_checkpoint is None:
+            return
+        try:
+            self.control_checkpoint()
+        except BaseException as exc:
+            self._control_failure = exc
+            raise
 
     def _warning(self, message: str) -> None:
         if self._warnings_suppressed:
@@ -598,6 +614,8 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _block_identity_index(self, target: object) -> int:
         for index, block in enumerate(self.blocks):
+            if self.control_checkpoint is not None and index % 128 == 0:
+                self._checkpoint()
             if block is target:
                 return index
         raise BookHtmlImportError(
@@ -619,8 +637,18 @@ class _SemanticHtmlParser(HTMLParser):
         return (value, value >= 1)
 
     def _emit_list(self, captured: _ListCapture) -> None:
-        items = [item for item in captured.items if item]
-        identity_items = [item for item in captured.identity_items if item]
+        items: list[str] = []
+        for item_index, item in enumerate(captured.items, start=1):
+            if self.control_checkpoint is not None and item_index % 128 == 1:
+                self._checkpoint()
+            if item:
+                items.append(item)
+        identity_items: list[str] = []
+        for item_index, item in enumerate(captured.identity_items, start=1):
+            if self.control_checkpoint is not None and item_index % 128 == 1:
+                self._checkpoint()
+            if item:
+                identity_items.append(item)
         ordered = captured.tag == "ol"
         start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
 
@@ -665,7 +693,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._list_warning(
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
-            for item in items:
+            for item_index, item in enumerate(items, start=1):
+                if self.control_checkpoint is not None and item_index % 128 == 1:
+                    self._checkpoint()
                 # Once numbering semantics are outside the canonical ListBlock model
                 # (reversed lists, per-item value overrides, invalid starts, nesting),
                 # never synthesize a numeric sequence. Preserve the source item text
@@ -1406,7 +1436,10 @@ class _SemanticHtmlParser(HTMLParser):
             # Canonical PGN validation still happens only after parsing through
             # the existing D06 round-trip authority; rejected candidates remain
             # readable prose at this location, never guessed chess content.
-            for candidate in _pgn_candidates(raw):
+            for candidate in _pgn_candidates(
+                raw,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            ):
                 self._append_block(
                     _PgnSlot(
                         candidate=_PgnCandidate(
@@ -1488,22 +1521,37 @@ class _SemanticHtmlParser(HTMLParser):
                 "malformed HTML left hidden content unclosed; subsequent readable text may have been omitted"
             )
             self._hidden_tags.clear()
+        recovered_captures = 0
         while self._captures:
+            if self.control_checkpoint is not None and recovered_captures % 128 == 0:
+                self._checkpoint()
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture, recovered=True)
+            recovered_captures += 1
+        recovered_lists = 0
         while self._lists:
+            if self.control_checkpoint is not None and recovered_lists % 128 == 0:
+                self._checkpoint()
             captured = self._lists.pop()
             captured.unsupported = True
             captured.structural_unsupported = True
             self._emit_list(captured)
+            recovered_lists += 1
 
 
-def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
+def _pgn_candidates(
+    visible_text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[_PgnCandidate]:
     """Return explicitly marked PGN regions with stable source offsets."""
     lines: list[tuple[int, str]] = []
     line_start = 0
     cursor = 0
+    next_control_offset = 0
     while cursor < len(visible_text):
+        if control_checkpoint is not None and cursor >= next_control_offset:
+            control_checkpoint()
+            next_control_offset = cursor + 16_384
         character = visible_text[cursor]
         if character == "\r":
             lines.append((line_start, visible_text[line_start:cursor]))
@@ -1520,6 +1568,8 @@ def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
 
     candidates: list[_PgnCandidate] = []
     for marker_index, (marker_offset, line) in enumerate(lines):
+        if control_checkpoint is not None and marker_index % 128 == 0:
+            control_checkpoint()
         if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
             continue
 
@@ -1530,7 +1580,10 @@ def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
             continue
 
         chunk_lines: list[str] = []
-        for _, candidate_line in lines[start:]:
+        for candidate_line_index in range(start, len(lines)):
+            if control_checkpoint is not None and (candidate_line_index - start) % 128 == 0:
+                control_checkpoint()
+            candidate_line = lines[candidate_line_index][1]
             stripped = candidate_line.strip()
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
@@ -1685,7 +1738,10 @@ def import_html_book(
     text, raw, legacy_windows_1251 = _source_text(source)
     assets = _asset_set(available_assets)
 
-    parser = _SemanticHtmlParser(available_assets=assets)
+    parser = _SemanticHtmlParser(
+        available_assets=assets,
+        control_checkpoint=control_checkpoint,
+    )
     # Keep trusted host control outside parser exception translation. A cancelled
     # import must propagate to its transaction owner, never become damaged prose.
     chunks = (text,) if control_checkpoint is None else (
@@ -1699,6 +1755,8 @@ def import_html_book(
         except BookHtmlImportError:
             raise
         except Exception as exc:
+            if parser._control_failure is exc:
+                raise
             raise BookHtmlImportError(
                 "HTML book could not be parsed safely",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -1710,6 +1768,8 @@ def import_html_book(
     except BookHtmlImportError:
         raise
     except Exception as exc:
+        if parser._control_failure is exc:
+            raise
         raise BookHtmlImportError(
             "HTML book could not be parsed safely",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -1725,11 +1785,16 @@ def import_html_book(
     # including markers outside a semantic capture. Exact marked <pre> captures
     # override the same marker offset with their bounded local candidate so text
     # after </pre> can never be swallowed into that game's canonicalization.
-    candidates_by_marker = {
-        candidate.marker_offset: candidate
-        for candidate in _pgn_candidates(visible_text)
-    }
-    for block in parser.blocks:
+    candidates_by_marker: dict[int, _PgnCandidate] = {}
+    for candidate_index, candidate in enumerate(
+        _pgn_candidates(visible_text, control_checkpoint), start=1
+    ):
+        if control_checkpoint is not None and candidate_index % 128 == 1:
+            control_checkpoint()
+        candidates_by_marker[candidate.marker_offset] = candidate
+    for block_index, block in enumerate(parser.blocks, start=1):
+        if control_checkpoint is not None and block_index % 128 == 1:
+            control_checkpoint()
         if isinstance(block, _PgnSlot):
             candidates_by_marker[block.candidate.marker_offset] = block.candidate
     canonical_games = _canonical_pgn_games(
@@ -1738,11 +1803,15 @@ def import_html_book(
         control_checkpoint,
     )
     games_by_marker: dict[int, list[Game]] = {}
-    for candidate, game in canonical_games:
+    for game_index, (candidate, game) in enumerate(canonical_games, start=1):
+        if control_checkpoint is not None and game_index % 128 == 1:
+            control_checkpoint()
         games_by_marker.setdefault(candidate.marker_offset, []).append(game)
     consumed_markers: set[int] = set()
     ordered_blocks = []
-    for block in parser.blocks:
+    for block_index, block in enumerate(parser.blocks, start=1):
+        if control_checkpoint is not None and block_index % 128 == 1:
+            control_checkpoint()
         if isinstance(block, _PgnSlot):
             marker_offset = block.candidate.marker_offset
             region_games = games_by_marker.get(marker_offset)
@@ -1776,14 +1845,18 @@ def import_html_book(
             "HTML book contains too many semantic blocks",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
-    for candidate, game in canonical_games:
+    for game_index, (candidate, game) in enumerate(canonical_games, start=1):
+        if control_checkpoint is not None and game_index % 128 == 1:
+            control_checkpoint()
         if candidate.marker_offset not in consumed_markers:
             parser._append_block(game)
     embedded_games = [game for _, game in canonical_games]
 
     resolved_title = override_title or parser.title
     if not resolved_title:
-        for block in parser.blocks:
+        for block_index, block in enumerate(parser.blocks, start=1):
+            if control_checkpoint is not None and block_index % 128 == 1:
+                control_checkpoint()
             if isinstance(block, Heading):
                 resolved_title = block.text
                 break
@@ -1799,7 +1872,9 @@ def import_html_book(
     missing = tuple(sorted(parser.missing_assets))
     if missing:
         room = max(0, MAX_HTML_WARNINGS - len(warnings))
-        for name in missing[:room]:
+        for missing_index, name in enumerate(missing[:room], start=1):
+            if control_checkpoint is not None and missing_index % 128 == 1:
+                control_checkpoint()
             warnings.append(f"referenced asset is unavailable: {name}")
         if len(missing) > room and len(warnings) < MAX_HTML_WARNINGS + 1:
             warnings.append("additional missing asset warnings were suppressed")
