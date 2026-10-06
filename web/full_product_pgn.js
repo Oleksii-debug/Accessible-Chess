@@ -9,6 +9,8 @@
   const MAX_PGN_DEPTH = 256;
   const MAX_PGN_NODE_ID = 4096;
   const MAX_PGN_COMMENT_TEXT = 8000;
+  const MAX_PGN_TAG_NAME = 80;
+  const MAX_PGN_TAG_VALUE = 360;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const PGN_DOM_ID_PATTERN = /^pgn-node-[0-9a-f]{20}$/;
   const PRESENTATION_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
@@ -95,6 +97,36 @@
     requireText(editor.cancel_label, "PGN comment editor cancel label", false, 120);
   }
 
+  function requireMetadataEditor(editor) {
+    requireRecord(editor, "PGN metadata editor");
+    for (const field of [
+      "open_label", "title", "tag_select_label", "new_tag_label",
+      "tag_name_label", "tag_value_label", "tag_save_label",
+      "tag_delete_label", "result_label", "result_save_label", "close_label"
+    ]) {
+      requireText(editor[field], "PGN metadata " + field, false, 120);
+    }
+    if (["1-0", "0-1", "1/2-1/2", "*"].indexOf(editor.result) < 0) {
+      throw new TypeError("PGN metadata result is invalid");
+    }
+    if (!Array.isArray(editor.editable_tags) || editor.editable_tags.length > MAX_PGN_TAGS) {
+      throw new TypeError("PGN editable tags exceed their item-count contract");
+    }
+    const seen = new Set();
+    editor.editable_tags.forEach(function (entry, index) {
+      if (!Object.prototype.hasOwnProperty.call(editor.editable_tags, index)) {
+        throw new TypeError("PGN editable tags must be dense");
+      }
+      const tag = requireRecord(entry, "PGN editable tag");
+      requireText(tag.name, "PGN editable tag name", false, MAX_PGN_TAG_NAME);
+      requireText(tag.value, "PGN editable tag value", true, MAX_PGN_TAG_VALUE);
+      if (tag.name === "SetUp" || tag.name === "FEN" || tag.name === "Result" || seen.has(tag.name)) {
+        throw new TypeError("PGN editable tag contract is invalid");
+      }
+      seen.add(tag.name);
+    });
+  }
+
   function requireActions(actions, game) {
     if (!Array.isArray(actions) || actions.length !== ACTIONS.length) {
       throw new TypeError("PGN actions are incomplete");
@@ -148,6 +180,7 @@
       }
     }
     requireCommentEditor(snapshot.comment_editor);
+    requireMetadataEditor(snapshot.metadata_editor);
 
     if (!Array.isArray(snapshot.tree) ||
         snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
@@ -169,6 +202,7 @@
         snapshot.focus_target !== "pgn-refresh-view" ||
         !Array.isArray(snapshot.actions) ||
         snapshot.actions.length !== 0 ||
+        snapshot.metadata_editor.editable_tags.length !== 0 ||
         snapshot.comment_editor.enabled !== false
       ) {
         throw new TypeError("PGN unavailable snapshot is inconsistent");
@@ -330,7 +364,10 @@
       requireText(payload.message, "PGN host error message", false, 1000);
     } else {
       requireText(payload.action, "PGN delegated action", false, 80);
-      if (ACTIONS.indexOf(payload.action) < 0) {
+      if (
+        ACTIONS.indexOf(payload.action) < 0 &&
+        ["pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"].indexOf(payload.action) < 0
+      ) {
         throw new TypeError("PGN delegated action is invalid");
       }
     }
@@ -607,6 +644,184 @@
     host.appendChild(section);
   }
 
+  function buildMetadataDialog(root, snapshot, invoke, announce) {
+    const editor = snapshot.metadata_editor;
+    const dialog = node("dialog");
+    dialog.id = "pgn-metadata-dialog";
+    dialog.setAttribute("aria-busy", "false");
+
+    const title = node("h2", editor.title);
+    title.id = "pgn-metadata-dialog-title";
+    dialog.setAttribute("aria-labelledby", title.id);
+    dialog.appendChild(title);
+
+    const selectLabel = node("label", editor.tag_select_label);
+    const tagSelect = node("select");
+    tagSelect.id = "pgn-metadata-tag-select";
+    selectLabel.htmlFor = tagSelect.id;
+    const newOption = node("option", editor.new_tag_label);
+    newOption.value = "";
+    tagSelect.appendChild(newOption);
+    editor.editable_tags.forEach(function (entry) {
+      const option = node("option", entry.name);
+      option.value = entry.name;
+      tagSelect.appendChild(option);
+    });
+    dialog.appendChild(selectLabel);
+    dialog.appendChild(tagSelect);
+
+    const nameLabel = node("label", editor.tag_name_label);
+    const nameInput = node("input");
+    nameInput.id = "pgn-metadata-tag-name";
+    nameInput.type = "text";
+    nameInput.maxLength = MAX_PGN_TAG_NAME;
+    nameLabel.htmlFor = nameInput.id;
+    dialog.appendChild(nameLabel);
+    dialog.appendChild(nameInput);
+
+    const valueLabel = node("label", editor.tag_value_label);
+    const valueInput = node("input");
+    valueInput.id = "pgn-metadata-tag-value";
+    valueInput.type = "text";
+    valueInput.maxLength = MAX_PGN_TAG_VALUE;
+    valueLabel.htmlFor = valueInput.id;
+    dialog.appendChild(valueLabel);
+    dialog.appendChild(valueInput);
+
+    const saveTag = node("button", editor.tag_save_label);
+    saveTag.type = "button";
+    const deleteTag = node("button", editor.tag_delete_label);
+    deleteTag.type = "button";
+    deleteTag.disabled = true;
+
+    const resultLabel = node("label", editor.result_label);
+    const resultSelect = node("select");
+    resultSelect.id = "pgn-metadata-result";
+    resultLabel.htmlFor = resultSelect.id;
+    ["*", "1-0", "0-1", "1/2-1/2"].forEach(function (value) {
+      const option = node("option", value);
+      option.value = value;
+      if (value === editor.result) option.selected = true;
+      resultSelect.appendChild(option);
+    });
+    const saveResult = node("button", editor.result_save_label);
+    saveResult.type = "button";
+    const close = node("button", editor.close_label);
+    close.type = "button";
+
+    let opener = null;
+    let pending = false;
+    const tagByName = new Map();
+    editor.editable_tags.forEach(function (entry) {
+      tagByName.set(entry.name, entry.value);
+    });
+
+    function syncTagFields() {
+      const selected = tagSelect.value;
+      if (selected && tagByName.has(selected)) {
+        nameInput.value = selected;
+        valueInput.value = tagByName.get(selected);
+        deleteTag.disabled = pending;
+      } else {
+        nameInput.value = "";
+        valueInput.value = "";
+        deleteTag.disabled = true;
+      }
+    }
+
+    function setPending(value) {
+      pending = value === true;
+      dialog.setAttribute("aria-busy", pending ? "true" : "false");
+      tagSelect.disabled = pending;
+      nameInput.readOnly = pending;
+      valueInput.readOnly = pending;
+      resultSelect.disabled = pending;
+      saveTag.disabled = pending;
+      saveResult.disabled = pending;
+      close.disabled = pending;
+      deleteTag.disabled = pending || !tagSelect.value;
+    }
+
+    function recover(focusNode) {
+      setPending(false);
+      if (dialog.open && focusNode && typeof focusNode.focus === "function") {
+        focusNode.focus({ preventScroll: true });
+      }
+    }
+
+    function run(command, payload, focusNode) {
+      if (pending) return;
+      setPending(true);
+      const started = invokeCommand(
+        root,
+        invoke,
+        announce,
+        command,
+        payload,
+        {
+          afterResult: function (result) {
+            if (result.kind === "error") {
+              recover(focusNode);
+              return;
+            }
+            setPending(false);
+            if (result.kind === "delegated" && dialog.open) dialog.close();
+          },
+          afterFailure: function () { recover(focusNode); }
+        }
+      );
+      if (!started) recover(focusNode);
+    }
+
+    tagSelect.addEventListener("change", syncTagFields);
+    saveTag.addEventListener("click", function () {
+      run("pgn.tag_edit", { name: nameInput.value, value: valueInput.value }, valueInput);
+    });
+    deleteTag.addEventListener("click", function () {
+      if (!tagSelect.value) return;
+      run("pgn.tag_delete", { name: tagSelect.value }, tagSelect);
+    });
+    saveResult.addEventListener("click", function () {
+      run("pgn.result_set", { result: resultSelect.value }, resultSelect);
+    });
+    close.addEventListener("click", function () {
+      if (pending) return;
+      if (dialog.open) dialog.close();
+      if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+    });
+    dialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      if (!pending) close.click();
+    });
+
+    dialog.appendChild(saveTag);
+    dialog.appendChild(deleteTag);
+    dialog.appendChild(resultLabel);
+    dialog.appendChild(resultSelect);
+    dialog.appendChild(saveResult);
+    dialog.appendChild(close);
+    syncTagFields();
+
+    return {
+      dialog: dialog,
+      openButton: (function () {
+        const button = node("button", editor.open_label);
+        button.type = "button";
+        button.id = "pgn-metadata-open";
+        button.addEventListener("click", function () {
+          const activeFlight = root._pgnFlight;
+          const epoch = root._pgnRenderEpoch || 0;
+          if (activeFlight && activeFlight.epoch === epoch) return;
+          opener = button;
+          syncTagFields();
+          dialog.showModal();
+          tagSelect.focus();
+        });
+        return button;
+      })()
+    };
+  }
+
   function buildCommentDialog(root, snapshot, invoke, announce) {
     const editor = snapshot.comment_editor;
     const dialog = node("dialog");
@@ -859,6 +1074,8 @@
     main.appendChild(node("p", game.position_label));
     main.appendChild(node("p", game.result_label + ": " + game.result));
     renderTags(main, game);
+    const metadataDialog = buildMetadataDialog(root, snapshot, invoke, announce);
+    main.appendChild(metadataDialog.openButton);
     renderWarnings(main, game);
     renderTree(root, main, snapshot, invoke, announce);
     const commentDialog = buildCommentDialog(
@@ -869,6 +1086,7 @@
     );
     renderActions(root, main, snapshot, invoke, announce, commentDialog);
     main.appendChild(commentDialog.dialog);
+    main.appendChild(metadataDialog.dialog);
     fragment.appendChild(main);
     commitRender(root, fragment, snapshot);
     focusTarget(root, requestedFocus);
