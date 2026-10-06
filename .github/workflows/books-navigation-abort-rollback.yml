@@ -88,7 +88,6 @@ jobs:
           tests/test_bookreader_revision_barriers_current.py
           tests/test_dev1_books_training_webview_bridge.py
           tests/test_v2_book_board_workflow.py
-          tests/test_v2_book_board_workflow.py
 
       - name: Execute Books semantic and browser regressions
         run: >-
