@@ -470,6 +470,49 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(fallback_calls, [])
         self.assertTrue(runtime.shutdown())
 
+    def test_refused_close_reconciles_retired_pending_pgn_open_through_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-refused-retired-open.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(2.0))
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertIsNone(session_box["value"])
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+
+            # The BeginInvoke item queued before shutdown survives in the fake
+            # owner queue, but the pump dropped its stale owner callback. Running
+            # it after recovery cannot publish the retired document or duplicate
+            # the cancellation terminal.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertTrue(runtime.shutdown())
     def test_real_pgn_open_retries_transient_owner_post_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "runtime-open-retry.pgn"
