@@ -60,6 +60,18 @@ jobs:
             exit 1
           }
 
+      - name: Bind exact square authority bytes
+        shell: bash
+        env:
+          INPUT_LIMITS_BLOB: f06a74bc4d6e3e7f7461bb5dac1fd7f25776ec7a
+          SQUARES_BLOB: b74cf01767590f057deb805b0793e040bac62044
+          SQUARE_TEST_BLOB: f539b9bb5f7145a04affa27a21ec4e2dc5c0be03
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/input_limits.py)" = "$INPUT_LIMITS_BLOB"
+          test "$(git rev-parse HEAD:acs/squares.py)" = "$SQUARES_BLOB"
+          test "$(git rev-parse HEAD:tests/test_squares.py)" = "$SQUARE_TEST_BLOB"
+
       - name: Compile exact square slice
         run: python -m py_compile acs/input_limits.py acs/squares.py tests/test_squares.py
 
