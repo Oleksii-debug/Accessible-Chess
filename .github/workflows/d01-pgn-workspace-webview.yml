@@ -217,7 +217,7 @@ jobs:
           # identity remains fail-closed.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6|28ed39d9cea7b93a791928f84a08b2ed1f5fbd2b)
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6|477c0f155a5f3777da71c6e110429a024309dfa6)
               ;;
             *)
               printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
