@@ -241,11 +241,11 @@ def main() -> int:
 
     expected_ua = [
         "Файл", "Гра", "Позиція", "PGN", "Бібліотека", "Імпорт", "Експорт",
-        "Stockfish", "Аналіз", "Книги", "Учитель/Клас", "Налаштування", "Довідка",
+        "Stockfish", "Аналіз", "Книги", "Тренування", "Учитель/Клас", "Налаштування", "Довідка",
     ]
     expected_en = [
         "File", "Game", "Position", "PGN", "Library", "Import", "Export",
-        "Engine", "Analysis", "Books", "Teacher/Classroom", "Settings", "Help",
+        "Engine", "Analysis", "Books", "Training", "Teacher/Classroom", "Settings", "Help",
     ]
     winforms = result.get("winforms_after_uia") or result.get("winforms") or {}
     uia = result.get("uia") or {}
@@ -257,10 +257,10 @@ def main() -> int:
         "main_menu_strip_is_menu": bool(winforms.get("main_menu_strip_is_menu")),
         "menu_handle_created": bool(winforms.get("menu_is_handle_created")),
         "menu_handle_nonzero": int(winforms.get("menu_handle") or 0) != 0,
-        "winforms_top_level_count_13": int(winforms.get("menu_item_count") or 0) == 13,
+        "winforms_top_level_count_14": int(winforms.get("menu_item_count") or 0) == 14,
         "uia_exact_menu_bar_count_1": int(uia.get("exact_menu_bar_count") or 0) == 1,
-        "uia_top_level_profile_13": names in (expected_ua, expected_en),
-        "uia_expand_collapse_all": len(patterns) == 13 and all(patterns),
+        "uia_top_level_profile_14": names in (expected_ua, expected_en),
+        "uia_expand_collapse_all": len(patterns) == 14 and all(patterns),
     }
     passed = not errors and all(checks.values())
     summary = {
