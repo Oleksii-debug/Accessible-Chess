@@ -42,6 +42,7 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     handle = 9001
     canonical = {
         "menu_binding_stable": True,
+        "poll_snapshot_error": "",
         "menu_from_handle": {
             "automation_id": "AccessibleChessFullProductMenu",
             "control_type": "ControlType.MenuBar",
@@ -163,6 +164,9 @@ def test_source_uia_probe_waits_for_stable_unique_handle_binding_not_presence_on
     assert "$bindingStable = Test-CanonicalMenuBinding" in source
     assert "if($bindingStable){ break }" in source
     assert "menu_binding_stable = [bool]$bindingStable" in source
+    assert "poll_snapshot_error = $pollSnapshotError" in source
+    assert "$candidateBarDetails += ,(Convert-MenuBarDetail $bars.Item($index))" in source
+    assert "$pollSnapshotError = $_.Exception.GetType().Name" in source
     assert "if($exact.Count -eq 1 -and $anyId.Count -eq 1){ break }" not in source
     assert "$exact.Count -eq 1 -or $bars.Count -gt 0" not in source
     assert "[long]$row['native_window_handle'] -ne $ExpectedMenuHandle" in source
@@ -176,12 +180,14 @@ def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_err
     missing = _uia_menu_handle_binding_checks({}, pid=1, menu_handle=7)
     assert missing["uia_handle_element_present"] is False
     assert missing["uia_probe_binding_stable"] is False
+    assert missing["uia_poll_snapshot_clean"] is False
     assert missing["uia_handle_native_handle_matches"] is False
     assert missing["uia_exact_row_binds_same_handle"] is False
 
     errored = _uia_menu_handle_binding_checks(
         {
             "menu_binding_stable": True,
+            "poll_snapshot_error": "",
             "menu_from_handle": {
                 "automation_id": "AccessibleChessFullProductMenu",
                 "control_type": "ControlType.MenuBar",
