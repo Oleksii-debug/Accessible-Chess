@@ -22,6 +22,12 @@ env:
   SOURCE_BLOB: f28b413316c77ff4f6726d0a0a8fe8f5f6d47295
   OPEN_TEST_BLOB: 79e1c0056b0d62f3d429fef5428f31df1e45b2a2
   SAVE_TEST_BLOB: a9fb0eb40d8b48b75a900318db72ad62bb825b3e
+  CURRENT_RUNTIME_SHA: a604e92e98c8b4ba9636e15b4e1221a18742bc84
+  SHIPPING_MERGE_RECEIPT: 8b81945fa0bba5e54aabbf1c076362b48083c8ae
+  RUNTIME_GATE_BLOB: 6f96b36d63c7b29cf9c518f8aa0b189f03c397b0
+  ATOMICITY_GATE_BLOB: 43a5eb9c655e9b51f4633a4092e6028133846120
+  BOOKS_PGN_GATE_BLOB: efac44b444d4c7aad335c17b1837764d5653597f
+  SHIPPING_EVIDENCE_GATE_BLOB: 3ee52add052d0cf14b8c146ed016776320e0f6db
 
 jobs:
   shipping-pgn-cancel-successor:
@@ -67,12 +73,19 @@ jobs:
           live_base="$(git rev-parse refs/remotes/origin/shipping-parent)"
           test "$live_base" = "$BASE_SHA"
           test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_SHA" HEAD
+          git merge-base --is-ancestor "$SHIPPING_MERGE_RECEIPT" HEAD
+          test "$(git rev-list --parents -n 1 "$SHIPPING_MERGE_RECEIPT")" = "$SHIPPING_MERGE_RECEIPT 13f5de67bdd0914557b65d6bceaba69cc329e4a8 $CURRENT_RUNTIME_SHA"
           git diff --check "$BASE_SHA"...HEAD
 
           mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
           expected=(
+            ".github/workflows/current-runtime-atomicity-successor.yml"
+            ".github/workflows/current-runtime-books-pgn-apex.yml"
+            ".github/workflows/current-runtime-pgn-cancel-successor.yml"
             ".github/workflows/current-shipping-pgn-cancel-successor.yml"
+            ".github/workflows/current-shipping-runtime-evidence-apex.yml"
             "acs/version2_windows_file_workflows.py"
             "tests/test_v2_windows_pgn_open_worker.py"
             "tests/test_v2_windows_pgn_save_worker.py"
@@ -85,6 +98,10 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SAVE_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-runtime-pgn-cancel-successor.yml)" = "$RUNTIME_GATE_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-runtime-atomicity-successor.yml)" = "$ATOMICITY_GATE_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-runtime-books-pgn-apex.yml)" = "$BOOKS_PGN_GATE_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-shipping-runtime-evidence-apex.yml)" = "$SHIPPING_EVIDENCE_GATE_BLOB"
 
       - name: Prove shipping evidence paths are inherited unchanged
         shell: bash
