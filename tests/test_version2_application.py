@@ -285,6 +285,44 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertIsNone(self.app._progress)
             self.assertIsNone(self.app._result)
 
+    def test_book_commit_reentrant_application_shutdown_is_refused_atomically(self):
+        callbacks = []
+        shutdown_results = []
+
+        def commit(_prepared):
+            shutdown_results.append(self.app.shutdown(timeout=0.0))
+            self.assertFalse(worker.closed)
+            self.assertFalse(self.files.shutdown_requested)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commit,
+            post_to_ui=callbacks.append,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while not callbacks and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(len(callbacks), 1)
+
+        callbacks.pop(0)()
+
+        self.assertEqual(shutdown_results, [False])
+        self.assertFalse(worker.closed)
+        self.assertFalse(worker.active)
+        self.assertFalse(self.files.shutdown_requested)
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "status"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown(timeout=0.0))
+
     def test_book_open_worker_exact_unbind_makes_failed_startup_retryable(self):
         worker = Version2BookOpenWorker(
             prepare=lambda *_args, **_kwargs: object(),
