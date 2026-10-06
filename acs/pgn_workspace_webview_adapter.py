@@ -385,6 +385,17 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return result.value
 
     def _trusted_dispatch(self, action_id: str, payload: Mapping[str, object]) -> Any:
+        if action_id in {"pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"}:
+            allowed = {
+                "pgn.tag_edit": {"name", "value"},
+                "pgn.tag_delete": {"name"},
+                "pgn.result_set": {"result"},
+            }[action_id]
+            if set(payload) != allowed:
+                raise ValueError("PGN metadata action contains untrusted fields")
+            trusted = self._trusted_current_target()
+            trusted.update(payload)
+            return self._dispatch_registered(action_id, trusted)
         node_id = payload.get("node_id")
         if type(node_id) is not str:
             raise ValueError("PGN action lacks a presentation node")
@@ -495,6 +506,21 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         if rejected is not None:
             return rejected
         return self._operate_and_render(operation)
+
+    def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.edit_tag(self, name, value)
+        )
+
+    def delete_tag(self, name: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.delete_tag(self, name)
+        )
+
+    def set_result(self, result: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.set_result(self, result)
+        )
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
