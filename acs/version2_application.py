@@ -1578,6 +1578,15 @@ class Version2Application:
                 raise ValueError("Book Open cancellation takes no payload")
             if self._book_open_worker is None:
                 raise ValueError("Book Open worker is unavailable")
+            had_pending_terminal = self._book_open_worker.terminal_pending
+            if had_pending_terminal:
+                self._book_open_worker.flush_pending_terminal()
+                # The accessible surface was still presenting a busy Book Open,
+                # but the retained terminal proves that operation had already
+                # finished. Treat this Cancel as satisfied instead of following
+                # the terminal with a contradictory "no Book Open" error.
+                if not self._book_open_worker.active:
+                    return None
             if not self._book_open_worker.cancel(focus_target=str(self._focus)):
                 raise ValueError("no Book Open is running")
             return None
