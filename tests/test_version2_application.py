@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -247,6 +248,34 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertTrue(self.app.unbind_book_open_worker(worker))
         self.assertIsNone(self.app._book_open_worker)
         self.assertFalse(self.app.unbind_book_open_worker(worker))
+
+    def test_event_drain_recovers_book_terminal_after_ui_post_failure(self):
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+        self.assertEqual(delivered[1]["payload"]["focus_target"], "book-open")
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
 
     def test_set_document_route_abort_restores_exact_application_focus_checkpoint(self):
         candidate = PgnDocumentSession.open(self.source)
