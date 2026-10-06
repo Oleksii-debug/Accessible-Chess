@@ -15,7 +15,7 @@ from acs.gametree import (
     serialize_games,
 )
 from acs.pgn_webview_bridge import PgnWebViewBridge
-from acs.pgn_webview_projection import PgnWebViewProjection
+from acs.pgn_webview_projection import PgnWebViewProjection, _utf16_units
 from acs.pgn_workspace import (
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
@@ -611,6 +611,11 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         result = self.bridge.dispatch(StripBomb("x" * 65), {})
         self.assertEqual("error", result.kind)
         self.assertFalse(StripBomb.touched)
+
+    def test_utf16_unit_counter_is_total_for_lone_surrogates(self) -> None:
+        self.assertEqual(1, _utf16_units("\ud800"))
+        self.assertEqual(1, _utf16_units("\udfff"))
+        self.assertEqual(2, _utf16_units("😀"))
 
     def test_utf16_bounds_match_the_webview_contract(self) -> None:
         base = self.presenter.view()
