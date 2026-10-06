@@ -170,6 +170,47 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
         self.assertEqual(failed.kind, "error")
         self.assertEqual(touched, [])
 
+    def test_projection_subclass_class_dispatch_survives_instance_shadow(self) -> None:
+        class CanonicalExtension(BookWebViewProjection):
+            class_calls = 0
+
+            def next(self):
+                type(self).class_calls += 1
+                return super().next()
+
+        presenter = BookReaderPresenter(
+            BookReader(
+                BookDocument(
+                    "Subclass projection",
+                    blocks=[
+                        Paragraph(text="First", block_id="p1"),
+                        Paragraph(text="Second", block_id="p2"),
+                    ],
+                )
+            ),
+            language=UILanguage.EN,
+        )
+        projection = CanonicalExtension(
+            presenter,
+            lambda command, payload: None,
+            language=UILanguage.EN,
+        )
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("projection instance shadow must not execute")
+
+        projection.next = hostile  # type: ignore[method-assign]
+        projection._navigate = hostile  # type: ignore[method-assign]
+
+        event = BookWebViewBridge(projection).dispatch("book.next")
+
+        self.assertEqual(event.kind, "render")
+        self.assertEqual(event.payload["snapshot"]["block"]["text"], "Second")
+        self.assertEqual(CanonicalExtension.class_calls, 1)
+        self.assertEqual(touched, [])
+
     def test_exact_reader_presenter_projection_chain_still_renders(self) -> None:
         presenter = BookReaderPresenter(
             self._reader(),
