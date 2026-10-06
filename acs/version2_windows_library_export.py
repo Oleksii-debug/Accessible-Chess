@@ -137,6 +137,11 @@ class Version2WindowsLibraryExportDelegate:
         self._thread: threading.Thread | None = None
         self._cancel: threading.Event | None = None
         self._terminal_pending: tuple[int, LibraryExportHostEvent] | None = None
+        # A successful shutdown may be followed by a refused native Form close.
+        # Preserve the exact already-chosen terminal separately from queued UI
+        # callbacks so recovery can republish it once while the old generation
+        # remains fenced.
+        self._retired_terminal: LibraryExportHostEvent | None = None
         self._retry_timer: threading.Timer | None = None
         self._generation = 0
         self._closed = False
@@ -553,7 +558,15 @@ class Version2WindowsLibraryExportDelegate:
                 or self._retry_timer is not None
             ):
                 return False
+            retired_terminal = self._retired_terminal
+            self._retired_terminal = None
             self._closed = False
+        if retired_terminal is not None:
+            # The stale queued callback belongs to the retired generation and
+            # will remain a no-op. Publish the canonical terminal directly on
+            # this owner-thread recovery boundary so Library controls/NVDA leave
+            # their pre-close RUNNING state exactly once.
+            self._emit(retired_terminal)
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
@@ -580,6 +593,8 @@ class Version2WindowsLibraryExportDelegate:
             self._retry_timer = None
             self._closed = True
             self._generation += 1
+            if self._terminal_pending is not None:
+                self._retired_terminal = self._terminal_pending[1]
             self._terminal_pending = None
             self._cancel = None
             self._thread = None
