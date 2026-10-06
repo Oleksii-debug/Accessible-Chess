@@ -303,7 +303,7 @@ jobs:
 
           dom_test_actual="$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)"
           case "$dom_test_actual" in
-            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b|1054a49f7c9cb57acde843cc1dee0bdf943e77fc)
+            d2539b0674e68aa5ff1f040161be4f34943b5cf6|61a148bf2a1282f4eba11104aab462f10e6c263c|7f3368c7523c60e796b8c404fa0d3e4cc5229c7b|d258506e4fccf58f275829d39de9c8120ff9b65d|f58dbfe206bb2033db2eb5f2419128f49a846140|831ca1a6f3c685967c9e9f1c93cc622d6f864d4b|1054a49f7c9cb57acde843cc1dee0bdf943e77fc|0a630298ff41d86678850ac401eeb763cc28a26a)
               ;;
             *)
               printf 'Feature blob mismatch: tests/js/pgn_surface_dom_test.js actual=%s\n' "$dom_test_actual" >&2
