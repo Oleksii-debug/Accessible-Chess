@@ -171,7 +171,10 @@ class MediaClock:
             whole_elapsed = int(media_elapsed)
             self._fractional_ms = media_elapsed - whole_elapsed
             self._position_ms += whole_elapsed
-            if self._duration_ms is not None and self._position_ms >= self._duration_ms:
+            if (
+            self._duration_ms is not None
+            and self._position_ms >= self._duration_ms
+        ):
                 self._position_ms = self._duration_ms
                 self._fractional_ms = 0.0
                 if self._state is not MediaPlaybackState.ENDED:
@@ -211,7 +214,10 @@ class MediaClock:
 
     def pause(self, now_ms: int) -> MediaClockSnapshot:
         self._materialize(now_ms)
-        if self._state in (MediaPlaybackState.PLAYING, MediaPlaybackState.BUFFERING):
+        if self._state in (
+            MediaPlaybackState.PLAYING,
+            MediaPlaybackState.BUFFERING,
+        ):
             self._state = MediaPlaybackState.PAUSED
             self._fractional_ms = 0.0
             self._revision += 1
@@ -231,7 +237,10 @@ class MediaClock:
     def seek(self, position_ms: int, now_ms: int) -> MediaClockSnapshot:
         position = _require_nonnegative_int(position_ms, "position_ms")
         if self._duration_ms is not None and position > self._duration_ms:
-            raise MediaContractError("media position exceeds source duration", code=MediaErrorCode.INVALID_TIMESTAMP)
+            raise MediaContractError(
+                "media position exceeds source duration",
+                code=MediaErrorCode.INVALID_TIMESTAMP,
+            )
         self._materialize(now_ms)
         self._position_ms = position
         self._fractional_ms = 0.0
@@ -256,7 +265,8 @@ class MediaClock:
         self._materialize(now_ms)
         if self._duration_ms is not None:
             self._position_ms = self._duration_ms
-            self._fractional_ms = 0.0        if self._state is not MediaPlaybackState.ENDED:
+            self._fractional_ms = 0.0
+        if self._state is not MediaPlaybackState.ENDED:
             self._state = MediaPlaybackState.ENDED
             self._revision += 1
         return self._snapshot()
