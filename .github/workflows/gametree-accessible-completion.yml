@@ -56,6 +56,10 @@ jobs:
           acs/ui_keymap_adapter.py
           acs/version2_pgn_commands.py
           tests/test_gametree_accessible_completion.py
+          tests/test_gametree.py
+          tests/test_d06_gametree_persistence_vertical.py
+          tests/test_d06_annotation_insertion_persistence_vertical.py
+          tests/test_d06_gametree_snapshot_resume.py
           web/full_product_pgn.js
           EOF
           sort -o expected-scope.txt expected-scope.txt
@@ -82,9 +86,10 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_gametree_accessible_completion
-          tests.test_gametree_editing
-          tests.test_gametree_insertion
-          tests.test_gametree_navigation
+          tests.test_gametree
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_d06_gametree_snapshot_resume
           tests.test_pgn_workspace
           tests.test_version2_pgn_commands
           tests.test_dev1_pgn_webview_projection
