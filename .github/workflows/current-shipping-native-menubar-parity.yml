@@ -20,7 +20,7 @@ concurrency:
 
 env:
   BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  P0_WORKFLOW_BLOB: 3fe35515cc30585751a5aa5aa44f2b0651dbd10f
+  P0_WORKFLOW_BLOB: 2a2c70dade8fb8e042a87a40ae63a9aea1a792ce
   UIA_ORACLE_BLOB: 1cf8675d0f087b8ab8e87c2885910a0f66466000
   SMOKE_TEST_BLOB: c16534b45e6f533085478fd4f4e95d578aabfe0c
 
