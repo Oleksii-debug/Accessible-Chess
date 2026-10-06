@@ -295,6 +295,20 @@ class PortableTreeTests(unittest.TestCase):
         incomplete = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=None)
         self.assertIsNone(portable_module._stable_change_metadata(incomplete))
 
+    def test_windows_snapshot_uses_mtime_without_ctime_and_fails_closed_without_mtime(self):
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123),
+                ),
+                (123,),
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=None, st_ctime_ns=456),
+                ),
+            )
+
     def test_windows_snapshot_ignores_creation_time_when_mtime_is_stable(self):
         first = SimpleNamespace(
             st_dev=11,
