@@ -193,6 +193,12 @@ class AgentConversationRuntimeHost:
 
         token = self._canonical_run_id(run_id)
         prompt = self._canonical_prompt(user_text)
+        projection = self.projection.status_snapshot()
+        if (
+            projection.get("run_id") != token
+            or projection.get("state") != "running"
+        ):
+            raise RuntimeError("Agent run is not the active conversation run")
         with self._lock:
             if self._closed:
                 raise RuntimeError("Agent execution host is closed")
@@ -324,6 +330,8 @@ def bind_agent_runtime(
     if not callable(install):
         raise TypeError("application cannot own Agent host shutdown")
     assert_thread()
+    if getattr(application, "_agent_execution_host", None) is not None:
+        raise RuntimeError("Agent execution host is already installed")
 
     holder: dict[str, AgentConversationRuntimeHost] = {}
 
