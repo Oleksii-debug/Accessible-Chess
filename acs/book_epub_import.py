@@ -38,6 +38,8 @@ MAX_EPUB_ENTRIES = 20_000
 MAX_EPUB_TOTAL_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 MAX_EPUB_ENTRY_BYTES = 16 * 1024 * 1024
 MAX_EPUB_XML_BYTES = 4 * 1024 * 1024
+MAX_EPUB_XML_ELEMENTS = 100_000
+MAX_EPUB_XML_DEPTH = 128
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
 MAX_EPUB_WARNINGS = 4_096
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
@@ -137,6 +139,10 @@ class _Warnings:
 
 class _ForbiddenXmlDeclaration(Exception):
     """Internal control-flow sentinel for DTD/entity rejection."""
+
+
+class _XmlResourceLimit(Exception):
+    """Internal control-flow sentinel for bounded package XML structure."""
 
 
 def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
@@ -924,20 +930,40 @@ def _xml_root(data: bytes, label: str) -> ET.Element:
         )
 
     parser = expat.ParserCreate()
+    element_count = 0
+    depth = 0
 
     def reject_declaration(*_args: object) -> None:
         raise _ForbiddenXmlDeclaration()
+
+    def start_element(_name: str, _attrs: dict[str, str]) -> None:
+        nonlocal element_count, depth
+        element_count += 1
+        depth += 1
+        if element_count > MAX_EPUB_XML_ELEMENTS or depth > MAX_EPUB_XML_DEPTH:
+            raise _XmlResourceLimit()
+
+    def end_element(_name: str) -> None:
+        nonlocal depth
+        depth -= 1
 
     parser.StartDoctypeDeclHandler = reject_declaration
     parser.EntityDeclHandler = reject_declaration
     parser.UnparsedEntityDeclHandler = reject_declaration
     parser.ExternalEntityRefHandler = reject_declaration
+    parser.StartElementHandler = start_element
+    parser.EndElementHandler = end_element
     try:
         parser.Parse(data, True)
     except _ForbiddenXmlDeclaration as exc:
         raise _error(
             f"EPUB {label} contains unsupported XML declarations",
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
+        ) from exc
+    except _XmlResourceLimit as exc:
+        raise _error(
+            f"EPUB {label} exceeds supported XML structure limits",
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
         ) from exc
     except expat.ExpatError as exc:
         raise _error(
