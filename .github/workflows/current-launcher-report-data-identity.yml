@@ -5,7 +5,10 @@ on:
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_launcher_core_guard.py'
       - '.github/workflows/current-launcher-report-data-identity.yml'
+      - '.github/workflows/portable-launch-report-reparse-safety.yml'
   workflow_dispatch:
 
 permissions:
