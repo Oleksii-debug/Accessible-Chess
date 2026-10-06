@@ -137,6 +137,52 @@ assert(
   "final-product refresh does not recover orphaned shell publication"
 );
 
+const productFocusBlock = extract(
+  "  function productSurfaceFocusTarget(snapshot, routeId) {",
+  "  function restoreProductFocus(snapshot, routeId, requestedFocus) {",
+  "product focus target"
+);
+const productFocusContext = vm.createContext({
+  Array,
+  validFocusId: (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value),
+  emptyStatusId: (routeId) => "v2-" + routeId + "-empty-status"
+});
+vm.runInContext(
+  productFocusBlock + "\nthis.__productSurfaceFocusTarget = productSurfaceFocusTarget;",
+  productFocusContext,
+  { filename: "version2_final_product_bootstrap.js#product-focus" }
+);
+const productSurfaceFocusTarget = productFocusContext.__productSurfaceFocusTarget;
+assert.strictEqual(
+  productSurfaceFocusTarget(
+    {
+      training: {
+        answer: { disabled: true },
+        actions: [
+          { command: "training.continue", enabled: true },
+          { command: "training.reset.request", enabled: true }
+        ]
+      }
+    },
+    "training"
+  ),
+  "training-action-continue",
+  "completed Training did not focus the canonical Continue action"
+);
+assert.strictEqual(
+  productSurfaceFocusTarget(
+    {
+      training: {
+        answer: { disabled: true },
+        actions: [{ command: "training.reset.request", enabled: true }]
+      }
+    },
+    "training"
+  ),
+  "training-action-reset",
+  "completed Training without Continue did not focus Reset"
+);
+
 const drainBlock = extract(
   "  let eventDrainInFlight = false;",
   '  documentRef.addEventListener("focusin"',
@@ -458,6 +504,7 @@ const previousFocus = {
 };
 const txDocument = { activeElement: previousFocus };
 let restoreProductFocusCalls = 0;
+let libraryDeactivateCalls = 0;
 const candidateNode = { id: "partial-book", hidden: false };
 const renderFailure = new Error("malformed Book candidate");
 let failBookRender = true;
@@ -491,6 +538,7 @@ const presentationContext = vm.createContext({
   renderEmptyProduct: () => {},
   uiText: (_uk, en) => en,
   restoreProductFocus: () => { restoreProductFocusCalls += 1; },
+  deactivateLibrarySurface: () => { libraryDeactivateCalls += 1; },
   hiddenByAncestor: (target) => !!target.hidden
 });
 vm.runInContext(
@@ -525,12 +573,14 @@ assert.deepStrictEqual(
 );
 assert.strictEqual(txDocument.activeElement, previousFocus, "failed candidate did not restore prior focus");
 assert.strictEqual(restoreProductFocusCalls, 0, "failed candidate ran post-commit focus restoration");
+assert.strictEqual(libraryDeactivateCalls, 0, "failed candidate retired committed Library authority");
 
 failBookRender = false;
 renderProductSurface({ books: {} }, "books", "", false, "Books");
 assert.strictEqual(txOriginalMain.hidden, true, "successful Book candidate did not commit Stage 1 visibility");
 assert.strictEqual(txWorkspace.hidden, false, "successful Book candidate did not expose workspace");
 assert.deepStrictEqual(txWorkspace.children, [candidateNode], "successful Book candidate was not committed");
+assert.strictEqual(libraryDeactivateCalls, 1, "successful route change did not retire Library authority");
 assert.strictEqual(
   restoreProductFocusCalls,
   1,
@@ -587,6 +637,7 @@ const shellContext = vm.createContext({
   }),
   renderProductSurface: () => { throw shellFailure; },
   restoreStage1Focus: () => false,
+  deactivateLibrarySurface: () => {},
   global: {
     showStage1Route(routeId) { shownRoutes.push(routeId); }
   }
