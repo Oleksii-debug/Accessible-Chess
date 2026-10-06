@@ -315,7 +315,13 @@ def _sha256(path: Path) -> str:
 
 
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare pathname/open-handle identity plus content-relevant metadata."""
+    """Compare pathname/open-handle identity plus trustworthy mutation metadata.
+
+    Stable-read callers must fail closed when the platform cannot provide exact
+    byte-size or nanosecond mtime metadata.  Treating two missing metadata
+    values as equal would otherwise turn an unavailable change signal into a
+    successful snapshot proof.
+    """
     try:
         same_identity = os.path.samestat(left, right)
     except (AttributeError, OSError):
@@ -332,10 +338,23 @@ def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
             all(value not in (None, 0) for value in values)
             and left_identity == right_identity
         )
+
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    left_mtime = getattr(left, "st_mtime_ns", None)
+    right_mtime = getattr(right, "st_mtime_ns", None)
     return bool(
         same_identity
-        and int(left.st_size) == int(right.st_size)
-        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+        and type(left_size) is int
+        and type(right_size) is int
+        and left_size >= 0
+        and right_size >= 0
+        and left_size == right_size
+        and type(left_mtime) is int
+        and type(right_mtime) is int
+        and left_mtime >= 0
+        and right_mtime >= 0
+        and left_mtime == right_mtime
     )
 
 
