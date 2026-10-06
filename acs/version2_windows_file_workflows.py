@@ -960,6 +960,13 @@ class Version2WindowsFileActionDelegate:
                                     focus_target=previous_focus,
                                 )
                             else:
+                                # Publication is now the committed side of the
+                                # cancel boundary. Close the canonical cancel
+                                # seam before invoking the owner callback so a
+                                # re-entrant or newly-unblocked Cancel cannot
+                                # announce PGN_OPEN_CANCELLING after publication
+                                # has already begun.
+                                self._cancel_event = None
                                 try:
                                     # This is the only publication point and it
                                     # executes through the owner-thread poster

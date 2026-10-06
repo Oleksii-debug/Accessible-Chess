@@ -1203,10 +1203,14 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             cancel_event = threading.Event()
             events: list[FileWorkflowEvent] = []
             session_box: dict[str, PgnDocumentSession | None] = {"value": current}
+            cancel_results: list[FileWorkflowEvent] = []
+            controller_box: dict[str, Version2WindowsFileActionDelegate] = {}
 
             def publish(session: PgnDocumentSession) -> None:
                 session_box["value"] = session
-                cancel_event.set()
+                cancel_results.append(
+                    controller_box["value"]("pgn.cancel_open", {})
+                )
 
             controller = Version2WindowsFileActionDelegate(
                 dialogs=_Dialogs(source),
@@ -1220,6 +1224,7 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 current_focus_provider=lambda: "pgn-tree",
                 post_to_ui=lambda callback: None,
             )
+            controller_box["value"] = controller
             generation = 1
             worker = threading.Thread(
                 target=lambda: None,
@@ -1246,6 +1251,16 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             )
 
             self.assertIs(session_box["value"], prepared)
+            self.assertEqual(len(cancel_results), 1)
+            self.assertEqual(cancel_results[0].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(
+                cancel_results[0].error_code,
+                "no_pgn_open_running",
+            )
+            self.assertNotIn(
+                FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                [event.kind for event in events],
+            )
             terminal = events[-1]
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPENED)
             self.assertEqual(terminal.action_id, "pgn.open")
