@@ -30,7 +30,12 @@ from .book_html_import import (
     BookHtmlImportErrorCode,
     import_html_book,
 )
-from .bookdocument import (\n    MAX_BOOK_DOCUMENT_BLOCKS,\n    BookDocument,\n    Heading,\n    block_from_dict,\n)
+from .bookdocument import (
+    MAX_BOOK_DOCUMENT_BLOCKS,
+    BookDocument,
+    Heading,
+    block_from_dict,
+)
 
 
 MAX_EPUB_SOURCE_BYTES = 64 * 1024 * 1024
