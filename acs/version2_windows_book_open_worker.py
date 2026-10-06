@@ -68,6 +68,11 @@ class Version2BookOpenWorker:
         self._pending_outcome_kind: str | None = None
         self._recovery_focus: str | None = None
         self._recovery_terminal_kind: BookOpenWorkerEventKind | None = None
+        # Terminal delivery is an owner-observer transaction. Keep a distinct
+        # in-flight fence so a synchronous observer cannot recursively flush the
+        # same retained terminal or start a new generation before that terminal
+        # is accepted and retired.
+        self._terminal_delivery_active = False
 
     def _assert_ui_thread(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -108,14 +113,29 @@ class Version2BookOpenWorker:
         """Publish one owner-thread terminal retained by a refused close."""
         self._assert_ui_thread()
         with self._lock:
-            if self._closed or self._thread is not None or self._cancel is not None:
+            if (
+                self._closed
+                or self._thread is not None
+                or self._cancel is not None
+                or self._terminal_delivery_active
+            ):
                 return
             focus_target = self._recovery_focus
             terminal_kind = self._recovery_terminal_kind
-        if focus_target is None or terminal_kind is None:
-            return
-        self._emit(terminal_kind, focus_target)
+            if focus_target is None or terminal_kind is None:
+                return
+            self._terminal_delivery_active = True
+        try:
+            self._emit(terminal_kind, focus_target)
+        except BaseException:
+            # Observer delivery is retryable. Keep the exact retained terminal
+            # authoritative, but release only the in-flight fence so a later
+            # owner-thread drain may try again.
+            with self._lock:
+                self._terminal_delivery_active = False
+            raise
         with self._lock:
+            self._terminal_delivery_active = False
             if (
                 self._thread is None
                 and self._cancel is None
@@ -150,6 +170,12 @@ class Version2BookOpenWorker:
         self._publish_pending_recovery_terminal()
 
         with self._lock:
+            if (
+                self._terminal_delivery_active
+                or self._recovery_focus is not None
+                or self._recovery_terminal_kind is not None
+            ):
+                raise RuntimeError("Book Open terminal delivery is still pending")
             if self._closed:
                 raise RuntimeError("Book Open worker is closed")
             if self._cancel is not None:
