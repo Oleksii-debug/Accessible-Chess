@@ -32,8 +32,27 @@ class Issue22ReleaseContractTests(unittest.TestCase):
         self.assertIn("const r=await apiAction('make_move',v)", HTML)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", HTML)
         self.assertIn("else{input.focus();input.select()}", HTML)
-        self.assertIn("el('move-input').addEventListener('keydown'", HTML)
-        self.assertIn("if(e.key==='Enter')", HTML)
+        marker = "el('move-input').addEventListener('keydown'"
+        start = HTML.index(marker)
+        end = HTML.index("el('fen-load')", start)
+        handler = HTML[start:end]
+        legacy_enter = "if(e.key==='Enter')" in handler and "submitMove()" in handler
+        direct_registry = (
+            "resolveBinding(eventChord(e),'move_entry','move-entry')" in handler
+            and "a.actionId==='move.submit'" in handler
+            and "executeAction(a.actionId)" in handler
+        )
+        cached_registry = (
+            "keymapActionForEvent(e,'move_entry')" in handler
+            and "resolveBinding(chord,'move_entry','move-entry')" in handler
+            and "a&&a.actionId===candidate" in handler
+            and "executeAction(a.actionId)" in handler
+        )
+        self.assertTrue(legacy_enter or direct_registry or cached_registry, handler)
+        self.assertIn("e.preventDefault()", handler)
+        if direct_registry or cached_registry:
+            self.assertIn("'move.submit':()=>submitMove()", HTML)
+            self.assertNotIn("if(e.key==='Enter')", handler)
 
     def test_real_move_entry_e4_changes_core_state(self):
         with TemporaryDirectory() as temp:

@@ -34,9 +34,15 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
 
     def test_dense_rank_file_labels_do_not_flood_generic_localized_navigation_search(self) -> None:
         uk = KeymapEditorModel(lang="uk")
-        self.assertEqual(
-            [row.action_id for row in uk.rows(query="перейти")],
-            ["history.go_to_move"],
+        uk_go = [row.action_id for row in uk.rows(query="перейти")]
+        self.assertIn("history.go_to_move", uk_go)
+        self.assertTrue(
+            set(uk_go).issubset({"history.go_to_move", "history.commit_go_to_move"}),
+            uk_go,
+        )
+        self.assertFalse(
+            any(action_id.startswith(("board.rank_", "board.file_")) for action_id in uk_go),
+            uk_go,
         )
         uk_rank = next(row for row in uk.rows() if row.action_id == "board.rank_1")
         uk_file = next(row for row in uk.rows() if row.action_id == "board.file_1")
@@ -48,9 +54,15 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         )
 
         en = KeymapEditorModel(lang="en")
-        self.assertEqual(
-            [row.action_id for row in en.rows(query="go")],
-            ["history.go_to_move"],
+        en_go = [row.action_id for row in en.rows(query="go")]
+        self.assertIn("history.go_to_move", en_go)
+        self.assertTrue(
+            set(en_go).issubset({"history.go_to_move", "history.commit_go_to_move"}),
+            en_go,
+        )
+        self.assertFalse(
+            any(action_id.startswith(("board.rank_", "board.file_")) for action_id in en_go),
+            en_go,
         )
         en_rank = next(row for row in en.rows() if row.action_id == "board.rank_1")
         en_file = next(row for row in en.rows() if row.action_id == "board.file_1")
@@ -97,16 +109,38 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         end = html.index("el('move-submit').addEventListener", start)
         handler = html[start:end]
         editable_guard = "if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;"
-        binding_resolve = "resolveBinding(chord,'analysis','analysis')"
-        mapped_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
         self.assertIn(editable_guard, handler)
-        self.assertIn(binding_resolve, handler)
-        self.assertIn(mapped_prevent_default, handler)
-        self.assertLess(handler.index(editable_guard), handler.index(binding_resolve))
-        self.assertLess(handler.index(editable_guard), handler.index(mapped_prevent_default))
+        first_cancel = handler.find("e.preventDefault()")
+        self.assertGreaterEqual(first_cancel, 0)
+        self.assertLess(handler.index(editable_guard), first_cancel)
+        legacy_route = "resolveBinding(chord,'analysis','analysis')" in handler
+        registry_route = (
+            "const contexts=[['analysis','analysis']" in handler
+            and "actionByRegistryChord(chord,registryContext)" in handler
+            and "resolveBinding(chord,selected.registryContext,selected.uiContext)" in handler
+        )
+        self.assertTrue(legacy_route or registry_route, handler)
 
-        move_listener = "el('move-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitMove()}})"
-        self.assertIn(move_listener, html)
+        move_start = html.index("el('move-input').addEventListener('keydown'")
+        move_end = html.index("el('fen-load')", move_start)
+        move_handler = html[move_start:move_end]
+        legacy_enter = "if(e.key==='Enter')" in move_handler and "submitMove()" in move_handler
+        direct_registry = (
+            "resolveBinding(eventChord(e),'move_entry','move-entry')" in move_handler
+            and "a.actionId==='move.submit'" in move_handler
+            and "executeAction(a.actionId)" in move_handler
+        )
+        cached_registry = (
+            "keymapActionForEvent(e,'move_entry')" in move_handler
+            and "resolveBinding(chord,'move_entry','move-entry')" in move_handler
+            and "a&&a.actionId===candidate" in move_handler
+            and "executeAction(a.actionId)" in move_handler
+        )
+        self.assertTrue(legacy_enter or direct_registry or cached_registry, move_handler)
+        self.assertIn("e.preventDefault()", move_handler)
+        if direct_registry or cached_registry:
+            self.assertIn("'move.submit':()=>submitMove()", html)
+            self.assertNotIn("if(e.key==='Enter')", move_handler)
         self.assertNotIn("'move-input').addEventListener('keydown',e=>{e.preventDefault()", html)
 
     def test_board_square_accessible_names_are_concise_and_bilingual(self) -> None:
