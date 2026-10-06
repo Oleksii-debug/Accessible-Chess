@@ -410,6 +410,29 @@ class BookLibraryGameLookupTests(unittest.TestCase):
         self.assertIn('upstream="$live_product"', workflow)
         self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
 
+    def test_resource_fence_gate_late_binds_live_shipping_base(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "current-book-library-lookup-resource-fences.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('base_ref="${{ github.base_ref }}"', workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
+            workflow,
+        )
+        self.assertIn(
+            'upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$upstream"',
+            workflow,
+        )
+        self.assertNotIn("PINNED_BASE_SHA", workflow)
+
     def test_windows_blob_readback_tracks_current_head_instead_of_stale_stage1_digests(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
