@@ -361,6 +361,26 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         assert durable is not None
         self.assertEqual(external_state, durable.state)
 
+    def test_deleted_durable_slot_cannot_be_silently_restarted_in_process(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        store.path.unlink()
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertTrue(status["recovery_required"])
+        self.assertFalse(store.path.exists())
+
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self._dispatch_chord("Ctrl+Alt+R")
+
+        self.assertFalse(store.path.exists())
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
     def test_keyboard_status_detects_corruption_after_rotation_started(self) -> None:
         started = self._dispatch_chord("Ctrl+Alt+R").value
         store = self.app._rotation_store

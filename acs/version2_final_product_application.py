@@ -598,6 +598,16 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("Group rotation requires recovery") from None
 
         if loaded is None:
+            if (
+                self._rotation_store_revision is not None
+                or self._rotation_plan is not None
+                or self._rotation_state is not None
+            ):
+                # This process previously owned a concrete durable generation.
+                # A now-missing slot is data loss/drift, not a pristine first
+                # start. Never silently reset the teacher to revision 1.
+                self._rotation_load_error = True
+                raise RuntimeError("Group rotation requires recovery")
             plan = default_group_rotation(lesson, rotation_id=rotation_id)
             state = start_rotation(plan)
             try:
