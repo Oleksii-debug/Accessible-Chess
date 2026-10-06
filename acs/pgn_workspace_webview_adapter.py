@@ -23,6 +23,9 @@ from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf1
 from .pgn_workspace import (
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
+    MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS,
+    MAX_PGN_SEARCH_TEXT_UNITS,
+    _contains_unicode_surrogate,
 )
 
 @runtime_checkable
@@ -529,7 +532,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return self._operate_and_render(operation)
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name:
+        if (
+            type(name) is not str
+            or not name
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+        ):
             raise ValueError("PGN tag name is invalid")
         if (
             type(value) is not str
@@ -537,6 +546,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             or "\x00" in value
             or "\r" in value
             or "\n" in value
+            or _contains_unicode_surrogate(value)
         ):
             raise ValueError("PGN tag value is invalid")
         return self._mutate_and_render(
@@ -547,7 +557,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name:
+        if (
+            type(name) is not str
+            or not name
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+        ):
             raise ValueError("PGN tag name is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -557,7 +573,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def append_moves(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > 8192 or "\x00" in text:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _utf16_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
             raise ValueError("PGN continuation text is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
@@ -567,7 +589,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         )
 
     def search(self, text: str) -> PgnWebViewEvent:
-        if type(text) is not str or not text.strip() or _utf16_units(text) > 4096 or "\x00" in text:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _utf16_units(text) > MAX_PGN_SEARCH_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
             raise ValueError("PGN search text is invalid")
         return self._mutate_and_render(
             lambda: self._dispatch_registered(
