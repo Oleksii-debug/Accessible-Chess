@@ -18,6 +18,8 @@
     "pgn.parent",
     "pgn.comment_edit",
     "pgn.comment_delete",
+    "pgn.nag_edit",
+    "pgn.variation_add",
     "pgn.variation_delete",
     "pgn.variation_promote",
     "pgn.copy_selection",
@@ -712,7 +714,109 @@
     };
   }
 
-  function renderActions(root, host, snapshot, invoke, announce, commentDialog) {
+  function buildSimpleEditDialog(root, snapshot, invoke, announce, spec) {
+    const dialog = node("dialog");
+    const title = node("h2", spec.title);
+    const titleId = spec.id + "-title";
+    title.id = titleId;
+    dialog.id = spec.id;
+    dialog.setAttribute("aria-labelledby", titleId);
+    dialog.setAttribute("aria-busy", "false");
+    dialog.appendChild(title);
+
+    const label = node("label", spec.label);
+    const textarea = node("textarea");
+    textarea.id = spec.id + "-text";
+    textarea.maxLength = spec.maxLength;
+    label.htmlFor = textarea.id;
+    dialog.appendChild(label);
+    dialog.appendChild(textarea);
+
+    const save = node("button", spec.saveLabel);
+    save.type = "button";
+    const cancel = node("button", spec.cancelLabel);
+    cancel.type = "button";
+    let opener = null;
+    let pending = false;
+
+    function setPending(value) {
+      pending = value === true;
+      save.disabled = pending;
+      cancel.disabled = pending;
+      textarea.readOnly = pending;
+      dialog.setAttribute("aria-busy", pending ? "true" : "false");
+    }
+
+    function closeAndRestore() {
+      if (pending) return;
+      if (dialog.open) dialog.close();
+      if (opener && typeof opener.focus === "function") {
+        opener.focus({ preventScroll: true });
+      }
+    }
+
+    function recover() {
+      setPending(false);
+      if (dialog.open) {
+        textarea.focus({ preventScroll: true });
+        if (typeof textarea.select === "function") textarea.select();
+      }
+    }
+
+    save.addEventListener("click", function () {
+      if (pending) return;
+      const value = textarea.value;
+      if (spec.requireNonEmpty && !value.trim()) {
+        announce(spec.emptyMessage);
+        textarea.focus({ preventScroll: true });
+        return;
+      }
+      setPending(true);
+      textarea.focus({ preventScroll: true });
+      const started = invokeCommand(
+        root,
+        invoke,
+        announce,
+        spec.command,
+        { text: value },
+        {
+          afterResult: function (result) {
+            if (result.kind === "error") {
+              recover();
+              return;
+            }
+            setPending(false);
+            if (result.kind === "delegated") closeAndRestore();
+          },
+          afterFailure: recover
+        }
+      );
+      if (!started) recover();
+    });
+    cancel.addEventListener("click", closeAndRestore);
+    dialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closeAndRestore();
+    });
+    dialog.appendChild(save);
+    dialog.appendChild(cancel);
+
+    return {
+      dialog: dialog,
+      open: function (button) {
+        const activeFlight = root._pgnFlight;
+        const epoch = root._pgnRenderEpoch || 0;
+        if (activeFlight && activeFlight.epoch === epoch) return;
+        opener = button;
+        textarea.value = typeof spec.initialValue === "function" ? spec.initialValue() : "";
+        dialog.showModal();
+        textarea.focus();
+        if (typeof textarea.select === "function") textarea.select();
+      }
+    };
+  }
+
+  function renderActions(root, host, snapshot, invoke, announce, commentDialog, nagDialog, variationDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-orientation", "horizontal");
@@ -734,6 +838,14 @@
         if (button.disabled) return;
         if (action.action === "pgn.comment_edit") {
           commentDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.nag_edit") {
+          nagDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.variation_add") {
+          variationDialog.open(button);
           return;
         }
         invokeCommand(root, invoke, announce, action.action, {});
@@ -867,8 +979,38 @@
       invoke,
       announce
     );
-    renderActions(root, main, snapshot, invoke, announce, commentDialog);
+    const selected = snapshot.tree.find(function (item) { return item.selected; });
+    const en = snapshot.document.lang === "en";
+    const nagDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-nag-dialog",
+      title: en ? "NAG annotations" : "Анотації NAG",
+      label: en ? "NAGs separated by spaces, for example ! ? $1 $2" : "NAG через пробіл, наприклад ! ? $1 $2",
+      saveLabel: en ? "Save" : "Зберегти",
+      cancelLabel: en ? "Cancel" : "Скасувати",
+      command: "pgn.nag_edit",
+      maxLength: 512,
+      requireNonEmpty: false,
+      emptyMessage: "",
+      initialValue: function () {
+        return selected && Array.isArray(selected.nags) ? selected.nags.join(" ") : "";
+      }
+    });
+    const variationDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-variation-dialog",
+      title: en ? "Add variation" : "Додати варіант",
+      label: en ? "Enter legal SAN moves from the position before the selected move, for example c5 Nf3" : "Введіть легальні SAN-ходи від позиції перед вибраним ходом, наприклад c5 Nf3",
+      saveLabel: en ? "Add" : "Додати",
+      cancelLabel: en ? "Cancel" : "Скасувати",
+      command: "pgn.variation_add",
+      maxLength: 8192,
+      requireNonEmpty: true,
+      emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
+      initialValue: function () { return ""; }
+    });
+    renderActions(root, main, snapshot, invoke, announce, commentDialog, nagDialog, variationDialog);
     main.appendChild(commentDialog.dialog);
+    main.appendChild(nagDialog.dialog);
+    main.appendChild(variationDialog.dialog);
     fragment.appendChild(main);
     commitRender(root, fragment, snapshot);
     focusTarget(root, requestedFocus);
