@@ -243,6 +243,36 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_aggregate_blocks_fail_closed_at_canonical_document_limit(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join((
+            '    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            '    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>',
+        ))
+        spine = '\n'.join((
+            '    <itemref idref="c1"/>',
+            '    <itemref idref="c2"/>',
+        ))
+        chapter = b'<html><body><h1>Heading</h1><p>Paragraph</p></body></html>'
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                'OEBPS/Text/ch1.xhtml': chapter,
+                'OEBPS/Text/ch2.xhtml': chapter,
+            },
+        )
+
+        with patch.object(epub, 'MAX_BOOK_DOCUMENT_BLOCKS', 3):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                import_epub_book(raw, source_name='aggregate-limit.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('BookDocument block limit', str(caught.exception))
+
     def test_epub_nested_html_control_preserves_order_and_closes_archive_on_cancel(self):
         raw = _simple_epub(HTML.encode('utf-8'))
         plain = import_epub_book(raw, source_name='study.epub')
