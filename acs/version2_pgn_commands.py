@@ -491,6 +491,7 @@ class Version2PgnCommands:
             if (
                 type(text) is not str
                 or _pgn_edit_text_units(text) > MAX_PGN_COMMENT_TEXT_UNITS
+                or "\x00" in text
                 or _contains_unicode_surrogate(text)
             ):
                 raise ValueError("invalid PGN comment")

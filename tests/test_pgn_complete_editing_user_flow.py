@@ -128,7 +128,9 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
             )
 
         for action_id, extra in (
+            ("pgn.search", {"text": "\ud800"}),
             ("pgn.comment_edit", {"text": "\ud800"}),
+            ("pgn.comment_edit", {"text": "embedded\x00nul"}),
             ("pgn.nag_edit", {"text": "$1 \udfff"}),
             ("pgn.variation_add", {"text": "c5 {\ud800}"}),
         ):
