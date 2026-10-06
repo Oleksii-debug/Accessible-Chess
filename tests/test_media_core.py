@@ -422,6 +422,12 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(resumed.state, MediaPlaybackState.PLAYING)
         self.assertEqual(clock.snapshot(5600).position_ms, 1800)
 
+    def test_clock_fractional_rate_progress_is_not_lost_between_snapshots(self):
+        clock = MediaClock()
+        clock.play(0)
+        self.assertEqual(clock.snapshot(1).position_ms, 1)
+        self.assertEqual(clock.snapshot(2).position_ms, 3)
+        self.assertEqual(clock.snapshot(3).position_ms, 4)
     def test_clock_rate_change_reanchors_without_position_jump(self):
         clock = MediaClock()
         clock.play(0)
