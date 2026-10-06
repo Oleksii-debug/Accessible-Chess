@@ -131,7 +131,7 @@ class MediaClock:
                 ) from exc
         else:
             raise MediaContractError(
-                f"unsupported media playback state: {state!r}",
+                "unsupported media playback state",
                 code=MediaErrorCode.INVALID_CONTAINER,
             )
         self._playback_rate = self._require_rate(playback_rate)
