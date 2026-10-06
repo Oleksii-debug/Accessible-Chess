@@ -163,8 +163,9 @@ _CSS_IMPORTANT_RE = re.compile(r"[ \t\r\n\f]*![ \t\r\n\f]*important[ \t\r\n\f]*$
 _CSS_DISPLAY_SINGLE_VALUES = frozenset(
     {
         "none", "contents", "block", "inline", "run-in", "flow", "flow-root",
-        "table", "flex", "grid", "ruby", "math", "list-item", "inline-block",
-        "inline-table", "inline-flex", "inline-grid", "table-row-group",
+        "table", "flex", "grid", "ruby", "math", "grid-lanes", "inline-grid-lanes",
+        "list-item", "inline-block", "inline-table", "inline-flex", "inline-grid",
+        "table-row-group",
         "table-header-group", "table-footer-group", "table-row", "table-cell",
         "table-column-group", "table-column", "table-caption", "ruby-base",
         "ruby-text", "ruby-base-container", "ruby-text-container", "inherit",
