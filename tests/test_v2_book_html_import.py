@@ -707,6 +707,83 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_invalid_display_value_cannot_override_valid_hidden_declaration(self) -> None:
+        hidden_sources = (
+            f"""<html><body>
+<section style="display:none; display:bogus">
+  <div data-acs-fen="{Board.START}">Hidden invalid override</div>
+</section>
+<p>Visible tail one</p>
+</body></html>""",
+            f"""<html><body>
+<section style='display:none; display:"block"'>
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible tail two</p>
+</body></html>""",
+            f"""<html><body>
+<section style="display:none !important; display:bogus !important">
+  <img src="images/hidden.png" alt="Hidden invalid important override" data-acs-fen="{Board.START}">
+</section>
+<p>Visible tail three</p>
+</body></html>""",
+        )
+        for index, source in enumerate(hidden_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-invalid-display-override-{index}.html",
+                    available_assets={"images/hidden.png"},
+                )
+                self.assertEqual(result.pgn_games, 0)
+                self.assertEqual(result.image_references, ())
+                self.assertFalse(
+                    any(
+                        isinstance(block, (Game, Diagram, Position, Note))
+                        for block in result.document.blocks
+                    )
+                )
+                rendered = "\n".join(
+                    getattr(block, "text", "")
+                    for block in result.document.blocks
+                )
+                self.assertIn(
+                    f"Visible tail {('one', 'two', 'three')[index]}",
+                    rendered,
+                )
+                self.assertNotIn("Hidden", rendered)
+
+    def test_known_valid_display_values_can_override_prior_none(self) -> None:
+        for index, display_value in enumerate(
+            (
+                "block",
+                "inline",
+                "flex",
+                "grid",
+                "inline-block",
+                "block flow-root",
+                "inline flex",
+                "block flow list-item",
+            )
+        ):
+            with self.subTest(display_value=display_value):
+                result = import_html_book(
+                    f"""<html><body>
+<section style="display:none; display:{display_value}">
+  <div data-acs-fen="{Board.START}">Visible valid override</div>
+</section>
+</body></html>""",
+                    source_name=f"style-valid-display-override-{index}.html",
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
     def test_inline_display_comments_cannot_smuggle_hidden_semantics(self) -> None:
         hidden_sources = (
             f'''<html><body>
