@@ -70,10 +70,7 @@ MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
 def _pgn_edit_text_units(value: str) -> int:
     """Return browser-compatible UTF-16 units for bounded PGN edit text."""
 
-    try:
-        return len(value.encode("utf-16-le")) // 2
-    except UnicodeEncodeError as exc:
-        raise ValueError("PGN edit text is not valid Unicode") from exc
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
 
 
 class PgnWorkspaceErrorCode(str, Enum):
@@ -144,8 +141,7 @@ def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
     try:
         text = serialize_pgn_text(snapshot)
         reparsed = parse_pgn_text(text, strict=True)
-        content_digest = _digest_text(text)
-    except (PgnRoundTripError, UnicodeError) as exc:
+    except PgnRoundTripError as exc:
         raise _workspace_error(
             "PGN document is not strict round-trip safe",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
@@ -155,7 +151,7 @@ def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
             "PGN document changes under canonical round-trip",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
         )
-    return list(reparsed), content_digest
+    return list(reparsed), _digest_text(text)
 
 
 def _digest_text(text: str) -> str:
