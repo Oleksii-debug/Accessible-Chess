@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
 
 from acs.full_product_presenters import PgnTreePresenter
@@ -82,6 +83,38 @@ class AccessibleGameTreeCompletionTests(unittest.TestCase):
         )
         self.assertEqual(workspace.cursor, GameTreeCursor((VariationStep(1, 1),), 0))
         self.assertTrue(workspace.dirty)
+
+    def test_reordered_variations_survive_atomic_save_and_reopen(self):
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        workspace = session.workspace
+        commands = Version2PgnCommands(lambda: session)
+        workspace.set_cursor(GameTreeCursor((VariationStep(1, 1),), 0))
+
+        commands(
+            "pgn.variation_move_down",
+            {
+                **command_target(session),
+                "parent_path": (),
+                "parent_move_index": 1,
+                "variation_index": 1,
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reordered-variations.pgn"
+            session.save_as(path)
+            reopened = PgnDocumentSession.open(path)
+
+        game = reopened.workspace.current_game()
+        self.assertEqual(
+            [
+                resolve_line(game, (VariationStep(1, index),)).moves[0].san
+                for index in range(3)
+            ],
+            ["c5", "d5", "c6"],
+        )
+        self.assertFalse(reopened.workspace.dirty)
+        self.assertEqual(reopened.workspace.content_revision, 0)
 
     def test_reorder_boundary_fails_atomically(self):
         session = PgnDocumentSession.from_text(DOCUMENT)

@@ -6,14 +6,12 @@ on:
       - 'acs/full_product_actions.py'
       - 'acs/full_product_presenters.py'
       - 'acs/pgn_webview_projection.py'
-      - 'acs/pgn_workspace.py'
       - 'acs/pgn_webview_bridge.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'acs/version2_pgn_commands.py'
       - 'acs/ui_keymap_adapter.py'
       - 'web/full_product_pgn.js'
       - 'tests/test_gametree_accessible_completion.py'
-      - 'tests/test_pgn_complete_editing_user_flow.py'
       - '.github/workflows/gametree-accessible-completion.yml'
   workflow_dispatch:
 
@@ -84,9 +82,10 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_gametree_accessible_completion
-          tests.test_gametree_editing
-          tests.test_gametree_insertion
-          tests.test_gametree_navigation
+          tests.test_gametree
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_annotation_insertion_persistence_vertical
+          tests.test_d06_gametree_snapshot_resume
           tests.test_pgn_workspace
           tests.test_version2_pgn_commands
           tests.test_dev1_pgn_webview_projection
