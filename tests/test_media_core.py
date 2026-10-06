@@ -379,6 +379,42 @@ class MediaCoreContractTests(unittest.TestCase):
             MediaPositionTimeline("lesson-1", [None] * (MAX_MEDIA_LINKS + 1))
         self.assertEqual(caught.exception.code, MediaErrorCode.LINK_LIMIT)
 
+    def test_timeline_bounds_arbitrary_iterables_before_full_materialization(self):
+        seen = []
+
+        def unbounded_links():
+            index = 0
+            while True:
+                seen.append(index)
+                yield self.link(index, f"tree:{index}")
+                index += 1
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline("lesson-1", unbounded_links())
+        self.assertEqual(caught.exception.code, MediaErrorCode.LINK_LIMIT)
+        self.assertEqual(len(seen), MAX_MEDIA_LINKS + 1)
+
+    def test_timeline_rejects_media_link_subclasses_at_dto_boundary(self):
+        class DerivedMediaChessLink(MediaChessLink):
+            pass
+
+        derived = DerivedMediaChessLink(
+            source_id="lesson-1",
+            timestamp_ms=1_000,
+            chess_ref="tree:derived",
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline("lesson-1", [derived])
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_session_rejects_cursor_subclasses_at_dto_boundary(self):
+        class DerivedMediaCursor(MediaCursor):
+            pass
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessSession(DerivedMediaCursor("lesson-1", 0))
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
     def test_schema_identifier_is_stable(self):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")
 
