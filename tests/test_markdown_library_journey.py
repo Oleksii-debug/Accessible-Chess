@@ -8,7 +8,7 @@ from acs.acsdb import AcsDatabase
 from acs.book_library_import import open_book_library_source
 from acs.book_library_game_lookup import AcsdbBookGameLookup
 from acs.book_text_import import import_text_book, BookTextFormat, BookTextImportError
-from acs.bookdocument import Game, Heading, ListBlock, Position
+from acs.bookdocument import Game, Heading, ListBlock, Note, Position
 from acs.chesscore import Board
 from acs.gametree_legality import validate_game_legality
 from acs.library_import_service import LibraryImportService
@@ -75,6 +75,29 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             source.write_text('```fen\ninvalid\n```\n\n```pgn\n1. e4 *\n```', encoding='utf-8')
             with self.assertRaises(BookTextImportError):
                 open_book_library_source(source)
+
+
+    def test_valid_tilde_fence_with_backtick_info_stays_code_not_semantic_markdown(self):
+        source = (
+            "~~~code`meta\n"
+            "# not a heading\n"
+            "![not a semantic image](https://example.invalid/board.png)\n"
+            "~~~\n\n"
+            "After fence."
+        )
+        book = import_text_book(
+            source,
+            source_name="tilde.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        self.assertFalse(any(type(block) is Heading for block in book.document.blocks))
+        notes = [block for block in book.document.blocks if type(block) is Note]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].note_type, "code:code`meta")
+        self.assertIn("# not a heading", notes[0].text)
+        self.assertIn("![not a semantic image]", notes[0].text)
+        self.assertFalse(any("image reference" in warning for warning in book.warnings))
 
     def test_native_import_action_accepts_markdown_on_worker_and_reopens_database(self):
         with tempfile.TemporaryDirectory() as directory:
