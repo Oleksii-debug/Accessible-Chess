@@ -760,7 +760,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 if legacy_heading is not None
                 else heading.group(2)
             )
-            identity_text, _ = _accessible_inline_text(identity_source)
+            # Keep the historical source-derived target identity for the
+            # exact same book bytes. Existing BookReader snapshots may already
+            # reference that key; sanitizing visible text must not silently
+            # orphan persisted reading progress after an application upgrade.
+            identity_text = identity_source
             builder.heading(
                 heading_text,
                 len(heading.group(1)),
