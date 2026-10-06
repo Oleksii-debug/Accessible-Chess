@@ -10,6 +10,8 @@ from acs.agent_tools import (
     ToolExecutor,
     ToolRisk,
     ToolSpec,
+    _MAX_TOOL_ARGUMENT_DEPTH,
+    _MAX_TOOL_ARGUMENT_ITEMS,
     _MAX_TOOL_RESULT_TEXT_BYTES,
     tool_arguments_fingerprint,
 )
@@ -28,6 +30,53 @@ class AgentToolResultAuthorityTests(unittest.TestCase):
                 ToolCall(call_id="call-read", tool_id="fixture.read", arguments={})
             )
         )
+
+    def test_tool_arguments_are_bounded_and_passively_canonicalized(self) -> None:
+        deep: object = 0
+        for _ in range(_MAX_TOOL_ARGUMENT_DEPTH + 1):
+            deep = [deep]
+        with self.assertRaisesRegex(ValueError, "maximum tool argument depth"):
+            ToolCall(
+                call_id="deep",
+                tool_id="fixture.read",
+                arguments={"value": deep},
+            )
+
+        with self.assertRaisesRegex(ValueError, "too many aggregate items"):
+            ToolCall(
+                call_id="wide",
+                tool_id="fixture.read",
+                arguments={"values": [0] * (_MAX_TOOL_ARGUMENT_ITEMS + 1)},
+            )
+
+        canonical = ToolCall(
+            call_id="unicode",
+            tool_id="fixture.read",
+            arguments={"cafe\u0301": "re\u0301sume\u0301"},
+        )
+        self.assertEqual(dict(canonical.arguments), {"café": "résumé"})
+
+    def test_tool_arguments_reject_active_mapping_and_list_subclasses(self) -> None:
+        class ActiveMapping(dict):
+            def items(self):
+                raise AssertionError("active mapping was iterated")
+
+        class ActiveList(list):
+            def __iter__(self):
+                raise AssertionError("active list was iterated")
+
+        with self.assertRaisesRegex(TypeError, "passive built-in mapping"):
+            ToolCall(
+                call_id="active-mapping",
+                tool_id="fixture.read",
+                arguments=ActiveMapping(),
+            )
+        with self.assertRaisesRegex(TypeError, "unsupported active value type"):
+            ToolCall(
+                call_id="active-list",
+                tool_id="fixture.read",
+                arguments={"items": ActiveList([1, 2, 3])},
+            )
 
     def test_nested_handler_output_is_detached_before_publication(self) -> None:
         source = {
