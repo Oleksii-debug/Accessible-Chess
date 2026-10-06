@@ -7,6 +7,7 @@ from acs.agent_webview_bridge import AgentConversationWebViewBridge
 from acs.agent_webview_projection import (
     AgentConversationProjection,
     MAX_AGENT_PROMPT_CHARS,
+    MAX_AGENT_RESPONSE_CHARS,
 )
 
 
@@ -84,6 +85,52 @@ class AgentWebViewSurfaceTests(unittest.TestCase):
             "White to move.\nThere are 20 legal moves.",
         )
         self.assertIn("Model calls: 2", done["status_text"])
+
+    def test_status_snapshot_is_lightweight_and_completion_failure_releases_ui(self):
+        starts = []
+        projection = AgentConversationProjection(
+            start_run=lambda run_id, text: starts.append((run_id, text)),
+            cancel_run=lambda _run_id: None,
+            language="en",
+        )
+        projection.submit("Analyze")
+        status = projection.status_snapshot()
+        self.assertNotIn("transcript", status)
+        self.assertEqual(status["state"], "running")
+        self.assertEqual(status["run_id"], "agent-ui-1")
+
+        self.assertFalse(
+            projection.complete(
+                "agent-ui-1",
+                "X" * (MAX_AGENT_RESPONSE_CHARS + 1),
+            )
+        )
+        failed = projection.snapshot()
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["run_id"], "")
+        self.assertIs(failed["can_submit"], True)
+        self.assertIs(failed["can_cancel"], False)
+        self.assertEqual(len(failed["transcript"]), 1)
+
+    def test_synchronous_host_completion_restores_input_focus_target(self):
+        holder = {}
+        def start(run_id, _text):
+            holder["projection"].complete(run_id, "Immediate answer")
+
+        projection = AgentConversationProjection(
+            start_run=start,
+            cancel_run=lambda _run_id: None,
+            language="en",
+        )
+        holder["projection"] = projection
+        event = projection.submit("Immediate?")
+        self.assertEqual(event.kind, "accepted")
+        self.assertEqual(event.payload["focus_target"], "agent-input")
+        self.assertEqual(event.payload["snapshot"]["state"], "completed")
+        self.assertEqual(
+            event.payload["snapshot"]["transcript"][-1]["text"],
+            "Immediate answer",
+        )
 
     def test_only_active_run_may_publish_or_cancel_and_stale_completion_is_ignored(self):
         starts = []
