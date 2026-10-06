@@ -632,7 +632,7 @@ class BookBoardWorkflowTests(unittest.TestCase):
         before_reader = reader.location()
         real_invalidate = workflow._engine.invalidate
 
-        with patch.object(
+        with mock.patch.object(
             workflow._engine,
             "invalidate",
             side_effect=RuntimeError("analysis invalidation unavailable"),
@@ -676,7 +676,7 @@ class BookBoardWorkflowTests(unittest.TestCase):
         reader.next_block()
         before_reader = reader.location()
 
-        with patch.object(
+        with mock.patch.object(
             workflow._engine,
             "invalidate",
             side_effect=AbortSignal("analysis invalidation aborted"),
