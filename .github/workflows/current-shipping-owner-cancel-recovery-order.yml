@@ -1,4 +1,4 @@
-name: Current Shipping Owner Cancel Recovery Order
+name: Current Shipping PGN Cancel Terminal Convergence
 
 on:
   push:
@@ -21,6 +21,7 @@ env:
   PARENT_SHA: eace8b671934c1acf6e12a4a59a95bc6274a8f1d
   HOST_BLOB: ca85c9c28c3a085c30a1dc0584d89afd0869b9b0
   HOST_TEST_BLOB: c539241d2dc762f5df80e5b3aff6cf35bee7a108
+  SAVE_TEST_BLOB: 458b093db5f87b072b0e816c6d8309228fd5cf43
 
 jobs:
   cancel-recovery-order:
@@ -68,6 +69,7 @@ jobs:
             ".github/workflows/current-shipping-owner-cancel-recovery-order.yml"
             "acs/version2_windows_host_runtime.py"
             "tests/test_v2_windows_host_runtime.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
@@ -75,6 +77,7 @@ jobs:
           done
           test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "$HOST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$HOST_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SAVE_TEST_BLOB"
 
       - name: Compile owner/runtime boundary
         run: >-
@@ -83,12 +86,14 @@ jobs:
           acs/version2_windows_import_ui_pump.py
           acs/version2_windows_file_workflows.py
           tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_pgn_save_worker.py
 
       - name: Execute cancel ordering and persistence contracts
         run: >-
           python -m unittest -v
           tests.test_v2_windows_host_runtime
           tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_pgn_save_terminal_truth
           tests.test_v2_windows_file_worker_shutdown_fence
           tests.test_v2_windows_nvda_file_workflows
