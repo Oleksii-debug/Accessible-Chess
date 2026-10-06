@@ -307,7 +307,13 @@ class EpdFormatTests(unittest.TestCase):
         api = AccessibleChessAPI(lang="uk")
         result = api.set_position_text(epd)
         self.assertTrue(result["ok"])
+        self.assertEqual(result["announcement"], "Позицію EPD завантажено.")
         self.assertEqual(api.board.fen(), f"{START_BOARD} w KQkq - 3 8")
+
+        api_en = AccessibleChessAPI(lang="en")
+        result_en = api_en.set_position_text(epd)
+        self.assertTrue(result_en["ok"])
+        self.assertEqual(result_en["announcement"], "EPD position loaded.")
 
     def test_malformed_epd_is_localized_and_does_not_mutate_live_board(self):
         malformed = START_EPD + " hmvc invalid;"
@@ -387,6 +393,7 @@ class EpdFormatTests(unittest.TestCase):
         result = api.make_move(epd)
 
         self.assertTrue(result["ok"])
+        self.assertEqual(result["announcement"], "Позицію EPD завантажено.")
         self.assertEqual(api.board.fen(), f"{START_BOARD} w KQkq - 6 9")
         self.assertEqual(api.start_fen, f"{START_BOARD} w KQkq - 6 9")
         self.assertEqual(api.sans, [])
