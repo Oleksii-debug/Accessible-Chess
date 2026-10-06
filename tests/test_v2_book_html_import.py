@@ -716,6 +716,12 @@ class BookHtmlImportTests(unittest.TestCase):
 <p>Visible tail one</p>
 </body></html>""",
             f"""<html><body>
+<section style="display:none; display:math">
+  <div data-acs-fen="{Board.START}">Hidden unsupported display value</div>
+</section>
+<p>Visible tail four</p>
+</body></html>""",
+            f"""<html><body>
 <section style='display:none; display:"block"'>
   <pre>{{PGN 1}}
 {PGN}</pre>
@@ -749,7 +755,7 @@ class BookHtmlImportTests(unittest.TestCase):
                     for block in result.document.blocks
                 )
                 self.assertIn(
-                    f"Visible tail {('one', 'two', 'three')[index]}",
+                    f"Visible tail {('one', 'four', 'two', 'three')[index]}",
                     rendered,
                 )
                 self.assertNotIn("Hidden", rendered)
