@@ -222,4 +222,3 @@ def test_partial_promotion_uses_no_replace_hard_link_not_os_replace(
     assert final.read_bytes() == b"validated"
     assert not partial.exists()
     assert called["replace"] is False
-
