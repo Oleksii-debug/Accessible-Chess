@@ -142,6 +142,7 @@ class Version2WindowsLibraryExportDelegate:
         self._closed = False
         self._shutdown_recovery_requested = False
         self._shutdown_recovery_terminal: LibraryExportHostEvent | None = None
+        self._shutdown_recovery_delivery_inflight = False
 
     @property
     def asynchronous(self) -> bool:
@@ -558,8 +559,12 @@ class Version2WindowsLibraryExportDelegate:
             recovery_terminal = self._shutdown_recovery_terminal
             if recovery_terminal is None:
                 self._shutdown_recovery_requested = False
+                self._shutdown_recovery_delivery_inflight = False
                 self._closed = False
                 return True
+            if self._shutdown_recovery_delivery_inflight:
+                return False
+            self._shutdown_recovery_delivery_inflight = True
 
         # Recovery terminal delivery is stronger than ordinary status delivery:
         # a transient presentation/NVDA observer failure must not consume the
@@ -569,6 +574,8 @@ class Version2WindowsLibraryExportDelegate:
         try:
             self._event_sink(recovery_terminal)
         except BaseException:
+            with self._lock:
+                self._shutdown_recovery_delivery_inflight = False
             _LOG.warning(
                 "Version 2 Library export recovery terminal delivery failed",
                 exc_info=True,
@@ -577,11 +584,14 @@ class Version2WindowsLibraryExportDelegate:
 
         with self._lock:
             if not self._closed:
+                self._shutdown_recovery_delivery_inflight = False
                 return False
             if self._shutdown_recovery_terminal is not recovery_terminal:
+                self._shutdown_recovery_delivery_inflight = False
                 return False
             self._shutdown_recovery_terminal = None
             self._shutdown_recovery_requested = False
+            self._shutdown_recovery_delivery_inflight = False
             self._closed = False
         return True
 
