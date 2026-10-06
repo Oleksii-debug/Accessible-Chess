@@ -184,9 +184,9 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             "aria-current",
             "current review position",
             "live game end",
-            "const sequenceOk=plies.every((ply,i)=>ply===i)",
-            "const committedOk=cursor===0?committed.length===0",
-            "const liveOk=valid.length===0?live.length===0",
+            "const sequenceOk=valid.length>0&&plies.every((ply,i)=>ply===i)",
+            "const committedOk=committed.length===1",
+            "const liveOk=live.length===1",
             "ply>=0",
             "History positions",
         ):

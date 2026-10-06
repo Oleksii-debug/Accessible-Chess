@@ -65,9 +65,9 @@ function renderHistory(items,reviewCursor){
  const itemShapeOk=safe.every(item=>item&&Number.isSafeInteger(Number(item.ply))&&Number(item.ply)>=0&&typeof item.label==='string'&&typeof item.selected==='boolean'&&typeof item.live==='boolean');
  if(!Number.isSafeInteger(cursor)||cursor<0||!itemShapeOk){list.textContent='';historyBrowsePly=null;return}
  const valid=safe,plies=valid.map(item=>Number(item.ply)),unique=new Set(plies),committed=valid.filter(item=>item.selected===true),live=valid.filter(item=>item.live===true);
- const sequenceOk=plies.every((ply,i)=>ply===i)&&unique.size===plies.length;
- const committedOk=cursor===0?committed.length===0:(committed.length===1&&Number(committed[0].ply)===cursor);
- const liveOk=valid.length===0?live.length===0:(live.length===1&&Number(live[0].ply)===valid.length-1);
+ const sequenceOk=valid.length>0&&plies.every((ply,i)=>ply===i)&&unique.size===plies.length;
+ const committedOk=committed.length===1&&Number(committed[0].ply)===cursor;
+ const liveOk=live.length===1&&Number(live[0].ply)===valid.length-1;
  if(!sequenceOk||!committedOk||!liveOk){list.textContent='';historyBrowsePly=null;return}
  const selected=committed.length?committed[0]:null;
  if(!hadFocus||historyBrowsePly===null||!plies.includes(Number(historyBrowsePly)))historyBrowsePly=selected?Number(selected.ply):(valid.length?Number(valid[0].ply):null);
