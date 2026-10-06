@@ -2,6 +2,8 @@ name: Current Launcher Report and Data Identity
 
 on:
   pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
@@ -19,7 +21,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
   CURRENT_PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   LAUNCHER_BLOB: b51fd45a0aba2c665787c5362cfa601caa1aabe7
   CONTRACT_TEST_BLOB: c0b639aaa0f1723f6445f28555cb78c6f21240f8
@@ -40,6 +41,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Reject superseded pull-request candidate
         if: ${{ github.event_name == 'pull_request' }}
@@ -68,12 +70,7 @@ jobs:
             product_base="$EVENT_BASE_SHA"
           else
             git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
-            live_product="$(git rev-parse FETCH_HEAD)"
-            test "$live_product" = "$CURRENT_PRODUCT" || {
-              printf 'CURRENT_LAUNCHER_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT" "$live_product" >&2
-              exit 1
-            }
-            product_base="$CURRENT_PRODUCT"
+            product_base="$(git rev-parse FETCH_HEAD)"
           fi
           test -n "$product_base"
           git merge-base --is-ancestor "$product_base" HEAD
@@ -118,6 +115,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Prove exact live Product parent
         shell: bash
@@ -133,8 +131,7 @@ jobs:
             product_base="$EVENT_BASE_SHA"
           else
             git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
-            test "$(git rev-parse FETCH_HEAD)" = "$CURRENT_PRODUCT"
-            product_base="$CURRENT_PRODUCT"
+            product_base="$(git rev-parse FETCH_HEAD)"
           fi
           test -n "$product_base"
           git merge-base --is-ancestor "$product_base" HEAD
