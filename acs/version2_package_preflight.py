@@ -1789,6 +1789,9 @@ def _checksums(
             max_bytes=min(limits.max_member_bytes, _MAX_CHECKSUMS_BYTES),
         )
         lines = payload.decode("utf-8-sig", errors="strict").splitlines()
+        expected_line_count = len(inventory) - 1
+        if len(lines) > expected_line_count:
+            _fail("checksum inventory contains too many entries")
     except Version2PackagePreflightError:
         raise
     except (OSError, UnicodeError) as exc:
