@@ -369,6 +369,30 @@ _LIST_RE = re.compile(
 _QUOTE_RE = re.compile(r"^ {0,3}>[ \t]?(.*)$")
 
 
+def _match_block_quote(line: str) -> tuple[str, str, int] | None:
+    """Return fully unwrapped quote text, legacy one-level text, and depth.
+
+    BookDocument has no block-quote node. Strip every valid nested CommonMark
+    quote marker before publishing readable fallback text, but retain the
+    historical one-level projection separately so durable block identifiers can
+    remain stable for books already opened by older releases.
+    """
+
+    first = _QUOTE_RE.match(line)
+    if first is None:
+        return None
+    legacy_source = first.group(1)
+    content = legacy_source
+    depth = 1
+    while True:
+        nested = _QUOTE_RE.match(content)
+        if nested is None:
+            break
+        depth += 1
+        content = nested.group(1)
+    return content, legacy_source, depth
+
+
 def _match_fence_opener(line: str) -> tuple[str, str] | None:
     """Return a bounded CommonMark fenced-code opener.
 
@@ -789,7 +813,7 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
         # blockquote fallback path so its marker is not exposed as prose and
         # its image destination/title cannot escape into readable identity.
         list_match = _LIST_RE.match(line)
-        quote_match = _QUOTE_RE.match(line)
+        quote_match = _match_block_quote(line)
         image_matches = _iter_semantic_images(line)
         first_image = next(image_matches, None)
         if (
@@ -976,14 +1000,18 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             continue
         if quote_match:
             flush()
-            quote_source = quote_match.group(1)
+            quote_source, legacy_quote_source, quote_depth = quote_match
             quote_images = _iter_semantic_images(quote_source)
             first_quote_image = next(quote_images, None)
             quote_had_image = first_quote_image is not None
             if first_quote_image is None:
                 quote = quote_source.strip()
                 if quote:
-                    builder.paragraph(quote, number)
+                    builder.paragraph(
+                        quote,
+                        number,
+                        identity_text=legacy_quote_source.strip() or None,
+                    )
             else:
                 # Before this quote-specific path existed, the generic inline
                 # image projection emitted Paragraph -> Image Note -> Paragraph
@@ -1020,6 +1048,10 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             builder.warning(
                 "Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind"
             )
+            if quote_depth > 1:
+                builder.warning(
+                    "Nested Markdown block quote markers were flattened into accessible reading text; durable paragraph identity remains compatible with the historical one-level projection"
+                )
             if quote_had_image:
                 builder.warning(
                     "Markdown image inside an unrepresentable block quote was preserved in accessible reading order; no asset was fetched and the image destination was excluded from reading text"
