@@ -9,12 +9,23 @@ from acs.analysis_service import AnalysisService
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry, MediaAgentBridge
 from acs.chesscore import Board
+from acs.media_application import (
+    MediaApplicationError,
+    MediaApplicationService,
+)
+from acs.media_core import (
+    MediaChessLink,
+    MediaChessSession,
+    MediaCursor,
+    MediaLinkStatus,
+    MediaPositionTimeline,
+    MediaSource,
+    MediaSourceKind as CoreMediaSourceKind,
+)
 from acs.media_foundation import (
     MediaClock,
-    MediaPositionBinding,
-    MediaPositionTimeline,
     MediaSessionState,
-    MediaSourceKind,
+    MediaSourceKind as RuntimeMediaSourceKind,
 )
 from acs.search_service import GameSearchService
 
@@ -98,22 +109,59 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
             MediaSessionState(
                 session_id="session-1",
                 source_id="media-1",
-                source_kind=MediaSourceKind.LOCAL_FILE,
+                source_kind=RuntimeMediaSourceKind.LOCAL_FILE,
                 position_ms=1500,
                 duration_ms=5000,
             )
         )
         self.timeline = MediaPositionTimeline(
+            "media-1",
             (
-                MediaPositionBinding(0, 1000, Board.START),
-                MediaPositionBinding(1000, 5000, AFTER_E4, tree_path=(0,)),
-            )
+                MediaChessLink(
+                    "media-1",
+                    0,
+                    "tree:start",
+                    status=MediaLinkStatus.CONFIRMED,
+                    confidence=1.0,
+                    evidence="agent fixture",
+                ),
+                MediaChessLink(
+                    "media-1",
+                    1000,
+                    "tree:e4",
+                    status=MediaLinkStatus.CONFIRMED,
+                    confidence=1.0,
+                    evidence="agent fixture",
+                ),
+            ),
+        )
+        self.restored_refs = []
+
+        def restore_chess_ref(chess_ref):
+            self.restored_refs.append(chess_ref)
+            if chess_ref == "tree:start":
+                self.board.set_fen(Board.START)
+                return
+            if chess_ref == "tree:e4":
+                self.board.set_fen(AFTER_E4)
+                return
+            raise ValueError("unknown canonical fixture reference")
+
+        self.application = MediaApplicationService(
+            source=MediaSource(
+                source_id="media-1",
+                title="Agent media fixture",
+                kind=CoreMediaSourceKind.LOCAL_FILE,
+                duration_ms=5000,
+            ),
+            timeline=self.timeline,
+            session=MediaChessSession(MediaCursor("media-1", 0)),
+            restore_chess_ref=restore_chess_ref,
         )
         self.playback = FakePlayback()
         self.media = MediaAgentBridge(
             clock=self.clock,
-            timeline=self.timeline,
-            board_set_fen=lambda fen: self.board.set_fen(fen),
+            application=self.application,
             playback=self.playback,
         )
         self.executor = ToolExecutor()
@@ -204,13 +252,66 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
         self.assertEqual(result.output["items"][0]["white"], "Alpha")
         self.assertEqual(result.output["items"][0]["black"], "Beta")
 
-    def test_restore_media_position_overrides_only_through_validated_fen(self):
+    def test_restore_media_position_delegates_opaque_canonical_reference(self):
         self.board.push_text("d4")
         self.assertNotEqual(self.board.fen(), AFTER_E4)
         result = self.execute("media.restore_position")
-        self.assertTrue(result.ok)
+        self.assertTrue(result.ok, result.error)
         self.assertTrue(result.output["restored"])
+        self.assertEqual(result.output["chessRef"], "tree:e4")
+        self.assertNotIn("fen", result.output)
+        self.assertNotIn("treePath", result.output)
+        self.assertEqual(self.restored_refs, ["tree:e4"])
         self.assertEqual(self.board.fen(), AFTER_E4)
+
+    def test_media_status_exposes_reference_not_parallel_fen_authority(self):
+        result = self.execute("media.status")
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(result.output["synchronizedChessRef"], "tree:e4")
+        self.assertEqual(result.output["synchronizedAnchorMs"], 1000)
+        self.assertEqual(result.output["qualification"], "confirmed")
+        self.assertFalse(result.output["synchronizationAmbiguous"])
+        self.assertNotIn("synchronizedFen", result.output)
+        self.assertNotIn("synchronizedTreePath", result.output)
+
+    def test_ambiguous_media_position_fails_before_restore_callback(self):
+        timeline = MediaPositionTimeline(
+            "media-1",
+            (
+                MediaChessLink(
+                    "media-1",
+                    1000,
+                    "tree:e4",
+                    status=MediaLinkStatus.CONFIRMED,
+                    confidence=1.0,
+                ),
+                MediaChessLink(
+                    "media-1",
+                    1000,
+                    "tree:d4",
+                    status=MediaLinkStatus.CONFIRMED,
+                    confidence=1.0,
+                ),
+            ),
+        )
+        application = MediaApplicationService(
+            source=MediaSource(
+                source_id="media-1",
+                title="Ambiguous Agent media fixture",
+                kind=CoreMediaSourceKind.LOCAL_FILE,
+                duration_ms=5000,
+            ),
+            timeline=timeline,
+            session=MediaChessSession(MediaCursor("media-1", 0)),
+            restore_chess_ref=lambda chess_ref: self.restored_refs.append(chess_ref),
+        )
+        bridge = MediaAgentBridge(
+            clock=self.clock,
+            application=application,
+        )
+        with self.assertRaises(MediaApplicationError):
+            bridge.restore()
+        self.assertEqual(self.restored_refs, [])
 
     def test_media_controls_delegate_to_attached_provider(self):
         self.assertTrue(self.execute("media.pause").ok)

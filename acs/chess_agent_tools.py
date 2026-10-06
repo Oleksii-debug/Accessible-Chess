@@ -15,9 +15,25 @@ from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
-from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
+from .media_application import MediaApplicationService
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
+
+
+class MediaClockStatePort(Protocol):
+    session_id: str
+    source_id: str
+    source_kind: object
+    position_ms: int
+    duration_ms: int | None
+    playback_state: object
+    playback_rate: float
+    revision: int
+
+
+class MediaClockPort(Protocol):
+    @property
+    def state(self) -> MediaClockStatePort: ...
 
 
 class MediaPlaybackPort(Protocol):
@@ -51,76 +67,109 @@ def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
 
 
 class MediaAgentBridge:
-    """Bind the media timeline to agent tools without making it chess truth."""
+    """Expose canonical Media application behavior to Agent tools.
+
+    The Agent does not resolve media timelines, parse FEN, reconstruct GameTree
+    paths, or call a chess mutation callback directly. Provider time comes from
+    MediaClock; all synchronization and Restore Media Position semantics are
+    owned by MediaApplicationService.
+    """
 
     def __init__(
         self,
         *,
-        clock: MediaClock,
-        timeline: MediaPositionTimeline,
-        board_set_fen: Callable[[str], None],
+        clock: MediaClockPort,
+        application: MediaApplicationService,
         playback: MediaPlaybackPort | None = None,
     ) -> None:
-        if type(clock) is not MediaClock:
-            raise TypeError("clock must be MediaClock")
-        if type(timeline) is not MediaPositionTimeline:
-            raise TypeError("timeline must be MediaPositionTimeline")
-        if not callable(board_set_fen):
-            raise TypeError("board_set_fen must be callable")
-        self.clock = clock
-        self.timeline = timeline
-        self.board_set_fen = board_set_fen
+        state = getattr(clock, "state", None)
+        required_state_fields = (
+            "session_id",
+            "source_id",
+            "source_kind",
+            "position_ms",
+            "duration_ms",
+            "playback_state",
+            "playback_rate",
+            "revision",
+        )
+        if state is None or any(
+            not hasattr(state, field_name)
+            for field_name in required_state_fields
+        ):
+            raise TypeError("clock must expose the MediaClockPort state contract")
+        if type(application) is not MediaApplicationService:
+            raise TypeError("application must be MediaApplicationService")
+        if application.source.source_id != state.source_id:
+            raise ChessAgentToolsError(
+                "media clock and Media application source IDs differ"
+            )
+        self.clock: MediaClockPort = clock
+        self.application = application
         self.playback = playback
+
+    @staticmethod
+    def _enum_value(value: object, field_name: str) -> str:
+        raw = getattr(value, "value", value)
+        if type(raw) is not str or not raw:
+            raise ChessAgentToolsError(
+                f"{field_name} must expose non-empty text"
+            )
+        return raw
 
     def status(self) -> dict[str, object]:
         state = self.clock.state
-        binding = self.timeline.at(state.position_ms)
+        snapshot = self.application.snapshot_at(state.position_ms)
         return {
             "sessionId": state.session_id,
             "sourceId": state.source_id,
-            "sourceKind": state.source_kind.value,
+            "sourceKind": self._enum_value(state.source_kind, "source_kind"),
             "positionMs": state.position_ms,
             "durationMs": state.duration_ms,
-            "playbackState": state.playback_state.value,
+            "playbackState": self._enum_value(
+                state.playback_state,
+                "playback_state",
+            ),
             "playbackRate": state.playback_rate,
             "revision": state.revision,
-            "synchronizedFen": None if binding is None else binding.fen,
-            "synchronizedTreePath": (
-                None if binding is None else list(binding.tree_path)
-            ),
-            "qualification": None if binding is None else binding.state.value,
+            "applicationRevision": snapshot.revision,
+            "analysisChessRef": snapshot.analysis_chess_ref,
+            "synchronizedChessRef": snapshot.synchronized_chess_ref,
+            "synchronizedAnchorMs": snapshot.anchor_timestamp_ms,
+            "synchronizationAmbiguous": snapshot.qualification == "ambiguous",
+            "canRestore": snapshot.can_restore,
+            "qualification": snapshot.qualification,
+            "statusText": snapshot.status_text,
         }
 
     def restore(self) -> dict[str, object]:
         state = self.clock.state
-        fen = self.timeline.restore_fen(state.position_ms)
-        canonical = Board(fen).fen()
-        self.board_set_fen(canonical)
-        binding = self.timeline.at(state.position_ms)
-        assert binding is not None
+        result = self.application.restore_media_position(state.position_ms)
         return {
             "restored": True,
-            "positionMs": state.position_ms,
-            "fen": canonical,
-            "treePath": list(binding.tree_path),
-            "qualification": binding.state.value,
+            "positionMs": result.position_ms,
+            "anchorPositionMs": result.anchor_timestamp_ms,
+            "chessRef": result.chess_ref,
+            "changed": result.changed,
+            "applicationRevision": result.revision,
+            "accessibleText": result.accessible_text,
         }
 
     def play(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.play()
         return {"requested": "play"}
 
     def pause(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.pause()
         return {"requested": "pause"}
 
     def seek(self, position_ms: int) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.seek(position_ms)
         return {"requested": "seek", "positionMs": position_ms}
 
@@ -395,14 +444,14 @@ class ChessAgentToolRegistry:
         self.executor.register(
             ToolSpec(
                 "media.status",
-                "Read media playback and synchronized-board state.",
+                "Read media playback and canonical synchronization-reference state.",
             ),
             status,
         )
         self.executor.register(
             ToolSpec(
                 "media.restore_position",
-                "Restore the board to the current media timeline position.",
+                "Restore canonical application chess state from the current media reference.",
                 risk=ToolRisk.LOCAL_WRITE,
             ),
             restore,
