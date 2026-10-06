@@ -1,6 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from acs.webapp import AccessibleChessAPI
+from acs.webapp_keymap_core import KeymapAwareAccessibleChessAPI
 
 
 class FenEditorTurnSemanticsTests(unittest.TestCase):
@@ -46,6 +49,26 @@ class FenEditorTurnSemanticsTests(unittest.TestCase):
         self.assertEqual(fields[1], "w")
         self.assertEqual(fields[3], "-")
         self.assertEqual(api.sans, [])
+
+    def test_v2_keymap_api_preserves_safe_turn_transition_and_reanchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            api = KeymapAwareAccessibleChessAPI(
+                lang="en",
+                keymap_path=Path(tmp) / "keymap.json",
+            )
+            self.assertTrue(api.make_move("e4")["ok"])
+            self.assertEqual(api.board.fen().split()[3], "e3")
+
+            changed = api.set_turn("w")
+
+            self.assertTrue(changed["ok"])
+            self.assertEqual(api.board.fen().split()[1], "w")
+            self.assertEqual(api.board.fen().split()[3], "-")
+            self.assertEqual(api.sans, [])
+            self.assertEqual(
+                api._analysis_origin_node_id,
+                api.review_history.cursor_node_id,
+            )
 
     def test_turn_edit_is_atomic_while_reviewing_history(self):
         api = AccessibleChessAPI(lang="en")
