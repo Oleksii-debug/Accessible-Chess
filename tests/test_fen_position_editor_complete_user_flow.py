@@ -174,5 +174,19 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
                 self.assertIn(marker, html)
 
 
+    def test_editor_feedback_is_persistent_and_plain_enter_is_keyboard_first(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("positionEditorActionNames=new Set", html)
+        self.assertIn(
+            "setPositionEditorActionStatus(name,r&&r.announcement?r.announcement:'')",
+            html,
+        )
+        self.assertIn("el('position-square').addEventListener('keydown'", html)
+        self.assertIn("el('position-piece-apply').click()", html)
+        self.assertIn("el('position-metadata-apply').click()", html)
+
+
 if __name__ == "__main__":
     unittest.main()
