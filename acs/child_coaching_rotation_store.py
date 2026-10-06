@@ -243,6 +243,15 @@ class ChildCoachingRotationStore:
                 "invalid rotation plan/state payload"
             ) from exc
         _validate_pair(plan, state)
+        canonical = _canonical_bytes(plan, state)
+        if data != canonical:
+            # Durable file revision is the SHA-256 of the exact bytes. Accepting
+            # semantically equivalent alternate JSON encodings would create more
+            # than one CAS generation for the same logical rotation state and
+            # let lexical aliases bypass the canonical wire contract.
+            raise ChildCoachingRotationStoreError(
+                "rotation store bytes are not canonical"
+            )
         return LoadedRotationSession(
             plan=plan,
             state=state,

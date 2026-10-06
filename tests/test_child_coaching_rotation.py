@@ -473,6 +473,51 @@ class ChildCoachingRotationTests(unittest.TestCase):
                     expected_revision=first_revision,
                 )
 
+    def test_store_rejects_semantically_equivalent_noncanonical_wire_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            store = ChildCoachingRotationStore(path)
+            plan = default_group_rotation(
+                self.lesson(),
+                rotation_id="rotation-store-canonical-bytes",
+            )
+            state = RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+            )
+            revision = store.save(plan, state, expected_revision=None)
+            canonical = path.read_bytes()
+            self.assertEqual(revision, store.load().revision)
+
+            payload = json.loads(canonical.decode("utf-8"))
+            pretty = json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=False,
+                indent=2,
+            ).encode("utf-8")
+            self.assertNotEqual(canonical, pretty)
+            path.write_bytes(pretty)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "bytes are not canonical",
+            ):
+                store.load()
+
+            path.write_bytes(canonical)
+            negative_zero = canonical.replace(
+                b'"revision":0',
+                b'"revision":-0',
+                1,
+            )
+            self.assertNotEqual(canonical, negative_zero)
+            path.write_bytes(negative_zero)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "bytes are not canonical",
+            ):
+                store.load()
+
     def test_rotation_store_maps_shared_lock_contention_to_rotation_busy_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "rotation.json"

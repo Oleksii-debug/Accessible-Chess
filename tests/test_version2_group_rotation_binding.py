@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -346,6 +347,31 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             expected_rotation_revision=state.revision
         )
         self.assertEqual("pair-round-all", bound.pair_play_batch_ref)
+
+    def test_keyboard_status_fences_noncanonical_durable_rotation_bytes(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        canonical = self.store.path.read_bytes()
+        payload = json.loads(canonical.decode("utf-8"))
+        noncanonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=False,
+            indent=2,
+        ).encode("utf-8")
+        self.assertNotEqual(canonical, noncanonical)
+        self.store.path.write_bytes(noncanonical)
+
+        keyboard = self.app._rotation_keyboard_result()
+
+        self.assertTrue(keyboard["recovery_required"])
+        spoken = keyboard["announcement"].casefold()
+        self.assertTrue("recovery" in spoken or "віднов" in spoken)
+        self.assertEqual(state, self.app._rotation_state)
+        self.assertEqual(noncanonical, self.store.path.read_bytes())
+        with self.assertRaisesRegex(RuntimeError, "requires recovery"):
+            self.app.advance_group_rotation(
+                expected_rotation_revision=state.revision
+            )
 
     def test_reconnect_resumes_exact_durable_round_for_same_lesson(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
