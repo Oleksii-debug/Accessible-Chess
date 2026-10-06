@@ -1369,6 +1369,7 @@ def _package_rootfiles(
     container: ET.Element,
     warnings: _Warnings,
     archive_index: dict[str, zipfile.ZipInfo],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[str, ...]:
     _validate_container_attributes(
         container,
@@ -1428,7 +1429,9 @@ def _package_rootfiles(
 
     candidates: list[str] = []
     seen_paths: set[str] = set()
-    for element in rootfiles:
+    for rootfile_index, element in enumerate(rootfiles, start=1):
+        if control_checkpoint is not None and rootfile_index % 128 == 1:
+            control_checkpoint()
         if not _is_container_namespace_tag(element.tag):
             # Foreign extension element and all its contents are ignored by OCF.
             continue
@@ -1504,7 +1507,9 @@ def _package_rootfiles(
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         link_count = 0
-        for element in links:
+        for link_index, element in enumerate(links, start=1):
+            if control_checkpoint is not None and link_index % 128 == 1:
+                control_checkpoint()
             if not _is_container_namespace_tag(element.tag):
                 continue
             if element.tag != _LINK_TAG:
@@ -1589,7 +1594,11 @@ def _package_rootfiles(
     return tuple(candidates)
 
 
-def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestItem]:
+def _manifest_items(
+    package: ET.Element,
+    opf_dir: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> dict[str, _ManifestItem]:
     manifest = _required_unique_direct_child(package, "manifest")
     if (manifest.text or "").strip():
         raise _error(
@@ -1598,7 +1607,9 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
         )
     output: dict[str, _ManifestItem] = {}
     resource_owners: dict[str, str] = {}
-    for element in manifest:
+    for manifest_index, element in enumerate(manifest, start=1):
+        if control_checkpoint is not None and manifest_index % 128 == 1:
+            control_checkpoint()
         if element.tag != _ITEM_TAG:
             if _local_name(element.tag) == "item" or _is_opf_namespace_tag(element.tag):
                 raise _error(
@@ -1679,15 +1690,18 @@ def _manifest_items(package: ET.Element, opf_dir: str) -> dict[str, _ManifestIte
             "EPUB manifest is empty",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    _validate_manifest_fallback_graph(output)
-    _validate_manifest_media_overlays(output)
+    _validate_manifest_fallback_graph(output, control_checkpoint)
+    _validate_manifest_media_overlays(output, control_checkpoint)
     return output
 
 
 def _validate_manifest_media_overlays(
     manifest: dict[str, _ManifestItem],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
-    for item in manifest.values():
+    for item_index, item in enumerate(manifest.values(), start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
         overlay_id = item.media_overlay
         if overlay_id is None:
             continue
@@ -1711,15 +1725,20 @@ def _validate_manifest_media_overlays(
 
 def _validate_manifest_fallback_graph(
     manifest: dict[str, _ManifestItem],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
-    for item in manifest.values():
+    for item_index, item in enumerate(manifest.values(), start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
         if item.fallback is not None and item.fallback not in manifest:
             raise _error(
                 "EPUB manifest fallback references an unknown item",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
 
-    for start_id in manifest:
+    for start_index, start_id in enumerate(manifest, start=1):
+        if control_checkpoint is not None and start_index % 128 == 1:
+            control_checkpoint()
         seen: set[str] = set()
         current_id = start_id
         while True:
@@ -1750,8 +1769,11 @@ def _validate_manifest_resources(
     *,
     package_entry_names: frozenset[str],
     archive_index: dict[str, zipfile.ZipInfo],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
-    for item in manifest.values():
+    for item_index, item in enumerate(manifest.values(), start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
         entry_name = item.entry_name
         if (
             entry_name in package_entry_names
@@ -1774,6 +1796,7 @@ def _spine_ids(
     package: ET.Element,
     warnings: _Warnings,
     manifest: dict[str, _ManifestItem],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> list[str]:
     spine = _required_unique_direct_child(package, "spine")
     if (spine.text or "").strip():
@@ -1813,7 +1836,9 @@ def _spine_ids(
     ids: list[str] = []
     seen_ids: set[str] = set()
     has_linear_item = False
-    for element in spine:
+    for spine_index, element in enumerate(spine, start=1):
+        if control_checkpoint is not None and spine_index % 128 == 1:
+            control_checkpoint()
         if element.tag != _ITEMREF_TAG:
             if _local_name(element.tag) == "itemref" or _is_opf_namespace_tag(element.tag):
                 raise _error(
@@ -2021,7 +2046,7 @@ def import_epub_book(
             "container metadata",
             control_checkpoint,
         )
-        opf_names = _package_rootfiles(container, warnings, index)
+        opf_names = _package_rootfiles(container, warnings, index, control_checkpoint)
         package_entry_names = frozenset(opf_names)
         renditions: list[
             tuple[str, ET.Element, dict[str, _ManifestItem], list[str]]
@@ -2054,11 +2079,13 @@ def import_epub_book(
             rendition_manifest = _manifest_items(
                 rendition_package,
                 rendition_dir,
+                control_checkpoint,
             )
             _validate_manifest_resources(
                 rendition_manifest,
                 package_entry_names=package_entry_names,
                 archive_index=index,
+                control_checkpoint=control_checkpoint,
             )
             rendition_warnings = (
                 warnings if rendition_index == 1 else _Warnings()
@@ -2067,6 +2094,7 @@ def import_epub_book(
                 rendition_package,
                 rendition_warnings,
                 rendition_manifest,
+                control_checkpoint,
             )
             for rendition_item_id in rendition_spine:
                 _supported_manifest_item(
