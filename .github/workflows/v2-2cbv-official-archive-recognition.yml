@@ -1,0 +1,67 @@
+name: Current 2CBV Official Archive Recognition
+
+on:
+  pull_request:
+    branches:
+      - work/v2-cbz-2cbz-evidence-20260828
+    paths:
+      - acs/chessbase_adapter.py
+      - tests/test_chessbase_adapter.py
+      - tests/test_v2_2cbv_official_archive_recognition.py
+      - .github/workflows/v2-2cbv-official-archive-recognition.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_BASE: ${{ github.event.pull_request.base.sha || '817f11c76900a963c6d6b2fbd0ee1a5a544bbef9' }}
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  ADAPTER_BLOB: fac4a9ff9815022e90ba82548b74f278b9e4586d
+  ADAPTER_TEST_BLOB: 409c02d3527650dc3b9920cfd5ce1cc1527978a1
+  TWO_CBV_TEST_BLOB: b70ecb52f0596692474a87157aebfb79b3650c0b
+
+jobs:
+  archive-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact-head scope and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
+          git diff --check "$EXPECTED_BASE" HEAD
+          actual="$(git diff --name-only "$EXPECTED_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-2cbv-official-archive-recognition.yml' \
+            'acs/chessbase_adapter.py' \
+            'tests/test_chessbase_adapter.py' \
+            'tests/test_v2_2cbv_official_archive_recognition.py' | sort)"
+          test "$actual" = "$expected"
+          test "$(git hash-object acs/chessbase_adapter.py)" = "$ADAPTER_BLOB"
+          test "$(git hash-object tests/test_chessbase_adapter.py)" = "$ADAPTER_TEST_BLOB"
+          test "$(git hash-object tests/test_v2_2cbv_official_archive_recognition.py)" = "$TWO_CBV_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/cbv_extractor.py)" = "$(git rev-parse "$EXPECTED_BASE":acs/cbv_extractor.py)"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$(git rev-parse "$EXPECTED_BASE":acs/version2_windows_file_workflows.py)"
+          python -m compileall -q acs tests
+      - name: 2CBV fail-closed regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_2cbv_official_archive_recognition
+          tests.test_cbv_extractor
+          tests.test_v2_windows_library_import_observer
