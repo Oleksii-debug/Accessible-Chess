@@ -180,12 +180,12 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
 
         event = self.bridge.dispatch(
             "pgn.tag_edit",
-            {"name": "Event", "value": "Accessible edit"},
+            {"name": "Event", "value": "  Accessible edit  "},
         )
         self.assertEqual("selection", event.kind)
         action_id, payload = self.calls[-1]
         self.assertEqual("pgn.tag_edit", action_id)
-        self.assertEqual("Accessible edit", payload["value"])
+        self.assertEqual("  Accessible edit  ", payload["value"])
         self.assertEqual("Event", payload["name"])
         self.assertEqual(0, payload["game_index"])
         self.assertEqual(7, payload["content_revision"])
