@@ -334,7 +334,20 @@
       return validFocusId(block.dom_id) ? block.dom_id : "";
     }
     if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
-      return "training-answer";
+      const training = snapshot.training;
+      const answer = training.answer && typeof training.answer === "object"
+        ? training.answer
+        : {};
+      if (answer.disabled !== true) return "training-answer";
+      const actions = Array.isArray(training.actions) ? training.actions : [];
+      const continueAction = actions.find(function (action) {
+        return action && action.command === "training.continue" && action.enabled === true;
+      });
+      if (continueAction) return "training-action-continue";
+      const resetAction = actions.find(function (action) {
+        return action && action.command === "training.reset.request" && action.enabled === true;
+      });
+      return resetAction ? "training-action-reset" : "";
     }
     if (routeId === "teacher" && snapshot.teacher && typeof snapshot.teacher === "object") {
       return "teacher-pointer-input";
@@ -352,8 +365,8 @@
   function restoreProductFocus(snapshot, routeId, requestedFocus) {
     const active = documentRef.activeElement;
     if (active && workspace.contains(active)) return true;
-    if (focusById(requestedFocus)) return true;
     if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;
+    if (focusById(requestedFocus)) return true;
     return focusById("v2-nav-" + routeId);
   }
 
@@ -808,6 +821,13 @@
     };
   }
 
+  function deactivateLibrarySurface() {
+    const surface = global.AccessibleChessLibrarySurface;
+    if (surface && typeof surface.deactivate === "function") {
+      surface.deactivate(workspace);
+    }
+  }
+
   function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
     const workspaceWasHidden = workspace.hidden;
     const originalMainWasHidden = originalMain.hidden;
@@ -868,6 +888,7 @@
         }
       }
 
+      if (routeId !== "library") deactivateLibrarySurface();
       originalMain.hidden = true;
       workspace.hidden = false;
       if (restoreFocus || workspaceWasHidden) {
@@ -932,6 +953,7 @@
         return;
       }
 
+      deactivateLibrarySurface();
       workspace.hidden = true;
       workspace.replaceChildren();
       originalMain.hidden = false;
