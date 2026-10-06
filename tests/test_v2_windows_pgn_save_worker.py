@@ -1240,13 +1240,18 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
                 session
             )
 
-            controller("pgn.save", {})
+            started = controller("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
             self.assertTrue(controller.wait_for_pgn_save(5.0))
             self.assertIn("Published generation", source.read_text(encoding="utf-8"))
             terminal = controller("pgn.cancel_save", {})
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
             self.assertEqual(terminal.action_id, "pgn.save")
-            self.assertEqual(async_events[-1], terminal)
+            # The late Cancel owns this already-fixed terminal synchronously.
+            # Owner-async delivery here would make an accessible action speak
+            # the same terminal twice.
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events, [started])
             self.assertNotIn(
                 FileWorkflowEventKind.PGN_SAVE_CANCELLING,
                 [event.kind for event in sync_events],
