@@ -35,6 +35,7 @@ from .bookdocument import (
     MAX_BOOK_SOURCE_ANCHOR_CHARS,
     MAX_BOOK_TEXT_FIELD_CHARS,
     BookDocument,
+    BookDocumentError,
     Heading,
     block_from_dict,
 )
@@ -2421,15 +2422,21 @@ def import_epub_book(
         resolved_language = override_language or (languages[0] if languages else None)
         resolved_rights = "; ".join(rights) if rights else None
 
-        document = BookDocument(
-            title=resolved_title,
-            author=resolved_author,
-            language=resolved_language,
-            source_name=display_source,
-            source_rights=resolved_rights,
-            blocks=blocks,
-            warnings=list(warnings.values),
-        )
+        try:
+            document = BookDocument(
+                title=resolved_title,
+                author=resolved_author,
+                language=resolved_language,
+                source_name=display_source,
+                source_rights=resolved_rights,
+                blocks=blocks,
+                warnings=list(warnings.values),
+            )
+        except BookDocumentError as exc:
+            raise _error(
+                "EPUB semantic projection exceeds canonical BookDocument limits",
+                BookEpubImportErrorCode.RESOURCE_LIMIT,
+            ) from exc
 
     digest = sha256(raw).hexdigest()
     return BookEpubImportResult(
