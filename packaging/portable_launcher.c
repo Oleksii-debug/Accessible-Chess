@@ -26,6 +26,7 @@
 #define AC_WINDOW_RESPONSE_PROBE_MS 100
 #define AC_STARTUP_READY_STABILITY_MS 500
 #define AC_STARTUP_WINDOW_TIMEOUT_MS 30000
+#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000
 #define AC_REPORT_RETRY_MS 100
 #define AC_REPORT_RETRY_COUNT 40
 #define ACCESSIBILITY_HOST_INIT_EXIT_CODE 71
@@ -537,21 +538,73 @@ static void ac_prepare_paths(void) {
 }
 
 static void ac_fail_startup_timeout(HANDLE report) {
+    DWORD cleanup_error = ERROR_SUCCESS;
+    DWORD cleanup_wait = WAIT_FAILED;
+    BOOL child_stopped = FALSE;
+
+    /*
+     * A timed-out child still owns the package-local single-instance lock and
+     * data-directory guard.  Retire it before any fallible report write so a
+     * report failure cannot strand an invisible process that blocks retry.
+     */
+    if (!TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)) {
+        cleanup_error = GetLastError();
+        cleanup_wait = WaitForSingleObject(g_process.hProcess, 0);
+        if (cleanup_wait == WAIT_OBJECT_0) {
+            child_stopped = TRUE;
+            cleanup_error = ERROR_SUCCESS;
+        }
+    } else {
+        cleanup_wait = WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS);
+        if (cleanup_wait == WAIT_OBJECT_0) {
+            child_stopped = TRUE;
+        } else if (cleanup_wait == WAIT_FAILED) {
+            cleanup_error = GetLastError();
+        } else {
+            cleanup_error = ERROR_TIMEOUT;
+        }
+    }
+
     ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT");
     ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
-    ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
+    if (child_stopped) {
+        ac_write_line(report, L"TIMEOUT_CHILD_CLEANUP: PASS");
+        ac_write_line(report, L"CHILD_LEFT_RUNNING: NO");
+        ac_write_line(report, L"NEXT: keep launch-report.txt and retry once from the extracted package root");
+    } else {
+        ac_write_line(report, L"TIMEOUT_CHILD_CLEANUP: FAILED");
+        ac_write_utf8(report, L"TIMEOUT_CHILD_CLEANUP_WIN32_ERROR: ");
+        g_message[0] = L'\0';
+        ac_append_u32(
+            g_message,
+            AC_PATH_CAP + 2048,
+            cleanup_error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : cleanup_error
+        );
+        ac_write_line(report, g_message);
+        ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
+        ac_write_line(report, L"NEXT: keep launch-report.txt; the timed-out process could not be stopped automatically");
+    }
     ac_write_line(report, L"DETAIL: Accessible Chess did not expose a stable responsive visible application window before the startup deadline.");
-    ac_write_line(report, L"NEXT: close any stuck Accessible Chess process, keep launch-report.txt, and retry once from the extracted package root");
     ac_flush_report(report);
 
-    ac_copy(
-        g_message,
-        AC_PATH_CAP + 2048,
-        L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
-        L"Процес залишено запущеним, щоб не перервати можливе відновлення даних.\r\n"
-        L"Якщо вікно не реагує або так і не з'явиться, закрийте завислий процес і збережіть звіт:\r\n"
-    );
+    if (child_stopped) {
+        ac_copy(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"Завислий процес автоматично завершено. Можна повторити запуск з цієї папки.\r\n"
+            L"Збережіть звіт:\r\n"
+        );
+    } else {
+        ac_copy(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"Автоматично завершити завислий процес не вдалося. Не запускайте другу копію, доки процес не буде завершено.\r\n"
+            L"Збережіть звіт:\r\n"
+        );
+    }
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     CloseHandle(g_process.hProcess);
