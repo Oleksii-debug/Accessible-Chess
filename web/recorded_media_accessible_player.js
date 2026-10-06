@@ -10,6 +10,13 @@
   const STATUS_ID = "recorded-media-status";
   const PROGRESS_ID = "recorded-media-progress";
   const ANNOUNCEMENT_ID = "recorded-media-announcement";
+  const FOCUS_TARGETS = new Set([
+    PLAY_ID,
+    SEEK_ID,
+    RESTORE_ID,
+    CANCEL_ID,
+    STATUS_ID,
+  ]);
   const generations = new WeakMap();
 
   function requiredText(value, name, limit = 4096) {
@@ -67,6 +74,14 @@
     }
     const playAction = requiredText(value.playAction, "playAction", 16);
     if (!["play", "pause"].includes(playAction)) throw new Error("invalid play action");
+    const focusTarget = requiredText(value.focusTarget, "focusTarget", 64);
+    if (!FOCUS_TARGETS.has(focusTarget)) throw new Error("invalid focus target");
+    if (value.restoreEnabled && qualification !== "confirmed") {
+      throw new Error("restore requires a confirmed chess position");
+    }
+    if (value.restoreEnabled && value.ok !== true) {
+      throw new Error("restore cannot be enabled for an unavailable player");
+    }
     return {
       ok: value.ok,
       revision,
@@ -94,7 +109,7 @@
       preprocessTotal: total,
       progressText: requiredText(value.progressText, "progressText", 512),
       announcement: optionalText(value.announcement, "announcement"),
-      focusTarget: requiredText(value.focusTarget, "focusTarget", 64),
+      focusTarget,
     };
   }
 
