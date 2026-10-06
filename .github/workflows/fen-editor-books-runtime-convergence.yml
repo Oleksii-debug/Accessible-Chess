@@ -121,6 +121,13 @@ jobs:
           tests.test_fen_input_budget_current
           tests.test_pgn_document_new_game_position_integrity
           tests.test_pgn_document_new_game_position_workflow
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_history_review_ui
+          tests.test_webapp_keymap_api
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_remapped_keyboard_native_editing
+          tests.test_stage1_board_action_integration
 
       - name: Preserve current accessible FEN action and composition contracts
         run: >-
