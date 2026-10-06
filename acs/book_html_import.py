@@ -24,6 +24,7 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from .bookdocument import (
+    MAX_BOOK_DOCUMENT_BLOCKS,
     MAX_BOOK_TEXT_FIELD_CHARS,
     BookDocument,
     BookDocumentError,
@@ -43,7 +44,7 @@ from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 MAX_HTML_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_HTML_VISIBLE_CHARS = 12 * 1024 * 1024
-MAX_HTML_BLOCKS = 50_000
+MAX_HTML_BLOCKS = MAX_BOOK_DOCUMENT_BLOCKS
 MAX_HTML_IMAGES = 10_000
 MAX_HTML_PGN_GAMES = 1_024
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
