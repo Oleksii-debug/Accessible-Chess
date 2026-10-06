@@ -307,8 +307,7 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         self.assertTrue(pump.owner_callback_pending)
         callback = poster.callbacks.pop(0)
 
-        with self.assertRaises(CallbackAbort):
-            callback()
+        callback()
 
         self.assertEqual(calls, ["call"])
         self.assertTrue(pump.owner_callback_pending)
