@@ -411,14 +411,110 @@ class _SemanticImageMatch:
         return self.alt
 
 
+def _semantic_image_end(line: str, destination_start: int) -> int | None:
+    """Return the exclusive end of one bounded CommonMark inline-image target."""
+
+    length = len(line)
+    cursor = destination_start
+    leading_whitespace = False
+    while cursor < length and line[cursor] in " \t":
+        leading_whitespace = True
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    # Empty destination followed by a quoted title.
+    destination_complete = False
+    if leading_whitespace and line[cursor] in {'"', "'"}:
+        destination_complete = True
+    elif line[cursor] == "<":
+        cursor += 1
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char == "<":
+                return None
+            if char == ">":
+                cursor += 1
+                destination_complete = True
+                break
+            cursor += 1
+        if not destination_complete:
+            return None
+    else:
+        nested = 0
+        started = cursor
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char in " \t":
+                if nested:
+                    return None
+                destination_complete = True
+                break
+            if ord(char) < 0x20 or ord(char) == 0x7F:
+                return None
+            if char == "(":
+                nested += 1
+                cursor += 1
+                continue
+            if char == ")":
+                if nested:
+                    nested -= 1
+                    cursor += 1
+                    continue
+                return cursor + 1
+            cursor += 1
+        if cursor == started or not destination_complete:
+            return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    opener = line[cursor]
+    if opener not in {'"', "'", "("}:
+        return None
+    closer = ")" if opener == "(" else opener
+    cursor += 1
+    while cursor < length:
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < length:
+            cursor += 2
+            continue
+        if char == closer:
+            cursor += 1
+            break
+        if opener == "(" and char == "(":
+            return None
+        cursor += 1
+    else:
+        return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor < length and line[cursor] == ")":
+        return cursor + 1
+    return None
+
+
 def _iter_semantic_images(line: str):
     """Yield bounded inline images outside conservative backtick literals.
 
     This remains a single-pass recognizer, not a second Markdown parser.
     Escaped punctuation and backtick-delimited text stay readable source text.
-    Image destinations are consumed through their balanced closing parenthesis
-    so nested or escaped parentheses cannot leak URL fragments into semantic
-    BookDocument text. Unclosed destinations remain literal source text.
+    Image destinations follow a bounded CommonMark inline-target grammar:
+    empty targets, angle-bracket targets, balanced raw parentheses and optional
+    titles are recognized; malformed or ambiguous targets remain literal text.
     """
 
     index = 0
@@ -449,35 +545,14 @@ def _iter_semantic_images(line: str):
         opener = _semantic_image_opener(line, index)
         if opener is not None:
             destination_start, alt_text = opener
-            cursor = destination_start
-            depth = 1
-            while cursor < length:
-                destination_char = line[cursor]
-                if destination_char == "\\":
-                    cursor = min(length, cursor + 2)
-                    continue
-                if destination_char == "(":
-                    depth += 1
-                    cursor += 1
-                    continue
-                if destination_char == ")":
-                    depth -= 1
-                    if depth == 0:
-                        # CommonMark permits an omitted/empty destination: ![alt]().
-                        # It is still an image semantic boundary whose alt text
-                        # must remain readable while the empty target contributes
-                        # no destination text.
-                        yield _SemanticImageMatch(
-                            start_index=index,
-                            end_index=cursor + 1,
-                            alt=alt_text,
-                        )
-                        index = cursor + 1
-                        break
-                    cursor += 1
-                    continue
-                cursor += 1
-            if depth == 0 and index == cursor + 1:
+            image_end = _semantic_image_end(line, destination_start)
+            if image_end is not None:
+                yield _SemanticImageMatch(
+                    start_index=index,
+                    end_index=image_end,
+                    alt=alt_text,
+                )
+                index = image_end
                 continue
 
         index += 1
