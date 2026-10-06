@@ -33,8 +33,9 @@ env:
   FILE_SHUTDOWN_TEST_BLOB: cd2cfff940e4c149196cca3c08e2f2a9f5df9c72
   FORMCLOSING_TEST_BLOB: 197661e6fee63d19fcdc86535815389cb1c70868
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
-  PACKAGE_PREFLIGHT_BLOB: 08c4024b063a7c674bada1a712cfdf44e7470c10
-  PACKAGE_PREFLIGHT_TEST_BLOB: b986b679e9bb14e60f7c8297c09ddef914357c15
+  PACKAGE_PREFLIGHT_BLOB: e2d38b49fa11174bf7ac801b10664aae7b0bb724
+  PACKAGE_PREFLIGHT_TEST_BLOB: 85d88ff97bd98f18d5163a36d54418b4cfd8724d
+  PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB: 667725692e3c15ff51d61f177fe8fc91bf8e0ee1
   PORTABLE_PACKAGE_BLOB: efd46e24ec656b4226bb2f1a6b22e7473d0c0f66
   PORTABLE_PACKAGE_TEST_BLOB: b86ac45bd5782ac90f070a9f116c69652464a062
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
@@ -90,6 +91,10 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
             ".github/workflows/current-shipping-recovery-hardening.yml"
+            ".github/workflows/sound-scaled-cache-integrity.yml"
+            ".github/workflows/w6-v2-package-assembler.yml"
+            ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
+            ".github/workflows/w6-v2-release-payload-current-assembler.yml"
             "acs/version2_application.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
@@ -111,6 +116,7 @@ jobs:
             "tests/test_v2_windows_pgn_save_worker.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
+            "tests/test_version2_package_pe_identity.py"
             "tests/test_version2_package_preflight.py"
             "tests/test_version2_portable_package.py"
             "tests/test_version2_release_cleanup_precedence.py"
@@ -144,6 +150,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "$FORMCLOSING_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "$PORTABLE_PACKAGE_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_portable_package.py)" = "$PORTABLE_PACKAGE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
