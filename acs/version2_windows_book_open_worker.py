@@ -107,6 +107,18 @@ class Version2BookOpenWorker:
                 self._recovery_focus = None
                 self._recovery_terminal_kind = None
 
+    def flush_pending_terminal(self) -> None:
+        """Deliver a retained completion on the canonical owner/UI thread.
+
+        A transient WinForms BeginInvoke failure must not strand the accessible
+        Book Open state at STARTED after the background worker has already
+        finished. The application calls this from its existing owner-thread
+        event-drain boundary; observer failure leaves the retained terminal
+        intact for a later drain attempt.
+        """
+
+        self._publish_pending_recovery_terminal()
+
     def start(self, source: Path, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
         if not isinstance(source, Path):
@@ -206,14 +218,22 @@ class Version2BookOpenWorker:
         try:
             self._post_to_ui(finish)
         except BaseException:
-            # Owner shutdown can invalidate BeginInvoke after preparation ends.
-            # Never commit from the worker as a fallback. A refused close may
-            # already have advanced the generation fence and re-opened control
-            # while this cancelled thread drains; clear only the exact retained
-            # cancel/thread ownership so the visible application cannot remain
-            # permanently busy after the stale generation exits.
+            # Never commit from the worker as a fallback. If BeginInvoke fails
+            # while the application is still live, retain one canonical terminal
+            # for the next owner-thread event drain instead of leaving the
+            # accessible state stranded at STARTED. If shutdown already owns the
+            # generation, its refused-close recovery terminal remains authoritative.
             with self._lock:
                 if self._cancel is cancel and self._thread is threading.current_thread():
+                    if not self._closed and self._recovery_focus is None:
+                        self._recovery_focus = focus_target
+                        self._recovery_terminal_kind = (
+                            BookOpenWorkerEventKind.FAILED
+                            if outcome[0] == "failed"
+                            else BookOpenWorkerEventKind.CANCELLED
+                            if outcome[0] == "cancelled" or cancel.is_set()
+                            else BookOpenWorkerEventKind.FAILED
+                        )
                     self._cancel = None
                     self._thread = None
                     self._focus_target = ""
