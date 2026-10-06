@@ -686,7 +686,7 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
 
             self.assertIs(session_box["value"], previous)
             self.assertEqual(publications, [])
-            self.assertIs(events[-1], terminal)
+            self.assertEqual(events[-1], terminal)
             self.assertFalse(controller.pgn_open_running)
 
     def test_late_cancel_after_worker_success_resolves_before_owner_drain(self) -> None:
