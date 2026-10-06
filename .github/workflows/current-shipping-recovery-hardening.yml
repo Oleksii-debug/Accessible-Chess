@@ -306,6 +306,8 @@ jobs:
           tests/test_v2_windows_pgn_open_worker.py
           tests/test_v2_windows_pgn_save_terminal_truth.py
           tests/test_v2_windows_pgn_save_worker.py
+          tests/test_version2_pgn_commands.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
           tests/test_w5_native_formclosing_dirty_pgn.py
 
       - name: Execute recovery, persistence and accessibility contracts
@@ -325,6 +327,8 @@ jobs:
           tests.test_v2_windows_pgn_open_worker
           tests.test_v2_windows_pgn_save_worker
           tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_workspace_webview_adapter
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_library_import_observer
           tests.test_v2_windows_file_worker_shutdown_fence
