@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 import tempfile
 import threading
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +68,11 @@ class _BlockingProvider:
         self.completed = True
 
 
+class _SynchronousBrokenProvider:
+    def apply_moderation_command(self, *, room_id, command):
+        raise RuntimeError("private-sync-provider-detail")
+
+
 def _permission(*, allowed: bool, operation_id: str) -> ModerationCommand:
     return ModerationCommand(
         operation_id=operation_id,
@@ -102,6 +108,35 @@ def _microphone_allowed(authority: SqliteClassroomMediaPolicyAuthority) -> bool:
 
 
 class ClassroomProviderCancellationAtomicityTests(unittest.TestCase):
+    def test_synchronous_provider_failure_remains_sanitized_at_async_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            authority = _authority(
+                Path(temp) / "policy.sqlite3",
+                _RosterResolver(),
+                _JoinIdentityResolver(),
+                timeout_seconds=0.1,
+            )
+            wrapper = ClassroomMediaPolicyProviderAdmin(
+                authority=authority,
+                provider_admin=_SynchronousBrokenProvider(),
+            )
+
+            with self.assertRaisesRegex(
+                ClassroomMediaPolicyError,
+                "^media policy provider operation failed$",
+            ) as caught:
+                asyncio.run(
+                    wrapper.apply_moderation_command(
+                        room_id="room-1",
+                        command=_permission(
+                            allowed=False,
+                            operation_id="op-sync-provider-failure",
+                        ),
+                    )
+                )
+            rendered = "".join(traceback.format_exception(caught.exception))
+            self.assertNotIn("private-sync-provider-detail", rendered)
+
     def test_repeated_cancel_during_effect_lock_acquire_recovers_and_releases_result(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "policy.sqlite3"
@@ -207,8 +242,6 @@ class ClassroomProviderCancellationAtomicityTests(unittest.TestCase):
                 await asyncio.sleep(0)
                 self.assertFalse(task.done())
 
-                # Cancellation is not allowed to release the cross-process
-                # serialization order while the provider effect is unresolved.
                 with self.assertRaisesRegex(
                     ClassroomMediaPolicyError,
                     "serialization acquisition failed",
@@ -223,12 +256,8 @@ class ClassroomProviderCancellationAtomicityTests(unittest.TestCase):
                 with self.assertRaises(asyncio.CancelledError):
                     await asyncio.wait_for(task, timeout=1.0)
                 self.assertTrue(provider.completed)
-
-                # A successful restore is durable before caller cancellation is
-                # re-propagated, so provider and reconnect authority cannot diverge.
                 self.assertTrue(_microphone_allowed(authority))
 
-                # The lock is released only after the known terminal outcome.
                 async with contender.provider_effect_scope(
                     room_id="room-1",
                     participant_id="student-1",
@@ -293,8 +322,6 @@ class ClassroomProviderCancellationAtomicityTests(unittest.TestCase):
                 with self.assertRaises(asyncio.CancelledError):
                     await asyncio.wait_for(task, timeout=1.0)
 
-                # Failed provider restore never becomes reconnect authority even
-                # though caller cancellation was the externally visible outcome.
                 self.assertFalse(_microphone_allowed(authority))
                 async with contender.provider_effect_scope(
                     room_id="room-1",

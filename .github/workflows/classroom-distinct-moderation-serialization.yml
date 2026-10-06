@@ -10,6 +10,8 @@ on:
       - 'tests/test_classroom_effect_lock_cross_process.py'
       - 'tests/test_classroom_provider_cancellation_atomicity.py'
       - '.github/workflows/classroom-distinct-moderation-serialization.yml'
+      - '.github/workflows/p0-release-critical-triad-convergence.yml'
+      - 'tests/test_p0_release_critical_triad_convergence.py'
   workflow_dispatch:
 
 permissions:
@@ -59,13 +61,17 @@ jobs:
           changed="$(git diff --name-only "$base...HEAD" | sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/classroom-distinct-moderation-serialization.yml' \
+            '.github/workflows/p0-release-critical-triad-convergence.yml' \
             'acs/classroom_media_policy_authority.py' \
             'tests/test_classroom_effect_lock_cross_process.py' \
             'tests/test_classroom_media_policy_authority.py' \
-            'tests/test_classroom_provider_cancellation_atomicity.py' | sort)"
+            'tests/test_classroom_provider_cancellation_atomicity.py' \
+            'tests/test_p0_release_critical_triad_convergence.py' | sort)"
           test "$changed" = "$allowed"
-          test "$(git rev-parse HEAD:acs/classroom_media_policy_authority.py)" = "5f1ce47236a1380cfda8644ff0812af9b799c6e5"
-          test "$(git rev-parse HEAD:tests/test_classroom_provider_cancellation_atomicity.py)" = "85a99aacf117a266379613e6c0162663e34835ef"
+          test "$(git rev-parse HEAD:acs/classroom_media_policy_authority.py)" = "59fd6eade694c6f78ca05eccaa3ce7a7beb7c50f"
+          test "$(git rev-parse HEAD:tests/test_classroom_provider_cancellation_atomicity.py)" = "f831b650260cfaa2df4674e7ac6d9f6fccb53b1a"
+          test "$(git rev-parse HEAD:.github/workflows/p0-release-critical-triad-convergence.yml)" = "adac7a10ca0f20f50f619fb1adc70b6578a72dc8"
+          test "$(git rev-parse HEAD:tests/test_p0_release_critical_triad_convergence.py)" = "2eccbebb111e34c4530e75f37494579ffc5734ce"
 
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -79,6 +85,7 @@ jobs:
           tests/test_classroom_media_policy_authority.py
           tests/test_classroom_effect_lock_cross_process.py
           tests/test_classroom_provider_cancellation_atomicity.py
+          tests/test_p0_release_critical_triad_convergence.py
 
       - name: Run durable policy and join contracts
         run: >-
@@ -88,6 +95,7 @@ jobs:
           tests.test_classroom_provider_cancellation_atomicity
           tests.test_classroom_join_credentials
           tests.test_classroom_realtime_media
+          tests.test_p0_release_critical_triad_convergence
 
       - name: Prove cross-process serialization is not process-local
         shell: bash
@@ -99,11 +107,13 @@ jobs:
           grep -Fq 'async with self._authority.provider_effect_scope' acs/classroom_media_policy_authority.py
           grep -Fq 'asyncio.shield(operation)' acs/classroom_media_policy_authority.py
           grep -Fq 'while self._connection is None' acs/classroom_media_policy_authority.py
+          grep -Fq 'async def invoke_provider' acs/classroom_media_policy_authority.py
           ! grep -Fq 'self._effect_lock = asyncio.Lock' acs/classroom_media_policy_authority.py
           grep -Fq 'op-lock-camera-distinct' tests/test_classroom_media_policy_authority.py
           grep -Fq 'op-lock-microphone-distinct' tests/test_classroom_media_policy_authority.py
           grep -Fq 'self.assertEqual(provider.sources, set())' tests/test_classroom_media_policy_authority.py
           grep -Fq 'CancelledError' tests/test_classroom_media_policy_authority.py
+          grep -Fq 'op-sync-provider-failure' tests/test_classroom_provider_cancellation_atomicity.py
           grep -Fq 'op-restore-cancelled' tests/test_classroom_provider_cancellation_atomicity.py
           grep -Fq 'op-restore-cancelled-failure' tests/test_classroom_provider_cancellation_atomicity.py
           grep -Fq 'test_repeated_cancel_during_effect_lock_acquire_recovers_and_releases_result' tests/test_classroom_provider_cancellation_atomicity.py
@@ -113,6 +123,10 @@ jobs:
           grep -Fq '("acquired", None)' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq 'os._exit(23)' tests/test_classroom_effect_lock_cross_process.py
           grep -Fq 'test_crashed_lock_owner_releases_effect_mutex_for_retry' tests/test_classroom_effect_lock_cross_process.py
+          expected_target_contract='TARGET_BRANCH: $'
+          expected_target_contract+='{{ github.event.pull_request.base.ref }}'
+          grep -Fq "$expected_target_contract" .github/workflows/p0-release-critical-triad-convergence.yml
+          ! grep -Fq 'PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911' .github/workflows/p0-release-critical-triad-convergence.yml
 
       - name: Core selftest
         run: python -m acs.selftest
