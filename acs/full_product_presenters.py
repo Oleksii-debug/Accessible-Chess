@@ -216,6 +216,8 @@ class PgnGameView:
     warnings: tuple[str, ...]
     items: tuple[PgnTreeItem, ...]
     selected_node_id: str | None
+    leading_comments: tuple[str, ...] = ()
+    trailing_comments: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,8 +240,11 @@ class PgnTreePresenter:
 
     _EDIT_ACTIONS = frozenset(
         {
+            "pgn.search",
             "pgn.comment_edit",
             "pgn.comment_delete",
+            "pgn.nag_edit",
+            "pgn.variation_add",
             "pgn.variation_delete",
             "pgn.variation_promote",
             "pgn.copy_selection",
@@ -495,6 +500,8 @@ class PgnTreePresenter:
             warnings=tuple(game.warnings),
             items=self._items,
             selected_node_id=self._selected_node_id,
+            leading_comments=tuple(comment.text for comment in game.line.leading_comments),
+            trailing_comments=tuple(comment.text for comment in game.line.trailing_comments),
         )
 
     def dispatch_edit(
