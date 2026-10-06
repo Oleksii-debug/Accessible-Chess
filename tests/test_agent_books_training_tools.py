@@ -162,6 +162,7 @@ class AgentBooksTrainingToolsTests(unittest.TestCase):
             ActiveDict(books={}, training={}),
             {"books": ActiveDict(), "training": None},
             {"books": {"block": object()}, "training": None},
+            {"books": {"fen": "private-canonical-position"}, "training": None},
         )
         for snapshot in snapshots:
             with self.subTest(snapshot=type(snapshot).__name__):
@@ -170,6 +171,18 @@ class AgentBooksTrainingToolsTests(unittest.TestCase):
                     lambda snapshot=snapshot: snapshot
                 ).register(executor)
                 self.assertFalse(_execute(executor, "books.current").ok)
+
+    def test_training_private_definition_fields_fail_closed(self):
+        executor = ToolExecutor()
+        AgentBooksTrainingTools(
+            lambda: {
+                "books": None,
+                "training": {"accepted_moves": ["e4"], "title": "private"},
+            }
+        ).register(executor)
+        result = _execute(executor, "training.status")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "tool failed")
 
     def test_read_only_tools_reject_model_supplied_arguments(self):
         executor = ToolExecutor()
