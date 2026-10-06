@@ -381,6 +381,13 @@ class Version2WindowsFileActionDelegate:
         with self._lock:
             return self._worker is not None and self._worker_kind == "pgn_save"
 
+    @property
+    def shutdown_requested(self) -> bool:
+        """Whether a native close has fenced new file-workflow actions."""
+
+        with self._lock:
+            return self._shutdown_requested
+
     @staticmethod
     def _worker_focus_target(worker_kind: str) -> str:
         if worker_kind == "import":
