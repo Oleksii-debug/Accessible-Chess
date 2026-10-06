@@ -26,11 +26,8 @@ from acs.media_core import (
     MediaSource,
     MediaSourceKind as CoreMediaSourceKind,
 )
-from acs.media_foundation import (
-    MediaClock,
-    MediaSessionState,
-    MediaSourceKind as RuntimeMediaSourceKind,
-)
+from dataclasses import dataclass
+from enum import Enum
 
 
 class FakePlayback:
@@ -94,14 +91,42 @@ def _application(
     )
 
 
-def _clock(*, position_ms: int = 1500, duration_ms: int = 5000) -> MediaClock:
-    return MediaClock(
-        MediaSessionState(
+class _SourceKind(str, Enum):
+    LOCAL_FILE = "local_file"
+
+
+class _PlaybackState(str, Enum):
+    PAUSED = "paused"
+
+
+@dataclass(frozen=True)
+class _ClockState:
+    session_id: str
+    source_id: str
+    source_kind: _SourceKind
+    position_ms: int
+    duration_ms: int | None
+    playback_state: _PlaybackState
+    playback_rate: float
+    revision: int
+
+
+class _Clock:
+    def __init__(self, state: _ClockState) -> None:
+        self.state = state
+
+
+def _clock(*, position_ms: int = 1500, duration_ms: int = 5000) -> _Clock:
+    return _Clock(
+        _ClockState(
             session_id="media-navigation-agent",
             source_id="media-nav",
-            source_kind=RuntimeMediaSourceKind.LOCAL_FILE,
+            source_kind=_SourceKind.LOCAL_FILE,
             position_ms=position_ms,
             duration_ms=duration_ms,
+            playback_state=_PlaybackState.PAUSED,
+            playback_rate=1.0,
+            revision=0,
         )
     )
 
@@ -258,6 +283,52 @@ class MediaAgentCanonicalNavigationTests(unittest.TestCase):
             bridge.next_move()
 
         self.assertEqual(caught.exception.code, MediaApplicationCode.AMBIGUOUS_POSITION)
+        self.assertEqual(playback.calls, [])
+        self.assertEqual(application.revision, 0)
+
+
+    def test_next_move_stops_at_resync_barrier_without_provider_effect(self) -> None:
+        from acs.media_core import MediaReconciliationState, MediaTimelineBarrier
+
+        application = MediaApplicationService(
+            source=MediaSource(
+                source_id="media-nav",
+                title="Barrier fixture",
+                kind=CoreMediaSourceKind.LOCAL_FILE,
+                duration_ms=5000,
+            ),
+            timeline=MediaPositionTimeline(
+                "media-nav",
+                (
+                    _link(1000, "tree:current"),
+                    _link(3000, "tree:later-confirmed"),
+                ),
+                barriers=(
+                    MediaTimelineBarrier(
+                        source_id="media-nav",
+                        timestamp_ms=2000,
+                        state=MediaReconciliationState.RESYNC_REQUIRED,
+                        reason="provider discontinuity",
+                    ),
+                ),
+            ),
+            session=MediaChessSession(
+                MediaCursor("media-nav", 0),
+                "analysis:independent",
+            ),
+            restore_chess_ref=lambda _chess_ref: None,
+        )
+        playback = FakePlayback()
+        bridge = MediaAgentBridge(
+            clock=_clock(),
+            application=application,
+            playback=playback,
+        )
+
+        with self.assertRaises(MediaApplicationError) as caught:
+            bridge.next_move()
+
+        self.assertEqual(caught.exception.code, MediaApplicationCode.RESYNC_REQUIRED)
         self.assertEqual(playback.calls, [])
         self.assertEqual(application.revision, 0)
 

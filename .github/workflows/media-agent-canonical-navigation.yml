@@ -47,7 +47,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: >-
           python -c "import os, subprocess, sys;
-          expected_base='cae6cd392d2b7df0b2d33e4a2d6255eb49983446';
+          expected_base='414456eaf4d41af4a708bca649b53a6b54e95459';
           base=os.environ['BASE_SHA']; head=os.environ['HEAD_SHA'];
           expected={'.github/workflows/media-agent-canonical-navigation.yml','acs/chess_agent_tools.py','acs/media_application.py','tests/test_media_agent_canonical_navigation.py'};
           changed=set(subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines());
@@ -59,7 +59,6 @@ jobs:
           python -m py_compile
           acs/media_core.py
           acs/media_application.py
-          acs/media_foundation.py
           acs/chess_agent_tools.py
           tests/test_media_agent_canonical_navigation.py
 

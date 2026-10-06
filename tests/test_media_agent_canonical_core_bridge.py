@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
+from dataclasses import dataclass
+from enum import Enum
 import unittest
 
 from acs.chess_agent_tools import ChessAgentToolsError, MediaAgentBridge
@@ -15,21 +16,42 @@ from acs.media_core import (
     MediaSource,
     MediaSourceKind as CoreMediaSourceKind,
 )
-from acs.media_foundation import (
-    MediaClock,
-    MediaSessionState,
-    MediaSourceKind as RuntimeMediaSourceKind,
-)
+class _RuntimeSourceKind(str, Enum):
+    LOCAL_FILE = "local_file"
 
 
-def _clock(source_id: str = "media-opaque", position_ms: int = 1500) -> MediaClock:
-    return MediaClock(
-        MediaSessionState(
+class _RuntimePlaybackState(str, Enum):
+    PAUSED = "paused"
+
+
+@dataclass(frozen=True)
+class _ClockState:
+    session_id: str
+    source_id: str
+    source_kind: _RuntimeSourceKind
+    position_ms: int
+    duration_ms: int | None
+    playback_state: _RuntimePlaybackState
+    playback_rate: float
+    revision: int
+
+
+class _Clock:
+    def __init__(self, state: _ClockState) -> None:
+        self.state = state
+
+
+def _clock(source_id: str = "media-opaque", position_ms: int = 1500) -> _Clock:
+    return _Clock(
+        _ClockState(
             session_id="agent-media-session",
             source_id=source_id,
-            source_kind=RuntimeMediaSourceKind.LOCAL_FILE,
+            source_kind=_RuntimeSourceKind.LOCAL_FILE,
             position_ms=position_ms,
             duration_ms=5000,
+            playback_state=_RuntimePlaybackState.PAUSED,
+            playback_rate=1.0,
+            revision=3,
         )
     )
 
@@ -174,6 +196,44 @@ class MediaAgentCanonicalCoreBridgeTests(unittest.TestCase):
         self.assertTrue(status["synchronizationAmbiguous"])
         self.assertEqual(status["qualification"], "ambiguous")
 
+    def test_resync_required_status_is_explicit_and_restore_fails_closed(self):
+        from acs.media_core import MediaReconciliationState, MediaTimelineBarrier
+
+        timeline = MediaPositionTimeline(
+            "media-opaque",
+            (
+                MediaChessLink(
+                    "media-opaque",
+                    500,
+                    "tree:old",
+                    status=MediaLinkStatus.CONFIRMED,
+                    confidence=1.0,
+                ),
+            ),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="media-opaque",
+                    timestamp_ms=1000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                    reason="provider discontinuity",
+                ),
+            ),
+        )
+        restored = []
+        application = _application(timeline, restored)
+        bridge = MediaAgentBridge(clock=_clock(position_ms=1500), application=application)
+
+        status = bridge.status()
+        self.assertEqual(status["qualification"], "resync_required")
+        self.assertFalse(status["canRestore"])
+        self.assertFalse(status["synchronizationAmbiguous"])
+        self.assertIn("synchronization", status["statusText"].lower())
+
+        with self.assertRaises(MediaApplicationError) as caught:
+            bridge.restore()
+        self.assertEqual(caught.exception.code.value, "resync_required")
+        self.assertEqual(restored, [])
+
     def test_clock_and_application_source_mismatch_is_rejected_at_composition(self):
         application = _application(
             MediaPositionTimeline("different-source", ()),
@@ -186,19 +246,23 @@ class MediaAgentCanonicalCoreBridgeTests(unittest.TestCase):
                 application=application,
             )
 
-    def test_qualification_gate_covers_full_eight_path_bridge_scope(self):
-        workflow = (
-            Path(__file__).resolve().parents[1]
-            / ".github"
-            / "workflows"
-            / "media-agent-canonical-core-bridge.yml"
-        ).read_text(encoding="utf-8")
-        for path in (
-            "acs/media_application.py",
-            "tests/test_media_application.py",
-        ):
-            with self.subTest(path=path):
-                self.assertIn(f"'{path}'", workflow)
+    def test_agent_bridge_does_not_depend_on_legacy_media_foundation(self):
+        import acs.chess_agent_tools as module
+
+        module_source = inspect.getsource(module)
+        self.assertNotIn("media_foundation", module_source)
+        self.assertNotIn("MediaPositionBinding", module_source)
+        self.assertNotIn("ChessStateReconciler", module_source)
+
+    def test_clock_protocol_rejects_incomplete_state(self):
+        class BadClock:
+            state = object()
+
+        with self.assertRaises(TypeError):
+            MediaAgentBridge(
+                clock=BadClock(),
+                application=_application(MediaPositionTimeline("media-opaque"), []),
+            )
 
     def test_agent_bridge_contains_no_timeline_or_chess_mutation_authority(self):
         restore_source = inspect.getsource(MediaAgentBridge.restore)

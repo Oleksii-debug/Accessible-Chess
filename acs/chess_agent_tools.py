@@ -3,7 +3,7 @@ from __future__ import annotations
 """Concrete chess/media tools exposed to the Universal Chess Agent.
 
 The agent does not scrape Accessible Chess UI. Every tool calls the existing
-canonical Board, AnalysisService, GameSearchService or Media application boundary.
+canonical Board, AnalysisService, GameSearchService or media timeline boundary.
 """
 
 import asyncio
@@ -16,9 +16,24 @@ from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
 from .media_application import MediaApplicationService
-from .media_foundation import MediaClock, MediaContractError
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
+
+
+class MediaClockStatePort(Protocol):
+    session_id: str
+    source_id: str
+    source_kind: object
+    position_ms: int
+    duration_ms: int | None
+    playback_state: object
+    playback_rate: float
+    revision: int
+
+
+class MediaClockPort(Protocol):
+    @property
+    def state(self) -> MediaClockStatePort: ...
 
 
 class MediaPlaybackPort(Protocol):
@@ -91,38 +106,60 @@ class MediaAgentBridge:
 
     The Agent does not resolve media timelines, parse FEN, reconstruct GameTree
     paths, or call a chess mutation callback directly. Provider time comes from
-    MediaClock; all synchronization, navigation and Restore Media Position
-    semantics are owned by MediaApplicationService.
+    MediaClock; all synchronization and Restore Media Position semantics are
+    owned by MediaApplicationService.
     """
 
     def __init__(
         self,
         *,
-        clock: MediaClock,
+        clock: MediaClockPort,
         application: MediaApplicationService,
         playback: MediaPlaybackPort | None = None,
     ) -> None:
-        if type(clock) is not MediaClock:
-            raise TypeError("clock must be MediaClock")
+        state = getattr(clock, "state", None)
+        required_state_fields = (
+            "session_id",
+            "source_id",
+            "source_kind",
+            "position_ms",
+            "duration_ms",
+            "playback_state",
+            "playback_rate",
+            "revision",
+        )
+        if state is None or any(
+            not hasattr(state, field_name)
+            for field_name in required_state_fields
+        ):
+            raise TypeError("clock must expose the MediaClockPort state contract")
         if type(application) is not MediaApplicationService:
             raise TypeError("application must be MediaApplicationService")
-        clock_state = clock.state
-        if application.source.source_id != clock_state.source_id:
+        if application.source.source_id != state.source_id:
             raise ChessAgentToolsError(
                 "media clock and Media application source IDs differ"
             )
         application_duration = application.source.duration_ms
         if (
             application_duration is not None
-            and clock_state.duration_ms is not None
-            and application_duration != clock_state.duration_ms
+            and state.duration_ms is not None
+            and application_duration != state.duration_ms
         ):
             raise ChessAgentToolsError(
                 "media clock and Media application durations differ"
             )
-        self.clock = clock
+        self.clock: MediaClockPort = clock
         self.application = application
         self.playback = playback
+
+    @staticmethod
+    def _enum_value(value: object, field_name: str) -> str:
+        raw = getattr(value, "value", value)
+        if type(raw) is not str or not raw:
+            raise ChessAgentToolsError(
+                f"{field_name} must expose non-empty text"
+            )
+        return raw
 
     def status(self) -> dict[str, object]:
         state = self.clock.state
@@ -130,10 +167,13 @@ class MediaAgentBridge:
         return {
             "sessionId": state.session_id,
             "sourceId": state.source_id,
-            "sourceKind": state.source_kind.value,
+            "sourceKind": self._enum_value(state.source_kind, "source_kind"),
             "positionMs": state.position_ms,
             "durationMs": state.duration_ms,
-            "playbackState": state.playback_state.value,
+            "playbackState": self._enum_value(
+                state.playback_state,
+                "playback_state",
+            ),
             "playbackRate": state.playback_rate,
             "revision": state.revision,
             "applicationRevision": snapshot.revision,
@@ -174,19 +214,19 @@ class MediaAgentBridge:
 
     def play(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.play()
         return {"requested": "play"}
 
     def pause(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         self.playback.pause()
         return {"requested": "pause"}
 
     def seek(self, position_ms: int) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         snapshot = self.application.snapshot_at(position_ms)
         self.playback.seek(position_ms)
         return {
@@ -202,7 +242,7 @@ class MediaAgentBridge:
 
     def set_rate(self, playback_rate: object) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         rate = _bounded_float(
             playback_rate,
             name="playback_rate",
@@ -218,7 +258,7 @@ class MediaAgentBridge:
 
     def next_move(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         state = self.clock.state
         target = self.application.next_media_position(state.position_ms)
         self.playback.seek(target.target_position_ms)
@@ -234,7 +274,7 @@ class MediaAgentBridge:
 
     def previous_move(self) -> dict[str, object]:
         if self.playback is None:
-            raise MediaContractError("no playback provider is attached")
+            raise ChessAgentToolsError("no playback provider is attached")
         state = self.clock.state
         target = self.application.previous_media_position(state.position_ms)
         self.playback.seek(target.target_position_ms)
@@ -496,45 +536,35 @@ class ChessAgentToolRegistry:
         assert media is not None
 
         async def status(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments, tool_id="media.status", expected=frozenset()
-            )
+            _require_argument_keys(arguments, tool_id="media.status", expected=frozenset())
             return media.status()
 
         async def current_position(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments,
-                tool_id="media.current_position",
-                expected=frozenset(),
-            )
+            _require_argument_keys(arguments, tool_id="media.current_position", expected=frozenset())
             return media.current_position()
 
         async def restore(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments,
-                tool_id="media.restore_position",
-                expected=frozenset(),
-            )
+            _require_argument_keys(arguments, tool_id="media.restore_position", expected=frozenset())
             return media.restore()
 
         async def play(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments, tool_id="media.play", expected=frozenset()
-            )
+            _require_argument_keys(arguments, tool_id="media.play", expected=frozenset())
             return media.play()
 
         async def pause(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments, tool_id="media.pause", expected=frozenset()
-            )
+            _require_argument_keys(arguments, tool_id="media.pause", expected=frozenset())
             return media.pause()
 
+        async def next_move(arguments: Mapping[str, object]) -> object:
+            _require_argument_keys(arguments, tool_id="media.next_move", expected=frozenset())
+            return media.next_move()
+
+        async def previous_move(arguments: Mapping[str, object]) -> object:
+            _require_argument_keys(arguments, tool_id="media.previous_move", expected=frozenset())
+            return media.previous_move()
+
         async def seek(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments,
-                tool_id="media.seek",
-                expected=frozenset({"position_ms"}),
-            )
+            _require_argument_keys(arguments, tool_id="media.seek", expected=frozenset({"position_ms"}))
             position = _exact_int(
                 arguments.get("position_ms"),
                 name="position_ms",
@@ -544,26 +574,8 @@ class ChessAgentToolRegistry:
             return media.seek(position)
 
         async def set_rate(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments,
-                tool_id="media.set_rate",
-                expected=frozenset({"playback_rate"}),
-            )
+            _require_argument_keys(arguments, tool_id="media.set_rate", expected=frozenset({"playback_rate"}))
             return media.set_rate(arguments.get("playback_rate"))
-
-        async def next_move(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments, tool_id="media.next_move", expected=frozenset()
-            )
-            return media.next_move()
-
-        async def previous_move(arguments: Mapping[str, object]) -> object:
-            _require_argument_keys(
-                arguments,
-                tool_id="media.previous_move",
-                expected=frozenset(),
-            )
-            return media.previous_move()
 
         self.executor.register(
             ToolSpec(
@@ -575,7 +587,7 @@ class ChessAgentToolRegistry:
         self.executor.register(
             ToolSpec(
                 "media.current_position",
-                "Read the canonical synchronization reference at current provider time.",
+                "Read the current media-synchronized canonical position without mutation.",
             ),
             current_position,
         )
@@ -605,28 +617,17 @@ class ChessAgentToolRegistry:
         )
         self.executor.register(
             ToolSpec(
-                "media.seek",
-                "Seek the attached media provider to an exact application-validated timestamp.",
-                risk=ToolRisk.LOCAL_WRITE,
-                input_schema={
-                    "position_ms": "non-negative integer milliseconds"
-                },
-            ),
-            seek,
-        )
-        self.executor.register(
-            ToolSpec(
                 "media.set_rate",
-                "Request a bounded playback-rate change from the attached media provider.",
+                "Request a bounded media playback-rate change.",
                 risk=ToolRisk.LOCAL_WRITE,
-                input_schema={"playback_rate": "number from 0.1 through 8.0"},
+                input_schema={"playback_rate": "0.1-8.0"},
             ),
             set_rate,
         )
         self.executor.register(
             ToolSpec(
                 "media.next_move",
-                "Seek to the nearest later timeline anchor when it is confirmed.",
+                "Seek to the nearest later media chess anchor; unresolved anchors fail closed.",
                 risk=ToolRisk.LOCAL_WRITE,
             ),
             next_move,
@@ -634,8 +635,19 @@ class ChessAgentToolRegistry:
         self.executor.register(
             ToolSpec(
                 "media.previous_move",
-                "Seek to the nearest earlier timeline anchor when it is confirmed.",
+                "Seek to the nearest earlier media chess anchor; unresolved anchors fail closed.",
                 risk=ToolRisk.LOCAL_WRITE,
             ),
             previous_move,
+        )
+        self.executor.register(
+            ToolSpec(
+                "media.seek",
+                "Seek the attached media provider to an exact timestamp.",
+                risk=ToolRisk.LOCAL_WRITE,
+                input_schema={
+                    "position_ms": "non-negative integer milliseconds"
+                },
+            ),
+            seek,
         )
