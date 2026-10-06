@@ -1,5 +1,7 @@
+from io import BytesIO
 import tempfile
 import threading
+import zipfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -51,6 +53,47 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(original.book_key, controlled.book_key)
         self.assertEqual(original.warnings, controlled.warnings)
         self.assertEqual(controlled.pgn_games, 2)
+
+    def test_epub_archive_index_observes_control_inside_large_package_scan(self):
+        import acs.book_epub_import as epub
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
+            for index in range(300):
+                archive.writestr(f'entry-{index:03}.txt', b'x')
+
+        failure = SourceReadCancelledError('cancelled during EPUB package scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with zipfile.ZipFile(BytesIO(buffer.getvalue()), 'r') as archive:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._archive_index(archive, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_xml_structure_scan_observes_control_before_tree_materialization(self):
+        import acs.book_epub_import as epub
+
+        data = ('<root>' + '<item />' * 500 + '</root>').encode('utf-8')
+        failure = SourceReadCancelledError('cancelled during EPUB XML scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with patch.object(epub.ET, 'fromstring') as materialize:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._xml_root(data, 'test metadata', cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        materialize.assert_not_called()
 
     def test_epub_nested_html_control_preserves_order_and_closes_archive_on_cancel(self):
         raw = _simple_epub(HTML.encode('utf-8'))
