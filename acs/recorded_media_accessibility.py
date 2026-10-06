@@ -199,6 +199,18 @@ def _validate_clock(clock: MediaClockSnapshot | None) -> tuple[int | None, int |
     return position, duration, clock.state.value
 
 
+def _validate_sync_snapshot(snapshot: RecordedSyncSnapshot | None) -> RecordedSyncSnapshot | None:
+    if snapshot is None:
+        return None
+    if type(snapshot) is not RecordedSyncSnapshot:
+        raise RecordedMediaAccessibilityError("invalid recorded synchronization snapshot")
+    if snapshot.source.source_id != snapshot.timeline.source_id:
+        raise RecordedMediaAccessibilityError("recorded synchronization source mismatch")
+    if snapshot.session.media_cursor.source_id != snapshot.source.source_id:
+        raise RecordedMediaAccessibilityError("recorded synchronization cursor mismatch")
+    return snapshot
+
+
 def _validate_progress(
     checkpoint: PreprocessCheckpoint | None,
 ) -> tuple[str, int, int, bool]:
