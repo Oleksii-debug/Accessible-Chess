@@ -1,3 +1,4 @@
+from .epd import EpdParseError, looks_like_epd, parse_epd
 from .position_editor import parse_piece_coordinate_position
 
 
@@ -44,6 +45,12 @@ def parse_position_text(text, turn="w", *, language="uk"):
 
     if type(language) is not str or language not in {"uk", "en"}:
         raise ValueError("language must be 'uk' or 'en'")
+    if looks_like_epd(text):
+        try:
+            return parse_epd(text).position.to_fen()
+        except EpdParseError as exc:
+            message = "Некоректний EPD." if language == "uk" else "Invalid EPD."
+            raise ValueError(message) from exc
     try:
         return parse_piece_coordinate_position(text, turn=turn).to_fen()
     except ValueError as exc:
