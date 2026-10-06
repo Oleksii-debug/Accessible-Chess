@@ -362,19 +362,24 @@ def _download_verified(destination: Path) -> int:
 def _read_verified_compressed_payload(path: Path) -> bytes:
     """Read and pin the exact bounded compressed bytes consumed by extraction."""
 
+    descriptor = -1
     try:
-        with path.open("rb") as source:
-            # Validate the object actually opened, not the pathname before open.
-            # A pre-open is_file() check would reintroduce a check/use race, while
-            # accepting a FIFO/device here could block indefinitely before the
-            # byte bound has any chance to apply.
-            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
-                raise RuntimeError("compressed Lichess corpus source must be a regular file")
+        # O_NONBLOCK prevents FIFO-like filesystem objects from hanging at open
+        # on platforms that expose it. O_BINARY preserves raw bytes on Windows.
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+        descriptor = os.open(path, flags)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError("compressed Lichess corpus source must be a regular file")
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor = -1
             payload = source.read(DOWNLOAD_LIMIT_BYTES + 1)
     except OSError as exc:
         raise RuntimeError(
             f"compressed Lichess corpus could not be read: {type(exc).__name__}"
         ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     if len(payload) > DOWNLOAD_LIMIT_BYTES:
         raise RuntimeError("compressed Lichess corpus exceeds qualified download bound")
     actual = _sha256_bytes(payload)
