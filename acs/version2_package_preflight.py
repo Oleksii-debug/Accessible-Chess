@@ -319,24 +319,25 @@ def _stable_change_metadata(st: os.stat_result) -> tuple[int, ...] | None:
 
     Windows exposes st_ctime_ns as creation time, so only nanosecond mtime is a
     portable change signal there. POSIX ctime is mutation metadata and closes a
-    same-size rewrite gap when mtime is restored. Missing required metadata is
-    fail-closed rather than being treated as two equal missing values.
+    same-size rewrite gap when mtime is restored. Missing, non-integer or
+    negative required metadata is fail-closed rather than being treated as an
+    equal change signal.
     """
 
     mtime_ns = getattr(st, "st_mtime_ns", None)
-    if type(mtime_ns) is not int:
+    if type(mtime_ns) is not int or mtime_ns < 0:
         return None
     if os.name == "nt":
         return (mtime_ns,)
 
     ctime_ns = getattr(st, "st_ctime_ns", None)
-    if type(ctime_ns) is not int:
+    if type(ctime_ns) is not int or ctime_ns < 0:
         return None
     return mtime_ns, ctime_ns
 
 
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare pathname/open-handle identity plus platform-safe change metadata."""
+    """Compare pathname/open-handle identity, size and safe change metadata."""
     try:
         same_identity = os.path.samestat(left, right)
     except (AttributeError, OSError):
@@ -350,14 +351,21 @@ def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
         )
         values = left_identity + right_identity
         same_identity = bool(
-            all(value not in (None, 0) for value in values)
+            all(type(value) is int and value > 0 for value in values)
             and left_identity == right_identity
         )
+
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
     left_change = _stable_change_metadata(left)
     right_change = _stable_change_metadata(right)
     return bool(
         same_identity
-        and int(left.st_size) == int(right.st_size)
+        and type(left_size) is int
+        and type(right_size) is int
+        and left_size >= 0
+        and right_size >= 0
+        and left_size == right_size
         and left_change is not None
         and left_change == right_change
     )
