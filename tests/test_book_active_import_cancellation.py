@@ -1895,5 +1895,65 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertGreaterEqual(len(byte_calls), 2)
 
 
+    def test_epub_source_digest_observes_control_inside_large_byte_source(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB source digest"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._sha256_bytes_hex(b"x" * 200_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_rebase_digest_observes_control_and_preserves_legacy_id(self):
+        import acs.book_epub_import as epub
+        from acs.bookdocument import Paragraph
+        from hashlib import sha256
+
+        block = Paragraph(
+            text="Readable",
+            block_id="html-legacy-1",
+            source_anchor="p1",
+        )
+        entry_name = "Text/" + ("chapter-" * 1_000) + ".xhtml"
+        identity = f"{entry_name}\0{3}\0{7}\0{block.block_id}"
+        expected_id = f"epub-{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
+
+        calls = []
+        rebased = epub._rebase_block(
+            block,
+            entry_name,
+            3,
+            7,
+            lambda: calls.append(1),
+        )
+
+        self.assertEqual(rebased.block_id, expected_id)
+        self.assertEqual(rebased.source_anchor, f"{entry_name}#p1")
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_controlled_source_digest_preserves_exact_book_key_hash(self):
+        import acs.book_epub_import as epub
+        from hashlib import sha256
+
+        value = (b"accessible-chess-epub" * 10_000)
+        calls = []
+        self.assertEqual(
+            epub._sha256_bytes_hex(value, lambda: calls.append(1)),
+            sha256(value).hexdigest(),
+        )
+        self.assertGreaterEqual(len(calls), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
