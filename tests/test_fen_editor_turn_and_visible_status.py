@@ -46,13 +46,13 @@ class FenEditorTurnAndVisibleStatusTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(api.board.fen(), before)
 
-    def test_new_position_editor_controls_join_analysis_exploration_lock(self):
+    def test_position_editor_controls_share_analysis_and_review_lock_state(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"
         )
-        start = html.index("function setAnalysisMutationLock")
-        end = html.index("function renderAnalysis", start)
-        lock_source = html[start:end]
+        controls_start = html.index("const positionEditorControlIds=[")
+        controls_end = html.index("];", controls_start)
+        controls_source = html[controls_start:controls_end]
         for control_id in (
             "position-square",
             "position-piece",
@@ -63,9 +63,41 @@ class FenEditorTurnAndVisibleStatusTests(unittest.TestCase):
             "position-fullmove",
             "position-metadata-apply",
             "position-validate",
+            "position-input",
+            "position-turn",
+            "position-load",
+            "empty-board",
         ):
             with self.subTest(control_id=control_id):
-                self.assertIn("'" + control_id + "'", lock_source)
+                self.assertIn("'" + control_id + "'", controls_source)
+
+        lock_start = html.index("function setAnalysisMutationLock")
+        lock_end = html.index("function renderAnalysis", lock_start)
+        lock_source = html[lock_start:lock_end]
+        self.assertIn(
+            "state.positionEditor.editable===false",
+            lock_source,
+        )
+        self.assertIn(
+            "n.disabled=!!locked||editorReadOnly",
+            lock_source,
+        )
+        self.assertIn(
+            "positionEditorControlIds.forEach",
+            lock_source,
+        )
+
+        render_start = html.index("function render(s)")
+        render_end = html.index("function renderBoard", render_start)
+        render_source = html[render_start:render_end]
+        self.assertIn(
+            "positionEditorControlIds.forEach",
+            render_source,
+        )
+        self.assertIn(
+            "n.disabled=pe.editable===false",
+            render_source,
+        )
 
     def test_position_editor_action_feedback_has_a_visible_copyable_surface(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
