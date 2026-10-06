@@ -30,7 +30,16 @@ from .book_html_import import (
     BookHtmlImportErrorCode,
     import_html_book,
 )
-from .bookdocument import BookDocument, Heading, block_from_dict
+from .bookdocument import (
+    MAX_BOOK_DOCUMENT_BLOCKS,
+    MAX_BOOK_DOCUMENT_WARNINGS,
+    MAX_BOOK_SOURCE_ANCHOR_CHARS,
+    MAX_BOOK_TEXT_FIELD_CHARS,
+    BookDocument,
+    BookDocumentError,
+    Heading,
+    block_from_dict,
+)
 
 
 MAX_EPUB_SOURCE_BYTES = 64 * 1024 * 1024
@@ -44,7 +53,7 @@ MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT = 256
 MAX_EPUB_XML_ATTRIBUTES_TOTAL = 100_000
 MAX_EPUB_RENDITIONS = 256
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
-MAX_EPUB_WARNINGS = 4_096
+MAX_EPUB_WARNINGS = MAX_BOOK_DOCUMENT_WARNINGS
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES = frozenset(
     {"application/xhtml+xml", "image/svg+xml"}
@@ -133,8 +142,8 @@ class _Warnings:
         if len(self.values) < MAX_EPUB_WARNINGS:
             self.values.append(text)
             return
-        # BookDocument accepts at most MAX_EPUB_WARNINGS warnings. Keep that
-        # invariant even when overflow itself must be reported.
+        # Keep the EPUB adapter's diagnostic count identical to the canonical
+        # BookDocument ceiling even when overflow itself must be reported.
         if MAX_EPUB_WARNINGS > 0:
             self.values[-1] = "additional EPUB import warnings were suppressed"
         self._suppressed = True
@@ -153,7 +162,17 @@ def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
 
 
 def _required_text(value: object, field: str) -> str:
-    if type(value) is not str or not value.strip():
+    if type(value) is not str:
+        raise _error(
+            f"{field} must be non-empty text",
+            BookEpubImportErrorCode.INVALID_ARGUMENT,
+        )
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise _error(
+            f"{field} exceeds the canonical BookDocument text field limit",
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+    if not value.strip():
         raise _error(
             f"{field} must be non-empty text",
             BookEpubImportErrorCode.INVALID_ARGUMENT,
@@ -2107,7 +2126,13 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
     identity = f"{entry_name}\0{chapter_index}\0{block_index}\0{original_id}"
     data["block_id"] = f"epub-{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
     anchor = data.get("source_anchor")
-    data["source_anchor"] = entry_name if not anchor else f"{entry_name}#{anchor}"
+    rebased_anchor = entry_name if not anchor else f"{entry_name}#{anchor}"
+    if len(rebased_anchor) > MAX_BOOK_SOURCE_ANCHOR_CHARS:
+        raise _error(
+            "EPUB semantic source anchor exceeds the canonical BookDocument identifier limit",
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+    data["source_anchor"] = rebased_anchor
     return block_from_dict(data)
 
 
@@ -2303,10 +2328,17 @@ def import_epub_book(
                 archive, index, item.entry_name,
                 control_checkpoint=control_checkpoint,
             )
+            chapter_source_name = f"{display_source}::{item.entry_name}"
+            if len(chapter_source_name) > MAX_BOOK_TEXT_FIELD_CHARS:
+                # The nested HTML BookDocument is temporary; its source name is
+                # not part of EPUB block identity. Keep that adapter metadata
+                # canonical without rejecting an otherwise valid max-size EPUB
+                # source label merely because the entry path is appended.
+                chapter_source_name = item.entry_name
             try:
                 imported = import_html_book(
                     chapter,
-                    source_name=f"{display_source}::{item.entry_name}",
+                    source_name=chapter_source_name,
                     available_assets=None,
                     **({"control_checkpoint": control_checkpoint} if control_checkpoint is not None else {}),
                 )
@@ -2346,7 +2378,19 @@ def import_epub_book(
             for block_index, block in enumerate(imported.document.blocks, start=1):
                 if control_checkpoint is not None and block_index % 128 == 1:
                     control_checkpoint()
-                blocks.append(_rebase_block(block, item.entry_name, chapter_index, block_index))
+                if len(blocks) >= MAX_BOOK_DOCUMENT_BLOCKS:
+                    raise _error(
+                        "EPUB semantic content exceeds the canonical BookDocument block limit",
+                        BookEpubImportErrorCode.RESOURCE_LIMIT,
+                    )
+                blocks.append(
+                    _rebase_block(
+                        block,
+                        item.entry_name,
+                        chapter_index,
+                        block_index,
+                    )
+                )
             for reference_index, reference in enumerate(imported.image_references, start=1):
                 if control_checkpoint is not None and reference_index % 128 == 1:
                     control_checkpoint()
@@ -2386,15 +2430,21 @@ def import_epub_book(
         resolved_language = override_language or (languages[0] if languages else None)
         resolved_rights = "; ".join(rights) if rights else None
 
-        document = BookDocument(
-            title=resolved_title,
-            author=resolved_author,
-            language=resolved_language,
-            source_name=display_source,
-            source_rights=resolved_rights,
-            blocks=blocks,
-            warnings=list(warnings.values),
-        )
+        try:
+            document = BookDocument(
+                title=resolved_title,
+                author=resolved_author,
+                language=resolved_language,
+                source_name=display_source,
+                source_rights=resolved_rights,
+                blocks=blocks,
+                warnings=list(warnings.values),
+            )
+        except BookDocumentError as exc:
+            raise _error(
+                "EPUB semantic projection exceeds canonical BookDocument limits",
+                BookEpubImportErrorCode.RESOURCE_LIMIT,
+            ) from exc
 
     digest = sha256(raw).hexdigest()
     return BookEpubImportResult(
