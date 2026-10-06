@@ -588,13 +588,13 @@ def _semantic_image_stripped_text(text: str) -> str:
     return "".join(parts)
 
 
-def _accessible_list_item_text(text: str) -> tuple[str, bool]:
-    """Preserve inline image alt text inside a flat canonical list item.
+def _accessible_inline_text(text: str) -> tuple[str, bool]:
+    """Replace recognized inline images with readable alt text only.
 
-    BookDocument ListBlock has no nested image child kind.  A Markdown image in
-    a list item therefore stays in the list as selectable/readable alt text,
-    while the caller emits an explicit structural-loss warning.  Asset URLs are
-    never fetched or exposed as inferred chess semantics.
+    This projection is used when the canonical BookDocument cannot retain an
+    inline image child inside another structure. Destination URLs and titles
+    are deliberately excluded from readable text and deterministic block
+    identity; malformed or ambiguous image syntax remains literal source text.
     """
 
     matches = _iter_semantic_images(text)
@@ -614,6 +614,12 @@ def _accessible_list_item_text(text: str) -> tuple[str, bool]:
         match = next(matches, None)
     parts.append(text[cursor:])
     return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
+
+
+def _accessible_list_item_text(text: str) -> tuple[str, bool]:
+    """Preserve inline image alt text inside a flat canonical list item."""
+
+    return _accessible_inline_text(text)
 
 
 def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
@@ -944,10 +950,14 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             continue
         if quote_match:
             flush()
-            quote = quote_match.group(1).strip()
+            quote, quote_had_image = _accessible_inline_text(quote_match.group(1))
             if quote:
                 builder.paragraph(quote, number)
             builder.warning("Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind")
+            if quote_had_image:
+                builder.warning(
+                    "Markdown image inside an unrepresentable block quote was preserved as accessible text; no asset was fetched and the image destination was excluded from reading text"
+                )
             index += 1
             continue
 
