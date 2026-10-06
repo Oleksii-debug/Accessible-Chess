@@ -16,7 +16,7 @@ from acs.agent_model_contracts import (
     ProviderKind,
 )
 from acs.agent_model_gateway import ModelGateway
-from acs.agent_tools import ToolCall, ToolExecutor
+from acs.agent_tools import ToolCall, ToolExecutor, ToolSpec
 from acs.agent_webview_bridge import AgentConversationWebViewBridge
 from acs.agent_webview_projection import AgentConversationProjection
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
@@ -101,6 +101,29 @@ class LibraryToolProvider(FinalProvider):
         )
 
 
+class OwnerToolProvider(FinalProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def complete(self, request):
+        self.thread_ids.append(get_ident())
+        self.calls += 1
+        text = (
+            '{"type":"tool","tool_id":"fixture.owner","arguments":{}}'
+            if self.calls == 1
+            else '{"type":"final","text":"Owner call completed."}'
+        )
+        return ModelResponse(
+            request_id=request.request_id,
+            text=text,
+            provider_id="fixture",
+            provider_kind=ProviderKind.LOCAL,
+            model=request.model or "fixture-model",
+            usage=ModelUsage(total_tokens=3),
+        )
+
+
 def runtime_for(provider, executor: ToolExecutor | None = None) -> UniversalChessAgentRuntime:
     gateway = ModelGateway()
     gateway.register(provider)
@@ -144,6 +167,9 @@ class OwnerHarness:
             item = self._queue.get()
             if item is None:
                 break
+            if callable(item):
+                item()
+                continue
             callback, done, box = item
             try:
                 box.append((True, callback()))
@@ -163,6 +189,9 @@ class OwnerHarness:
         if not ok:
             raise value
         return value
+
+    def post(self, callback) -> None:
+        self._queue.put(callback)
 
     def board_commands(self):
         board = self.board
@@ -195,6 +224,21 @@ class OwnerHarness:
         self.thread.join(3)
         if self.thread.is_alive():
             raise RuntimeError("owner harness did not stop")
+
+
+class DeferredPoster:
+    def __init__(self) -> None:
+        self.callbacks = []
+        self.posted = Event()
+
+    def __call__(self, callback) -> None:
+        self.callbacks.append(callback)
+        self.posted.set()
+
+    def run_all(self) -> None:
+        callbacks, self.callbacks = self.callbacks, []
+        for callback in callbacks:
+            callback()
 
 
 class AgentExecutionHostTests(unittest.TestCase):
@@ -262,18 +306,18 @@ class AgentExecutionHostTests(unittest.TestCase):
             executor = ToolExecutor()
             dispatch_threads: list[int] = []
 
-            def invoke(callback):
+            def post(callback):
                 def observed():
                     dispatch_threads.append(get_ident())
-                    return callback()
-                return owner.invoke(observed)
+                    callback()
+                owner.post(observed)
 
             ChessAgentToolRegistry(
                 executor=executor,
                 board_provider=lambda: owner.board,
                 board_commands_provider=owner.board_commands,
                 search_service=owner.search,
-                owner_call=AgentOwnerThreadCall(invoke),
+                owner_call=AgentOwnerThreadCall(post),
             ).register_all()
 
             async def exercise():
@@ -310,18 +354,18 @@ class AgentExecutionHostTests(unittest.TestCase):
             executor = ToolExecutor()
             dispatch_threads: list[int] = []
 
-            def invoke(callback):
+            def post(callback):
                 def observed():
                     dispatch_threads.append(get_ident())
-                    return callback()
-                return owner.invoke(observed)
+                    callback()
+                owner.post(observed)
 
             ChessAgentToolRegistry(
                 executor=executor,
                 board_provider=lambda: owner.board,
                 board_commands_provider=owner.board_commands,
                 search_service=owner.search,
-                owner_call=AgentOwnerThreadCall(invoke),
+                owner_call=AgentOwnerThreadCall(post),
             ).register_all()
             provider = LibraryToolProvider()
             app = self.application_shell()
@@ -347,6 +391,75 @@ class AgentExecutionHostTests(unittest.TestCase):
                 self.assertTrue(host.shutdown(timeout=3))
         finally:
             owner.close()
+
+    def test_shutdown_cancels_posted_owner_callback_before_late_ui_delivery(self):
+        poster = DeferredPoster()
+        side_effects: list[str] = []
+        owner_call = AgentOwnerThreadCall(poster)
+        executor = ToolExecutor()
+
+        async def owner_tool(_arguments):
+            return await owner_call(
+                lambda: side_effects.append("mutated") or {"ok": True}
+            )
+
+        executor.register(
+            ToolSpec("fixture.owner", "owner-thread fixture"),
+            owner_tool,
+        )
+        app = self.application_shell()
+        host = bind_agent_runtime(
+            app,
+            runtime_for(OwnerToolProvider(), executor),
+        )
+        try:
+            app.browser_command(
+                "agent",
+                "agent.submit",
+                {"text": "Use the owner tool."},
+            )
+            self.assertTrue(poster.posted.wait(3))
+            self.assertTrue(host.shutdown(timeout=3))
+            poster.run_all()
+            self.assertEqual(side_effects, [])
+            self.assertFalse(host.alive)
+            self.assertEqual(app.agent.projection.snapshot()["state"], "cancelled")
+        finally:
+            if host.alive:
+                host.shutdown(timeout=3)
+
+    def test_timed_out_owner_tool_cannot_execute_queued_callback_late(self):
+        poster = DeferredPoster()
+        side_effects: list[str] = []
+        owner_call = AgentOwnerThreadCall(poster)
+        executor = ToolExecutor()
+
+        async def owner_tool(_arguments):
+            return await owner_call(
+                lambda: side_effects.append("late") or {"ok": True}
+            )
+
+        executor.register(
+            ToolSpec(
+                "fixture.owner",
+                "owner-thread timeout fixture",
+                timeout_seconds=0.01,
+            ),
+            owner_tool,
+        )
+        result = asyncio.run(
+            executor.execute(
+                ToolCall(
+                    call_id="timeout-owner",
+                    tool_id="fixture.owner",
+                    arguments={},
+                )
+            )
+        )
+        self.assertFalse(result.ok)
+        self.assertTrue(poster.posted.is_set())
+        poster.run_all()
+        self.assertEqual(side_effects, [])
 
     def test_owner_call_rejects_non_callable_boundary(self):
         owner_call = AgentOwnerThreadCall(lambda callback: callback())
