@@ -2036,6 +2036,64 @@ class PortableTreeTests(unittest.TestCase):
 
 
 
+    def test_require_user_seed_rejects_active_truthiness_before_work(self) -> None:
+        touched: list[str] = []
+
+        class ActiveFlag:
+            def __bool__(self):
+                touched.append("bool")
+                raise AssertionError("active require_user_seed truthiness executed")
+
+        flag = ActiveFlag()
+
+        with mock.patch.object(
+            portable_module,
+            "_safe_info",
+            side_effect=AssertionError("tree inspection must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact bool"):
+                validate_portable_oneclick_tree(
+                    "unused-portable",
+                    expected_integration_sha=_SHA,
+                    require_user_seed=flag,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with mock.patch.object(
+            portable_module,
+            "_sha40",
+            side_effect=AssertionError("assembly authority must not start"),
+        ) as sha_authority:
+            with self.assertRaisesRegex(TypeError, "exact bool"):
+                assemble_portable_oneclick_tree(
+                    "unused-canonical",
+                    "unused-launcher.exe",
+                    ("first.docx", "second.docx"),
+                    "unused-output",
+                    integration_sha=_SHA,
+                    require_user_seed=flag,
+                )
+        sha_authority.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with mock.patch.object(
+            portable_module,
+            "Path",
+            side_effect=AssertionError("ZIP path parsing must not start"),
+        ) as path_authority:
+            with self.assertRaisesRegex(TypeError, "exact bool"):
+                write_portable_oneclick_zip(
+                    "unused-portable",
+                    "unused.zip",
+                    expected_integration_sha=_SHA,
+                    require_user_seed=flag,
+                )
+        path_authority.assert_not_called()
+        self.assertEqual(touched, [])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
