@@ -197,7 +197,15 @@ def _validate_timestamp(value: object) -> str:
 
 
 def _validate_scenarios(value: object) -> dict[str, str]:
-    if type(value) is not dict or set(value) != set(REQUIRED_SCENARIOS):
+    if type(value) is not dict:
+        _fail("scenario_results must contain every required physical scenario exactly once")
+    # The mapping itself is exact, but Python dict keys may still be active
+    # subclasses. Snapshot references passively, reject non-built-in text, and
+    # only then perform hashing/equality for the canonical key-set comparison.
+    keys = tuple(value.keys())
+    if any(type(name) is not str for name in keys):
+        _fail("scenario_results keys must be exact text")
+    if len(keys) != len(REQUIRED_SCENARIOS) or set(keys) != set(REQUIRED_SCENARIOS):
         _fail("scenario_results must contain every required physical scenario exactly once")
     normalized: dict[str, str] = {}
     for name in REQUIRED_SCENARIOS:
