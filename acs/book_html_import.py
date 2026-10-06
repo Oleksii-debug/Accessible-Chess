@@ -47,6 +47,7 @@ MAX_HTML_VISIBLE_CHARS = 12 * 1024 * 1024
 MAX_HTML_BLOCKS = MAX_BOOK_DOCUMENT_BLOCKS
 MAX_HTML_IMAGES = 10_000
 MAX_HTML_PGN_GAMES = 1_024
+MAX_HTML_PGN_CANDIDATES = MAX_HTML_PGN_GAMES * 4
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
 MAX_HTML_WARNINGS = 2_048
 MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS = MAX_HTML_SOURCE_BYTES * 2
@@ -516,6 +517,77 @@ def _controlled_strip(
     return value[start:end]
 
 
+def _controlled_rstrip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return value.rstrip()
+    end = len(value)
+    scanned = 0
+    while end:
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        if not value[end - 1].isspace():
+            break
+        end -= 1
+        scanned += 1
+    control_checkpoint()
+    return value[:end]
+
+
+def _controlled_join_strings(
+    values,
+    separator: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return separator.join(values)
+    output = StringIO()
+    for value_index, value in enumerate(values):
+        if value_index % 128 == 0:
+            control_checkpoint()
+        if value_index:
+            output.write(separator)
+        output.write(value)
+    control_checkpoint()
+    return output.getvalue()
+
+
+def _iter_text_lines(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+):
+    """Yield source lines without an eager whole-string replace/split pass."""
+
+    line_start = 0
+    cursor = 0
+    next_control_offset = 0
+    while cursor < len(value):
+        if control_checkpoint is not None and cursor >= next_control_offset:
+            control_checkpoint()
+            next_control_offset = cursor + 16_384
+        character = value[cursor]
+        if character == "\r":
+            yield line_start, value[line_start:cursor]
+            cursor += (
+                2
+                if cursor + 1 < len(value) and value[cursor + 1] == "\n"
+                else 1
+            )
+            line_start = cursor
+            continue
+        if character == "\n":
+            yield line_start, value[line_start:cursor]
+            cursor += 1
+            line_start = cursor
+            continue
+        cursor += 1
+    if control_checkpoint is not None:
+        control_checkpoint()
+    yield line_start, value[line_start:]
+
+
 def _text(
     value: object,
     field: str,
@@ -652,11 +724,8 @@ def _explicit_pgn_pre(
     """Return whether a ``pre`` starts with an explicit PGN marker and Event tag."""
 
     meaningful: list[str] = []
-    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    for line_index, line in enumerate(lines, start=1):
-        if control_checkpoint is not None and line_index % 128 == 0:
-            control_checkpoint()
-        stripped = line.strip()
+    for _, line in _iter_text_lines(raw, control_checkpoint):
+        stripped = _controlled_strip(line, control_checkpoint)
         if not stripped:
             continue
         meaningful.append(stripped)
@@ -1777,43 +1846,23 @@ def _pgn_candidates(
     control_checkpoint: Callable[[], None] | None = None,
 ) -> list[_PgnCandidate]:
     """Return explicitly marked PGN regions with stable source offsets."""
-    lines: list[tuple[int, str]] = []
-    line_start = 0
-    cursor = 0
-    next_control_offset = 0
-    while cursor < len(visible_text):
-        if control_checkpoint is not None and cursor >= next_control_offset:
-            control_checkpoint()
-            next_control_offset = cursor + 16_384
-        character = visible_text[cursor]
-        if character == "\r":
-            lines.append((line_start, visible_text[line_start:cursor]))
-            cursor += 2 if cursor + 1 < len(visible_text) and visible_text[cursor + 1] == "\n" else 1
-            line_start = cursor
-            continue
-        if character == "\n":
-            lines.append((line_start, visible_text[line_start:cursor]))
-            cursor += 1
-            line_start = cursor
-            continue
-        cursor += 1
-    lines.append((line_start, visible_text[line_start:]))
+    lines = list(_iter_text_lines(visible_text, control_checkpoint))
 
     candidates: list[_PgnCandidate] = []
     for marker_index, (marker_offset, line) in enumerate(lines):
         if control_checkpoint is not None and marker_index % 128 == 0:
             control_checkpoint()
-        if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
+        if _PGN_MARKER_RE.fullmatch(_controlled_strip(line, control_checkpoint)) is None:
             continue
 
         start = marker_index + 1
         skipped_blank_lines = 0
-        while start < len(lines) and not lines[start][1].strip():
+        while start < len(lines) and not _controlled_strip(lines[start][1], control_checkpoint):
             skipped_blank_lines += 1
             if control_checkpoint is not None and skipped_blank_lines % 128 == 0:
                 control_checkpoint()
             start += 1
-        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start][1].strip()) is None:
+        if start >= len(lines) or _PGN_EVENT_RE.match(_controlled_strip(lines[start][1], control_checkpoint)) is None:
             continue
 
         chunk_lines: list[str] = []
@@ -1821,18 +1870,26 @@ def _pgn_candidates(
             if control_checkpoint is not None and (candidate_line_index - start) % 128 == 0:
                 control_checkpoint()
             candidate_line = lines[candidate_line_index][1]
-            stripped = candidate_line.strip()
+            stripped = candidate__controlled_strip(line, control_checkpoint)
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
-            chunk_lines.append(candidate_line.rstrip())
+            chunk_lines.append(_controlled_rstrip(candidate_line, control_checkpoint))
         trimmed_blank_lines = 0
-        while chunk_lines and not chunk_lines[-1].strip():
+        while chunk_lines and not _controlled_strip(chunk_lines[-1], control_checkpoint):
             trimmed_blank_lines += 1
             if control_checkpoint is not None and trimmed_blank_lines % 128 == 0:
                 control_checkpoint()
             chunk_lines.pop()
-        candidate = "\n".join(chunk_lines).strip()
+        candidate = _controlled_strip(
+            _controlled_join_strings(chunk_lines, "\n", control_checkpoint),
+            control_checkpoint,
+        )
         if candidate:
+            if len(candidates) >= MAX_HTML_PGN_CANDIDATES:
+                raise BookHtmlImportError(
+                    "HTML book contains too many explicitly marked PGN regions",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
             candidates.append(
                 _PgnCandidate(
                     text=candidate,
@@ -2065,7 +2122,7 @@ def import_html_book(
     if control_checkpoint is not None:
         control_checkpoint()
 
-    visible_text = "".join(parser.visible_parts)
+    visible_text = _controlled_join_strings(parser.visible_parts, "", control_checkpoint)
     warnings = list(parser.warnings)
     if legacy_windows_1251:
         warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
