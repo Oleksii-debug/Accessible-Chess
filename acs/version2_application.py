@@ -193,7 +193,11 @@ class Version2Application:
         pending = self._pending_shell_publication
         if pending is None:
             last = self._last_shell_publication_resolution
-            if last is not None and last == (token, commit):
+            if (
+                last is not None
+                and last[0] == token
+                and last[1] is commit
+            ):
                 if commit:
                     return {
                         "kind": "presentation-commit",
@@ -203,8 +207,8 @@ class Version2Application:
                     "kind": "presentation-rollback",
                     "payload": {
                         "token": token,
-                        "route_id": self.shell.current_route.route_id,
-                        "focus_target": self._focus,
+                        "route_id": last[2],
+                        "focus_target": last[3],
                     },
                 }
             raise ValueError("stale shell publication acknowledgement")
@@ -217,7 +221,7 @@ class Version2Application:
             # with no recovery token.
             self.shell._end_publication_hold()
             self._pending_shell_publication = None
-            self._last_shell_publication_resolution = (token, True)
+            self._last_shell_publication_resolution = (token, True, "", "")
             return {
                 "kind": "presentation-commit",
                 "payload": {"token": token},
@@ -241,13 +245,20 @@ class Version2Application:
         self.training = prior_training
         self.shell._end_publication_hold()
         self._pending_shell_publication = None
-        self._last_shell_publication_resolution = (token, False)
+        rollback_route = self.shell.current_route.route_id
+        rollback_focus = self._focus
+        self._last_shell_publication_resolution = (
+            token,
+            False,
+            rollback_route,
+            rollback_focus,
+        )
         return {
             "kind": "presentation-rollback",
             "payload": {
                 "token": token,
-                "route_id": self.shell.current_route.route_id,
-                "focus_target": self._focus,
+                "route_id": rollback_route,
+                "focus_target": rollback_focus,
             },
         }
 
