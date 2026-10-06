@@ -52,6 +52,16 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
             "native_window_handle": handle,
         },
         "menu_from_handle_error": "",
+        "same_process_menu_bars": [
+            {
+                "automation_id": "AccessibleChessFullProductMenu",
+                "control_type": "ControlType.MenuBar",
+                "process_id": pid,
+                "enabled": True,
+                "offscreen": False,
+                "native_window_handle": handle,
+            }
+        ],
         "same_process_elements_with_exact_automation_id": [
             {
                 "automation_id": "AccessibleChessFullProductMenu",
@@ -156,11 +166,36 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     assert checks["uia_automation_id_row_binds_same_handle"] is False
     assert checks["uia_from_handle_matches_automation_id_row"] is False
 
+    ghost_menu = {
+        **canonical,
+        "same_process_menu_bars": [
+            canonical["same_process_menu_bars"][0],
+            {
+                "automation_id": "LegacyAccessibleChessMenu",
+                "control_type": "ControlType.MenuBar",
+                "process_id": pid,
+                "enabled": True,
+                "offscreen": False,
+                "native_window_handle": handle + 3,
+            },
+        ],
+    }
+    checks = _uia_menu_handle_binding_checks(
+        ghost_menu,
+        pid=pid,
+        menu_handle=handle,
+    )
+    assert checks["uia_process_menu_bar_unique"] is False
+    assert checks["uia_process_menu_bar_binds_same_handle"] is False
+
 
 def test_source_uia_probe_waits_for_stable_unique_handle_binding_not_presence_only() -> None:
     source = Path("scripts/p0_native_menubar_uia_probe.ps1").read_text(encoding="utf-8")
 
     assert "function Test-CanonicalMenuBinding" in source
+    assert "$AllMenuRows.Count -ne 1" in source
+    assert "foreach($row in @($FromHandle, $AllMenuRows[0], $ExactRows[0], $AnyIdRows[0]))" in source
+    assert "-AllMenuRows $barsRows" in source
     assert "$bindingStable = Test-CanonicalMenuBinding" in source
     assert "if($bindingStable){ break }" in source
     assert "menu_binding_stable = [bool]$bindingStable" in source
