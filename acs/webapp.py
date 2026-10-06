@@ -218,9 +218,15 @@ class AccessibleChessAPI:
         except Exception:
             return []
         current_node = self.review_history.cursor_node_id
+        if len(self.sans) != len(self.move_sides):
+            return []
+        if any(type(san) is not str for san in self.sans):
+            return []
+        if any(side not in {"w", "b"} for side in self.move_sides):
+            return []
         items: list[dict[str, Any]] = []
         for ply, (san, side) in enumerate(
-            zip(self.sans, self.move_sides, strict=True),
+            zip(self.sans, self.move_sides),
             start=1,
         ):
             move_number = (ply + 1) // 2
