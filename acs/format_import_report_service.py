@@ -148,8 +148,15 @@ def _view_from_row(row: Mapping[str, object]) -> ImportAttemptReportView:
         raise FormatImportReportError("source_sha256 is not canonical")
 
     started_at = _text(row["started_at"], name="started_at", maximum=96)
-    finished_at = _optional_text(
-        row["finished_at"], name="finished_at", maximum=96
+    finished_at_value = row["finished_at"]
+    finished_at = (
+        None
+        if finished_at_value is None
+        else _text(
+            finished_at_value,
+            name="finished_at",
+            maximum=96,
+        )
     )
     status = _text(row["status"], name="status", maximum=16)
     if status not in IMPORT_ATTEMPT_STATUSES:

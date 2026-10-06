@@ -65,7 +65,8 @@ jobs:
             '.github/workflows/agent-format-capabilities.yml' \
             'acs/chess_agent_tools.py' \
             'acs/format_import_report_service.py' \
-            'tests/test_agent_format_capabilities.py' | LC_ALL=C sort)"
+            'tests/test_agent_format_capabilities.py' \
+            'tests/test_chess_agent_tools_crossrepo.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Agent format-capability scope:\n%s\n' "$changed" >&2
             exit 1
@@ -86,6 +87,7 @@ jobs:
           acs/chessbase_adapter.py
           acs/chessbase_decoder.py
           tests/test_agent_format_capabilities.py
+          tests/test_chess_agent_tools_crossrepo.py
 
       - name: Execute format and composed tool regressions
         run: >-

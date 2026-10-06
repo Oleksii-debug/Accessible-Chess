@@ -9,6 +9,7 @@ from acs.analysis_service import AnalysisService
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry, MediaAgentBridge
 from acs.chesscore import Board
+from acs.format_import_report_service import FormatImportReportService
 from acs.media_foundation import (
     MediaClock,
     MediaPositionBinding,
@@ -123,6 +124,7 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
             board_commands_provider=self.board_commands,
             analysis_service=self.analysis,
             search_service=self.search,
+            format_report_service=FormatImportReportService(self.database),
             media=self.media,
         ).register_all()
 
@@ -204,6 +206,19 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
         self.assertEqual(result.output["items"][0]["white"], "Alpha")
         self.assertEqual(result.output["items"][0]["black"], "Beta")
 
+    def test_format_report_tool_uses_same_real_acsdb_authority(self):
+        attempt = self.database.list_import_attempts(limit=1)[0]
+        result = self.execute(
+            "formats.import_report", {"attempt_id": attempt["id"]}
+        )
+        self.assertTrue(result.ok, result.error)
+        self.assertTrue(result.output["found"])
+        report = result.output["report"]
+        self.assertEqual(report["attemptId"], attempt["id"])
+        self.assertEqual(report["sourceName"], "agent-fixture.pgn")
+        self.assertEqual(report["status"], "full")
+        self.assertEqual(report["gameCount"], 1)
+
     def test_restore_media_position_overrides_only_through_validated_fen(self):
         self.board.push_text("d4")
         self.assertNotEqual(self.board.fen(), AFTER_E4)
@@ -233,6 +248,10 @@ class ChessAgentToolsCrossRepoTests(unittest.TestCase):
                 "board.material",
                 "engine.analyze",
                 "library.search",
+                "formats.capabilities",
+                "formats.chessbase_extension",
+                "formats.import_report",
+                "formats.import_reports",
                 "media.status",
                 "media.restore_position",
                 "media.play",
