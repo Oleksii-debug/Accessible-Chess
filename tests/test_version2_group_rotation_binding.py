@@ -140,7 +140,8 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
                 application.start_teaching_session(plan)
                 application.shell.open_route("teacher")
 
-                result = application.router.dispatch("teacher.rotation_start_or_resume")
+                dispatch = application.router.dispatch("teacher.rotation_start_or_resume")
+                result = dispatch.value
 
                 self.assertEqual("group-rotation", result["kind"])
                 self.assertEqual("active", result["phase"])
