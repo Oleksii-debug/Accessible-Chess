@@ -537,8 +537,8 @@ def _version(value: object) -> None:
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise ChildCoachingRotationError(f"{label} must be an object")
+    if type(value) is not dict:
+        raise ChildCoachingRotationError(f"{label} must be a built-in object")
     return value
 
 
@@ -575,8 +575,12 @@ def _text(value: object, label: str, limit: int) -> str:
 
 
 def _enum(value: object, cls, label: str):
+    if type(value) is cls:
+        return value
+    if type(value) is not str:
+        raise ChildCoachingRotationError(f"invalid {label}")
     try:
-        return value if isinstance(value, cls) else cls(value)
+        return cls(value)
     except (TypeError, ValueError) as exc:
         raise ChildCoachingRotationError(f"invalid {label}") from exc
 
