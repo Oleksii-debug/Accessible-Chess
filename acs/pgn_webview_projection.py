@@ -59,8 +59,17 @@ _LABELS = {
         "comment_delete": "Видалити коментар",
         "nag_edit": "Змінити NAG",
         "variation_add": "Додати варіант",
+        "variation_move_up": "Перемістити варіант вище",
+        "variation_move_down": "Перемістити варіант нижче",
         "variation_delete": "Видалити варіант",
         "variation_promote": "Підняти варіант",
+        "main_line_context": "Головна лінія",
+        "variation_depth_context": "Глибина варіанта",
+        "alternative_context": "Альтернатива",
+        "alternatives_context": "Альтернатив до цього ходу",
+        "line_end_context": "Кінець поточної лінії",
+        "line_continues_context": "Лінія продовжується",
+        "parent_context": "Повернення до батьківської позиції доступне",
         "copy": "Копіювати вибране",
         "export": "Експортувати вибране",
         "comment_title": "Коментар PGN",
@@ -102,8 +111,17 @@ _LABELS = {
         "comment_delete": "Delete comment",
         "nag_edit": "Edit NAG",
         "variation_add": "Add variation",
+        "variation_move_up": "Move variation earlier",
+        "variation_move_down": "Move variation later",
         "variation_delete": "Delete variation",
         "variation_promote": "Promote variation",
+        "main_line_context": "Main line",
+        "variation_depth_context": "Variation depth",
+        "alternative_context": "Alternative",
+        "alternatives_context": "Alternatives to this move",
+        "line_end_context": "End of current line",
+        "line_continues_context": "Line continues",
+        "parent_context": "Return to the parent position is available",
         "copy": "Copy selection",
         "export": "Export selection",
         "comment_title": "PGN comment",
@@ -408,6 +426,56 @@ class PgnWebViewProjection:
             raise ValueError("PGN presenter snapshot has an invalid selection")
         return selected
 
+    def _selection_context(
+        self,
+        view: PgnGameView,
+        selected: PgnTreeItem | None,
+    ) -> str:
+        if selected is None:
+            return ""
+        labels = _LABELS[self._language]
+        variation_depth = selected.node_id.count("/v")
+        if selected.kind == "variation":
+            siblings = tuple(
+                item
+                for item in view.items
+                if item.kind == "variation" and item.parent_id == selected.parent_id
+            )
+            try:
+                sibling_index = siblings.index(selected)
+            except ValueError as exc:
+                raise ValueError("PGN variation selection has no sibling identity") from exc
+            return (
+                f"{labels['variation_depth_context']}: {variation_depth}. "
+                f"{labels['alternative_context']} {sibling_index + 1} "
+                f"{labels['of']} {len(siblings)}. "
+                f"{labels['parent_context']}."
+            )
+
+        line_prefix, separator, move_token = selected.node_id.rpartition("/m")
+        if not separator or not move_token.isdigit():
+            raise ValueError("PGN move selection has invalid structural identity")
+        next_move_id = f"{line_prefix}/m{int(move_token) + 1}"
+        has_next_same_line = any(
+            item.kind == "move" and item.node_id == next_move_id
+            for item in view.items
+        )
+        alternatives = sum(
+            1
+            for item in view.items
+            if item.kind == "variation" and item.parent_id == selected.node_id
+        )
+        parts = [
+            labels["main_line_context"]
+            if variation_depth == 0
+            else f"{labels['variation_depth_context']}: {variation_depth}",
+            f"{labels['alternatives_context']}: {alternatives}",
+            labels["line_continues_context"] if has_next_same_line else labels["line_end_context"],
+        ]
+        if variation_depth:
+            parts.append(labels["parent_context"])
+        return ". ".join(parts) + "."
+
     def _safe_view(self, view: PgnGameView, count: int) -> dict[str, object]:
         if type(view) is not PgnGameView:
             raise TypeError("PGN presenter view is invalid")
@@ -465,6 +533,7 @@ class PgnWebViewProjection:
                 "tree": (),
                 "focus_target": "",
                 "actions": (),
+                "selection_context": "",
                 "comment_editor": self._comment_editor(enabled=False, value="", message=""),
             }
 
@@ -528,6 +597,26 @@ class PgnWebViewProjection:
         comment_editor = self._comment_editor_for_selected(selected)
         has_selection = selected is not None
         selected_is_variation = bool(selected and selected.kind == "variation")
+        variation_siblings = (
+            tuple(
+                item
+                for item in view.items
+                if item.kind == "variation" and item.parent_id == selected.parent_id
+            )
+            if selected_is_variation and selected is not None
+            else ()
+        )
+        variation_position = (
+            variation_siblings.index(selected)
+            if selected_is_variation and selected is not None
+            else -1
+        )
+        can_move_variation_up = variation_position > 0
+        can_move_variation_down = (
+            variation_position >= 0
+            and variation_position + 1 < len(variation_siblings)
+        )
+        selection_context = self._selection_context(view, selected)
         has_selected_comments = bool(comment_editor["entries"])
         return {
             "status": "ready",
@@ -554,6 +643,7 @@ class PgnWebViewProjection:
             },
             "tree": tree,
             "focus_target": focus_target,
+            "selection_context": selection_context,
             "actions": (
                 {"action": "pgn.previous_game", "label": labels["previous_game"], "enabled": view.game_index > 0},
                 {"action": "pgn.next_game", "label": labels["next_game"], "enabled": view.game_index + 1 < count},
@@ -566,6 +656,8 @@ class PgnWebViewProjection:
                 {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": has_selected_comments},
                 {"action": "pgn.nag_edit", "label": labels["nag_edit"], "enabled": bool(selected and selected.kind == "move")},
                 {"action": "pgn.variation_add", "label": labels["variation_add"], "enabled": bool(selected and selected.kind == "move")},
+                {"action": "pgn.variation_move_up", "label": labels["variation_move_up"], "enabled": can_move_variation_up},
+                {"action": "pgn.variation_move_down", "label": labels["variation_move_down"], "enabled": can_move_variation_down},
                 {"action": "pgn.variation_delete", "label": labels["variation_delete"], "enabled": selected_is_variation},
                 {"action": "pgn.variation_promote", "label": labels["variation_promote"], "enabled": selected_is_variation},
                 {"action": "pgn.copy_selection", "label": labels["copy"], "enabled": has_selection},
@@ -597,6 +689,7 @@ class PgnWebViewProjection:
             "game": {},
             "tree": (),
             "actions": (),
+            "selection_context": "",
             "comment_editor": self._comment_editor(
                 enabled=False,
                 value="",
@@ -703,7 +796,12 @@ class PgnWebViewProjection:
         elif action_id in {"pgn.nag_edit", "pgn.variation_add"}:
             if selected.kind != "move":
                 raise ValueError("PGN move edit action requires a move selection")
-        elif action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+        elif action_id in {
+            "pgn.variation_move_up",
+            "pgn.variation_move_down",
+            "pgn.variation_delete",
+            "pgn.variation_promote",
+        }:
             if selected.kind != "variation":
                 raise ValueError("PGN variation action requires variation selection")
         self._presenter.dispatch_edit(action_id, self._dispatch, extra=extra)
@@ -785,6 +883,12 @@ class PgnWebViewProjection:
         if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
             raise ValueError("PGN variation text is invalid")
         return self._dispatch_selected("pgn.variation_add", extra={"text": text})
+
+    def move_variation_up(self) -> PgnWebViewEvent:
+        return self._dispatch_selected("pgn.variation_move_up")
+
+    def move_variation_down(self) -> PgnWebViewEvent:
+        return self._dispatch_selected("pgn.variation_move_down")
 
     def delete_variation(self) -> PgnWebViewEvent:
         return self._dispatch_selected("pgn.variation_delete")
