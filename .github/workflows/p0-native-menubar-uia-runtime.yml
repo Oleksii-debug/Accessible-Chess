@@ -145,13 +145,28 @@ jobs:
             }
           }
 
-      - name: Prove shipping source MenuBar through process-scoped Windows UIA
+      - name: Prove shipping source MenuBar and concrete handle binding through process-scoped Windows UIA
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
           python scripts/p0_native_menubar_uia_oracle.py
           if($LASTEXITCODE -ne 0){throw 'Source final-product native MenuBar UIA oracle failed'}
+          $evidence=Get-Content -Raw p0-native-menubar-uia-source-summary.json | ConvertFrom-Json
+          foreach($check in @(
+            'uia_handle_element_present',
+            'uia_handle_automation_id_canonical',
+            'uia_handle_control_type_menubar',
+            'uia_handle_process_matches',
+            'uia_handle_native_handle_matches',
+            'uia_handle_enabled',
+            'uia_handle_onscreen',
+            'uia_handle_probe_clean'
+          )){
+            if(-not [bool]$evidence.checks.$check){
+              throw "Concrete native MenuBar UIA handle binding check failed: $check"
+            }
+          }
 
       - name: Upload bounded MenuBar source evidence
         if: always()
