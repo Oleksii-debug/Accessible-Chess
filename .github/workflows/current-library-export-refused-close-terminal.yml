@@ -1,0 +1,105 @@
+name: Current Library Export Refused-Close Terminal
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - ".github/workflows/current-library-export-refused-close-terminal.yml"
+      - "acs/version2_windows_host_runtime.py"
+      - "acs/version2_windows_library_export.py"
+      - "tests/test_v2_windows_host_runtime.py"
+      - "tests/test_v2_windows_library_export_background.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-library-export-refused-close-terminal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SHIPPING_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  HOST_RUNTIME_BLOB: 777b93fd42f8fe2f2ccb04aa5ab8e70384b9ba8b
+  EXPORT_SOURCE_BLOB: 493efeab8142674b40028831e9372088103c79d2
+  HOST_RUNTIME_TEST_BLOB: 200dbbf6c065671d4537481de528d3b2e290eff7
+  EXPORT_TEST_BLOB: 1aff4a982a83ea2f7c0fa20b3a38edaec36c16e5
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove shipping ancestry, bounded scope and exact blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test "${EVENT_BASE_REF:-$SHIPPING_REF}" = "$SHIPPING_REF"
+
+          git fetch --no-tags origin "+refs/heads/$SHIPPING_REF:refs/remotes/origin/$SHIPPING_REF"
+          live_shipping="$(git rev-parse "refs/remotes/origin/$SHIPPING_REF")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_shipping"
+          fi
+          git merge-base --is-ancestor "$live_shipping" HEAD
+          test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"
+          git diff --check "$live_shipping"...HEAD
+
+          mapfile -t actual < <(git diff --name-only "$live_shipping"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-library-export-refused-close-terminal.yml"
+            "acs/version2_windows_host_runtime.py"
+            "acs/version2_windows_library_export.py"
+            "tests/test_v2_windows_host_runtime.py"
+            "tests/test_v2_windows_library_export_background.py"
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${#actual[@]}" -eq "${#expected_sorted[@]}"
+          for i in "${!actual[@]}"; do
+            test "${actual[$i]}" = "${expected_sorted[$i]}"
+          done
+
+          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "$HOST_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_library_export.py)" = "$EXPORT_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$HOST_RUNTIME_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$EXPORT_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Compile exact recovery boundary
+        run: >-
+          python -m compileall -q
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_library_export.py
+          tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_library_export_background.py
+
+      - name: Execute refused-close terminal recovery regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_library_export_background
+          tests.test_v2_windows_host_runtime
+
+      - name: Core selftest
+        run: python -m acs.selftest
