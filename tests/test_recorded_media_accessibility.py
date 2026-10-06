@@ -191,6 +191,23 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertEqual(state["announcement"], event.visible_text)
         self.assertEqual(state["focusTarget"], "recorded-media-restore")
 
+    def test_playback_and_clock_position_mismatch_fails_closed(self) -> None:
+        bridge = RecordedMediaAccessibilityBridge()
+        resolution = RecordedPlaybackResolution(
+            session=MediaChessSession(MediaCursor("recorded-1", 19_000), "opaque"),
+            resolution=MediaPositionTimeline("recorded-1", (_link(19_000, "node:mismatch"),))
+            .resolve_at_or_before(19_000),
+            event=AccessibleRecordedSyncEvent(
+                "Recorded media evidence was already synchronized.",
+                "Recorded media evidence was already synchronized.",
+            ),
+        )
+        with self.assertRaises(RecordedMediaAccessibilityError):
+            bridge.snapshot(
+                **_clock_kwargs(position_ms=20_500),
+                playback=resolution,
+            )
+
     def test_preprocess_running_enables_cancel_and_focuses_cancel(self) -> None:
         bridge = RecordedMediaAccessibilityBridge(language="uk")
 
@@ -287,12 +304,20 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
             kind=MediaSourceKind.LOCAL_FILE,
             duration_ms=120_000,
         )
+        foreign_link = MediaChessLink(
+            "recorded-2",
+            20_000,
+            "node:foreign",
+            status=MediaLinkStatus.CONFIRMED,
+            confidence=1.0,
+            evidence="foreign fixture",
+        )
         foreign_sync = RecordedSyncSnapshot(
             source_revision="revision-2",
             cache_fingerprint="cache-2",
             plan_digest="plan-2",
             source=foreign_source,
-            timeline=MediaPositionTimeline("recorded-2", (_link(20_000, "node:foreign"),)),
+            timeline=MediaPositionTimeline("recorded-2", (foreign_link,)),
             session=MediaChessSession(
                 MediaCursor("recorded-2", 20_500),
                 "opaque:foreign",
