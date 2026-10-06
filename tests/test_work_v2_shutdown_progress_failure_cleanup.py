@@ -183,7 +183,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 database.close()
                 analysis.close()
 
-    def test_shell_publication_rollback_abort_skips_progress_but_closes_database(self) -> None:
+    def test_shell_publication_rollback_abort_keeps_shared_state_retryable(self) -> None:
         class RollbackAbort(BaseException):
             pass
 
@@ -222,9 +222,9 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 rollback.assert_called_once_with(17, commit=False)
                 training.assert_not_called()
                 book.assert_not_called()
-                close.assert_called_once_with()
-                with self.assertRaises(sqlite3.ProgrammingError):
-                    database.conn.execute("SELECT 1")
+                close.assert_not_called()
+                self.assertEqual(application._pending_shell_publication, (17,))
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
             finally:
                 database.close()
                 analysis.close()
