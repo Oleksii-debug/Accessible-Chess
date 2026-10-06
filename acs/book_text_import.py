@@ -605,7 +605,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 continue
 
             items = [list_match.group("text").strip()]
-            expected = (start_value + 1) if start_value is not None else None
+            marker_identity = (
+                list_match.group("delimiter")
+                if ordered
+                else list_match.group("bullet")
+            )
             next_index = index + 1
             while next_index < len(lines):
                 if control_checkpoint is not None and next_index % 128 == 0:
@@ -617,11 +621,18 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 candidate_ordered = candidate_match.group("number") is not None
                 if candidate_ordered != ordered:
                     break
-                if ordered:
-                    candidate_number = int(candidate_match.group("number"))
-                    if candidate_number != expected:
-                        break
-                    expected = candidate_number + 1
+                candidate_marker_identity = (
+                    candidate_match.group("delimiter")
+                    if candidate_ordered
+                    else candidate_match.group("bullet")
+                )
+                if candidate_marker_identity != marker_identity:
+                    break
+                # Markdown numbering after the first ordered marker does not
+                # define the rendered sequence. The first marker establishes
+                # the canonical start; later authored numbers remain list items
+                # unless the delimiter or indentation changes. Requiring +1
+                # here created false list boundaries for keyboard/NVDA readers.
                 visible += len(candidate)
                 if visible > MAX_TEXT_VISIBLE_CHARS:
                     raise BookTextImportError(
