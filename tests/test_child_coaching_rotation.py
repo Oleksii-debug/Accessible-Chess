@@ -280,6 +280,25 @@ class ChildCoachingRotationTests(unittest.TestCase):
             )
 
 
+    def test_from_record_rejects_noncanonical_aliases_even_with_canonical_digest(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-canonical-record")
+        plan_record = plan.to_record()
+        plan_record["rounds"][0]["title"] = " " + plan_record["rounds"][0]["title"] + " "
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "record is not canonical",
+        ):
+            RotationPlan.from_record(plan_record)
+
+        state = start_rotation(plan)
+        state_record = state.to_record()
+        state_record["phase"] = RotationPhase.ACTIVE
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "record is not canonical",
+        ):
+            RotationState.from_record(state_record)
+
     def test_from_record_rejects_active_mapping_and_enum_subclasses_passively(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-passive-record")
 
