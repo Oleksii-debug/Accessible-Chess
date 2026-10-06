@@ -240,6 +240,8 @@ class PgnTreePresenter:
         {
             "pgn.comment_edit",
             "pgn.comment_delete",
+            "pgn.nag_edit",
+            "pgn.variation_add",
             "pgn.variation_delete",
             "pgn.variation_promote",
             "pgn.copy_selection",
