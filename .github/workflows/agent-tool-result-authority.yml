@@ -38,8 +38,8 @@ jobs:
         env:
           PARENT_REF: work/media-agent-crossrepo-intake-20261005
           PARENT_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
-          SOURCE_BLOB: 2acf095006d5fadd6e89793c0e2ad0a642891838
-          TEST_BLOB: 205bc4ebc2196c74eba7607f966fd9b3f5efa0c5
+          SOURCE_BLOB: 088ad7cbaa80a49bda10118978b8c9656d722a91
+          TEST_BLOB: 1240729a611d6700dd44a7598b547f80679646d4
         run: |
           set -euo pipefail
           candidate="$(git rev-parse HEAD)"

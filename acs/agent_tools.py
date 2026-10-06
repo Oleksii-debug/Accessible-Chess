@@ -148,6 +148,8 @@ def tool_arguments_fingerprint(arguments: Mapping[str, object]) -> str:
 _MAX_TOOL_RESULT_DEPTH = 32
 _MAX_TOOL_RESULT_ITEMS = 4096
 _MAX_TOOL_RESULT_TEXT_BYTES = 256 * 1024
+_MAX_TOOL_RESULT_SERIALIZED_BYTES = 384 * 1024
+_MAX_TOOL_RESULT_SAFE_INTEGER = (1 << 53) - 1
 
 
 def _snapshot_tool_output(
@@ -173,7 +175,11 @@ def _snapshot_tool_output(
         else [_MAX_TOOL_RESULT_TEXT_BYTES]
     )
 
-    if value is None or type(value) in (bool, int):
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is int:
+        if value < -_MAX_TOOL_RESULT_SAFE_INTEGER or value > _MAX_TOOL_RESULT_SAFE_INTEGER:
+            raise ValueError("tool output integer exceeds JSON safe range")
         return value
     if type(value) is str:
         canonical = unicodedata.normalize("NFC", value)
@@ -238,6 +244,25 @@ def _snapshot_tool_output(
             )
         return snapshot
     raise TypeError(f"{path} contains unsupported value type {type(value).__name__}")
+
+
+def _validated_tool_output(value: object) -> object:
+    """Return one passive snapshot whose real JSON wire form is also bounded."""
+
+    snapshot = _snapshot_tool_output(value)
+    try:
+        encoded = json.dumps(
+            snapshot,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        raise ValueError("tool output is not safely serializable") from exc
+    if len(encoded) > _MAX_TOOL_RESULT_SERIALIZED_BYTES:
+        raise ValueError("tool output serialized form is too large")
+    return snapshot
 
 
 class ToolHandler(Protocol):
@@ -323,7 +348,7 @@ class ToolExecutor:
                 completed, output = self._effect_guard.completed_output(reservation)
                 if completed:
                     try:
-                        output = _snapshot_tool_output(output)
+                        output = _validated_tool_output(output)
                     except (TypeError, ValueError):
                         return ToolResult(
                             call.call_id,
@@ -354,7 +379,7 @@ class ToolExecutor:
             return ToolResult(call.call_id, call.tool_id, error="tool failed")
 
         try:
-            output = _snapshot_tool_output(output)
+            output = _validated_tool_output(output)
         except (TypeError, ValueError):
             self._mark_uncertain(reservation)
             return ToolResult(call.call_id, call.tool_id, error="tool result not safe")

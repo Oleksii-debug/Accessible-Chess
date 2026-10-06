@@ -10,6 +10,8 @@ from acs.agent_tools import (
     ToolExecutor,
     ToolRisk,
     ToolSpec,
+    _MAX_TOOL_RESULT_SERIALIZED_BYTES,
+    _MAX_TOOL_RESULT_SAFE_INTEGER,
     _MAX_TOOL_RESULT_TEXT_BYTES,
     tool_arguments_fingerprint,
 )
@@ -85,6 +87,39 @@ class AgentToolResultAuthorityTests(unittest.TestCase):
         )
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "tool result not safe")
+
+    def test_tool_output_integer_range_is_json_interoperable(self) -> None:
+        for value in (-_MAX_TOOL_RESULT_SAFE_INTEGER, _MAX_TOOL_RESULT_SAFE_INTEGER):
+            with self.subTest(value=value):
+                result = self.execute_read_output({"value": value})
+                self.assertTrue(result.ok)
+                self.assertEqual(result.output, {"value": value})
+
+        for value in (
+            -_MAX_TOOL_RESULT_SAFE_INTEGER - 1,
+            _MAX_TOOL_RESULT_SAFE_INTEGER + 1,
+        ):
+            with self.subTest(value=value):
+                result = self.execute_read_output({"value": value})
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error, "tool result not safe")
+                self.assertIsNone(result.output)
+
+    def test_real_serialized_payload_is_bounded_after_json_escaping(self) -> None:
+        escaped_length = _MAX_TOOL_RESULT_SERIALIZED_BYTES // 4
+        self.assertLess(escaped_length + len("value"), _MAX_TOOL_RESULT_TEXT_BYTES)
+        result = self.execute_read_output({"value": "\x00" * escaped_length})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "tool result not safe")
+        self.assertIsNone(result.output)
+
+        plain_length = min(
+            _MAX_TOOL_RESULT_TEXT_BYTES // 2,
+            _MAX_TOOL_RESULT_SERIALIZED_BYTES // 2,
+        )
+        result = self.execute_read_output({"value": "x" * plain_length})
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.output["value"]), plain_length)
 
     def test_tool_output_text_and_keys_are_nfc_canonical(self) -> None:
         result = self.execute_read_output(
