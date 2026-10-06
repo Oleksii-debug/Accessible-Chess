@@ -53,6 +53,8 @@ _LABELS = {
         "parent": "До батьківського варіанта",
         "search": "Пошук у PGN",
         "append_moves": "Продовжити лінію",
+        "tag_edit": "Редагувати тег PGN",
+        "tag_delete": "Видалити тег PGN",
         "comment_edit": "Додати або змінити коментар",
         "comment_delete": "Видалити коментар",
         "nag_edit": "Змінити NAG",
@@ -88,6 +90,8 @@ _LABELS = {
         "parent": "Return to parent variation",
         "search": "Search PGN",
         "append_moves": "Continue line",
+        "tag_edit": "Edit PGN tag",
+        "tag_delete": "Delete PGN tag",
         "comment_edit": "Add or edit comment",
         "comment_delete": "Delete comment",
         "nag_edit": "Edit NAG",
@@ -467,6 +471,8 @@ class PgnWebViewProjection:
                 {"action": "pgn.next_game", "label": labels["next_game"], "enabled": view.game_index + 1 < count},
                 {"action": "pgn.search", "label": labels["search"], "enabled": True},
                 {"action": "pgn.append_moves", "label": labels["append_moves"], "enabled": True},
+                {"action": "pgn.tag_edit", "label": labels["tag_edit"], "enabled": True},
+                {"action": "pgn.tag_delete", "label": labels["tag_delete"], "enabled": True},
                 {"action": "pgn.parent", "label": labels["parent"], "enabled": bool(selected and selected.parent_id)},
                 {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": has_selection and not ambiguous_comments},
                 {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": single_comment},
@@ -622,6 +628,20 @@ class PgnWebViewProjection:
         if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
             raise ValueError("PGN continuation text is invalid")
         return self._dispatch("pgn.append_moves", {"text": text})
+
+    def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        if type(value) is not str or len(value) > 360 or "\x00" in value:
+            raise ValueError("PGN tag value is invalid")
+        self._dispatch("pgn.tag_edit", {"name": name, "value": value})
+        return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
+
+    def delete_tag(self, name: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        self._dispatch("pgn.tag_delete", {"name": name})
+        return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
 
     def search(self, text: str) -> PgnWebViewEvent:
         if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
