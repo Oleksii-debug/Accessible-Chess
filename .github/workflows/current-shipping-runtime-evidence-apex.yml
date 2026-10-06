@@ -25,6 +25,9 @@ env:
   RELEASE_PARENT_SHA: db267b71414b22dfee52139af074795c2f33195a
   RUNTIME_SUCCESSOR_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
   SHIPPING_SUCCESSOR_MERGE_SHA: 1598f2d9a1beb85d5b5d3b88cbf0bf32e73187ff
+  CURRENT_RUNTIME_SHA: a604e92e98c8b4ba9636e15b4e1221a18742bc84
+  CURRENT_SHIPPING_PREMERGE_SHA: 13f5de67bdd0914557b65d6bceaba69cc329e4a8
+  CURRENT_SHIPPING_MERGE_SHA: 8b81945fa0bba5e54aabbf1c076362b48083c8ae
 
 jobs:
   shipping-convergence:
@@ -51,8 +54,11 @@ jobs:
           git merge-base --is-ancestor "$PREVIOUS_SHIPPING_RECEIPT" "$PREVIOUS_SHIPPING_SHA"
           git merge-base --is-ancestor "$RELEASE_PARENT_SHA" "$PREVIOUS_SHIPPING_SHA"
           git merge-base --is-ancestor "$RUNTIME_SUCCESSOR_SHA" "$SHIPPING_SUCCESSOR_MERGE_SHA"
-          git merge-base --is-ancestor "$SHIPPING_SUCCESSOR_MERGE_SHA" HEAD
-          test "$(git merge-base "$PRODUCT_SHA" "$SHIPPING_SUCCESSOR_MERGE_SHA")" = "$PRODUCT_SHA"
+          git merge-base --is-ancestor "$SHIPPING_SUCCESSOR_MERGE_SHA" "$CURRENT_SHIPPING_MERGE_SHA"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_SHA" "$CURRENT_SHIPPING_MERGE_SHA"
+          git merge-base --is-ancestor "$CURRENT_SHIPPING_MERGE_SHA" HEAD
+          test "$(git rev-list --parents -n 1 "$CURRENT_SHIPPING_MERGE_SHA")" = "$CURRENT_SHIPPING_MERGE_SHA $CURRENT_SHIPPING_PREMERGE_SHA $CURRENT_RUNTIME_SHA"
+          test "$(git merge-base "$PRODUCT_SHA" "$CURRENT_SHIPPING_MERGE_SHA")" = "$PRODUCT_SHA"
 
           python - <<'PY'
           import os, subprocess
@@ -71,24 +77,36 @@ jobs:
               raise SystemExit("SHIPPING_SUCCESSOR_PARENT_DELTA_OVERLAP "+repr(sorted(previous_delta & runtime_delta)))
           expected=triple(product, previous) | triple(product, runtime)
           receipt=triple(product, merge)
+          if receipt != expected:
+              print("old receipt missing", sorted(expected-receipt))
+              print("old receipt unexpected", sorted(receipt-expected))
+              raise SystemExit("SHIPPING_SUCCESSOR_FIXED_RECEIPT_MISMATCH")
+
+          current_runtime=os.environ["CURRENT_RUNTIME_SHA"]
+          current_merge=os.environ["CURRENT_SHIPPING_MERGE_SHA"]
+          current_expected=(
+              triple(product, previous)
+              | triple(product, current_runtime)
+              | {".github/workflows/current-shipping-pgn-cancel-successor.yml"}
+          )
           actual=triple(product, "HEAD")
-          if receipt != expected or actual != expected:
-              print("receipt missing", sorted(expected-receipt))
-              print("receipt unexpected", sorted(receipt-expected))
-              print("head missing", sorted(expected-actual))
-              print("head unexpected", sorted(actual-expected))
-              raise SystemExit("SHIPPING_SUCCESSOR_SCOPE_MISMATCH")
-          integration=direct(merge, "HEAD")
+          if actual != current_expected:
+              print("current head missing", sorted(current_expected-actual))
+              print("current head unexpected", sorted(actual-current_expected))
+              raise SystemExit("CURRENT_SHIPPING_PGN_SUCCESSOR_SCOPE_MISMATCH")
+          integration=direct(current_merge, "HEAD")
           allowed={
               ".github/workflows/current-runtime-books-pgn-apex.yml",
               ".github/workflows/current-runtime-atomicity-successor.yml",
+              ".github/workflows/current-runtime-pgn-cancel-successor.yml",
               ".github/workflows/current-shipping-runtime-evidence-apex.yml",
+              ".github/workflows/current-shipping-pgn-cancel-successor.yml",
           }
           if integration != allowed:
-              raise SystemExit("SHIPPING_SUCCESSOR_CI_DESCENDANT_MISMATCH "+repr(sorted(integration)))
+              raise SystemExit("CURRENT_SHIPPING_PGN_CI_DESCENDANT_MISMATCH "+repr(sorted(integration)))
           print(f"PREVIOUS_SHIPPING_DELTA={len(previous_delta)}")
           print(f"RUNTIME_SUCCESSOR_DELTA={len(runtime_delta)}")
-          print(f"SHIPPING_SUCCESSOR_PATHS={len(actual)}")
+          print(f"CURRENT_SHIPPING_PATHS={len(actual)}")
           PY
 
           git diff --check "$PRODUCT_SHA"...HEAD
