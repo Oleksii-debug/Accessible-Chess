@@ -155,6 +155,20 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.delete_comment()
+            if command_id == "pgn.nag_edit":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="NAG text", limit=512)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.edit_nags(text)
+            if command_id == "pgn.variation_add":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="variation text", limit=8192)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.add_variation(text)
             if command_id == "pgn.variation_delete":
                 self._exact_fields(data, set())
                 guarded = presentation_guard()
