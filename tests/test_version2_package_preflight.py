@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import stat
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
@@ -868,6 +869,60 @@ class Version2PackagePreflightTests(unittest.TestCase):
                     Version2PackagePreflightError, "web resource is missing"
                 ):
                     _validate_zip(archive)
+
+    def test_file_snapshot_metadata_is_platform_specific_and_fail_closed(self):
+        stable = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=None,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=None,
+        )
+
+        with patch.object(preflight.os, "name", "nt"):
+            self.assertEqual(preflight._stable_change_metadata(stable), (123,))
+            self.assertTrue(preflight._same_file_snapshot(stable, ctime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertTrue(preflight._same_file_snapshot(stable, missing_ctime))
+
+        with patch.object(preflight.os, "name", "posix"):
+            self.assertEqual(
+                preflight._stable_change_metadata(stable),
+                (123, 456),
+            )
+            self.assertFalse(preflight._same_file_snapshot(stable, ctime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, mtime_drift))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_mtime))
+            self.assertFalse(preflight._same_file_snapshot(stable, missing_ctime))
 
     def test_final_zip_and_nested_zip_use_snapshot_handles(self):
         with tempfile.TemporaryDirectory() as td:
