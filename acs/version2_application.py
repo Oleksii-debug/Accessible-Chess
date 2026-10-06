@@ -23,6 +23,7 @@ from .book_progress_store import (
     BookProgressStore,
     BookProgressStoreError,
     BookProgressStoreErrorCode,
+    _book_key as _validate_book_progress_key,
 )
 from .bookdocument import BookDocument, MAX_BOOK_DOCUMENT_WARNINGS
 from .bookreader import BookReader
@@ -625,7 +626,14 @@ class Version2Application:
         # Snapshot and validate warnings before any persistence/route publication
         # so an active container or element cannot run a hook after the Book has
         # already become visible and turn a successful open into FAILED.
+        book_key = prepared.book_key
+        document = prepared.document
         warnings = prepared.warnings
+        if type(book_key) is not str:
+            raise TypeError("prepared Book Open book key is invalid")
+        if type(document) is not BookDocument:
+            raise TypeError("prepared Book Open document is invalid")
+        book_key = _validate_book_progress_key(book_key)
         if (
             type(warnings) is not tuple
             or len(warnings) > MAX_BOOK_DOCUMENT_WARNINGS
@@ -633,13 +641,17 @@ class Version2Application:
         ):
             raise TypeError("prepared Book Open warnings are invalid")
         warning_count = len(warnings)
+        # Validate and detach the mutable BookDocument before saving any current
+        # owner state. A malformed candidate must fail without causing durable
+        # Training/Book writes merely because Open was attempted.
+        fresh_reader = BookReader(document)
 
         self.save_training_progress()
         self.save_book_progress()
         reader = (
-            self.progress_store.restore(prepared.book_key, prepared.document)
-            if self.progress_store.has(prepared.book_key)
-            else BookReader(prepared.document)
+            self.progress_store.restore(book_key, document)
+            if self.progress_store.has(book_key)
+            else fresh_reader
         )
         workflow = BookBoardWorkflow(
             reader,
@@ -677,14 +689,14 @@ class Version2Application:
                     self.shell.record_focus(canonical_focus)
                     route_focus = canonical_focus
             try:
-                self._persist_book_progress(prepared.book_key, reader)
+                self._persist_book_progress(book_key, reader)
             except BookProgressStoreError as error:
                 if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
                     raise
                 try:
                     canonical = self.progress_store.restore_primary(
-                        prepared.book_key,
-                        prepared.document,
+                        book_key,
+                        document,
                     )
                     canonical_matches = canonical.snapshot() == reader.snapshot()
                 except Exception:
@@ -710,7 +722,7 @@ class Version2Application:
 
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (
             reader,
-            prepared.book_key,
+            book_key,
             workflow,
             delegate,
             bridge,

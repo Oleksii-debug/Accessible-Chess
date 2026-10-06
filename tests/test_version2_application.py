@@ -1332,6 +1332,54 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
 
+    def test_prepared_book_open_snapshots_roots_before_current_progress_writes(self):
+        candidate = self.root / "book-open-root-validation.md"
+        candidate.write_text("# Candidate\n\nRoot validation.\n", encoding="utf-8")
+        trusted = self.app.prepare_book_open(candidate)
+
+        class ActiveBookKey(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("active Book key hook must not execute")
+
+        with patch.object(self.app, "save_training_progress") as save_training, patch.object(
+            self.app, "save_book_progress"
+        ) as save_book:
+            prepared = PreparedBookOpen(
+                ActiveBookKey(trusted.book_key),
+                trusted.document,
+                trusted.warnings,
+            )
+            with self.assertRaisesRegex(TypeError, "book key is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+            save_training.assert_not_called()
+            save_book.assert_not_called()
+        self.assertFalse(ActiveBookKey.touched)
+
+        class ActiveDocument(BookDocument):
+            touched = False
+
+            def as_dict(self):
+                type(self).touched = True
+                raise AssertionError("active BookDocument hook must not execute")
+
+        active_document = ActiveDocument(title="Hostile candidate")
+        with patch.object(self.app, "save_training_progress") as save_training, patch.object(
+            self.app, "save_book_progress"
+        ) as save_book:
+            prepared = PreparedBookOpen(
+                trusted.book_key,
+                active_document,
+                trusted.warnings,
+            )
+            with self.assertRaisesRegex(TypeError, "document is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+            save_training.assert_not_called()
+            save_book.assert_not_called()
+        self.assertFalse(ActiveDocument.touched)
+
     def test_prepared_book_open_rejects_active_warnings_before_publication(self):
         candidate = self.root / "book-open-active-warnings.md"
         candidate.write_text("# Candidate\n\nSafe warning boundary.\n", encoding="utf-8")
