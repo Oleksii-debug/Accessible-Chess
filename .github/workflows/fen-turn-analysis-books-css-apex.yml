@@ -20,7 +20,7 @@ concurrency:
 
 env:
   WEBAPP_BLOB: 51cc882511c3a874f7bce3dfa97eda01df1501c6
-  TURN_TEST_BLOB: ccea833f59cbca7639aebb5d4c7c682bd7032cf8
+  TURN_TEST_BLOB: b70774b1bd9fbd333733dd4d0dd0d2a23956b9d7
   WEB_INDEX_BLOB: f70aac53dc60ffaacca222ecccd7799741f480cd
 
 jobs:
