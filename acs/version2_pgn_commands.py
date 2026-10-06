@@ -238,7 +238,7 @@ class Version2PgnCommands:
         return move.fen_before
 
     @staticmethod
-    def _variation_from_text(text: str, *, origin_fen: str) -> VariationLine:
+    def _validate_move_fragment_text(text: object, *, error: str) -> str:
         if (
             type(text) is not str
             or not text.strip()
@@ -246,7 +246,15 @@ class Version2PgnCommands:
             or "\x00" in text
             or _contains_unicode_surrogate(text)
         ):
-            raise ValueError("invalid PGN variation text")
+            raise ValueError(error)
+        return text
+
+    @staticmethod
+    def _variation_from_text(text: str, *, origin_fen: str) -> VariationLine:
+        text = Version2PgnCommands._validate_move_fragment_text(
+            text,
+            error="invalid PGN variation text",
+        )
         fields = origin_fen.split()
         if len(fields) != 6 or fields[1] not in {"w", "b"}:
             raise ValueError("variation origin is not canonical FEN")
@@ -337,9 +345,10 @@ class Version2PgnCommands:
                 workspace=workspace,
                 allow_root=True,
             )
-            text = payload.get("text", "")
-            if type(text) is not str or _contains_unicode_surrogate(text):
-                raise ValueError("invalid PGN continuation text")
+            text = self._validate_move_fragment_text(
+                payload.get("text", ""),
+                error="invalid PGN continuation text",
+            )
             origin_fen = self.current_fen()
             fragment = self._variation_from_text(text, origin_fen=origin_fen)
             return workspace.append_moves(fragment)
@@ -526,9 +535,10 @@ class Version2PgnCommands:
         if action_id == "pgn.variation_add":
             if request.move_index is None:
                 raise ValueError("variation creation requires a selected move")
-            text = payload.get("text", "")
-            if type(text) is not str or _contains_unicode_surrogate(text):
-                raise ValueError("invalid PGN variation text")
+            text = self._validate_move_fragment_text(
+                payload.get("text", ""),
+                error="invalid PGN variation text",
+            )
             origin_fen = self._selected_move_origin_fen(workspace, cursor)
             variation = self._variation_from_text(text, origin_fen=origin_fen)
             target = variation_insert_target(
