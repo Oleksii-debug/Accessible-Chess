@@ -103,7 +103,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
     def _board_query_service(self, *, control_square: str | None = None) -> BoardCommandService:
         board = self._board_query_board()
         legal: list[MoveView] = []
-        if self._position_complete(board):
+        if self._position_playable(board):
             for move in board.legal_moves():
                 try:
                     san = board.san(move)
@@ -118,7 +118,7 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
                     )
                 )
         attacks: dict[int, tuple[int, ...]] = {}
-        if control_square is not None:
+        if control_square is not None and self._position_playable(board):
             target = parse_sq(control_square)
             origins = _canonical_controllers(board, target)
             if origins:
@@ -276,6 +276,12 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
                 else "Opponent clock"
             )
             return self._ok(f"{label}: {value}.")
+        if action in {"board.legal_moves", "board.captures", "board.attackers", "board.defenders"} and not self._position_playable(board):
+            return self._error(
+                "Позиція ще не готова до шахових запитів."
+                if self.lang == "uk"
+                else "The position is not ready for chess queries."
+            )
         if action in {"board.evaluation", "board.best_move", "board.play_best"}:
             # play_best intentionally remains explicit-unavailable in Stage 1;
             # do not turn an informational key into a hidden mutation path.
