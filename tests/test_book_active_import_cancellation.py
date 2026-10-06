@@ -371,6 +371,55 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 2)
 
+    def test_html_endtag_deep_capture_search_observes_control_before_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<p>" * 400)
+        failure = SourceReadCancelledError("cancelled during deep HTML end-tag search")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 0
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag("div")
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(len(parser._captures), 400)
+
+    def test_html_large_list_fallback_observes_control_before_publication(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during HTML list fallback")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        captured = html._ListCapture(
+            tag="ol",
+            attrs={},
+            items=[f"item {index}" for index in range(400)],
+            unsupported=True,
+            structural_unsupported=True,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._emit_list(captured)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
     def test_html_close_recovery_control_failure_preserves_exact_exception(self):
         failure = SourceReadCancelledError('cancelled during malformed HTML recovery')
         calls = 0
