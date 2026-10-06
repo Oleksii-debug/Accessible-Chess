@@ -3,14 +3,29 @@ name: V2 Windows PGN Save Action Reachability
 on:
   push:
     branches:
-      - work/v2-windows-format-ui-dev29-20260831
-  pull_request:
-    branches:
-      - work/v2-windows-nvda-ui-20260828
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_host_runtime.py'
       - 'tests/test_v2_windows_pgn_save_action_reachability.py'
+      - 'tests/test_pgn_save_reachability_workflow.py'
+      - '.github/workflows/v2-windows-pgn-save-action-reachability.yml'
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/full_product_ui_shell.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_pgn_save_action_reachability.py'
+      - 'tests/test_pgn_save_reachability_workflow.py'
       - '.github/workflows/v2-windows-pgn-save-action-reachability.yml'
   workflow_dispatch:
 
@@ -20,9 +35,6 @@ permissions:
 concurrency:
   group: v2-windows-pgn-save-reachability-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  D01_SAVE_BASE: dc7427cb89a0b6a997cae467f82265778ea78168
 
 jobs:
   pgn-save-accessibility:
@@ -59,42 +71,31 @@ jobs:
             python -m pip install -q pythonnet==3.0.5
           fi
 
-      - name: Prove exact D01 ancestry and ownership scope
+      - name: Bind exact live Product pull-request geometry
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
         run: |
           set -euo pipefail
-          git cat-file -e "$D01_SAVE_BASE^{commit}"
-          test "$(git merge-base "$D01_SAVE_BASE" HEAD)" = "$D01_SAVE_BASE"
-          git diff --check "$D01_SAVE_BASE" HEAD
-          changed="$(git diff --name-only "$D01_SAVE_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-windows-pgn-save-action-reachability.yml' \
-            'acs/full_product_actions.py' \
-            'acs/full_product_native_menu.py' \
-            'tests/test_v2_windows_pgn_save_action_reachability.py' | sort)"
-          test "$changed" = "$expected"
-          git diff --quiet "$D01_SAVE_BASE" HEAD -- \
-            acs/chesscore.py \
-            acs/gametree.py \
-            acs/pgn_document.py \
-            acs/pgn_service.py \
-            acs/pgn_workspace.py \
-            acs/acsdb.py \
-            acs/search_service.py \
-            acs/library_import_service.py \
-            acs/library_webview_bridge.py \
-            acs/library_webview_projection.py \
-            acs/chessbase_decoder.py \
-            acs/chessbase_library_import.py \
-            acs/cbv_extractor.py \
-            acs/bookdocument.py \
-            acs/bookreader.py \
-            acs/book_webview_bridge.py \
-            acs/book_webview_projection.py \
-            acs/version2_windows_file_workflows.py \
-            acs/version2_windows_host_runtime.py \
-            tools/qa
-          echo 'D01 PGN SAVE OWNERSHIP SCOPE PASS'
+          event_base="${PR_BASE_SHA:-}"
+          if test -n "$event_base"; then
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+            live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            git diff --check "$live_base" HEAD
+            echo "PGN_SAVE_EVENT_BASE=$event_base"
+            echo "PGN_SAVE_PRODUCT_PARENT=$live_base"
+          else
+            parent="$(git rev-parse HEAD^)"
+            git cat-file -e "$parent^{commit}"
+            git diff --check "$parent" HEAD
+            echo "PGN_SAVE_RUNTIME_HEAD=$(git rev-parse HEAD)"
+          fi
 
       - name: Compile D01 action/menu reachability package
         run: >-
@@ -102,10 +103,12 @@ jobs:
           acs/full_product_actions.py
           acs/full_product_native_menu.py
           tests/test_v2_windows_pgn_save_action_reachability.py
+          tests/test_pgn_save_reachability_workflow.py
 
       - name: Focused canonical action to trusted Windows host regressions
         run: >-
           python -m unittest -v
+          tests.test_pgn_save_reachability_workflow
           tests.test_v2_windows_pgn_save_action_reachability
           tests.test_full_product_native_menu
           tests.test_dev1_full_product_webview_adapter
