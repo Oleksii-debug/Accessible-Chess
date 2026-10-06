@@ -379,6 +379,24 @@ def _verify_local_source(path: Path) -> int:
     return size
 
 
+def _read_verified_compressed_payload(path: Path) -> bytes:
+    """Read and pin the exact bounded compressed bytes consumed by extraction."""
+
+    try:
+        with path.open("rb") as source:
+            payload = source.read(DOWNLOAD_LIMIT_BYTES + 1)
+    except OSError as exc:
+        raise RuntimeError(
+            f"compressed Lichess corpus could not be read: {type(exc).__name__}"
+        ) from exc
+    if len(payload) > DOWNLOAD_LIMIT_BYTES:
+        raise RuntimeError("compressed Lichess corpus exceeds qualified download bound")
+    actual = _sha256_bytes(payload)
+    if actual != CORPUS_SHA256:
+        raise AssertionError(f"Lichess corpus digest mismatch: {actual}")
+    return payload
+
+
 def _extract_curated_subset(
     compressed: Path,
     destination: Path,
@@ -392,10 +410,14 @@ def _extract_curated_subset(
             "install the pinned qualification dependency zstandard==0.23.0"
         ) from exc
 
-    with compressed.open("rb") as source:
-        reader = zstandard.ZstdDecompressor().stream_reader(source)
-        with reader, io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="") as text:
-            return _curate_complete_game_subset(text, destination, limit)
+    # Consume only the exact bounded byte snapshot whose digest was verified
+    # here. This closes the local-source verify -> copy -> extraction gap:
+    # pathname replacement or same-size mutation cannot turn separately
+    # verified source metadata into different decompressor input.
+    compressed_payload = _read_verified_compressed_payload(compressed)
+    reader = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(compressed_payload))
+    with reader, io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="") as text:
+        return _curate_complete_game_subset(text, destination, limit)
 
 
 def _write_text_atomic(path: Path, text: str, *, overwrite: bool) -> None:

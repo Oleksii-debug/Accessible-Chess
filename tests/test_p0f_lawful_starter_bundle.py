@@ -6,7 +6,9 @@ import io
 import json
 import re
 from typing import Iterator, Type
+from unittest.mock import patch
 
+import tools.p0f_lawful_starter_bundle as lawful_bundle
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.starter_content import CONTENT_LICENSE_ID, build_starter_pgn
 from tools.p0f_lawful_starter_bundle import (
@@ -113,6 +115,37 @@ def _fake_curation_evidence(starter_pgn: str) -> dict[str, object]:
         "selected_games": selected,
         **aggregate,
     }
+
+
+def test_verified_compressed_payload_binds_exact_consumed_bytes(tmp_path):
+    source = tmp_path / "pinned-corpus.pgn.zst"
+    original = b"0123456789abcdef"
+    mutated = b"fedcba9876543210"
+    assert len(original) == len(mutated)
+    source.write_bytes(original)
+
+    with patch.object(
+        lawful_bundle,
+        "CORPUS_SHA256",
+        hashlib.sha256(original).hexdigest(),
+    ):
+        assert lawful_bundle._read_verified_compressed_payload(source) == original
+
+        # Same-size replacement must fail against the digest of the bytes that
+        # would actually be handed to the decompressor.
+        source.write_bytes(mutated)
+        with _raises(AssertionError, match="digest mismatch"):
+            lawful_bundle._read_verified_compressed_payload(source)
+
+
+def test_verified_compressed_payload_enforces_bound_before_extraction(tmp_path):
+    source = tmp_path / "oversized-corpus.pgn.zst"
+    source.write_bytes(b"x" * 17)
+    with (
+        patch.object(lawful_bundle, "DOWNLOAD_LIMIT_BYTES", 16),
+        _raises(RuntimeError, match="exceeds qualified download bound"),
+    ):
+        lawful_bundle._read_verified_compressed_payload(source)
 
 
 def test_complete_record_framer_keeps_exact_bounded_records(tmp_path):

@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'tools/p0f_lawful_starter_bundle.py'
       - 'tests/test_p0f_lawful_starter_bundle.py'
@@ -25,8 +26,8 @@ env:
   CLAIM_BASE: d5fef87936d721a985aea37c08fe439ad2c70af2
   PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
   PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
-  LAWFUL_TEST_BLOB: 9bbe6734c8706c38c87eabd5554f76ec0e7ed7e6
-  LAWFUL_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
+  LAWFUL_TEST_BLOB: a079a632ff07ad033f72a6daa4acbd44a8f0b04e
+  LAWFUL_BUILDER_BLOB: c0c2dfd31f48510374c740df08c0656eaefe487b
 
 jobs:
   bounded-regression:
@@ -68,20 +69,29 @@ jobs:
 
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
+            base_ref="${{ github.event.pull_request.base.ref }}"
             git cat-file -e "$base^{commit}"
             git merge-base --is-ancestor "$base" HEAD
             test "$(git merge-base "$base" HEAD)" = "$base"
             git diff --check "$base" HEAD
 
-            # This workflow is retained inside a larger Product convergence.
-            # Do not require every file changed by the Product PR to belong to
-            # this historical four-file lane. Instead freeze the three actual
-            # lawful-corpus owner payloads to their qualified identities and
-            # let the executable bundle/test jobs below prove their semantics.
-            require_blob docs/P0F_STARTER_CONTENT_PROVENANCE.md "$PROVENANCE_BLOB"
             require_blob tests/test_p0f_lawful_starter_bundle.py "$LAWFUL_TEST_BLOB"
             require_blob tools/p0f_lawful_starter_bundle.py "$LAWFUL_BUILDER_BLOB"
-            echo 'P0F_LAWFUL_TOPOLOGY=PRODUCT_CONVERGENCE'
+
+            if [ "$base_ref" = "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb" ]; then
+              changed="$(git diff --name-only "$base"...HEAD | sort)"
+              expected="$(printf '%s\n' \
+                '.github/workflows/p0f-lawful-starter-corpus.yml' \
+                'tests/test_p0f_lawful_starter_bundle.py' \
+                'tools/p0f_lawful_starter_bundle.py' | sort)"
+              test "$changed" = "$expected"
+              require_blob docs/P0F_STARTER_CONTENT_PROVENANCE.md "$PROVENANCE_BLOB"
+              echo 'P0F_LAWFUL_TOPOLOGY=SHIPPING_BOUNDED'
+            else
+              # Retained Product convergence may carry unrelated Product paths.
+              require_blob docs/P0F_STARTER_CONTENT_PROVENANCE.md "$PROVENANCE_BLOB"
+              echo 'P0F_LAWFUL_TOPOLOGY=PRODUCT_CONVERGENCE'
+            fi
           else
             # Preserve the original isolated owner contract for its dedicated
             # push branch and manual owner replay.
