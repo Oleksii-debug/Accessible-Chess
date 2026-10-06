@@ -429,13 +429,37 @@ class StructuredBroadcastSession:
             ) from None
 
         canonical_games = self._canonical_games(canonical_value)
+        candidate_games = dict(self._games)
         changed: list[str] = []
         for game in canonical_games:
-            previous = self._games.get(game.provider_game_id)
+            previous = candidate_games.get(game.provider_game_id)
             if previous != game:
                 changed.append(game.provider_game_id)
-            self._games[game.provider_game_id] = game
+            candidate_games[game.provider_game_id] = game
+        if len(candidate_games) > MAX_BROADCAST_GAMES:
+            raise BroadcastContractError(
+                "canonical broadcast state exceeds the game-count safety limit",
+                code=BroadcastErrorCode.INVALID_CANONICAL_RESULT,
+            )
 
+        # A state accepted here must remain serializable by the restart contract.
+        # Preflight the exact candidate checkpoint before publishing any state so
+        # an adversarial-but-bounded opaque identifier cannot create a session
+        # that is valid in memory but impossible to recover after restart.
+        try:
+            self._checkpoint_json_for_state(
+                games=tuple(candidate_games[key] for key in sorted(candidate_games)),
+                last_sequence=envelope.sequence,
+                last_observed_at_ms=envelope.observed_at_ms,
+                last_payload_sha256=digest,
+            )
+        except BroadcastContractError:
+            raise BroadcastContractError(
+                "canonical broadcast state exceeds the restart-safety limit",
+                code=BroadcastErrorCode.INVALID_CANONICAL_RESULT,
+            ) from None
+
+        self._games = candidate_games
         self._last_sequence = envelope.sequence
         self._last_observed_at_ms = envelope.observed_at_ms
         self._last_payload_sha256 = digest
@@ -459,29 +483,37 @@ class StructuredBroadcastSession:
         ).encode("utf-8")
         return sha256(b"accessible-chess-broadcast-checkpoint-v1\0" + encoded).hexdigest()
 
-    def to_checkpoint_json(self) -> str:
-        """Return deterministic bounded restart state without claiming connectivity."""
-
-        payload: dict[str, object] = {
+    def _checkpoint_payload_for_state(
+        self,
+        *,
+        games: tuple[CanonicalBroadcastGame, ...],
+        last_sequence: int | None,
+        last_observed_at_ms: int | None,
+        last_payload_sha256: str | None,
+    ) -> dict[str, object]:
+        return {
             "provider": self.provider,
             "round_id": self.round_id,
             "source_id": self.source_id,
-            "last_sequence": self._last_sequence,
-            "last_observed_at_ms": self._last_observed_at_ms,
-            "last_payload_sha256": self._last_payload_sha256,
+            "last_sequence": last_sequence,
+            "last_observed_at_ms": last_observed_at_ms,
+            "last_payload_sha256": last_payload_sha256,
             "games": [
                 {
                     "provider_game_id": game.provider_game_id,
                     "chess_ref": game.chess_ref,
                     "canonical_revision": game.canonical_revision,
                 }
-                for game in self.games
+                for game in games
             ],
         }
+
+    @classmethod
+    def _checkpoint_json_from_payload(cls, payload: dict[str, object]) -> str:
         checkpoint = {
             "schema": BROADCAST_CHECKPOINT_SCHEMA,
             "payload": payload,
-            "payload_sha256": self._checkpoint_payload_digest(payload),
+            "payload_sha256": cls._checkpoint_payload_digest(payload),
         }
         text = json.dumps(
             checkpoint,
@@ -495,6 +527,33 @@ class StructuredBroadcastSession:
                 code=BroadcastErrorCode.INVALID_CHECKPOINT,
             )
         return text
+
+    def _checkpoint_json_for_state(
+        self,
+        *,
+        games: tuple[CanonicalBroadcastGame, ...],
+        last_sequence: int | None,
+        last_observed_at_ms: int | None,
+        last_payload_sha256: str | None,
+    ) -> str:
+        return self._checkpoint_json_from_payload(
+            self._checkpoint_payload_for_state(
+                games=games,
+                last_sequence=last_sequence,
+                last_observed_at_ms=last_observed_at_ms,
+                last_payload_sha256=last_payload_sha256,
+            )
+        )
+
+    def to_checkpoint_json(self) -> str:
+        """Return deterministic bounded restart state without claiming connectivity."""
+
+        return self._checkpoint_json_for_state(
+            games=self.games,
+            last_sequence=self._last_sequence,
+            last_observed_at_ms=self._last_observed_at_ms,
+            last_payload_sha256=self._last_payload_sha256,
+        )
 
     @classmethod
     def from_checkpoint_json(cls, value: object) -> "StructuredBroadcastSession":
