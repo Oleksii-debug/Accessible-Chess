@@ -1547,6 +1547,11 @@ class Version2Application:
                 }
             )
             return {"ok": True, "fen": canonical}
+        if action == "pgn.new":
+            if payload:
+                raise ValueError("New PGN accepts no payload")
+            self.set_document(PgnDocumentSession.new_game())
+            return {"ok": True}
         if action == "pgn.new_from_position":
             if payload:
                 raise ValueError("PGN position creation accepts no payload")
