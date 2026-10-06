@@ -901,6 +901,31 @@ class D06PgnRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(touches, [])
 
+    def test_nonempty_warning_state_rejects_before_diagnostic_item_scan(self):
+        sentinel = object()
+        real_type = type
+        observed = []
+
+        def guarded_type(value):
+            observed.append(value)
+            if value is sentinel:
+                raise AssertionError("warning diagnostic items must not be scanned")
+            return real_type(value)
+
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(result="*"),
+            warnings=[sentinel],
+        )
+        with patch.object(rt, "type", side_effect=guarded_type, create=True):
+            error = self.assert_code(
+                PgnRoundTripErrorCode.INVALID_MODEL,
+                serialize_pgn_text,
+                (game,),
+            )
+        self.assertIn("explicit normalization", str(error))
+        self.assertNotIn(sentinel, observed)
+
     def test_recovery_warning_provenance_blocks_strict_serialization(self):
         recovered = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
