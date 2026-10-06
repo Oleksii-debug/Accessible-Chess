@@ -42,6 +42,49 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
 
         self.assertEqual(touched, [])
 
+    def test_record_rejects_active_scenario_key_before_hash_or_publication(self):
+        touched = []
+
+        class ActiveScenarioKey(str):
+            armed = False
+
+            def __hash__(self):
+                if type(self).armed:
+                    touched.append("hash")
+                    raise AssertionError("active scenario key hash executed")
+                return super().__hash__()
+
+            def __eq__(self, other):
+                if type(self).armed:
+                    touched.append("eq")
+                    raise AssertionError("active scenario key equality executed")
+                return super().__eq__(other)
+
+        scenarios = _scenarios()
+        canonical_key = next(iter(scenarios))
+        active_key = ActiveScenarioKey(canonical_key)
+        status = scenarios.pop(canonical_key)
+        scenarios[active_key] = status
+        ActiveScenarioKey.armed = True
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            machine = root / "machine.json"
+            receipt = _machine_receipt(final_zip)
+            _write_machine_receipt(machine, receipt)
+            output = root / "physical.json"
+
+            with self.assertRaisesRegex(
+                OwnerPhysicalAcceptanceError,
+                "scenario_results keys must be exact text",
+            ):
+                _record(machine, final_zip, output, scenarios)
+
+            self.assertEqual(touched, [])
+            self.assertFalse(output.exists())
+
     def test_record_rejects_publication_not_bound_to_fsynced_staging_bytes(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
