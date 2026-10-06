@@ -469,12 +469,15 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertEqual(unavailable.error_code, "library_export_unavailable")
 
             self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.EXPORTED)
+            self.assertEqual(events[-1].game_count, 1)
             stale_finish()
             self.assertEqual(
                 [event.kind for event in events],
                 [
                     LibraryExportHostEventKind.STARTED,
                     LibraryExportHostEventKind.FAILED,
+                    LibraryExportHostEventKind.EXPORTED,
                 ],
             )
             self.assertFalse(delegate.export_running)
@@ -491,6 +494,56 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertEqual(events[-1].game_count, 1)
             self.assertTrue(second_destination.exists())
             self.assertEqual(len(open_pgn(second_destination)), 1)
+            self.assertTrue(delegate.shutdown())
+
+    def test_refused_shutdown_resume_republishes_cancelled_terminal_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "cancelled-by-refused-close.pgn"
+            hashing_started = threading.Event()
+            release_hash = threading.Event()
+            events: list[LibraryExportHostEvent] = []
+            posted: list[object] = []
+
+            def worker_factory() -> LibraryExportWorkerServices:
+                database = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    _BlockingLibraryExportService(
+                        database,
+                        hashing_started=hashing_started,
+                        release_hash=release_hash,
+                    ),
+                    database.close,
+                )
+
+            delegate, _ = self._delegate(
+                destination,
+                worker_factory,
+                events,
+                posted,
+            )
+            delegate(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertTrue(hashing_started.wait(timeout=2.0))
+            self.assertFalse(delegate.shutdown(timeout=0.0))
+            release_hash.set()
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertEqual(len(posted), 1)
+            stale_finish = posted.pop()
+
+            self.assertTrue(delegate.shutdown(timeout=0.0))
+            self.assertEqual(
+                [event.kind for event in events],
+                [LibraryExportHostEventKind.STARTED],
+            )
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(events[-1].kind, LibraryExportHostEventKind.DIALOG_CANCELLED)
+            delivered = len(events)
+            stale_finish()
+            self.assertEqual(len(events), delivered)
+            self.assertFalse(destination.exists())
             self.assertTrue(delegate.shutdown())
 
     def test_export_scope_rejects_active_text_before_comparison_or_dialog(self) -> None:
