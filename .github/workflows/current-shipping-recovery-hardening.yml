@@ -92,6 +92,9 @@ env:
   POSITION_TEXT_BLOB: c4eed9078ec8f12b9286235355e7af09bd778355
   NOTATION_TEST_BLOB: 77c3f12f91d0ca219848bdf263fe33a0c6308ee8
   POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
+  BOOK_HTML_STYLE_WORKFLOW_BLOB: f67ae577e7b73dd9b9f72847c38d26a6ec509f61
+  BOOK_HTML_IMPORT_BLOB: 0dc6e07bfc410e612488908ccfebb7f97ffc9a2c
+  BOOK_HTML_IMPORT_TEST_BLOB: 8ac8ea34eec9a179a486612505b25b3028c16a02
 
 jobs:
   recovery-hardening:
@@ -142,6 +145,7 @@ jobs:
           git diff --check "$base_sha"...HEAD
           mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
+            ".github/workflows/current-book-html-inline-style-visibility.yml"
             ".github/workflows/current-launcher-report-data-identity.yml"
             ".github/workflows/current-library-export-destination-cas.yml"
             ".github/workflows/current-library-open-publication-ack.yml"
@@ -164,6 +168,7 @@ jobs:
             ".github/workflows/w6-v2-package-assembler.yml"
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
+            "acs/book_html_import.py"
             "acs/full_product_actions.py"
             "acs/full_product_native_menu.py"
             "acs/input_limits.py"
@@ -224,6 +229,7 @@ jobs:
             "tests/test_stage1_release_composition_ui.py"
             "tests/test_ui_native_menu_recovery.py"
             "tests/test_v2_board_analysis_hotkey_feedback.py"
+            "tests/test_v2_book_html_import.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
             "tests/test_v2_windows_import_ui_pump.py"
@@ -263,6 +269,9 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/w6-v2-release-payload-current-assembler.yml)" = "$RELEASE_PAYLOAD_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-package-passive-control-ingress.yml)" = "$CURRENT_PACKAGE_PASSIVE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-owner-portable-passive-ingress.yml)" = "$OWNER_PORTABLE_PASSIVE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-position-text-square-localization.yml)" = "$POSITION_TEXT_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-san-input-budget.yml)" = "$SAN_INPUT_BUDGET_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
@@ -371,6 +380,7 @@ jobs:
         run: >-
           python -m py_compile
           acs/full_product_native_menu.py
+          acs/book_html_import.py
           acs/library_webview_projection.py
           acs/notation.py
           acs/position_text.py
@@ -425,6 +435,7 @@ jobs:
           tests/test_verify_p0_packaged_document_copy_evidence.py
           tests/test_verify_p0g_packaged_hotkey_result_evidence.py
           tests/test_ui_native_menu_recovery.py
+          tests/test_v2_book_html_import.py
           tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_version2_application.py
           tests/test_version2_shutdown.py
