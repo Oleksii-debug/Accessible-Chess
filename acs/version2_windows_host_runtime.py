@@ -293,7 +293,7 @@ class Version2WindowsFileWorkflowRuntime:
         if threading.get_ident() != self._ui_thread_id:
             raise RuntimeError("Version 2 Windows file workflow actions require UI thread")
         if type(action_id) is not str:
-            raise TypeError("file action id must be exact text")
+            raise TypeError("file action id must be text")
         library_start = action_id in {"library.import", "library.export"}
         with self._lock:
             if self._closed:
