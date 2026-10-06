@@ -6,7 +6,6 @@ on:
       - converge/d06-strict-write-current-20261006-sol56z3
     paths:
       - '.github/workflows/current-d06-strict-cancellation-convergence.yml'
-      - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
       - 'acs/pgn_roundtrip.py'
       - 'tests/test_d06_pgn_roundtrip.py'
   workflow_dispatch:
@@ -51,7 +50,6 @@ jobs:
           changed="$(git diff --name-only "$base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-d06-strict-cancellation-convergence.yml' \
-            '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' \
             'acs/pgn_roundtrip.py' \
             'tests/test_d06_pgn_roundtrip.py' | sort)"
           test "$changed" = "$expected"
@@ -67,4 +65,4 @@ jobs:
         run: python -m py_compile acs/pgn_roundtrip.py tests/test_d06_pgn_roundtrip.py
 
       - name: Run strict D06 and retained cancellation regressions
-        run: python -m unittest -v tests.test_d06_pgn_roundtrip tests.test_book_active_import_cancellation tests.test_gametree tests.test_book_html_pgn_loss_accounting
+        run: python -m unittest -v tests.test_d06_pgn_roundtrip tests.test_pgn_document tests.test_book_active_import_cancellation tests.test_gametree tests.test_book_html_pgn_loss_accounting
