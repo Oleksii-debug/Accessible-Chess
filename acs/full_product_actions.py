@@ -69,6 +69,8 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.comment_delete", BindingContext.DOCUMENT, "Delete GameTree comment"),
     _action("pgn.nag_edit", BindingContext.DOCUMENT, "Edit move NAG annotations"),
     _action("pgn.variation_add", BindingContext.DOCUMENT, "Add variation or subvariation"),
+    _action("pgn.variation_move_up", BindingContext.DOCUMENT, "Move variation earlier"),
+    _action("pgn.variation_move_down", BindingContext.DOCUMENT, "Move variation later"),
     _action("pgn.variation_delete", BindingContext.DOCUMENT, "Delete variation"),
     _action("pgn.variation_promote", BindingContext.DOCUMENT, "Promote variation"),
     _action("pgn.copy_selection", BindingContext.DOCUMENT, "Copy selected game or variation"),

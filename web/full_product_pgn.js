@@ -25,6 +25,8 @@
     "pgn.comment_delete",
     "pgn.nag_edit",
     "pgn.variation_add",
+    "pgn.variation_move_up",
+    "pgn.variation_move_down",
     "pgn.variation_delete",
     "pgn.variation_promote",
     "pgn.copy_selection",
@@ -203,6 +205,12 @@
       }
     }
     requireCommentEditor(snapshot.comment_editor);
+    requireText(
+      snapshot.selection_context,
+      "PGN selection context",
+      true,
+      720
+    );
 
     if (!Array.isArray(snapshot.tree) ||
         snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
@@ -593,6 +601,9 @@
       treeItem.setAttribute("role", "treeitem");
       treeItem.setAttribute("aria-level", item.aria_level);
       treeItem.setAttribute("aria-selected", item.selected ? "true" : "false");
+      if (item.selected && snapshot.selection_context) {
+        treeItem.setAttribute("aria-describedby", "pgn-selection-context");
+      }
       const next = snapshot.tree[itemIndex + 1];
       const hasChild = !!next && next.aria_level > item.aria_level;
       if (hasChild) treeItem.setAttribute("aria-expanded", "true");
@@ -1328,6 +1339,12 @@
     renderTags(main, game);
     renderWarnings(main, game);
     renderMainLineComments(main, game);
+    if (snapshot.selection_context) {
+      const selectionContext = node("p", snapshot.selection_context);
+      selectionContext.id = "pgn-selection-context";
+      selectionContext.setAttribute("aria-live", "off");
+      main.appendChild(selectionContext);
+    }
     renderTree(root, main, snapshot, invoke, announce);
     const commentDialog = buildCommentDialog(
       root,
