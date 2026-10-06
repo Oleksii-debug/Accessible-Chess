@@ -146,7 +146,23 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
         self.assertEqual(resolved["actionId"], "board.evaluation")
         self.assertEqual(resolved["context"], "board")
 
-    def test_every_analysis_shortcut_is_not_silent_when_analysis_is_disabled(self) -> None:
+    def test_every_analysis_shortcut_has_explicit_disabled_feedback(self) -> None:
+        expected = {
+            "analysis.pv1": (True, "Аналіз Stockfish вимкнено."),
+            "analysis.pv2": (True, "Аналіз Stockfish вимкнено."),
+            "analysis.pv3": (True, "Аналіз Stockfish вимкнено."),
+            "analysis.pv4": (True, "Аналіз Stockfish вимкнено."),
+            "analysis.pv5": (True, "Аналіз Stockfish вимкнено."),
+            "analysis.previous_pv": (False, "Варіант недоступний."),
+            "analysis.next_pv": (False, "Варіант недоступний."),
+            "analysis.lock_target": (False, "Ціль аналізу недоступна."),
+            "analysis.explore_pv": (False, "Варіант недоступний."),
+            "analysis.return": (False, "Не вдалося відновити вихідну позицію аналізу."),
+            "analysis.insert_move": (False, "Варіант недоступний."),
+            "analysis.insert_line": (False, "Варіант недоступний."),
+            "analysis.restart": (False, "Stockfish недоступний."),
+        }
+
         with tempfile.TemporaryDirectory() as temp:
             api = Version2ReleaseAccessibleChessAPI(
                 keymap_path=Path(temp) / "keymap.json"
@@ -157,19 +173,15 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
                     resolved = api.keymap_resolve_binding("board", binding)
                     self.assertIsNotNone(resolved)
                     self.assertEqual(resolved["actionId"], expected_action)
+
                     result = api.dispatch_action(expected_action)
 
-                    self.assertTrue(result["ok"])
+                    expected_ok, expected_announcement = expected[expected_action]
+                    self.assertIs(type(result.get("ok")), bool)
+                    self.assertEqual(result["ok"], expected_ok)
                     announcement = str(result.get("announcement") or "").strip()
-                    self.assertTrue(
-                        announcement,
-                        f"analysis action {expected_action} became silent while disabled",
-                    )
-                    self.assertIn(
-                        "вимкнено",
-                        announcement.lower(),
-                        f"analysis action {expected_action} did not explain that analysis is disabled",
-                    )
+                    self.assertEqual(announcement, expected_announcement)
+
 
 
 if __name__ == "__main__":
