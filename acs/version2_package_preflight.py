@@ -303,19 +303,71 @@ def _safe_lstat(path: Path, *, label: str) -> os.stat_result:
     return info
 
 
+def _read_stable_bytes_file(path: Path, *, label: str, max_bytes: int) -> bytes:
+    """Read one bounded metadata file from the exact stable snapshot."""
+    if type(max_bytes) is not int or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    try:
+        with snapshot:
+            return snapshot.read(max_bytes)
+    except Version2PackagePreflightError:
+        raise
+    except OSError as exc:
+        _fail(f"{label} cannot be read: {type(exc).__name__}")
+
+
 def _sha256(path: Path) -> str:
+    """Hash one exact regular-file snapshot, rejecting concurrent mutation."""
+    before = _safe_lstat(path, label="package file")
+    if not stat.S_ISREG(before.st_mode):
+        _fail("package file must be a regular file")
+
     digest = hashlib.sha256()
+    copied = 0
     try:
         with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
+            opened = os.fstat(handle.fileno())
+            if not stat.S_ISREG(opened.st_mode) or _reparse(opened):
+                _fail("package file must remain a regular non-reparse file")
+            if not _same_file_snapshot(before, opened):
+                _fail("package file changed while being opened")
+
+            while True:
+                block = handle.read(1024 * 1024)
+                if not block:
+                    break
+                copied += len(block)
                 digest.update(block)
+
+            after_read = os.fstat(handle.fileno())
+    except Version2PackagePreflightError:
+        raise
     except OSError as exc:
         _fail(f"package file cannot be read: {type(exc).__name__}")
+
+    after_path = _safe_lstat(path, label="package file")
+    if (
+        copied != getattr(after_read, "st_size", None)
+        or not _same_file_snapshot(opened, after_read)
+        or not _same_file_snapshot(after_read, after_path)
+    ):
+        _fail("package file changed while being read")
     return digest.hexdigest()
 
 
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare pathname/open-handle identity plus content-relevant metadata."""
+    """Compare pathname/open-handle identity plus trustworthy mutation metadata.
+
+    Stable-read callers must fail closed when the platform cannot provide exact
+    byte-size or nanosecond mtime metadata.  Treating two missing metadata
+    values as equal would otherwise turn an unavailable change signal into a
+    successful snapshot proof.
+    """
     try:
         same_identity = os.path.samestat(left, right)
     except (AttributeError, OSError):
@@ -332,10 +384,23 @@ def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
             all(value not in (None, 0) for value in values)
             and left_identity == right_identity
         )
+
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    left_mtime = getattr(left, "st_mtime_ns", None)
+    right_mtime = getattr(right, "st_mtime_ns", None)
     return bool(
         same_identity
-        and int(left.st_size) == int(right.st_size)
-        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+        and type(left_size) is int
+        and type(right_size) is int
+        and left_size >= 0
+        and right_size >= 0
+        and left_size == right_size
+        and type(left_mtime) is int
+        and type(right_mtime) is int
+        and left_mtime >= 0
+        and right_mtime >= 0
+        and left_mtime == right_mtime
     )
 
 
@@ -898,7 +963,11 @@ def _validate_sound_provenance(
         label="sound provenance notice",
     )
     try:
-        text = provenance_path.read_text(encoding="utf-8-sig")
+        text = _read_stable_bytes_file(
+            provenance_path,
+            label="sound provenance notice",
+            max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+        ).decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeError) as exc:
         _fail(f"sound provenance notice is unreadable: {type(exc).__name__}")
     provenance = _json_no_duplicates(text, label="sound provenance notice")
@@ -1009,17 +1078,20 @@ def _validate_sound_inventory(
         label="sound inventory audit notice",
     )
     try:
-        if (
-            source_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
-            or notice_path.stat().st_size > _MAX_SOUND_INVENTORY_BYTES
-        ):
-            _fail("sound inventory exceeds byte limit")
         source_doc = _json_no_duplicates(
-            source_path.read_text(encoding="utf-8-sig"),
+            _read_stable_bytes_file(
+                source_path,
+                label="packaged sound inventory",
+                max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+            ).decode("utf-8-sig", errors="strict"),
             label="packaged sound inventory",
         )
         notice_doc = _json_no_duplicates(
-            notice_path.read_text(encoding="utf-8-sig"),
+            _read_stable_bytes_file(
+                notice_path,
+                label="sound inventory audit notice",
+                max_bytes=_MAX_SOUND_INVENTORY_BYTES,
+            ).decode("utf-8-sig", errors="strict"),
             label="sound inventory audit notice",
         )
     except Version2PackagePreflightError:
@@ -1351,7 +1423,11 @@ def validate_winforms_accessibility_app_config(path: Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
     try:
-        payload = path.read_bytes()
+        payload = _read_stable_bytes_file(
+            path,
+            label="WinForms accessibility app-config",
+            max_bytes=_MAX_APPCONFIG_BYTES,
+        )
     except OSError as exc:
         _fail(f"WinForms accessibility app-config is unreadable: {type(exc).__name__}")
     if not payload or len(payload) > _MAX_APPCONFIG_BYTES:
@@ -1526,7 +1602,11 @@ def _validate_required_runtime_resources(
         label="packaged sound manifest",
     )
     try:
-        manifest_text = manifest_path.read_text(encoding="utf-8-sig")
+        manifest_text = _read_stable_bytes_file(
+            manifest_path,
+            label="packaged sound manifest",
+            max_bytes=64 * 1024,
+        ).decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeError) as exc:
         _fail(f"packaged sound manifest is unreadable: {type(exc).__name__}")
     manifest = _json_no_duplicates(manifest_text, label="packaged sound manifest")
@@ -1592,7 +1672,11 @@ def _validate_required_runtime_resources(
         label="Stockfish GPL notice",
     )
     try:
-        notice = notice_path.read_text(encoding="utf-8-sig").casefold()
+        notice = _read_stable_bytes_file(
+            notice_path,
+            label="Stockfish GPL notice",
+            max_bytes=64 * 1024,
+        ).decode("utf-8-sig", errors="strict").casefold()
     except (OSError, UnicodeError) as exc:
         _fail(f"Stockfish GPL notice is unreadable: {type(exc).__name__}")
     if (
@@ -1658,14 +1742,30 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
     return integration_sha.casefold(), data
 
 
-def _checksums(root: Path, inventory: tuple[str, ...]) -> dict[str, str]:
+def _checksums(
+    root: Path,
+    inventory: tuple[str, ...],
+    limits: PackageLimits,
+) -> dict[str, str]:
     path = root / CHECKSUMS_NAME
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
         _fail("checksum inventory must be a file")
+    snapshot, _ = _snapshot_regular_file(
+        path,
+        label="checksum inventory",
+        max_bytes=limits.max_member_bytes,
+    )
     try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    except (OSError, UnicodeError) as exc:
+        with snapshot:
+            payload = snapshot.read(limits.max_member_bytes + 1)
+    except OSError as exc:
+        _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
+    if len(payload) > limits.max_member_bytes:
+        _fail("checksum inventory exceeds member byte limit")
+    try:
+        lines = payload.decode("utf-8-sig", errors="strict").splitlines()
+    except UnicodeError as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
 
     result: dict[str, str] = {}
@@ -1756,7 +1856,7 @@ def validate_version2_package_tree(
     integration_sha, _ = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
-    checksums = _checksums(root, inventory)
+    checksums = _checksums(root, inventory, limits)
     _scan_text_hygiene(root, inventory, limits)
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
