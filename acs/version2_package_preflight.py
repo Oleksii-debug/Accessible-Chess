@@ -1959,6 +1959,23 @@ def _revalidate_checksums(
             _fail(f"package file changed during validation: {relative}")
 
 
+def _revalidate_package_tree(
+    root: Path,
+    *,
+    inventory: tuple[str, ...],
+    total_bytes: int,
+    checksums: dict[str, str],
+    checksum_authority_sha256: str,
+    limits: PackageLimits,
+) -> None:
+    """Close the validation window across both known bytes and package membership."""
+    _revalidate_checksums(root, checksums, checksum_authority_sha256)
+    final_inventory, final_total = _inventory(root, limits)
+    if final_inventory != inventory or final_total != total_bytes:
+        _fail("package inventory changed during validation")
+    _validate_topology(root, final_inventory)
+
+
 def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLimits) -> None:
     # max_text_scan_bytes is the streaming read bound, never an exemption.
     chunk_size = min(limits.max_text_scan_bytes, 1024 * 1024)
@@ -2044,7 +2061,14 @@ def validate_version2_package_tree(
         _fail("release manifest integration_sha does not match expected integration authority")
     checksums, checksum_authority_sha256 = _checksums(root, inventory, limits)
     _scan_text_hygiene(root, inventory, limits)
-    _revalidate_checksums(root, checksums, checksum_authority_sha256)
+    _revalidate_package_tree(
+        root,
+        inventory=inventory,
+        total_bytes=total,
+        checksums=checksums,
+        checksum_authority_sha256=checksum_authority_sha256,
+        limits=limits,
+    )
     return Version2PackagePreflightReport(
         integration_sha=integration_sha,
         inventory=inventory,
