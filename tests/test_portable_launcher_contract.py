@@ -54,7 +54,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.",
             "Could not initialize the secure local WebView2 server.",
             "Не вдалося ініціалізувати безпечний локальний сервер WebView2.",
-            "Could not start the main accessible Accessible Chess interface.",
+            "Could not start the main accessible interface for Accessible Chess.",
             "Не вдалося запустити основний доступний інтерфейс Accessible Chess.",
             "Unknown early failure in the main application.",
             "Невідома рання помилка основної програми.",
@@ -70,6 +70,9 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "Accessible Chess не запустився.",
             "Stage / Етап: ",
             "Windows error / Код Windows: ",
+            "Windows detail / Опис Windows: ",
+            "Report / Звіт: ",
+            "Accessible Chess — startup error / помилка запуску",
             "Launch report was not created.",
             "Звіт запуску не створено.",
             "The main Accessible Chess process may still be running.",
@@ -89,6 +92,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "The unresponsive process could not be stopped automatically.",
             "Автоматично завершити завислий процес не вдалося.",
             "Keep the launch report / Збережіть звіт:",
+            "Accessible Chess — startup window not ready / вікно не готове",
         ):
             with self.subTest(surface="startup-timeout", token=token):
                 self.assertIn(token, timeout)
@@ -106,9 +110,18 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "Exit code / Код: ",
             "Reason / Причина: ",
             "Report / Звіт: ",
+            "Accessible Chess — startup error / помилка запуску",
         ):
             with self.subTest(surface="early-exit-popup", token=token):
                 self.assertIn(token, early)
+
+    def test_launch_report_failure_titles_are_bilingual(self) -> None:
+        for token in (
+            "Accessible Chess — launch report write error / помилка запису звіту",
+            "Accessible Chess — launch report error / помилка звіту запуску",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
 
     def test_all_reported_startup_failures_mark_window_and_nvda_unproven(self) -> None:
         generic_start = self.source.index("static void ac_fail(")
