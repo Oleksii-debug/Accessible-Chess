@@ -941,6 +941,37 @@ class Version2PackagePreflightTests(unittest.TestCase):
             for call in wrapped.call_args_list:
                 self.assertFalse(isinstance(call.args[0], (str, Path)))
 
+    def test_release_metadata_uses_stable_snapshot_helper(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=preflight._read_stable_bytes_file,
+            ) as reader:
+                report = _validate_tree(root)
+
+            self.assertEqual(report.integration_sha, _SHA)
+            labels = {
+                call.kwargs["label"]
+                for call in reader.call_args_list
+                if "label" in call.kwargs
+            }
+            self.assertTrue(
+                {
+                    "sound provenance notice",
+                    "packaged sound inventory",
+                    "sound inventory audit notice",
+                    "WinForms accessibility app-config",
+                    "packaged sound manifest",
+                    "Stockfish GPL notice",
+                    "checksum inventory",
+                }.issubset(labels)
+            )
+
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
