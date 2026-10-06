@@ -27,6 +27,7 @@ env:
   PGN_REPAIR_SHA: 9acd0361260874e59ec80ca96bb68b8599751b50
   RUNTIME_SUCCESSOR_MERGE_SHA: 446be708b6210d5d02f242977643ad84318ae520
   RUNTIME_SUCCESSOR_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
+  CURRENT_RUNTIME_SHA: a604e92e98c8b4ba9636e15b4e1221a18742bc84
 
 jobs:
   convergence:
@@ -52,8 +53,9 @@ jobs:
           test "$(git rev-list --parents -n 1 "$ORIGINAL_RUNTIME_MERGE_SHA")" = "$ORIGINAL_RUNTIME_MERGE_SHA $PGN_PARENT_SHA $BOOKS_PARENT_SHA"
           test "$(git rev-list --parents -n 1 "$RUNTIME_SUCCESSOR_MERGE_SHA")" = "$RUNTIME_SUCCESSOR_MERGE_SHA $ORIGINAL_RUNTIME_MERGE_SHA $BOOKS_REPAIR_SHA $PGN_REPAIR_SHA"
           test "$(git rev-list --parents -n 1 "$RUNTIME_SUCCESSOR_SHA")" = "$RUNTIME_SUCCESSOR_SHA $RUNTIME_SUCCESSOR_MERGE_SHA"
-          git merge-base --is-ancestor "$RUNTIME_SUCCESSOR_SHA" HEAD
-          test "$(git merge-base "$PRODUCT_SHA" "$RUNTIME_SUCCESSOR_SHA")" = "$PRODUCT_SHA"
+          git merge-base --is-ancestor "$RUNTIME_SUCCESSOR_SHA" "$CURRENT_RUNTIME_SHA"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_SHA" HEAD
+          test "$(git merge-base "$PRODUCT_SHA" "$CURRENT_RUNTIME_SHA")" = "$PRODUCT_SHA"
           git diff --check "$PRODUCT_SHA"...HEAD
           test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
 
@@ -64,7 +66,7 @@ jobs:
           def direct(a, b):
               return {x for x in subprocess.check_output(["git","diff","--name-only",a,b], text=True).splitlines() if x}
           product=os.environ["PRODUCT_SHA"]
-          runtime=os.environ["RUNTIME_SUCCESSOR_SHA"]
+          runtime=os.environ["CURRENT_RUNTIME_SHA"]
           runtime_paths=triple(product, runtime)
           drift=direct(runtime, "HEAD") & runtime_paths
           allowed={
@@ -81,7 +83,7 @@ jobs:
             test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$BOOKS_REPAIR_SHA:$path")"
           done
           for path in acs/version2_windows_file_workflows.py tests/test_v2_windows_pgn_open_worker.py tests/test_v2_windows_pgn_save_worker.py; do
-            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$PGN_REPAIR_SHA:$path")"
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$CURRENT_RUNTIME_SHA:$path")"
           done
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
