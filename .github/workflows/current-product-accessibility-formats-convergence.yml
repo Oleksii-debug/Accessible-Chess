@@ -167,9 +167,12 @@ jobs:
               live_shipping_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
               git cat-file -e "$live_shipping_base^{commit}"
               git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_shipping_base"
-              git merge-base --is-ancestor "$CURRENT_PRODUCT" "$live_shipping_base"
-              git merge-base --is-ancestor "$live_shipping_base" HEAD
-              shipping_changed="$(git diff --name-only "$live_shipping_base"...HEAD | sort)"
+              absorbed_shipping_base="$(git merge-base "$live_shipping_base" HEAD)"
+              git merge-base --is-ancestor "$EVENT_BASE_SHA" "$absorbed_shipping_base"
+              git merge-base --is-ancestor "$CURRENT_PRODUCT" "$absorbed_shipping_base"
+              git merge-base --is-ancestor "$absorbed_shipping_base" "$live_shipping_base"
+              git merge-base --is-ancestor "$absorbed_shipping_base" HEAD
+              shipping_changed="$(git diff --name-only "$absorbed_shipping_base"...HEAD | sort)"
               shipping_ui_expected="$(printf '%s\n' \
                 '.github/workflows/current-product-accessibility-formats-convergence.yml' \
                 '.github/workflows/current-webui-accessibility-oracle.yml' \
