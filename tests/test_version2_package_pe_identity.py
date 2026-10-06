@@ -289,6 +289,24 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
                 ),
             )
 
+    def test_checksum_inventory_enforces_dedicated_memory_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            checksum = root / preflight.CHECKSUMS_NAME
+            checksum.touch()
+            with checksum.open("r+b") as handle:
+                handle.truncate(preflight._MAX_CHECKSUMS_BYTES + 1)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "checksum inventory exceeds archive byte limit",
+            ):
+                preflight._checksums(
+                    root,
+                    (preflight.CHECKSUMS_NAME,),
+                    preflight.PackageLimits(),
+                )
+
     def test_checksum_inventory_preserves_smaller_caller_limit(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
