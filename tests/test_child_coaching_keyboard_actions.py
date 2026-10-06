@@ -209,6 +209,27 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
         ]
         self.assertTrue(any("позиція" in item.lower() for item in announcements))
 
+    def test_keyboard_rotation_status_before_start_is_spoken_without_mutation(self) -> None:
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        self.assertIsNone(self.app._rotation_state)
+        self.assertIsNone(store.load())
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+
+        self.assertEqual("group-rotation", status["kind"])
+        self.assertFalse(status["recovery_required"])
+        self.assertNotIn("revision", status)
+        spoken = status["announcement"].casefold()
+        self.assertTrue("не розпоч" in spoken or "not started" in spoken)
+        self.assertIsNone(self.app._rotation_state)
+        self.assertIsNone(store.load())
+        self.assertEqual(
+            "teacher-pointer-input",
+            self.app.shell.restore_focus_target(),
+        )
+
     def test_keyboard_rotation_pairing_flow_is_semantic_and_cas_backed(self) -> None:
         started = self._dispatch_chord("Ctrl+Alt+R").value
         self.assertEqual("demonstration", started["activity"])
