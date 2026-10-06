@@ -127,6 +127,19 @@
     });
   }
 
+  function requireGameManager(manager) {
+    requireRecord(manager, "PGN game manager");
+    for (const field of [
+      "add_label", "delete_label", "delete_title", "delete_message",
+      "delete_confirm_label", "cancel_label"
+    ]) {
+      requireText(manager[field], "PGN game manager " + field, false, 240);
+    }
+    if (typeof manager.can_delete !== "boolean") {
+      throw new TypeError("PGN game manager delete state is invalid");
+    }
+  }
+
   function requireActions(actions, game) {
     if (!Array.isArray(actions) || actions.length !== ACTIONS.length) {
       throw new TypeError("PGN actions are incomplete");
@@ -181,6 +194,7 @@
     }
     requireCommentEditor(snapshot.comment_editor);
     requireMetadataEditor(snapshot.metadata_editor);
+    requireGameManager(snapshot.game_manager);
 
     if (!Array.isArray(snapshot.tree) ||
         snapshot.tree.length > MAX_PGN_TREE_ITEMS) {
@@ -203,6 +217,7 @@
         !Array.isArray(snapshot.actions) ||
         snapshot.actions.length !== 0 ||
         snapshot.metadata_editor.editable_tags.length !== 0 ||
+        snapshot.game_manager.can_delete !== false ||
         snapshot.comment_editor.enabled !== false
       ) {
         throw new TypeError("PGN unavailable snapshot is inconsistent");
@@ -259,6 +274,10 @@
       game.can_next_game !== (game.index + 1 < game.count)
     ) {
       throw new TypeError("PGN game navigation flags are inconsistent");
+    }
+
+    if (snapshot.game_manager.can_delete !== (game.count > 1)) {
+      throw new TypeError("PGN game delete state is inconsistent");
     }
 
     if (!Array.isArray(game.tags) || game.tags.length > MAX_PGN_TAGS) {
@@ -366,7 +385,7 @@
       requireText(payload.action, "PGN delegated action", false, 80);
       if (
         ACTIONS.indexOf(payload.action) < 0 &&
-        ["pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"].indexOf(payload.action) < 0
+        ["pgn.tag_edit", "pgn.tag_delete", "pgn.result_set", "pgn.game_add", "pgn.game_delete"].indexOf(payload.action) < 0
       ) {
         throw new TypeError("PGN delegated action is invalid");
       }
