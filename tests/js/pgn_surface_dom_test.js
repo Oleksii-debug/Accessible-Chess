@@ -120,9 +120,15 @@ function snapshot(selectedId) {
     actions: [
       { action: "pgn.previous_game", label: "Previous game", enabled: false },
       { action: "pgn.next_game", label: "Next game", enabled: false },
+      { action: "pgn.search", label: "Search PGN", enabled: true },
+      { action: "pgn.append_moves", label: "Continue line", enabled: true },
+      { action: "pgn.tag_edit", label: "Edit PGN tag", enabled: true },
+      { action: "pgn.tag_delete", label: "Delete PGN tag", enabled: true },
       { action: "pgn.parent", label: "Return to parent variation", enabled: false },
       { action: "pgn.comment_edit", label: "Add or edit comment", enabled: true },
       { action: "pgn.comment_delete", label: "Delete comment", enabled: false },
+      { action: "pgn.nag_edit", label: "Edit NAG", enabled: true },
+      { action: "pgn.variation_add", label: "Add variation", enabled: true },
       { action: "pgn.variation_delete", label: "Delete variation", enabled: false },
       { action: "pgn.variation_promote", label: "Promote variation", enabled: false },
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true },
@@ -353,41 +359,46 @@ async function run() {
   check(firstToolbar !== null, "PGN action toolbar missing");
   check(firstToolbar.getAttribute("aria-orientation") === "horizontal", "PGN toolbar orientation missing");
   const firstToolbarButtons = firstToolbar.children.filter((item) => item.tagName === "BUTTON");
-  check(firstToolbarButtons.length === 9, "PGN toolbar action fixture changed");
-  check(firstToolbarButtons[3].tabIndex === 0, "first enabled PGN toolbar action must be tabbable");
+  check(firstToolbarButtons.length === 15, "PGN toolbar action fixture changed");
+  const enabledToolbarButtons = firstToolbarButtons.filter((button) => !button.disabled);
+  const firstEnabledToolbar = enabledToolbarButtons[0];
+  const secondEnabledToolbar = enabledToolbarButtons[1];
+  const lastEnabledToolbar = enabledToolbarButtons[enabledToolbarButtons.length - 1];
+  check(firstEnabledToolbar.tabIndex === 0, "first enabled PGN toolbar action must be tabbable");
   check(firstToolbarButtons[0].disabled && firstToolbarButtons[0].tabIndex === -1, "disabled previous-game action entered roving order");
-  check(firstToolbarButtons[7].tabIndex === -1 && firstToolbarButtons[8].tabIndex === -1, "later enabled PGN toolbar actions must start outside Tab order");
+  check(
+    enabledToolbarButtons.slice(1).every((button) => button.tabIndex === -1),
+    "later enabled PGN toolbar actions must start outside Tab order"
+  );
 
-  firstToolbarButtons[3].focus();
-  check(pressKey(firstToolbarButtons[3], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight must be handled");
-  check(document.activeElement === firstToolbarButtons[7], "PGN toolbar ArrowRight did not skip disabled actions");
-  check(firstToolbarButtons[7].tabIndex === 0 && firstToolbarButtons[3].tabIndex === -1, "PGN toolbar roving tab stop did not follow focus");
-  check(pressKey(firstToolbarButtons[7], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight second step must be handled");
-  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar ArrowRight did not reach next enabled action");
-  check(pressKey(firstToolbarButtons[8], firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight wrap must be handled");
-  check(document.activeElement === firstToolbarButtons[3], "PGN toolbar ArrowRight did not wrap to first enabled action");
-  check(pressKey(firstToolbarButtons[3], firstToolbar, "ArrowLeft"), "PGN toolbar ArrowLeft wrap must be handled");
-  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar ArrowLeft did not wrap to last enabled action");
-  check(pressKey(firstToolbarButtons[8], firstToolbar, "Home"), "PGN toolbar Home must be handled");
-  check(document.activeElement === firstToolbarButtons[3], "PGN toolbar Home did not reach first enabled action");
-  check(pressKey(firstToolbarButtons[3], firstToolbar, "End"), "PGN toolbar End must be handled");
-  check(document.activeElement === firstToolbarButtons[8], "PGN toolbar End did not reach last enabled action");
+  firstEnabledToolbar.focus();
+  check(pressKey(firstEnabledToolbar, firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight must be handled");
+  check(document.activeElement === secondEnabledToolbar, "PGN toolbar ArrowRight did not reach next enabled action");
+  check(secondEnabledToolbar.tabIndex === 0 && firstEnabledToolbar.tabIndex === -1, "PGN toolbar roving tab stop did not follow focus");
+  check(pressKey(lastEnabledToolbar, firstToolbar, "ArrowRight"), "PGN toolbar ArrowRight wrap must be handled");
+  check(document.activeElement === firstEnabledToolbar, "PGN toolbar ArrowRight did not wrap to first enabled action");
+  check(pressKey(firstEnabledToolbar, firstToolbar, "ArrowLeft"), "PGN toolbar ArrowLeft wrap must be handled");
+  check(document.activeElement === lastEnabledToolbar, "PGN toolbar ArrowLeft did not wrap to last enabled action");
+  check(pressKey(lastEnabledToolbar, firstToolbar, "Home"), "PGN toolbar Home must be handled");
+  check(document.activeElement === firstEnabledToolbar, "PGN toolbar Home did not reach first enabled action");
+  check(pressKey(firstEnabledToolbar, firstToolbar, "End"), "PGN toolbar End must be handled");
+  check(document.activeElement === lastEnabledToolbar, "PGN toolbar End did not reach last enabled action");
   delete toolbarBindings.ArrowRight;
   toolbarBindings.j = "toolbar.next_control";
-  check(!pressKey(firstToolbarButtons[8], firstToolbar, "ArrowRight"), "unbound former PGN toolbar ArrowRight was still claimed");
-  check(document.activeElement === firstToolbarButtons[8], "unbound former PGN toolbar ArrowRight still moved focus");
-  check(pressKey(firstToolbarButtons[8], firstToolbar, "j"), "remapped PGN toolbar next-control key was not handled");
-  check(document.activeElement === firstToolbarButtons[3], "remapped PGN toolbar next-control key did not wrap focus");
+  check(!pressKey(lastEnabledToolbar, firstToolbar, "ArrowRight"), "unbound former PGN toolbar ArrowRight was still claimed");
+  check(document.activeElement === lastEnabledToolbar, "unbound former PGN toolbar ArrowRight still moved focus");
+  check(pressKey(lastEnabledToolbar, firstToolbar, "j"), "remapped PGN toolbar next-control key was not handled");
+  check(document.activeElement === firstEnabledToolbar, "remapped PGN toolbar next-control key did not wrap focus");
   toolbarBindings.ArrowRight = "toolbar.next_control";
   delete toolbarBindings.j;
-  check(!pressKey(firstToolbarButtons[8], firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
+  check(!pressKey(lastEnabledToolbar, firstToolbar, "Enter"), "PGN toolbar hijacked native button activation key");
   exerciseToolbarRemaps(
     firstToolbarButtons, (button, event) => button.listeners.keydown(event),
     window, toolbarBindings, document, "PGN toolbar"
   );
-  firstToolbarButtons[8].listeners.focus();
-  check(firstToolbarButtons[8].tabIndex === 0, "PGN pointer/programmatic focus did not update the Tab stop");
-  check(firstToolbarButtons[3].tabIndex === -1, "PGN toolbar retained a second Tab stop after focus");
+  lastEnabledToolbar.listeners.focus();
+  check(lastEnabledToolbar.tabIndex === 0, "PGN pointer/programmatic focus did not update the Tab stop");
+  check(firstEnabledToolbar.tabIndex === -1, "PGN toolbar retained a second Tab stop after focus");
   firstToolbarButtons[0].listeners.focus();
   check(firstToolbarButtons[0].tabIndex === -1, "disabled PGN focus entered Tab order");
 
