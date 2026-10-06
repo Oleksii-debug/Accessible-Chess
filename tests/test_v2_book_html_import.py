@@ -1630,5 +1630,79 @@ one; display:block">
         self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.NO_READABLE_CONTENT)
 
 
+    def test_available_assets_rejects_collection_subclasses_without_invoking_hooks(self) -> None:
+        import acs.book_html_import as html
+
+        class HostileList(list):
+            def __len__(self):
+                raise AssertionError("provider __len__ hook must not execute")
+
+            def __iter__(self):
+                raise AssertionError("provider __iter__ hook must not execute")
+
+        with self.assertRaises(html.BookHtmlImportError) as caught:
+            import_html_book(
+                "<p>Readable</p>",
+                source_name="hostile-assets.html",
+                available_assets=HostileList(["images/board.png"]),
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
+
+    def test_available_assets_rejects_one_name_larger_than_source_envelope(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_SOURCE_BYTES", 64):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                import_html_book(
+                    "<p>Readable</p>",
+                    source_name="asset-name-limit.html",
+                    available_assets=["a" * 65],
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("asset-name size", str(caught.exception))
+
+    def test_available_assets_aggregate_name_budget_fails_before_unbounded_normalization(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS", 8):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                import_html_book(
+                    "<p>Readable</p>",
+                    source_name="asset-total-limit.html",
+                    available_assets=["abcd", "efghi"],
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("aggregate name size", str(caught.exception))
+
+    def test_available_assets_aggregate_exact_boundary_remains_valid(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS", 8):
+            result = import_html_book(
+                "<p>Readable</p>",
+                source_name="asset-total-boundary.html",
+                available_assets=["abcd", "efgh"],
+            )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Readable"
+                for block in result.document.blocks
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
