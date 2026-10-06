@@ -18,6 +18,7 @@ from .full_product_ui_shell import UILanguage, concise_user_error
 from .pgn_workspace import (
     MAX_PGN_EDIT_TAG_NAME_CHARS,
     MAX_PGN_EDIT_TAG_VALUE_CHARS,
+    _contains_unicode_surrogate,
 )
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
@@ -142,10 +143,6 @@ def _scrub_local_paths(text: str, language: UILanguage) -> str:
 
 def _utf16_units(value: str) -> int:
     return len(value.encode("utf-16-le", "surrogatepass")) // 2
-
-
-def _contains_unicode_surrogate(value: str) -> bool:
-    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
 
 
 def _truncate_utf16(value: str, limit: int) -> str:
@@ -787,7 +784,13 @@ class PgnWebViewProjection:
         return self._dispatch("pgn.append_moves", {"text": text})
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name or _contains_unicode_surrogate(name):
+        if (
+            type(name) is not str
+            or not name
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+        ):
             raise ValueError("PGN tag name is invalid")
         if (
             type(value) is not str
@@ -802,7 +805,13 @@ class PgnWebViewProjection:
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name or _contains_unicode_surrogate(name):
+        if (
+            type(name) is not str
+            or not name
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+        ):
             raise ValueError("PGN tag name is invalid")
         self._dispatch("pgn.tag_delete", {"name": name})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
