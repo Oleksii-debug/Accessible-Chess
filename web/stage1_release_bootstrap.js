@@ -688,11 +688,12 @@ async function loadMoveFeedbackSettings() {
     const a = api();
     if (!control) return;
     control.disabled = true;
+    control.checked = false;
     try {
         if (!a || typeof a.get_move_feedback_settings !== 'function') return;
         const result = await a.get_move_feedback_settings();
-        control.checked = result.enabled === true;
-        control.disabled = result.ok !== true;
+        control.checked = !!(result && result.ok === true && result.enabled === true);
+        control.disabled = !(result && result.ok === true);
     } catch (_) {}
 }
 
