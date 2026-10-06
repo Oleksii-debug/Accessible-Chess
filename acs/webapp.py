@@ -694,6 +694,17 @@ class AccessibleChessAPI:
         }
         if len(text) == 1 and text in commands:
             return commands[text]()
+        return self._play_move_text(text)
+
+    def _play_move_text(self, text: str) -> dict[str, Any]:
+        """Play one already-normalized move through the canonical transaction.
+
+        Command/alias ownership stays outside this helper.  Both the base
+        WebView API and the central-keymap composition reuse this exact path so
+        rules readiness, history publication and failure atomicity cannot drift.
+        """
+        if type(text) is not str or not text:
+            return self._error(self._t("move_invalid"))
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
         if not self._position_complete(self.board):
