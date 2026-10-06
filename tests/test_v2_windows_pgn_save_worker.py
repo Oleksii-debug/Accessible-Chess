@@ -9,6 +9,7 @@ from unittest import mock
 from acs.gametree import Comment
 from acs.import_contract import SourceFingerprint
 from acs.gametree_annotations import MoveAnnotationPatch, move_annotation_target
+from acs.import_contract import fingerprint
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_save_snapshot import PgnSaveCancelledError
 from acs.version2_windows_file_workflows import (
@@ -619,6 +620,31 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(result.error_code, "pgn_save_preflight_stale")
             self.assertFalse(target_path.exists())
             self.assertTrue(session.workspace.dirty)
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(poster.callbacks, [])
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events[-1], result)
+
+
+    def test_modal_save_as_source_generation_change_fails_stale_before_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-generation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            alternate = Path(tmp) / "alternate-generation.pgn"
+            alternate.write_text(PGN_TEXT, encoding="utf-8")
+            target_path = Path(tmp) / "must-not-save-source-generation.pgn"
+            session = PgnDocumentSession.open(source)
+            controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target_path
+
+            def source_generation_change() -> None:
+                session._source = fingerprint(alternate)
+
+            dialogs.on_save_dialog = source_generation_change
+            result = controller("pgn.save_as", {})
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_preflight_stale")
+            self.assertFalse(target_path.exists())
             self.assertFalse(controller.pgn_save_running)
             self.assertEqual(poster.callbacks, [])
             self.assertEqual(async_events, [])

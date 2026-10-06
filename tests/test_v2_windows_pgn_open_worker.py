@@ -8,6 +8,7 @@ from unittest import mock
 
 from acs.gametree import Comment
 from acs.gametree_annotations import MoveAnnotationPatch, move_annotation_target
+from acs.import_contract import fingerprint
 from acs.pgn_document import PgnDocumentSession, PgnDocumentView
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
@@ -760,6 +761,32 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertEqual(result.error_code, "pgn_open_stale")
             self.assertIs(session_box["value"], previous)
             self.assertTrue(previous.workspace.dirty)
+            self.assertEqual(publications, [])
+            self.assertEqual(poster.callbacks, [])
+            self.assertFalse(controller.pgn_open_running)
+            self.assertEqual(events[-1], result)
+
+
+    def test_modal_file_picker_source_generation_change_invalidates_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement-source-generation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            previous_path = Path(tmp) / "previous-source-generation.pgn"
+            previous_path.write_text(PGN_TEXT.replace("Async open", "Previous"), encoding="utf-8")
+            alternate_path = Path(tmp) / "alternate-source-generation.pgn"
+            alternate_path.write_text(previous_path.read_text(encoding="utf-8"), encoding="utf-8")
+            previous = PgnDocumentSession.open(previous_path)
+            controller, dialogs, poster, events, session_box, publications = self._controller(source, previous=previous)
+
+            def reentrant_open() -> Path:
+                previous._source = fingerprint(alternate_path)
+                return source
+
+            dialogs.open_pgn = reentrant_open
+            result = controller("pgn.open", {})
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_open_stale")
+            self.assertIs(session_box["value"], previous)
             self.assertEqual(publications, [])
             self.assertEqual(poster.callbacks, [])
             self.assertFalse(controller.pgn_open_running)
