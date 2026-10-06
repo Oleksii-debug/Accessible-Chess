@@ -109,6 +109,7 @@ jobs:
           tests.test_v2_windows_nvda_file_workflows
           tests.test_v2_windows_library_import_observer
           tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_file_logging_passive
           tests.test_chessbase_library_import_report_passive
           tests.test_bookreader_revision_barriers_current
           tests.test_book_bidirectional_semantic_navigation
