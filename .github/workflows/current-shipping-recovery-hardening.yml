@@ -202,7 +202,21 @@ jobs:
           tests.test_chessbase_library_import_report_passive
           tests.test_bookreader_revision_barriers_current
           tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookdocument_identity_bounds_current
+          tests.test_bookdocument_scalar_bounds_current
+          tests.test_bookdocument_deserialize_bounds_current
+          tests.test_bookdocument_total_text_budget_current
+          tests.test_book_document_ingress_passive_current
+          tests.test_bookreader_snapshot_bounds
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
           tests.test_v2_book_board_workflow
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_real_corpus_recovery
+          tests.test_dev4_pgn_resource_security
+          tests.test_dev4_pgn_truncation_quality
           tests.test_whole_product_user_journey
 
       - name: Execute shipping boundary contracts
