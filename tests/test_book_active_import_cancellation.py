@@ -1828,5 +1828,72 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
 
 
+    def test_html_text_digest_observes_control_inside_large_semantic_payload(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled during HTML semantic digest"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._sha256_text_hex("x" * 20_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_source_digest_observes_control_inside_large_byte_source(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled during HTML source digest"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._sha256_bytes_hex(b"x" * 200_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_controlled_digests_preserve_exact_legacy_hashes(self):
+        import acs.book_html_import as html
+        from hashlib import sha256
+
+        text_value = ("Chess ♟ metadata " * 1_000) + "tail"
+        byte_value = text_value.encode("utf-8")
+        text_calls = []
+        byte_calls = []
+
+        self.assertEqual(
+            html._sha256_text_hex(
+                text_value,
+                lambda: text_calls.append(1),
+            ),
+            sha256(byte_value).hexdigest(),
+        )
+        self.assertEqual(
+            html._sha256_bytes_hex(
+                byte_value,
+                lambda: byte_calls.append(1),
+            ),
+            sha256(byte_value).hexdigest(),
+        )
+        self.assertGreaterEqual(len(text_calls), 2)
+        self.assertGreaterEqual(len(byte_calls), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
