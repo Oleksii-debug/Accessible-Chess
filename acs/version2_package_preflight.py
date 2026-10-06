@@ -1751,18 +1751,17 @@ def _checksums(
     info = _safe_lstat(path, label="checksum inventory")
     if not stat.S_ISREG(info.st_mode):
         _fail("checksum inventory must be a file")
-    snapshot, _ = _snapshot_regular_file(
-        path,
-        label="checksum inventory",
-        max_bytes=limits.max_member_bytes,
-    )
     try:
-        with snapshot:
-            payload = snapshot.read(limits.max_member_bytes + 1)
+        payload = _read_stable_bytes_file(
+            path,
+            label="checksum inventory",
+            max_bytes=limits.max_member_bytes,
+        )
+    except Version2PackagePreflightError:
+        raise
     except OSError as exc:
         _fail(f"checksum inventory is unreadable: {type(exc).__name__}")
-    if len(payload) > limits.max_member_bytes:
-        _fail("checksum inventory exceeds member byte limit")
+    lines: list[str]
     try:
         lines = payload.decode("utf-8-sig", errors="strict").splitlines()
     except UnicodeError as exc:
