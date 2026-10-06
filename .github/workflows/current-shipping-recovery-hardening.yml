@@ -73,8 +73,8 @@ jobs:
             ".github/workflows/current-book-progress-passive-ingress.yml"
             ".github/workflows/current-bookreader-provisional-return-point.yml"
             ".github/workflows/current-epub-xml-structure-bounds.yml"
-            ".github/workflows/current-legacy-utf8-bom-authority.yml"
             ".github/workflows/current-launcher-report-data-identity.yml"
+            ".github/workflows/current-legacy-utf8-bom-authority.yml"
             ".github/workflows/current-library-export-destination-cas.yml"
             ".github/workflows/current-library-export-refused-close-terminal.yml"
             ".github/workflows/current-library-open-publication-ack.yml"
@@ -96,13 +96,13 @@ jobs:
             ".github/workflows/portable-launch-report-reparse-safety.yml"
             ".github/workflows/settings-stale-writer-current.yml"
             ".github/workflows/sound-scaled-cache-integrity.yml"
+            ".github/workflows/v2-book-progress-production-repair.yml"
             ".github/workflows/w5-release-receipt-contract.yml"
             ".github/workflows/w6-v2-package-assembler.yml"
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
-            ".github/workflows/v2-book-progress-production-repair.yml"
-            "acs/book_html_import.py"
             "acs/book_epub_import.py"
+            "acs/book_html_import.py"
             "acs/book_progress_store.py"
             "acs/book_text_import.py"
             "acs/bookreader.py"
@@ -111,11 +111,11 @@ jobs:
             "acs/full_product_actions.py"
             "acs/full_product_native_menu.py"
             "acs/input_limits.py"
+            "acs/legacy_text_encoding.py"
             "acs/library_export_service.py"
             "acs/library_export_webview_projection.py"
             "acs/library_webview_bridge.py"
             "acs/library_webview_projection.py"
-            "acs/legacy_text_encoding.py"
             "acs/notation.py"
             "acs/position_editor.py"
             "acs/position_text.py"
@@ -155,17 +155,17 @@ jobs:
             "tests/js/version2_library_open_route_refresh_dom_test.js"
             "tests/js/version2_release_bootstrap_dom_test.js"
             "tests/test_accessible_webui.py"
-            "tests/test_bookreader_revision_barriers_current.py"
             "tests/test_book_progress_passive_ingress_current.py"
+            "tests/test_bookreader_revision_barriers_current.py"
             "tests/test_child_coaching_keyboard_actions.py"
             "tests/test_child_coaching_rotation.py"
             "tests/test_child_coaching_rotation_completed_recovery.py"
             "tests/test_dev1_release_ui_regressions.py"
             "tests/test_full_product_native_menu.py"
             "tests/test_issue22_release_contract.py"
-            "tests/test_library_open_game_publication.py"
             "tests/test_legacy_book_utf16_integration.py"
             "tests/test_legacy_text_encoding.py"
+            "tests/test_library_open_game_publication.py"
             "tests/test_notation.py"
             "tests/test_owner_gameplay_feedback.py"
             "tests/test_owner_gameplay_wav_delivery.py"
@@ -179,8 +179,8 @@ jobs:
             "tests/test_stage1_release_composition_ui.py"
             "tests/test_ui_native_menu_recovery.py"
             "tests/test_v2_board_analysis_hotkey_feedback.py"
-            "tests/test_v2_book_html_import.py"
             "tests/test_v2_book_epub_import.py"
+            "tests/test_v2_book_html_import.py"
             "tests/test_v2_book_text_import.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
@@ -218,7 +218,7 @@ jobs:
           done
           test ! -e .github/workflows/current-shipping-owner-cancel-recovery-order.yml
 
-      - name: Prove exact blob authorities
+      - name: Prove exact blob authorities A
         shell: bash
         run: |
           set -euo pipefail
@@ -321,6 +321,17 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_release_payload.py)" = "be02628203fd41880fbea082cb3fe3424e1f8cc2"
           test "$(git rev-parse HEAD:tests/test_version2_release_payload.py)" = "7821ef50c1ab375306321297658093114998e9dd"
           test "$(git rev-parse HEAD:scripts/build_owner_portable_candidate.py)" = "0c881127d7f6aaccc0378cf62c06e2b2b3f470b2"
+      
+      - name: Prove exact blob authorities B
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="$PARENT_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
           test "$(git rev-parse HEAD:tests/test_owner_portable_candidate.py)" = "a1bc15f4c0f6042351e6949aeef55dbec8616aa4"
           test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "491fab63b7cc0609bb6d8f6d67b9acf06350cc72"
           test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "9d4e7470eb98a68cc5e5fb8dd821147b8ddfca08"
