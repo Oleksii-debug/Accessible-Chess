@@ -1,0 +1,92 @@
+name: Current Owner Portable Passive Ingress
+
+on:
+  pull_request:
+    branches:
+      - fix/package-passive-control-ingress-20261006-76mubs
+    paths:
+      - ".github/workflows/current-owner-portable-passive-ingress.yml"
+      - "scripts/build_owner_portable_candidate.py"
+      - "tests/test_owner_portable_candidate.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-owner-portable-passive-ingress-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_REF: fix/package-passive-control-ingress-20261006-76mubs
+  SCRIPT_BLOB: 0c881127d7f6aaccc0378cf62c06e2b2b3f470b2
+  TEST_BLOB: a1bc15f4c0f6042351e6949aeef55dbec8616aa4
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove live parent, exact child scope and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+            git fetch --no-tags origin "refs/heads/$BASE_REF"
+            base_sha="$(git rev-parse FETCH_HEAD)"
+          fi
+          test -n "$base_sha"
+          git cat-file -e "$base_sha^{commit}"
+          git merge-base --is-ancestor "$base_sha" HEAD
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-owner-portable-passive-ingress.yml"
+            "scripts/build_owner_portable_candidate.py"
+            "tests/test_owner_portable_candidate.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse "HEAD:scripts/build_owner_portable_candidate.py")" = "$SCRIPT_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_owner_portable_candidate.py")" = "$TEST_BLOB"
+
+      - name: Compile owner portable ingress
+        shell: bash
+        run: |
+          python -m py_compile \
+            scripts/build_owner_portable_candidate.py \
+            tests/test_owner_portable_candidate.py
+
+      - name: Run owner portable and canonical package regressions
+        shell: bash
+        run: |
+          python -m unittest -v \
+            tests.test_owner_portable_candidate \
+            tests.test_owner_portable_candidate_stable_reads \
+            tests.test_owner_portable_candidate_docx_binding \
+            tests.test_owner_docx_win32_portability \
+            tests.test_version2_portable_package
