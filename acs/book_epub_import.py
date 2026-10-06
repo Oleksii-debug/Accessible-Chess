@@ -436,11 +436,14 @@ def _safe_entry_name(
             BookEpubImportErrorCode.UNSAFE_PACKAGE,
         )
     parts = candidate.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
-        raise _error(
-            "EPUB contains an unsafe package entry name",
-            BookEpubImportErrorCode.UNSAFE_PACKAGE,
-        )
+    for part_index, part in enumerate(parts, start=1):
+        if control_checkpoint is not None and part_index % 128 == 1:
+            control_checkpoint()
+        if part in {"", ".", ".."}:
+            raise _error(
+                "EPUB contains an unsafe package entry name",
+                BookEpubImportErrorCode.UNSAFE_PACKAGE,
+            )
     for part_index, part in enumerate(parts, start=1):
         if control_checkpoint is not None and part_index % 128 == 1:
             control_checkpoint()
@@ -830,6 +833,8 @@ def _archive_index(
         parts = name.split("/")
         parent_node = 0
         for part_index, raw_part in enumerate(parts):
+            if control_checkpoint is not None and part_index % 128 == 0:
+                control_checkpoint()
             if parent_node in canonical_file_nodes:
                 raise _error(
                     "EPUB package entry path traverses an existing regular file",
