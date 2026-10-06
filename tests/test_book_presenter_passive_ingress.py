@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
 from acs.bookdocument import BookDocument, Paragraph
 from acs.bookreader import BookReader
@@ -126,6 +127,60 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
         self.assertEqual(moved.payload["snapshot"]["block"]["text"], "Second")
         self.assertEqual(saved.payload["snapshot"]["block"]["text"], "Second")
         self.assertEqual(projection.bookmark_name, "after-next")
+        self.assertEqual(touched, [])
+
+    def test_bridge_rejects_projection_subclass_before_active_hook(self) -> None:
+        class HostileProjection(BookWebViewProjection):
+            touched = False
+
+            def generic_error(self):
+                type(self).touched = True
+                raise AssertionError("projection subclass hook must not execute")
+
+        hostile = HostileProjection.__new__(HostileProjection)
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^projection must be BookWebViewProjection$",
+        ):
+            BookWebViewBridge(hostile)
+
+        self.assertFalse(HostileProjection.touched)
+
+    def test_exact_projection_method_shadows_cannot_replace_bridge_dispatch(self) -> None:
+        presenter = BookReaderPresenter(
+            BookReader(
+                BookDocument(
+                    "Passive bridge",
+                    blocks=[
+                        Paragraph(text="First", block_id="p1"),
+                        Paragraph(text="Second", block_id="p2"),
+                    ],
+                )
+            ),
+            language=UILanguage.EN,
+        )
+        projection = BookWebViewProjection(
+            presenter,
+            lambda command, payload: None,
+            language=UILanguage.EN,
+        )
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("instance-level BookWebViewProjection hook must not execute")
+
+        projection.next = hostile  # type: ignore[method-assign]
+        projection.generic_error = hostile  # type: ignore[method-assign]
+
+        bridge = BookWebViewBridge(projection)
+        moved = bridge.dispatch("book.next")
+        failed = bridge.dispatch("book.unsupported")
+
+        self.assertEqual(moved.kind, "render")
+        self.assertEqual(moved.payload["snapshot"]["block"]["text"], "Second")
+        self.assertEqual(failed.kind, "error")
         self.assertEqual(touched, [])
 
     def test_exact_reader_presenter_projection_chain_still_renders(self) -> None:
