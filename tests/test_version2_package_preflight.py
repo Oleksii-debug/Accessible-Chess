@@ -972,6 +972,53 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 }.issubset(labels)
             )
 
+    def test_terminal_revalidation_rejects_file_mutation_after_hygiene(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            target = root / "AccessibleChess" / "web" / "index.html"
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_mutate(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                target.write_bytes(target.read_bytes() + b"\npost-scan-mutation")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed during validation",
+                ):
+                    _validate_tree(root)
+
+    def test_terminal_revalidation_rejects_checksum_authority_mutation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            checksum_path = root / CHECKSUMS_NAME
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_mutate(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                with checksum_path.open("ab") as handle:
+                    handle.write(b"\n")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "checksum inventory changed during package validation",
+                ):
+                    _validate_tree(root)
+
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
