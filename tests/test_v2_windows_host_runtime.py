@@ -403,6 +403,59 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_active_action_id_cannot_run_before_cancel_recovery_decision(self) -> None:
+        touched: list[str] = []
+
+        class ActiveAction(str):
+            def __eq__(self, other):
+                touched.append("eq")
+                raise AssertionError("active action equality must not execute")
+
+            def __hash__(self):
+                touched.append("hash")
+                raise AssertionError("active action hash must not execute")
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-active-action-boundary.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Pending before hostile action")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            self.assertEqual(
+                runtime("pgn.save", {}).kind,
+                FileWorkflowEventKind.PGN_SAVE_STARTED,
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertEqual(imported_events, [])
+
+            with self.assertRaises(TypeError):
+                runtime(ActiveAction("pgn.cancel_save"), {})
+
+            self.assertEqual(touched, [])
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertEqual(imported_events, [])
+
+            terminal = runtime("pgn.cancel_save", {})
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertEqual(imported_events, [])
+            self.assertTrue(runtime.shutdown())
+
     def test_cancel_open_wins_before_retained_owner_callback_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "runtime-open-cancel-retained-owner.pgn"
