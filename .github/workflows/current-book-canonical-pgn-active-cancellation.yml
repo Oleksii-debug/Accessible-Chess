@@ -1,0 +1,74 @@
+name: Current Book Canonical PGN Active Cancellation
+
+on:
+  pull_request:
+    branches:
+      - fix/book-html-parser-control-checkpoints-20261006-hy6ez0h
+    paths:
+      - '.github/workflows/current-book-canonical-pgn-active-cancellation.yml'
+      - 'acs/gametree.py'
+      - 'acs/pgn_roundtrip.py'
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_active_import_cancellation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-book-canonical-pgn-cancel-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
+  PGN_ROUNDTRIP_BLOB: 1de1c0f542da86b7832e69919a0aeaf0094395fc
+  HTML_IMPORT_BLOB: 393223b76c3abf27877d1cbcb267b6afdc3ba173
+  ACTIVE_CANCEL_TEST_BLOB: e7ee9f17c991c740210a41e54c3229002d58ce73
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove bounded geometry and exact blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-book-canonical-pgn-active-cancellation.yml' \
+            'acs/book_html_import.py' \
+            'acs/gametree.py' \
+            'acs/pgn_roundtrip.py' \
+            'tests/test_book_active_import_cancellation.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$GAMETREE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$PGN_ROUNDTRIP_BLOB"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile changed Python
+        run: python -m py_compile acs/gametree.py acs/pgn_roundtrip.py acs/book_html_import.py tests/test_book_active_import_cancellation.py
+
+      - name: Run canonical PGN and book cancellation regressions
+        run: python -m unittest tests.test_gametree tests.test_d06_pgn_roundtrip tests.test_v2_pgn_nested_comment_recovery tests.test_pgn_streaming_import tests.test_d06_gametree_persistence_vertical tests.test_book_html_pgn_loss_accounting tests.test_book_active_import_cancellation

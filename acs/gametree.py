@@ -14,7 +14,7 @@ post-Stage-1 UI, workflow, or release path.
 from dataclasses import dataclass, field
 from enum import Enum
 import re
-from typing import Iterable
+from typing import Callable, Iterable
 
 RESULTS = {"1-0", "0-1", "1/2-1/2", "*"}
 TAG_RE = re.compile(r'^\s*\[\s*([A-Za-z0-9_]+)\s*"((?:\\.|[^"\\])*)"\s*\]\s*$')
@@ -141,7 +141,11 @@ def _numeric_nag_is_in_range(value: object) -> bool:
     return len(digits) < 3 or (len(digits) == 3 and digits <= str(MAX_NUMERIC_NAG))
 
 
-def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
+def _scan_brace_comment_span(
+    text: str,
+    start: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[int, bool, bool]:
     """Find one recoverable brace-comment span without allocating its text.
 
     PGN brace comments are not nestable, but lawful historical corpora contain
@@ -154,7 +158,11 @@ def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
     nested = False
     first_closing = -1
     index = start + 1
+    next_control_index = index
     while index < len(text):
+        if control_checkpoint is not None and index >= next_control_index:
+            control_checkpoint()
+            next_control_index = index + 4_096
         character = text[index]
         if character == "{":
             depth += 1
@@ -175,10 +183,16 @@ def _scan_brace_comment_span(text: str, start: int) -> tuple[int, bool, bool]:
     return len(text), nested, True
 
 
-def _consume_brace_comment(text: str, start: int) -> tuple[str, int, bool, bool]:
+def _consume_brace_comment(
+    text: str,
+    start: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, int, bool, bool]:
     """Consume and normalize one span selected by ``_scan_brace_comment_span``."""
 
-    next_index, nested, unterminated = _scan_brace_comment_span(text, start)
+    next_index, nested, unterminated = _scan_brace_comment_span(
+        text, start, control_checkpoint
+    )
     content_end = next_index if unterminated else next_index - 1
     comment = text[start + 1 : content_end]
     if nested:
@@ -188,17 +202,26 @@ def _consume_brace_comment(text: str, start: int) -> tuple[str, int, bool, bool]
     return comment, next_index, nested, unterminated
 
 
-def tokenize_movetext(text: str) -> list[_Token]:
+def tokenize_movetext(
+    text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[_Token]:
     out: list[_Token] = []
     i = 0
     n = len(text)
+    next_control_index = 0
     while i < n:
+        if control_checkpoint is not None and i >= next_control_index:
+            control_checkpoint()
+            next_control_index = i + 4_096
         c = text[i]
         if c.isspace():
             i += 1
             continue
         if c == "{":
-            comment, next_index, nested, unterminated = _consume_brace_comment(text, i)
+            comment, next_index, nested, unterminated = _consume_brace_comment(
+                text, i, control_checkpoint
+            )
             out.append(_Token("COMMENT_BRACE", comment))
             if nested:
                 out.append(
@@ -234,6 +257,8 @@ def tokenize_movetext(text: str) -> list[_Token]:
         if c == "$":
             j = i + 1
             while j < n and text[j].isdigit():
+                if control_checkpoint is not None and (j - i) % 4_096 == 0:
+                    control_checkpoint()
                 j += 1
             if j > i + 1:
                 out.append(_Token("NAG", text[i:j])); i = j; continue
@@ -242,6 +267,8 @@ def tokenize_movetext(text: str) -> list[_Token]:
             continue
         j = i
         while j < n and not text[j].isspace() and text[j] not in "{};()$":
+            if control_checkpoint is not None and (j - i) % 4_096 == 0:
+                control_checkpoint()
             j += 1
         value = text[i:j]
         if MOVE_NUMBER_TOKEN_RE.fullmatch(value):
@@ -295,6 +322,7 @@ def _parse_line(
     nested: bool = False,
     depth: int = 0,
     budget: list[int] | None = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> tuple[VariationLine, int, list[str]]:
     if depth > MAX_VARIATION_DEPTH:
         raise GameTreeContractError(
@@ -308,8 +336,12 @@ def _parse_line(
     pending_number: str | None = None
     pending_comments: list[Comment] = []
     last: MoveNode | None = None
+    tokens_seen = 0
 
     while pos < len(tokens):
+        if control_checkpoint is not None and tokens_seen % 128 == 0:
+            control_checkpoint()
+        tokens_seen += 1
         tok = tokens[pos]
         if tok.kind == "WARNING":
             warnings.append(tok.value); pos += 1; continue
@@ -333,6 +365,7 @@ def _parse_line(
                 nested=True,
                 depth=depth + 1,
                 budget=budget,
+                control_checkpoint=control_checkpoint,
             )
             warnings.extend(child_warnings)
             if pos < len(tokens) and tokens[pos].kind == "RPAREN":
@@ -384,7 +417,11 @@ def _parse_line(
         if tok.kind == "RESULT":
             line.result = tok.value
             pos += 1
+            trailing_seen = 0
             while pos < len(tokens):
+                if control_checkpoint is not None and trailing_seen % 128 == 0:
+                    control_checkpoint()
+                trailing_seen += 1
                 trailing = tokens[pos]
                 if trailing.kind == "WARNING":
                     warnings.append(trailing.value)
@@ -422,7 +459,11 @@ def _parse_line(
     return line, pos, warnings
 
 
-def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
+def _brace_comment_state_after_line(
+    line: str,
+    comment_depth: int,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> int:
     """Track recoverable brace-comment depth for canonical game framing.
 
     Nested recovery keeps an outer comment open across inner ``}`` tokens.  The
@@ -436,6 +477,8 @@ def _brace_comment_state_after_line(line: str, comment_depth: int) -> int:
 
     index = 0
     while index < len(line):
+        if control_checkpoint is not None and index % 4_096 == 0:
+            control_checkpoint()
         character = line[index]
         if comment_depth == 0:
             if character == ";":
@@ -482,13 +525,21 @@ class CanonicalPgnGameFramer:
     both paths.  It recognizes a boundary only for the exact ``TAG_RE`` grammar.
     """
 
-    def __init__(self, *, max_frame_bytes: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_frame_bytes: int | None = None,
+        control_checkpoint: Callable[[], None] | None = None,
+    ) -> None:
+        if control_checkpoint is not None and not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable or None")
         if max_frame_bytes is not None:
             if type(max_frame_bytes) is not int:
                 raise TypeError("max_frame_bytes must be an integer or None")
             if max_frame_bytes < 1:
                 raise ValueError("max_frame_bytes must be positive")
         self._max_frame_bytes = max_frame_bytes
+        self._control_checkpoint = control_checkpoint
         self._reset()
 
     @property
@@ -518,6 +569,8 @@ class CanonicalPgnGameFramer:
         self._raw_lines.append(line)
 
     def _flush(self) -> PgnGameFrame | None:
+        if self._control_checkpoint is not None:
+            self._control_checkpoint()
         if not self._tags and not any(line.strip() for line in self._moves):
             self._reset()
             return None
@@ -532,6 +585,8 @@ class CanonicalPgnGameFramer:
         return frame
 
     def feed_line(self, line: str) -> PgnGameFrame | None:
+        if self._control_checkpoint is not None:
+            self._control_checkpoint()
         if type(line) is not str:
             raise TypeError("PGN frame line must be exact text")
 
@@ -555,6 +610,7 @@ class CanonicalPgnGameFramer:
         self._brace_comment_depth = _brace_comment_state_after_line(
             line,
             self._brace_comment_depth,
+            self._control_checkpoint,
         )
         return completed
 
@@ -562,9 +618,16 @@ class CanonicalPgnGameFramer:
         return self._flush()
 
 
-def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
+def _split_games(
+    text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[tuple[dict[str, str], str, list[str]]]:
+    if control_checkpoint is not None:
+        control_checkpoint()
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    framer = CanonicalPgnGameFramer()
+    if control_checkpoint is not None:
+        control_checkpoint()
+    framer = CanonicalPgnGameFramer(control_checkpoint=control_checkpoint)
     framed: list[PgnGameFrame] = []
     for line in lines:
         completed = framer.feed_line(line)
@@ -573,17 +636,31 @@ def _split_games(text: str) -> list[tuple[dict[str, str], str, list[str]]]:
     completed = framer.finish()
     if completed is not None:
         framed.append(completed)
-    return [
-        (frame.tags, frame.movetext, list(frame.warnings))
-        for frame in framed
-    ]
+    output: list[tuple[dict[str, str], str, list[str]]] = []
+    for frame_index, frame in enumerate(framed, start=1):
+        if control_checkpoint is not None and frame_index % 128 == 1:
+            control_checkpoint()
+        output.append((frame.tags, frame.movetext, list(frame.warnings)))
+    return output
 
 
-def parse_games(text: str) -> list[PgnGame]:
+def parse_games(
+    text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[PgnGame]:
+    if control_checkpoint is not None and not callable(control_checkpoint):
+        raise TypeError("control_checkpoint must be callable or None")
     games: list[PgnGame] = []
-    for index, (tags, movetext, split_warnings) in enumerate(_split_games(text)):
-        tokens = tokenize_movetext(movetext)
-        line, pos, warnings = _parse_line(tokens)
+    for index, (tags, movetext, split_warnings) in enumerate(
+        _split_games(text, control_checkpoint)
+    ):
+        if control_checkpoint is not None:
+            control_checkpoint()
+        tokens = tokenize_movetext(movetext, control_checkpoint)
+        line, pos, warnings = _parse_line(
+            tokens,
+            control_checkpoint=control_checkpoint,
+        )
         warnings[:0] = split_warnings
         if pos < len(tokens):
             warnings.append(f"{len(tokens) - pos} unconsumed token(s)")
@@ -641,13 +718,20 @@ def _serialize_comment(c: Comment) -> str:
     return ";" + c.text + "\n"
 
 
-def _require_comment_list(value: object, *, field_name: str) -> list[Comment]:
+def _require_comment_list(
+    value: object,
+    *,
+    field_name: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[Comment]:
     if type(value) is not list:
         raise GameTreeSerializationError(
             f"{field_name} must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    for comment in value:
+    for comment_index, comment in enumerate(value, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
         _serialize_comment(comment)
     return value
 
@@ -675,13 +759,18 @@ def _validate_san(san: object) -> None:
         )
 
 
-def _validate_nags(nags: object) -> None:
+def _validate_nags(
+    nags: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
     if type(nags) is not list:
         raise GameTreeSerializationError(
             "move nags must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    for nag in nags:
+    for nag_index, nag in enumerate(nags, start=1):
+        if control_checkpoint is not None and nag_index % 128 == 1:
+            control_checkpoint()
         if not isinstance(nag, str) or not (
             _numeric_nag_is_in_range(nag) or nag in NAG_SYMBOLS
         ):
@@ -706,7 +795,10 @@ def _validate_line_for_serialization(
     *,
     depth: int,
     state: dict[str, object],
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> None:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if not isinstance(line, VariationLine):
         raise GameTreeSerializationError(
             "game line must be a VariationLine",
@@ -741,8 +833,16 @@ def _validate_line_for_serialization(
             "variation moves must be a list",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    _require_comment_list(line.leading_comments, field_name="leading_comments")
-    _require_comment_list(line.trailing_comments, field_name="trailing_comments")
+    _require_comment_list(
+        line.leading_comments,
+        field_name="leading_comments",
+        control_checkpoint=control_checkpoint,
+    )
+    _require_comment_list(
+        line.trailing_comments,
+        field_name="trailing_comments",
+        control_checkpoint=control_checkpoint,
+    )
     if line.result is not None and (
         not isinstance(line.result, str) or line.result not in RESULTS
     ):
@@ -751,7 +851,9 @@ def _validate_line_for_serialization(
             code=GameTreeErrorCode.INVALID_LINE,
         )
 
-    for node in line.moves:
+    for node_index, node in enumerate(line.moves, start=1):
+        if control_checkpoint is not None and node_index % 128 == 1:
+            control_checkpoint()
         if not isinstance(node, MoveNode):
             raise GameTreeSerializationError(
                 "variation moves must contain MoveNode values",
@@ -774,9 +876,17 @@ def _validate_line_for_serialization(
                 "move_number must be a representable PGN import move-number token",
                 code=GameTreeErrorCode.INVALID_MOVE,
             )
-        _validate_nags(node.nags)
-        _require_comment_list(node.comments_before, field_name="comments_before")
-        _require_comment_list(node.comments_after, field_name="comments_after")
+        _validate_nags(node.nags, control_checkpoint)
+        _require_comment_list(
+            node.comments_before,
+            field_name="comments_before",
+            control_checkpoint=control_checkpoint,
+        )
+        _require_comment_list(
+            node.comments_after,
+            field_name="comments_after",
+            control_checkpoint=control_checkpoint,
+        )
         if type(node.variations) is not list:
             raise GameTreeSerializationError(
                 "move variations must be a list",
@@ -787,12 +897,18 @@ def _validate_line_for_serialization(
                 variation,
                 depth=depth + 1,
                 state=state,
+                control_checkpoint=control_checkpoint,
             )
 
     active.remove(identity)
 
 
-def _validate_game_for_serialization(game: object) -> None:
+def _validate_game_for_serialization(
+    game: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> None:
+    if control_checkpoint is not None:
+        control_checkpoint()
     if not isinstance(game, PgnGame):
         raise GameTreeSerializationError(
             "serialize_game requires a PgnGame",
@@ -803,7 +919,9 @@ def _validate_game_for_serialization(game: object) -> None:
             "game tags must be a dictionary",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
-    for key, value in game.tags.items():
+    for tag_index, (key, value) in enumerate(game.tags.items(), start=1):
+        if control_checkpoint is not None and tag_index % 128 == 1:
+            control_checkpoint()
         if not isinstance(key, str) or not TAG_NAME_RE.fullmatch(key):
             raise GameTreeSerializationError(
                 "tag names must match the PGN tag-name grammar",
@@ -822,16 +940,36 @@ def _validate_game_for_serialization(game: object) -> None:
             "source_index must be a non-negative exact integer",
             code=GameTreeErrorCode.INVALID_GAME,
         )
-    if type(game.warnings) is not list or any(
-        not isinstance(warning, str) for warning in game.warnings
-    ):
+    if type(game.warnings) is not list:
+        raise GameTreeSerializationError(
+            "game warnings must be a list of text values",
+            code=GameTreeErrorCode.INVALID_CONTAINER,
+        )
+    if control_checkpoint is None:
+        invalid_warning = any(
+            not isinstance(warning, str) for warning in game.warnings
+        )
+    else:
+        invalid_warning = False
+        for warning_index, warning in enumerate(game.warnings, start=1):
+            if warning_index % 128 == 1:
+                control_checkpoint()
+            if not isinstance(warning, str):
+                invalid_warning = True
+                break
+    if invalid_warning:
         raise GameTreeSerializationError(
             "game warnings must be a list of text values",
             code=GameTreeErrorCode.INVALID_CONTAINER,
         )
 
     state: dict[str, object] = {"seen": set(), "active": set(), "count": 0}
-    _validate_line_for_serialization(game.line, depth=0, state=state)
+    _validate_line_for_serialization(
+        game.line,
+        depth=0,
+        state=state,
+        control_checkpoint=control_checkpoint,
+    )
     if game.result not in RESULTS:
         raise GameTreeSerializationError(
             "effective game result must be a canonical PGN result",
@@ -839,30 +977,94 @@ def _validate_game_for_serialization(game: object) -> None:
         )
 
 
-def _serialize_line(line: VariationLine, *, include_result: bool = True) -> str:
+def _serialize_line(
+    line: VariationLine,
+    *,
+    include_result: bool = True,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None:
+        control_checkpoint()
     parts: list[str] = []
-    parts.extend(_serialize_comment(c) for c in line.leading_comments)
-    for node in line.moves:
+    for comment_index, comment in enumerate(line.leading_comments, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
+        parts.append(_serialize_comment(comment))
+    for node_index, node in enumerate(line.moves, start=1):
+        if control_checkpoint is not None and node_index % 128 == 1:
+            control_checkpoint()
         if node.move_number:
             parts.append(node.move_number)
-        parts.extend(_serialize_comment(c) for c in node.comments_before)
+        for comment_index, comment in enumerate(node.comments_before, start=1):
+            if control_checkpoint is not None and comment_index % 128 == 1:
+                control_checkpoint()
+            parts.append(_serialize_comment(comment))
         parts.append(node.san)
-        parts.extend(node.nags)
-        parts.extend(_serialize_comment(c) for c in node.comments_after)
+        if control_checkpoint is None:
+            parts.extend(node.nags)
+        else:
+            for nag_index, nag in enumerate(node.nags, start=1):
+                if nag_index % 128 == 1:
+                    control_checkpoint()
+                parts.append(nag)
+            control_checkpoint()
+        for comment_index, comment in enumerate(node.comments_after, start=1):
+            if control_checkpoint is not None and comment_index % 128 == 1:
+                control_checkpoint()
+            parts.append(_serialize_comment(comment))
         for variation in node.variations:
-            parts.append("(" + _serialize_line(variation, include_result=True) + ")")
+            parts.append(
+                "("
+                + _serialize_line(
+                    variation,
+                    include_result=True,
+                    control_checkpoint=control_checkpoint,
+                )
+                + ")"
+            )
     if include_result and line.result:
         parts.append(line.result)
-    parts.extend(_serialize_comment(c) for c in line.trailing_comments)
+    for comment_index, comment in enumerate(line.trailing_comments, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
+        parts.append(_serialize_comment(comment))
+    if control_checkpoint is not None:
+        control_checkpoint()
     return " ".join(p for p in parts if p)
 
 
-def serialize_game(game: PgnGame) -> str:
-    _validate_game_for_serialization(game)
-    tags = dict(game.tags)
+def serialize_game(
+    game: PgnGame,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None and not callable(control_checkpoint):
+        raise TypeError("control_checkpoint must be callable or None")
+    if control_checkpoint is not None:
+        control_checkpoint()
+    _validate_game_for_serialization(game, control_checkpoint)
+    if control_checkpoint is None:
+        tags = dict(game.tags)
+    else:
+        tags: dict[str, str] = {}
+        for tag_index, (key, value) in enumerate(game.tags.items(), start=1):
+            if tag_index % 128 == 1:
+                control_checkpoint()
+            tags[key] = value
+        control_checkpoint()
     tags.setdefault("Result", game.result)
-    headers = [f'[{k} "{_escape_tag(v)}"]' for k, v in tags.items()]
-    return "\n".join(headers) + "\n\n" + _serialize_line(game.line, include_result=True).strip() + "\n"
+    headers: list[str] = []
+    for tag_index, (key, value) in enumerate(tags.items(), start=1):
+        if control_checkpoint is not None and tag_index % 128 == 1:
+            control_checkpoint()
+        headers.append(f'[{key} "{_escape_tag(value)}"]')
+    movetext = _serialize_line(
+        game.line,
+        include_result=True,
+        control_checkpoint=control_checkpoint,
+    ).strip()
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return "\n".join(headers) + "\n\n" + movetext + "\n"
 
 
 def serialize_games(games: Iterable[PgnGame]) -> str:

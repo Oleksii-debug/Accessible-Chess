@@ -725,6 +725,277 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
         self.assertIs(caught.exception, failure)
 
+    def test_canonical_pgn_serializer_validation_observes_control_inside_large_warning_collection(self):
+        import acs.gametree as gametree
+        from acs.gametree import PgnGame, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN warning validation')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        game = PgnGame(
+            line=VariationLine(result='*'),
+            warnings=[f'warning {index}' for index in range(300)],
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._validate_game_for_serialization(
+                game,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_serializer_observes_control_inside_large_nag_projection(self):
+        import acs.gametree as gametree
+        from acs.gametree import MoveNode, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN NAG projection')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        line = VariationLine(
+            moves=[MoveNode('e4', move_number='1.', nags=['$1'] * 300)],
+            result='*',
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._serialize_line(line, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 5)
+
+    def test_canonical_pgn_serializer_observes_control_while_snapshotting_large_tags(self):
+        from acs.gametree import PgnGame, VariationLine, serialize_game
+
+        failure = SourceReadCancelledError('cancelled while snapshotting canonical PGN tags')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 9:
+                raise failure
+
+        game = PgnGame(
+            tags={f'Tag{index}': 'value' for index in range(300)},
+            line=VariationLine(result='*'),
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            serialize_game(game, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 9)
+
+    def test_canonical_pgn_serializer_observes_control_inside_large_comment_collection(self):
+        import acs.gametree as gametree
+        from acs.gametree import Comment, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN serialization')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        line = VariationLine(
+            leading_comments=[Comment(f'note {index}', 'brace') for index in range(300)]
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._serialize_line(line, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_control_requires_callable_parse_and_serialize_hooks(self):
+        from acs.gametree import serialize_game
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        source = '[Event "Study"]\n[Result "*"]\n\n*\n'
+        with self.assertRaises(TypeError):
+            parse_pgn_text(source, strict=False, control_checkpoint=True)
+        game = parse_pgn_text(source, strict=False)[0]
+        with self.assertRaises(TypeError):
+            serialize_game(game, control_checkpoint=True)
+
+    def test_canonical_pgn_serializer_control_preserves_exact_output(self):
+        from acs.gametree import serialize_game
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        game = parse_pgn_text(
+            '[Event "Study"]\n[Result "*"]\n\n1. e4 {note} (1. d4 d5) e5 *\n',
+            strict=False,
+        )[0]
+        plain = serialize_game(game)
+        calls = []
+        controlled = serialize_game(game, control_checkpoint=lambda: calls.append(1))
+        self.assertEqual(controlled, plain)
+        self.assertGreater(len(calls), 3)
+
+    def test_html_pgn_collection_threads_control_into_canonical_serializer(self):
+        import acs.gametree as gametree
+
+        failure = ValueError('trusted cancellation-shaped serializer failure')
+        armed = False
+        calls = 0
+        real_serialize = gametree.serialize_game
+
+        def control():
+            nonlocal calls
+            calls += 1
+            if armed:
+                raise failure
+
+        def controlled_serialize(game, *args, **kwargs):
+            nonlocal armed
+            forwarded_control = kwargs.get('control_checkpoint')
+            self.assertTrue(callable(forwarded_control))
+            armed = True
+            return real_serialize(game, *args, **kwargs)
+
+        with patch('acs.book_html_import.serialize_game', side_effect=controlled_serialize):
+            with self.assertRaises(ValueError) as caught:
+                import_html_book(
+                    HTML,
+                    source_name='study.html',
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+        self.assertGreater(calls, 1)
+
+    def test_canonical_pgn_normalization_observes_control_inside_large_comment_collection(self):
+        import acs.pgn_roundtrip as roundtrip
+        from acs.gametree import Comment, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN normalization')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        line = VariationLine(
+            leading_comments=[Comment(f'note {index}', 'brace') for index in range(300)]
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            roundtrip._normalize_and_validate_line(
+                line,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_control_preserves_recovery_semantics(self):
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        source = '[Event "Study"]\n[Result "*"]\n\n1. e4 {note} (1. d4 d5) e5 *\n'
+        plain = parse_pgn_text(source, strict=False)
+        calls = []
+        controlled = parse_pgn_text(
+            source,
+            strict=False,
+            control_checkpoint=lambda: calls.append(1),
+        )
+        self.assertEqual(controlled, plain)
+        self.assertGreater(len(calls), 3)
+
+    def test_canonical_pgn_large_brace_scan_preserves_exact_cancel(self):
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        failure = SourceReadCancelledError('cancelled inside canonical PGN scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 8:
+                raise failure
+
+        source = '[Event "Study"]\n[Result "*"]\n\n1. e4 {' + ('x' * 20_000) + '} *\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parse_pgn_text(
+                source,
+                strict=False,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 8)
+
+    def test_canonical_pgn_preserves_control_failure_even_if_it_is_gametree_error(self):
+        import acs.pgn_roundtrip as roundtrip
+        from acs.gametree import GameTreeContractError, GameTreeErrorCode
+
+        failure = GameTreeContractError(
+            'trusted control failure shaped like parser failure',
+            code=GameTreeErrorCode.INVALID_MODEL,
+        )
+        armed = False
+
+        def control():
+            if armed:
+                raise failure
+
+        def controlled_parse_games(text, control_checkpoint=None):
+            nonlocal armed
+            armed = True
+            self.assertIsNotNone(control_checkpoint)
+            control_checkpoint()
+            return []
+
+        with patch('acs.pgn_roundtrip.parse_games', side_effect=controlled_parse_games):
+            with self.assertRaises(GameTreeContractError) as caught:
+                roundtrip.parse_pgn_text(
+                    '[Event "Study"]\n[Result "*"]\n\n*\n',
+                    strict=False,
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+
+    def test_html_embedded_pgn_threads_control_into_canonical_authority(self):
+        import acs.pgn_roundtrip as roundtrip
+
+        failure = ValueError('trusted cancellation-shaped ValueError from canonical PGN authority')
+        armed = False
+        calls = 0
+
+        def control():
+            nonlocal calls
+            calls += 1
+            if armed:
+                raise failure
+
+        real_parse = roundtrip.parse_pgn_text
+
+        def controlled_parse(*args, **kwargs):
+            nonlocal armed
+            forwarded_control = kwargs.get('control_checkpoint')
+            self.assertTrue(callable(forwarded_control))
+            self.assertIsNot(forwarded_control, control)
+            armed = True
+            return real_parse(*args, **kwargs)
+
+        with patch('acs.book_html_import.parse_pgn_text', side_effect=controlled_parse):
+            with self.assertRaises(ValueError) as caught:
+                import_html_book(
+                    HTML,
+                    source_name='study.html',
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+        self.assertGreater(calls, 1)
+
     def test_html_control_failure_is_not_translated_into_malformed_source(self):
         failure = RuntimeError('trusted control failure')
         calls = 0
