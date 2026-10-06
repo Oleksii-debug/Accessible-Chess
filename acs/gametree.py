@@ -1000,8 +1000,13 @@ def _serialize_line(
                 control_checkpoint()
             parts.append(_serialize_comment(comment))
         parts.append(node.san)
-        parts.extend(node.nags)
-        if control_checkpoint is not None:
+        if control_checkpoint is None:
+            parts.extend(node.nags)
+        else:
+            for nag_index, nag in enumerate(node.nags, start=1):
+                if nag_index % 128 == 1:
+                    control_checkpoint()
+                parts.append(nag)
             control_checkpoint()
         for comment_index, comment in enumerate(node.comments_after, start=1):
             if control_checkpoint is not None and comment_index % 128 == 1:
@@ -1037,7 +1042,15 @@ def serialize_game(
     if control_checkpoint is not None:
         control_checkpoint()
     _validate_game_for_serialization(game, control_checkpoint)
-    tags = dict(game.tags)
+    if control_checkpoint is None:
+        tags = dict(game.tags)
+    else:
+        tags: dict[str, str] = {}
+        for tag_index, (key, value) in enumerate(game.tags.items(), start=1):
+            if tag_index % 128 == 1:
+                control_checkpoint()
+            tags[key] = value
+        control_checkpoint()
     tags.setdefault("Result", game.result)
     headers: list[str] = []
     for tag_index, (key, value) in enumerate(tags.items(), start=1):

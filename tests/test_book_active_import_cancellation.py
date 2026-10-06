@@ -750,6 +750,49 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_canonical_pgn_serializer_observes_control_inside_large_nag_projection(self):
+        import acs.gametree as gametree
+        from acs.gametree import MoveNode, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN NAG projection')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        line = VariationLine(
+            moves=[MoveNode('e4', move_number='1.', nags=['$1'] * 300)],
+            result='*',
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._serialize_line(line, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 5)
+
+    def test_canonical_pgn_serializer_observes_control_while_snapshotting_large_tags(self):
+        from acs.gametree import PgnGame, VariationLine, serialize_game
+
+        failure = SourceReadCancelledError('cancelled while snapshotting canonical PGN tags')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 9:
+                raise failure
+
+        game = PgnGame(
+            tags={f'Tag{index}': 'value' for index in range(300)},
+            line=VariationLine(result='*'),
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            serialize_game(game, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 9)
+
     def test_canonical_pgn_serializer_observes_control_inside_large_comment_collection(self):
         import acs.gametree as gametree
         from acs.gametree import Comment, VariationLine
