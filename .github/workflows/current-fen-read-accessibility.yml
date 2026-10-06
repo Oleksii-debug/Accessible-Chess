@@ -5,12 +5,9 @@ on:
     branches:
       - feature/fen-user-actions-current-20261006-sol
     paths:
-      - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
-      - 'acs/ui_keymap_adapter.py'
       - 'acs/version2_application.py'
       - 'tests/test_full_product_native_menu.py'
-      - 'tests/test_ui_keymap_adapter.py'
       - 'tests/test_version2_application.py'
       - '.github/workflows/current-fen-read-accessibility.yml'
   workflow_dispatch:
@@ -62,12 +59,9 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-fen-read-accessibility.yml' \
-            'acs/full_product_actions.py' \
             'acs/full_product_native_menu.py' \
-            'acs/ui_keymap_adapter.py' \
             'acs/version2_application.py' \
             'tests/test_full_product_native_menu.py' \
-            'tests/test_ui_keymap_adapter.py' \
             'tests/test_version2_application.py' | sort)"
           test "$changed" = "$expected_paths"
 
@@ -78,12 +72,9 @@ jobs:
       - name: Compile FEN read surfaces
         run: >-
           python -m compileall -q
-          acs/full_product_actions.py
           acs/full_product_native_menu.py
-          acs/ui_keymap_adapter.py
           acs/version2_application.py
           tests/test_full_product_native_menu.py
-          tests/test_ui_keymap_adapter.py
           tests/test_version2_application.py
 
       - name: Execute focused FEN read and existing FEN journeys
