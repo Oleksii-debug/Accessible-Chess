@@ -656,7 +656,6 @@ function installClockSoundPulse() {
 const soundLabels = {
     uk: {
         legend: 'Звуки', enabled: 'Увімкнути звуки', newGameAnimation: 'Анімація нової партії', volume: 'Гучність',
-        previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
         tickPolicy: 'Коли звучить годинник',
         tickLastSeconds: 'Останні секунд (0 — увесь час)',
         lowTimePolicy: 'Кому попереджати про малий час',
@@ -667,7 +666,6 @@ const soundLabels = {
     },
     en: {
         legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
-        previewEvent: 'Sound to preview', variant: 'Sound variant', preview: 'Preview',
         tickPolicy: 'When the clock sounds',
         tickLastSeconds: 'Last seconds (0 — whole game)',
         lowTimePolicy: 'Whose low time triggers a warning',
@@ -685,31 +683,17 @@ function text() {
 let currentSoundState = null;
 let soundStateLoadPromise = Promise.resolve();
 
-function renderSoundVariants() {
-    const eventSelect = byId('sound-preview-event');
-    const variantSelect = byId('sound-variant');
-    if (!eventSelect || !variantSelect) return;
-    const eventId = eventSelect.value;
-    const variants = currentSoundState && currentSoundState.variants
-        ? currentSoundState.variants[eventId]
-        : null;
-    const selected = currentSoundState && currentSoundState.selectedVariants
-        ? currentSoundState.selectedVariants[eventId]
-        : '1';
-    variantSelect.textContent = '';
-    const language = document.documentElement.lang === 'en' ? 'en' : 'uk';
-    (Array.isArray(variants) && variants.length
-        ? variants
-        : [{id:'1', labelUk:'Варіант 1', labelEn:'Variant 1'}]
-    ).forEach(item => {
-        const option = document.createElement('option');
-        option.value = String(item.id || '1');
-        option.textContent = language === 'en'
-            ? String(item.labelEn || ('Variant ' + option.value))
-            : String(item.labelUk || ('Варіант ' + option.value));
-        option.selected = option.value === String(selected || '1');
-        variantSelect.appendChild(option);
-    });
+async function loadMoveFeedbackSettings() {
+    const control = byId('move-error-announcements');
+    const a = api();
+    if (!control) return;
+    control.disabled = true;
+    try {
+        if (!a || typeof a.get_move_feedback_settings !== 'function') return;
+        const result = await a.get_move_feedback_settings();
+        control.checked = result.enabled === true;
+        control.disabled = result.ok !== true;
+    } catch (_) {}
 }
 
 async function loadSoundState() {
@@ -717,27 +701,32 @@ async function loadSoundState() {
     const enabled = byId('sound-enabled');
     const newGameAnimation = byId('sound-newgame-animation');
     const volume = byId('sound-volume');
-    const variant = byId('sound-variant');
     const tickPolicy = byId('sound-tick-policy');
     const tickLastSeconds = byId('sound-tick-last-seconds');
     const lowTimePolicy = byId('sound-low-time-policy');
     const lowTimeSeconds = byId('sound-low-time-seconds');
     const status = byId('sound-settings-status');
+    const controls = [enabled, newGameAnimation, volume, tickPolicy, tickLastSeconds, lowTimePolicy, lowTimeSeconds];
+    // Never expose mutable sound controls before their canonical persisted state
+    // is known. This runs before the first await and also fail-closes reloads.
+    for (const control of controls) {
+        if (control) control.disabled = true;
+    }
+    // Treat a reload as a fresh authority transaction. While canonical state is
+    // unknown (or if the read fails), NEWGAME presentation must not reuse a
+    // stale timing/variant snapshot from an earlier successful read.
+    currentSoundState = null;
+    await loadMoveFeedbackSettings();
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
-        if (enabled) enabled.disabled = true;
-        if (newGameAnimation) newGameAnimation.disabled = true;
-        if (volume) volume.disabled = true;
-        if (variant) variant.disabled = true;
-        if (tickPolicy) tickPolicy.disabled = true;
-        if (tickLastSeconds) tickLastSeconds.disabled = true;
-        if (lowTimePolicy) lowTimePolicy.disabled = true;
-        if (lowTimeSeconds) lowTimeSeconds.disabled = true;
         return;
     }
     try {
         const state = await a.get_sound_settings();
         currentSoundState = state;
+        for (const control of controls) {
+            if (control) control.disabled = false;
+        }
         if (enabled) enabled.checked = !!state.enabled;
         if (newGameAnimation) newGameAnimation.checked = state.newGameAnimation !== false;
         if (volume) volume.value = String(state.volume ?? 80);
@@ -745,7 +734,6 @@ async function loadSoundState() {
         if (tickLastSeconds) tickLastSeconds.value = String(state.tickLastSeconds ?? 0);
         if (lowTimePolicy) lowTimePolicy.value = String(state.lowTimePolicy ?? 'my_turn');
         if (lowTimeSeconds) lowTimeSeconds.value = String(state.lowTimeSeconds ?? 30);
-        renderSoundVariants();
         if (status) status.textContent = '';
     } catch (_) {
         if (status) status.textContent = text().unavailable;
@@ -753,35 +741,26 @@ async function loadSoundState() {
 }
 
 function applySoundLanguage() {
+    const feedbackLabel = byId('move-error-announcements-label');
+    if (feedbackLabel) feedbackLabel.textContent = document.documentElement.lang === 'en'
+        ? 'Announce move input errors' : 'Озвучувати помилки введення ходів';
     const t = text();
     const legend = byId('sound-settings-legend');
     const enabledLabel = byId('sound-enabled-label');
     const newGameAnimationLabel = byId('sound-newgame-animation-label');
     const volumeLabel = byId('sound-volume-label');
-    const eventLabel = byId('sound-preview-event-label');
-    const variantLabel = byId('sound-variant-label');
     const tickPolicyLabel = byId('sound-tick-policy-label');
     const tickLastSecondsLabel = byId('sound-tick-last-seconds-label');
     const lowTimePolicyLabel = byId('sound-low-time-policy-label');
     const lowTimeSecondsLabel = byId('sound-low-time-seconds-label');
-    const preview = byId('sound-preview');
     if (legend) legend.textContent = t.legend;
     if (enabledLabel) enabledLabel.textContent = t.enabled;
     if (newGameAnimationLabel) newGameAnimationLabel.textContent = t.newGameAnimation;
     if (volumeLabel) volumeLabel.textContent = t.volume;
-    if (eventLabel) eventLabel.textContent = t.previewEvent;
-    if (variantLabel) variantLabel.textContent = t.variant;
     if (tickPolicyLabel) tickPolicyLabel.textContent = t.tickPolicy;
     if (tickLastSecondsLabel) tickLastSecondsLabel.textContent = t.tickLastSeconds;
     if (lowTimePolicyLabel) lowTimePolicyLabel.textContent = t.lowTimePolicy;
     if (lowTimeSecondsLabel) lowTimeSecondsLabel.textContent = t.lowTimeSeconds;
-    if (preview) preview.textContent = t.preview;
-    const select = byId('sound-preview-event');
-    if (select) {
-        [...select.options].forEach(option => {
-            option.textContent = t.events[option.value] || option.value;
-        });
-    }
     const tickPolicy = byId('sound-tick-policy');
     const lowTimePolicy = byId('sound-low-time-policy');
     for (const policySelect of [tickPolicy, lowTimePolicy]) {
@@ -791,7 +770,6 @@ function applySoundLanguage() {
             });
         }
     }
-    renderSoundVariants();
 }
 
 function installSoundSettings() {
@@ -811,11 +789,36 @@ function installSoundSettings() {
     const enabled = document.createElement('input');
     enabled.type = 'checkbox';
     enabled.id = 'sound-enabled';
+    enabled.checked = true;
+    enabled.disabled = true;
     const enabledLabel = document.createElement('label');
     enabledLabel.id = 'sound-enabled-label';
     enabledLabel.htmlFor = enabled.id;
     enabledRow.append(enabled, enabledLabel);
     fieldset.appendChild(enabledRow);
+
+    const feedbackRow = document.createElement('div');
+    feedbackRow.className = 'row';
+    const feedback = document.createElement('input');
+    feedback.type = 'checkbox';
+    feedback.id = 'move-error-announcements';
+    const feedbackLabel = document.createElement('label');
+    feedbackLabel.id = 'move-error-announcements-label';
+    feedbackLabel.htmlFor = feedback.id;
+    feedbackRow.append(feedback, feedbackLabel);
+    fieldset.appendChild(feedbackRow);
+    feedback.addEventListener('change', async () => {
+        const a = api();
+        try {
+            if (!a || typeof a.set_move_error_announcements !== 'function') throw new Error();
+            const result = await a.set_move_error_announcements(feedback.checked);
+            feedback.checked = result.enabled === true;
+            if (!result.ok) speak(text().unavailable);
+        } catch (_) {
+            await loadMoveFeedbackSettings();
+            speak(text().unavailable);
+        }
+    });
 
     const newGameAnimationRow = document.createElement('div');
     newGameAnimationRow.className = 'row';
@@ -835,6 +838,8 @@ function installSoundSettings() {
     volumeLabel.htmlFor = 'sound-volume';
     const volume = document.createElement('input');
     volume.id = 'sound-volume';
+    volume.value = '80';
+    volume.disabled = true;
     volume.type = 'number';
     volume.min = '0';
     volume.max = '100';
@@ -902,36 +907,6 @@ function installSoundSettings() {
     lowTimeSeconds.inputMode = 'numeric';
     lowTimeSecondsRow.append(lowTimeSecondsLabel, lowTimeSeconds);
     fieldset.appendChild(lowTimeSecondsRow);
-
-    const previewRow = document.createElement('div');
-    previewRow.className = 'row';
-    const eventLabel = document.createElement('label');
-    eventLabel.id = 'sound-preview-event-label';
-    eventLabel.htmlFor = 'sound-preview-event';
-    const eventSelect = document.createElement('select');
-    eventSelect.id = 'sound-preview-event';
-    ['move','capture','check','castle','promotion','illegal','start','end','mate','draw','tick','low_time'].forEach(value => {
-        const option = document.createElement('option');
-        option.value = value;
-        eventSelect.appendChild(option);
-    });
-    previewRow.append(eventLabel, eventSelect);
-    fieldset.appendChild(previewRow);
-
-    const variantRow = document.createElement('div');
-    variantRow.className = 'row';
-    const variantLabel = document.createElement('label');
-    variantLabel.id = 'sound-variant-label';
-    variantLabel.htmlFor = 'sound-variant';
-    const variantSelect = document.createElement('select');
-    variantSelect.id = 'sound-variant';
-    variantRow.append(variantLabel, variantSelect);
-    fieldset.appendChild(variantRow);
-
-    const preview = document.createElement('button');
-    preview.id = 'sound-preview';
-    preview.type = 'button';
-    fieldset.appendChild(preview);
 
     const status = document.createElement('div');
     status.id = 'sound-settings-status';
@@ -1053,38 +1028,6 @@ function installSoundSettings() {
         }
     });
 
-    eventSelect.addEventListener('change', () => {
-        renderSoundVariants();
-    });
-
-    variantSelect.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_sound_variant !== 'function') return;
-        try {
-            const result = await a.set_sound_variant(eventSelect.value, variantSelect.value);
-            currentSoundState = result;
-            renderSoundVariants();
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
-    });
-
-    preview.addEventListener('click', async () => {
-        const a = api();
-        if (!a || typeof a.preview_sound !== 'function') return;
-        try {
-            const result = await a.preview_sound(eventSelect.value);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
-    });
-
     applySoundLanguage();
     soundStateLoadPromise = loadSoundState();
 }
@@ -1099,7 +1042,12 @@ async function markReady() {
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
-    try { await soundStateLoadPromise; } catch (_) {}
+    try {
+        await soundStateLoadPromise;
+        // Initial HTML may precede pywebviewready. Read the persisted state
+        // again now that the bridge exists, and re-enable its controls.
+        await loadSoundState();
+    } catch (_) {}
     stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
     // Do not mark the whole main document aria-busy while WebView2 is building

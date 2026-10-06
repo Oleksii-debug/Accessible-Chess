@@ -23,6 +23,7 @@ DEFAULTS: dict[str, Any] = {
     "language": "uk",
     "notation": "uk_literal",
     "sounds": True,
+    "announce_move_errors": False,
     "newgame_animation": True,
     "volume": 80,
     "tick_policy": "my_turn",
@@ -467,7 +468,7 @@ def _validated_value(key: str, value: Any) -> Any:
         if type(value) is not str or value not in _ALLOWED_NOTATION:
             raise SettingsError("notation must be san, uk_literal, or en_literal")
         return value
-    if key in {"sounds", "newgame_animation"}:
+    if key in {"sounds", "newgame_animation", "announce_move_errors"}:
         if type(value) is not bool:
             raise SettingsError(f"{key} must be boolean")
         return value
