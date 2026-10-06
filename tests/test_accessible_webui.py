@@ -146,6 +146,12 @@ class AccessibleWebUiTests(unittest.TestCase):
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', self.html)
+        self.assertIn(
+            '<dialog id="keymap-dialog" aria-labelledby="h-keyboard" aria-describedby="key-recovery-status">',
+            self.html,
+        )
+        self.assertIn('<div id="key-recovery-status" class="block" hidden></div>', self.html)
+        self.assertNotIn('id="key-recovery-status" class="block" role="status"', self.html)
         self.assertNotIn('status.setAttribute(\'role\',\'status\')', self.html)
         self.assertNotIn("Конфліктів немає", self.html)
         self.assertNotIn("No conflicts.", self.html)
