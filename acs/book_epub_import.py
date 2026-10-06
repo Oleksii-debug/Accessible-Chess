@@ -30,7 +30,7 @@ from .book_html_import import (
     BookHtmlImportErrorCode,
     import_html_book,
 )
-from .bookdocument import BookDocument, Heading, block_from_dict
+from .bookdocument import (\n    MAX_BOOK_DOCUMENT_BLOCKS,\n    BookDocument,\n    Heading,\n    block_from_dict,\n)
 
 
 MAX_EPUB_SOURCE_BYTES = 64 * 1024 * 1024
@@ -2326,7 +2326,19 @@ def import_epub_book(
             for block_index, block in enumerate(imported.document.blocks, start=1):
                 if control_checkpoint is not None and block_index % 128 == 1:
                     control_checkpoint()
-                blocks.append(_rebase_block(block, item.entry_name, chapter_index, block_index))
+                if len(blocks) >= MAX_BOOK_DOCUMENT_BLOCKS:
+                    raise _error(
+                        "EPUB semantic content exceeds the canonical BookDocument block limit",
+                        BookEpubImportErrorCode.RESOURCE_LIMIT,
+                    )
+                blocks.append(
+                    _rebase_block(
+                        block,
+                        item.entry_name,
+                        chapter_index,
+                        block_index,
+                    )
+                )
             for reference_index, reference in enumerate(imported.image_references, start=1):
                 if control_checkpoint is not None and reference_index % 128 == 1:
                     control_checkpoint()
