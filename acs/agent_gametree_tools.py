@@ -30,6 +30,18 @@ def _exact_index(value: object, *, name: str) -> int:
     return value
 
 
+
+def _require_fields(
+    arguments: Mapping[str, object],
+    allowed: frozenset[str],
+) -> None:
+    for key in arguments:
+        if type(key) is not str:
+            raise AgentGameTreeError("tool argument keys must be text")
+        if key not in allowed:
+            raise AgentGameTreeError(f"unknown tool argument: {key}")
+
+
 def _move_payload(move: MoveNode | None) -> dict[str, object] | None:
     if move is None:
         return None
@@ -123,20 +135,24 @@ def register_gametree_tools(
             raise TypeError("workspace_provider must return PgnWorkspace")
         return value
 
-    async def current(_arguments: Mapping[str, object]) -> object:
+    async def current(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset())
         return _workspace_payload(workspace())
 
-    async def next_move(_arguments: Mapping[str, object]) -> object:
+    async def next_move(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset())
         value = workspace()
         value.next_move()
         return _workspace_payload(value)
 
-    async def previous_move(_arguments: Mapping[str, object]) -> object:
+    async def previous_move(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset())
         value = workspace()
         value.previous_move()
         return _workspace_payload(value)
 
     async def enter_variation(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset({"variation_index"}))
         value = workspace()
         variation_index = _exact_index(
             arguments.get("variation_index", 0),
@@ -145,12 +161,14 @@ def register_gametree_tools(
         value.enter_variation(variation_index)
         return _workspace_payload(value)
 
-    async def leave_variation(_arguments: Mapping[str, object]) -> object:
+    async def leave_variation(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset())
         value = workspace()
         value.leave_variation()
         return _workspace_payload(value)
 
     async def sibling_variation(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset({"direction"}))
         direction = arguments.get("direction")
         if direction not in {"previous", "next"}:
             raise AgentGameTreeError(
@@ -161,17 +179,20 @@ def register_gametree_tools(
         return _workspace_payload(value)
 
     async def select_game(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset({"index"}))
         value = workspace()
         index = _exact_index(arguments.get("index"), name="index")
         value.select_game(index)
         return _workspace_payload(value)
 
-    async def next_game(_arguments: Mapping[str, object]) -> object:
+    async def next_game(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset())
         value = workspace()
         value.next_game()
         return _workspace_payload(value)
 
-    async def previous_game(_arguments: Mapping[str, object]) -> object:
+    async def previous_game(arguments: Mapping[str, object]) -> object:
+        _require_fields(arguments, frozenset())
         value = workspace()
         value.previous_game()
         return _workspace_payload(value)

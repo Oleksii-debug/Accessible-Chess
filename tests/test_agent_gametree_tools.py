@@ -172,6 +172,21 @@ class AgentGameTreeToolsTests(unittest.TestCase):
         self.assertEqual(self.workspace.content_digest, digest)
         self.assertFalse(self.workspace.dirty)
 
+
+    def test_unknown_arguments_fail_closed_before_navigation(self) -> None:
+        before = self.workspace.view()
+        for tool_id, arguments in (
+            ("gametree.current", {"unexpected": 1}),
+            ("gametree.next_move", {"unexpected": 1}),
+            ("gametree.enter_variation", {"variation_index": 0, "extra": True}),
+            ("gametree.select_game", {"index": 1, "extra": "x"}),
+        ):
+            with self.subTest(tool_id=tool_id):
+                result = self.execute(tool_id, arguments)
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error, "tool failed")
+                self.assertEqual(self.workspace.view(), before)
+
     def test_navigation_risk_is_explicit(self) -> None:
         specs = {spec.tool_id: spec for spec in self.executor.specs()}
         self.assertEqual(specs["gametree.current"].risk, ToolRisk.READ_ONLY)
