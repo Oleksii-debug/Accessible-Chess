@@ -212,6 +212,23 @@ def _uia_menu_handle_binding_checks(
             and exact_row.get("process_id") == pid
             and exact_row.get("native_window_handle") == menu_handle
         ),
+        "uia_exact_row_enabled": exact_row.get("enabled") is True,
+        "uia_exact_row_onscreen": exact_row.get("offscreen") is False,
+        "uia_from_handle_matches_exact_row": (
+            bool(from_handle)
+            and bool(exact_row)
+            and all(
+                from_handle.get(field) == exact_row.get(field)
+                for field in (
+                    "automation_id",
+                    "control_type",
+                    "process_id",
+                    "native_window_handle",
+                    "enabled",
+                    "offscreen",
+                )
+            )
+        ),
     }
 
 
