@@ -238,6 +238,7 @@ class PgnTreePresenter:
 
     _EDIT_ACTIONS = frozenset(
         {
+            "pgn.search",
             "pgn.comment_edit",
             "pgn.comment_delete",
             "pgn.nag_edit",
