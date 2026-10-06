@@ -249,7 +249,12 @@ class Version2ImportUiWakeupPump:
         except BaseException:
             with self._lock:
                 self._owner_callback_active = False
-            raise
+            # Owner callback failure is recoverable control state. Keep the
+            # exact callback retained and contain even abort-class exceptions;
+            # the runtime will fail closed before newer command dispatch and a
+            # later owner-thread attempt can retry the same completion.
+            _safe_warning("Version 2 owner callback delivery failed")
+            return
         with self._lock:
             self._owner_callback_active = False
             if self._owner_callback is callback:
