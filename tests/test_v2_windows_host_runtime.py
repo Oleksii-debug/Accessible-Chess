@@ -773,6 +773,30 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(_OpenDialog.owners, [owner])
             self.assertTrue(runtime.shutdown())
 
+    def test_refused_import_shutdown_does_not_retire_library_export_delegate(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+
+        with patch.object(
+            runtime._file_delegate,
+            "shutdown",
+            return_value=False,
+        ) as import_shutdown, patch.object(
+            runtime._library_export_delegate,
+            "shutdown",
+            wraps=runtime._library_export_delegate.shutdown,
+        ) as export_shutdown:
+            self.assertFalse(runtime.shutdown(0.0))
+            import_shutdown.assert_called_once_with(0.0)
+            export_shutdown.assert_not_called()
+
+        self.assertFalse(runtime.closed)
+        still_live = runtime._library_export_delegate.cancel_export()
+        self.assertEqual(still_live.kind, LibraryExportHostEventKind.FAILED)
+        self.assertEqual(still_live.error_code, "no_library_export_running")
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
     def test_shutdown_cancels_and_joins_worker_before_runtime_closes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "cancel.pgn"
