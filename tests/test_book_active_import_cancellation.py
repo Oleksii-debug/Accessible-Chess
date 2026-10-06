@@ -314,6 +314,26 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_html_parser_events_observe_control_inside_single_feed_chunk(self):
+        failure = SourceReadCancelledError('cancelled inside HTMLParser.feed')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        source = '<p>' * 400 + 'unreached'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.feed(source)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertLess(parser._node_count, 400)
+
     def test_html_close_recovery_control_failure_preserves_exact_exception(self):
         failure = SourceReadCancelledError('cancelled during malformed HTML recovery')
         calls = 0
