@@ -1065,6 +1065,73 @@ class PortableTreeTests(unittest.TestCase):
             ):
                 validate_portable_oneclick_tree(root, expected_integration_sha=_SHA)
 
+    def test_validator_terminal_revalidation_rejects_late_member_mutation(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = root / "Посібник.docx"
+            real_checksum_inventory = portable_module._checksum_inventory
+            calls = 0
+
+            def validate_then_mutate(candidate_root, inventory):
+                nonlocal calls
+                calls += 1
+                result = real_checksum_inventory(candidate_root, inventory)
+                if calls == 1:
+                    target.write_bytes(b"late-unqualified-document-bytes")
+                return result
+
+            with mock.patch.object(
+                portable_module,
+                "_checksum_inventory",
+                side_effect=validate_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable package checksum verification failed",
+                ):
+                    validate_portable_oneclick_tree(
+                        root,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertEqual(calls, 2)
+
+    def test_validator_terminal_revalidation_rejects_late_coherent_checksum_rewrite(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            target = root / "Посібник.docx"
+            real_checksum_inventory = portable_module._checksum_inventory
+            calls = 0
+
+            def validate_then_rewrite_authority(candidate_root, inventory):
+                nonlocal calls
+                calls += 1
+                result = real_checksum_inventory(candidate_root, inventory)
+                if calls == 1:
+                    target.write_bytes(b"late-but-coherently-checksummed-document")
+                    _write_checksums(root)
+                return result
+
+            with mock.patch.object(
+                portable_module,
+                "_checksum_inventory",
+                side_effect=validate_then_rewrite_authority,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "portable package checksum authority changed during validation",
+                ):
+                    validate_portable_oneclick_tree(
+                        root,
+                        expected_integration_sha=_SHA,
+                    )
+
+            self.assertEqual(calls, 2)
+
     def test_private_seed_requirement_is_explicit_and_package_local(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
