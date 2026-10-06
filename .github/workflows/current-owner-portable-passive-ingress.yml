@@ -47,15 +47,20 @@ jobs:
         run: |
           set -euo pipefail
           head_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "refs/heads/$BASE_REF"
+          live_base_sha="$(git rev-parse FETCH_HEAD)"
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
             test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
-            base_sha="${{ github.event.pull_request.base.sha }}"
+            test "${{ github.event.pull_request.base.sha }}" = "$live_base_sha" || {
+              printf 'OWNER_PORTABLE_PARENT_MOVED event=%s live=%s\n' \
+                "${{ github.event.pull_request.base.sha }}" "$live_base_sha" >&2
+              exit 1
+            }
           else
             test "$head_sha" = "${{ github.sha }}"
-            git fetch --no-tags origin "refs/heads/$BASE_REF"
-            base_sha="$(git rev-parse FETCH_HEAD)"
           fi
+          base_sha="$live_base_sha"
           test -n "$base_sha"
           git cat-file -e "$base_sha^{commit}"
           git merge-base --is-ancestor "$base_sha" HEAD
