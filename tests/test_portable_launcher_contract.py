@@ -156,7 +156,11 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         )
         generic_failure = self.source[fail_generic_start:fail_generic_end]
         self.assertIn(
-            "BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);",
+            "DWORD stable_code = code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : code;",
+            generic_failure,
+        )
+        self.assertIn(
+            "BOOL child_stopped = ac_retire_owned_child(stable_code);",
             generic_failure,
         )
         self.assertLess(
