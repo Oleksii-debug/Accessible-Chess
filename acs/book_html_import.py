@@ -616,27 +616,59 @@ def _text(
         )
     return stripped
 
-def _source_text(source: object) -> tuple[str, bytes, bool]:
+def _source_text(
+    source: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, bytes, bool]:
     if type(source) is str:
-        try:
-            encoded = source.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise BookHtmlImportError(
-                "HTML book source must be valid Unicode text",
-                code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
-            ) from exc
-        if len(encoded) > MAX_HTML_SOURCE_BYTES:
+        # Every Unicode scalar requires at least one UTF-8 byte. Reject an
+        # impossible source before allocating the encoded representation.
+        if len(source) > MAX_HTML_SOURCE_BYTES:
             raise BookHtmlImportError(
                 "HTML book source exceeds the supported size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, encoded, False
+        if control_checkpoint is None:
+            try:
+                encoded = source.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise BookHtmlImportError(
+                    "HTML book source must be valid Unicode text",
+                    code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
+                ) from exc
+            if len(encoded) > MAX_HTML_SOURCE_BYTES:
+                raise BookHtmlImportError(
+                    "HTML book source exceeds the supported size",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
+            return source, encoded, False
+
+        encoded = bytearray()
+        for offset in range(0, len(source), 16_384):
+            control_checkpoint()
+            try:
+                chunk = source[offset : offset + 16_384].encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise BookHtmlImportError(
+                    "HTML book source must be valid Unicode text",
+                    code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
+                ) from exc
+            if len(encoded) + len(chunk) > MAX_HTML_SOURCE_BYTES:
+                raise BookHtmlImportError(
+                    "HTML book source exceeds the supported size",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
+            encoded.extend(chunk)
+        control_checkpoint()
+        return source, bytes(encoded), False
     if type(source) is bytes:
         if len(source) > MAX_HTML_SOURCE_BYTES:
             raise BookHtmlImportError(
                 "HTML book source exceeds the supported size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
+        if control_checkpoint is not None:
+            control_checkpoint()
         try:
             decoded = decode_book_text_bytes(source, html=True)
         except LegacyTextEncodingError as exc:
@@ -644,12 +676,13 @@ def _source_text(source: object) -> tuple[str, bytes, bool]:
                 "HTML book source must use UTF-8, BOM UTF-16 or qualified Windows-1251 encoding",
                 code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        if control_checkpoint is not None:
+            control_checkpoint()
         return decoded.text, source, decoded.legacy
     raise BookHtmlImportError(
         "HTML book source must be text or bytes",
         code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
     )
-
 
 def _compact(
     value: str,
@@ -2109,7 +2142,7 @@ def import_html_book(
     override_language = _text(
         language, "language", optional=True, control_checkpoint=control_checkpoint
     )
-    text, raw, legacy_windows_1251 = _source_text(source)
+    text, raw, legacy_windows_1251 = _source_text(source, control_checkpoint)
     assets = _asset_set(available_assets, control_checkpoint)
 
     parser = _SemanticHtmlParser(

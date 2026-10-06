@@ -1603,5 +1603,51 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIn("too many explicitly marked PGN regions", str(caught.exception))
 
 
+    def test_html_unicode_source_encoding_observes_control_between_chunks(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError(
+            "cancelled during HTML Unicode source encoding"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._source_text("x" * 50_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_oversized_unicode_source_fails_resource_limit_before_encoding(self):
+        import acs.book_html_import as html
+
+        invalid_unicode = chr(0xD800) * 9
+        with patch.object(html, "MAX_HTML_SOURCE_BYTES", 8):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                html._source_text(invalid_unicode, lambda: None)
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+
+    def test_html_controlled_unicode_source_encoding_preserves_exact_bytes(self):
+        import acs.book_html_import as html
+
+        source = "Zażółć gęślą ♟\n<p>Readable</p>"
+        plain = html._source_text(source)
+        calls = []
+        controlled = html._source_text(source, lambda: calls.append(1))
+
+        self.assertEqual(controlled, plain)
+        self.assertEqual(controlled[1], source.encode("utf-8"))
+        self.assertGreaterEqual(len(calls), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
