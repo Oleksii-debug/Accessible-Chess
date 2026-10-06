@@ -641,6 +641,8 @@ class Version2WindowsLibraryExportDelegate:
         if type(retain_terminal_for_recovery) is not bool:
             raise TypeError("retain_terminal_for_recovery must be bool")
         with self._lock:
+            if self._shutdown_recovery_delivery_inflight:
+                return False
             if self._closed:
                 return True
             if self._terminal_delivery_inflight:
