@@ -137,6 +137,7 @@ class Version2WindowsLibraryExportDelegate:
         self._thread: threading.Thread | None = None
         self._cancel: threading.Event | None = None
         self._terminal_pending: tuple[int, LibraryExportHostEvent] | None = None
+        self._terminal_delivery_inflight = False
         self._retry_timer: threading.Timer | None = None
         self._generation = 0
         self._closed = False
@@ -464,23 +465,45 @@ class Version2WindowsLibraryExportDelegate:
         self,
         generation: int,
         terminal: LibraryExportHostEvent,
-    ) -> None:
+    ) -> bool:
         self._assert_ui_thread()
         with self._lock:
             if generation != self._generation or self._closed:
-                return
+                return False
             pending = self._terminal_pending
-            if pending != (generation, terminal):
-                return
+            if pending != (generation, terminal) or self._terminal_delivery_inflight:
+                return False
+            self._terminal_delivery_inflight = True
             retry_timer = self._retry_timer
             self._retry_timer = None
+        if retry_timer is not None:
+            retry_timer.cancel()
+
+        try:
+            self._event_sink(terminal)
+        except BaseException:
+            with self._lock:
+                self._terminal_delivery_inflight = False
+            _LOG.warning(
+                "Version 2 Library export terminal delivery failed",
+                exc_info=True,
+            )
+            return False
+
+        with self._lock:
+            if (
+                generation != self._generation
+                or self._closed
+                or self._terminal_pending != (generation, terminal)
+            ):
+                self._terminal_delivery_inflight = False
+                return False
             self._terminal_pending = None
             self._cancel = None
             self._thread = None
             self._shutdown_recovery_requested = False
-        if retry_timer is not None:
-            retry_timer.cancel()
-        self._emit(terminal)
+            self._terminal_delivery_inflight = False
+        return True
 
     def recover_pending_terminal(self) -> bool:
         """Publish an already-chosen terminal on the owner thread, if any."""
@@ -490,8 +513,7 @@ class Version2WindowsLibraryExportDelegate:
             if self._closed or self._terminal_pending is None:
                 return False
             generation, terminal = self._terminal_pending
-        self._finish_export(generation, terminal)
-        return True
+        return self._finish_export(generation, terminal)
 
     def cancel_export(self) -> LibraryExportHostEvent:
         """Request cooperative cancellation without racing a chosen terminal result."""
@@ -613,6 +635,8 @@ class Version2WindowsLibraryExportDelegate:
         with self._lock:
             if self._closed:
                 return True
+            if self._terminal_delivery_inflight:
+                return False
             cancel = self._cancel
             thread = self._thread
             worker_was_live = thread is not None and thread.is_alive()
