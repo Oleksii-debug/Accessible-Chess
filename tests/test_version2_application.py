@@ -888,7 +888,7 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertFalse(recovered_files.import_running)
         self.assertGreater(self.mailbox.pending_count, 0)
         self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
-        self.assertEqual(self.database.conn.execute("SELECT 1").fetchone(), (1,))
+        self.assertEqual(tuple(self.database.conn.execute("SELECT 1").fetchone()), (1,))
 
         # Production recovery re-opens the UI pump and drains this retained
         # mailbox terminal. Model that owner-thread delivery here: it must clear
