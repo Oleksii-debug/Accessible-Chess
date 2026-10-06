@@ -6,15 +6,19 @@ on:
       - work/accessible-chess-20261005-live-broadcast-sol56t3q8
     paths:
       - acs/structured_broadcast.py
+      - acs/structured_broadcast_application.py
       - acs/structured_broadcast_live.py
       - tests/test_structured_broadcast.py
+      - tests/test_structured_broadcast_application.py
       - tests/test_structured_broadcast_live.py
       - .github/workflows/structured-broadcast-core.yml
   pull_request:
     paths:
       - acs/structured_broadcast.py
+      - acs/structured_broadcast_application.py
       - acs/structured_broadcast_live.py
       - tests/test_structured_broadcast.py
+      - tests/test_structured_broadcast_application.py
       - tests/test_structured_broadcast_live.py
       - .github/workflows/structured-broadcast-core.yml
 
@@ -65,8 +69,10 @@ jobs:
           expected=(
             '.github/workflows/structured-broadcast-core.yml'
             'acs/structured_broadcast.py'
+            'acs/structured_broadcast_application.py'
             'acs/structured_broadcast_live.py'
             'tests/test_structured_broadcast.py'
+            'tests/test_structured_broadcast_application.py'
             'tests/test_structured_broadcast_live.py'
           )
           if [ "${#changed[@]}" -ne "${#expected[@]}" ]; then
@@ -85,9 +91,11 @@ jobs:
           python -m py_compile
           acs/media_core.py
           acs/structured_broadcast.py
+          acs/structured_broadcast_application.py
           acs/structured_broadcast_live.py
           tests/test_media_core.py
           tests/test_structured_broadcast.py
+          tests/test_structured_broadcast_application.py
           tests/test_structured_broadcast_live.py
 
       - name: Run Media Core and structured broadcast regressions
@@ -95,4 +103,7 @@ jobs:
           python -m unittest -v
           tests.test_media_core
           tests.test_structured_broadcast
+          tests.test_structured_broadcast_application
           tests.test_structured_broadcast_live
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree
