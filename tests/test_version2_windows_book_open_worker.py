@@ -113,19 +113,35 @@ class BookOpenWorkerTests(unittest.TestCase):
 
     def test_post_failure_never_commits_from_worker_thread(self) -> None:
         commits = []
+        events = []
 
         def reject_post(_callback):
-            raise RuntimeError("owner closing")
+            raise RuntimeError("owner temporarily unavailable")
 
         worker = Version2BookOpenWorker(
             prepare=lambda source, *, cancel_check: "prepared-book",
             commit=commits.append,
             post_to_ui=reject_post,
-            event_sink=lambda event: None,
+            event_sink=lambda event: events.append(event.kind),
         )
-        worker.start(Path("book.md"))
+        worker.start(Path("book.md"), focus_target="book-open")
         self._wait(lambda: not worker.active)
+
         self.assertEqual(commits, [])
+        self.assertEqual(events, [BookOpenWorkerEventKind.STARTED])
+
+        # Recovery occurs only when the existing UI owner asks for pending
+        # presentation work; the background thread never calls the event sink.
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
 
     def test_thread_start_failure_does_not_leave_worker_busy(self) -> None:
         events = []
