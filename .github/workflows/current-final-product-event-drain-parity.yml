@@ -1,47 +1,97 @@
-name: Final Product Presentation Safety
+name: Final Product Presentation And Publication Safety
 
 on:
-  push:
+  pull_request:
     branches:
       - work/final-product-event-drain-parity-20261006-x7q2
     paths:
-      - web/version2_final_product_bootstrap.js
-      - tests/js/version2_final_product_event_drain_serialization_test.js
-      - .github/workflows/current-final-product-event-drain-parity.yml
-  pull_request:
-    paths:
-      - web/version2_final_product_bootstrap.js
-      - tests/js/version2_final_product_event_drain_serialization_test.js
-      - .github/workflows/current-final-product-event-drain-parity.yml
+      - '.github/workflows/current-final-product-event-drain-parity.yml'
+      - 'tests/js/version2_final_product_event_drain_serialization_test.js'
+      - 'web/version2_final_product_bootstrap.js'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: final-product-presentation-publication-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  FINAL_BOOTSTRAP_BLOB: 2df923a90e65ce95cf0e9b764a48a487ee4868f9
+  FINAL_TEST_BLOB: c661c871bd45b707f1241b51fb37dd933af2e057
+  RELEASE_BOOTSTRAP_BLOB: 7d385bb0e1cfa55521b74ba6a4904700379e8f9c
+  RELEASE_DOM_TEST_BLOB: ab982e5db979477860d19158b7233587fdc54cdb
+  PUBLICATION_BACKEND_TEST_BLOB: cc3c1eadd86498e6ced76c3ea898f80b33d25975
+
 jobs:
-  presentation-safety:
+  exact-head:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-22.04
-          - windows-2025
+        os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          node-version: "22"
-      - uses: actions/setup-python@v5
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact parent and one-path qualification scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EXPECTED_BASE_REF: work/final-product-event-drain-parity-20261006-x7q2
+        run: |
+          set -euo pipefail
+          test "$EVENT_BASE_REF" = "$EXPECTED_BASE_REF"
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EVENT_BASE_SHA"...HEAD)"
+          test "$changed" = '.github/workflows/current-final-product-event-drain-parity.yml'
+          test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "$FINAL_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_final_product_event_drain_serialization_test.js)" = "$FINAL_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$RELEASE_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$RELEASE_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$PUBLICATION_BACKEND_TEST_BLOB"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          python-version: "3.13"
-      - name: JavaScript syntax
-        run: node --check web/version2_final_product_bootstrap.js
-      - name: Canonical release presentation regression
-        run: node tests/js/version2_release_bootstrap_dom_test.js
-      - name: Final-product presentation safety regression
-        run: node tests/js/version2_final_product_event_drain_serialization_test.js
-      - name: Semantic selection executable
-        run: node tests/p0_semantic_document_copy_executable.js
-      - name: Semantic copy source contract
-        run: python -m unittest tests.test_p0_semantic_document_copy
+          node-version: '22'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Check browser authority syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/version2_final_product_bootstrap.js
+          node --check tests/js/version2_final_product_event_drain_serialization_test.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Execute final and release browser publication oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/js/version2_final_product_event_drain_serialization_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/p0_semantic_document_copy_executable.js
+
+      - name: Execute host publication and semantic-copy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_library_open_game_publication
+          tests.test_v2_book_training_route_rollback
+          tests.test_p0_semantic_document_copy
