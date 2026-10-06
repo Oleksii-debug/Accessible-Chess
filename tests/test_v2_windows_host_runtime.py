@@ -138,6 +138,12 @@ class _Library:
         return LibraryImportResult(1, 1, total, source_warning_count, 1, total)
 
 
+class _FailingLibrary(_Library):
+    def import_games(self, games, **kwargs) -> LibraryImportResult:
+        self.calls += 1
+        raise RuntimeError("synthetic canonical Library import failure")
+
+
 class _CancellableLibrary(_Library):
     def __init__(self) -> None:
         super().__init__()
@@ -469,6 +475,76 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(imported_events[-1].game_count, 1)
             self.assertEqual(_OpenDialog.owners, [owner])
+            self.assertTrue(runtime.shutdown())
+
+    def test_real_import_failure_terminal_retries_without_repeating_import(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "transactional-failed-import-retry.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _FailingLibrary()
+            closed_services: list[bool] = []
+            delivered: list[object] = []
+            leased_batches: list[tuple[object, ...]] = []
+
+            class PresentationAbort(BaseException):
+                pass
+
+            def transactional_ready(mailbox) -> None:
+                with mailbox.delivery_batch() as events:
+                    leased_batches.append(events)
+                    if len(leased_batches) == 1:
+                        raise PresentationAbort()
+                    delivered.extend(events)
+
+            runtime = self._runtime(
+                owner,
+                library=library,
+                closed_services=closed_services,
+                import_ui_ready_override=transactional_ready,
+            )
+
+            with patch(
+                "acs.version2_windows_import_ui_pump._AUTO_RETRY_DELAY_SECONDS",
+                0.01,
+            ):
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(runtime.wait_for_import(5.0))
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+
+                owner.posted.pop(0)()
+                self.assertEqual(library.calls, 1)
+                self.assertEqual(closed_services, [True])
+                self.assertEqual(len(leased_batches), 1)
+                first_batch = leased_batches[0]
+                self.assertEqual(len(first_batch), 1)
+                self.assertEqual(first_batch[0].kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(first_batch[0].action_id, "library.import")
+                self.assertEqual(first_batch[0].error_code, "library_import_failed")
+                self.assertEqual(runtime.import_mailbox.pending_count, 1)
+
+                deadline = time.monotonic() + 1.0
+                while not owner.posted and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+
+            self.assertEqual(library.calls, 1)
+            self.assertEqual(closed_services, [True])
+            self.assertEqual(len(leased_batches), 2)
+            self.assertEqual(
+                tuple(id(event) for event in leased_batches[1]),
+                tuple(id(event) for event in first_batch),
+            )
+            self.assertEqual(delivered, list(first_batch))
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertFalse(runtime.import_running)
             self.assertTrue(runtime.shutdown())
 
     def test_real_import_retries_failed_transactional_terminal_presentation(self) -> None:
