@@ -291,6 +291,12 @@ class Version2BookOpenWorker:
             # a terminal. Reconcile the visible/NVDA busy state now, on the UI
             # owner thread, before reporting recovery success.
             self._publish_pending_recovery_cancel()
+            # Terminal delivery is itself an observer boundary and may re-enter
+            # FormClosing. Do not claim recovery if that callback already fenced
+            # this worker again.
+            with self._lock:
+                if self._closed:
+                    return False
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
