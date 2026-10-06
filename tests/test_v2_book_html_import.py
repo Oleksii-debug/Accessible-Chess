@@ -716,7 +716,7 @@ class BookHtmlImportTests(unittest.TestCase):
 <p>Visible tail one</p>
 </body></html>""",
             f"""<html><body>
-<section style="display:none; display:math">
+<section style="display:none; display:future-layout">
   <div data-acs-fen="{Board.START}">Hidden unsupported display value</div>
 </section>
 <p>Visible tail four</p>
@@ -767,9 +767,12 @@ class BookHtmlImportTests(unittest.TestCase):
                 "inline",
                 "flex",
                 "grid",
+                "math",
                 "inline-block",
                 "block flow-root",
                 "inline flex",
+                "block math",
+                "inline math",
                 "block flow list-item",
             )
         ):
