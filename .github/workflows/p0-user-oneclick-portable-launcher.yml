@@ -360,6 +360,12 @@ jobs:
             'PREFLIGHT: PASS',
             'PROCESS_CREATED: YES',
             'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE',
+            'PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD',
+            'APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD',
+            'PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD',
             'STATUS: STARTUP_WINDOW_READY',
             'USER_WINDOW_PROVEN: YES',
             'USER_NVDA_PROVEN: NO'
@@ -402,7 +408,71 @@ jobs:
 
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
+
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class AccessibleChessDirectoryDeleteProbe {
+              private const uint DeleteAccess = 0x00010000;
+              private const uint ShareRead = 0x00000001;
+              private const uint ShareWrite = 0x00000002;
+              private const uint ShareDelete = 0x00000004;
+              private const uint OpenExisting = 3;
+              private const uint BackupSemantics = 0x02000000;
+              private const uint OpenReparsePoint = 0x00200000;
+              private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              private static extern IntPtr CreateFileW(
+                  string fileName,
+                  uint desiredAccess,
+                  uint shareMode,
+                  IntPtr securityAttributes,
+                  uint creationDisposition,
+                  uint flagsAndAttributes,
+                  IntPtr templateFile
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern bool CloseHandle(IntPtr handle);
+
+              public static int Probe(string path) {
+                  IntPtr handle = CreateFileW(
+                      path,
+                      DeleteAccess,
+                      ShareRead | ShareWrite | ShareDelete,
+                      IntPtr.Zero,
+                      OpenExisting,
+                      BackupSemantics | OpenReparsePoint,
+                      IntPtr.Zero
+                  );
+                  if (handle == InvalidHandleValue) {
+                      return Marshal.GetLastWin32Error();
+                  }
+                  CloseHandle(handle);
+                  return 0;
+              }
+          }
+          '@
+
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 32) {
+              throw "Transferred directory guard missing for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
+
           Start-Sleep -Seconds 7
+
+          $reportedChild.Kill()
+          $reportedChild.WaitForExit()
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 0) {
+              throw "Directory guard leaked after child exit for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
 
       - name: Execute transient-window false-success regression
         shell: pwsh
