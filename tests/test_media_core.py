@@ -285,7 +285,7 @@ class MediaCoreContractTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
 
     def test_non_finite_or_out_of_range_confidence_is_rejected(self):
-        for value in (math.nan, math.inf, -0.1, 1.1, True):
+        for value in (math.nan, math.inf, -0.1, 1.1, True, 10**1000):
             with self.subTest(value=value):
                 with self.assertRaises(MediaContractError) as caught:
                     self.link(1_000, "tree:a", confirmed=False, confidence=value)
@@ -439,7 +439,7 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(clock.resume(1200).state, MediaPlaybackState.PLAYING)
 
     def test_clock_fractional_rate_progress_is_not_lost_between_snapshots(self):
-        clock = MediaClock()
+        clock = MediaClock(playback_rate=1.5)
         clock.play(0)
         self.assertEqual(clock.snapshot(1).position_ms, 1)
         self.assertEqual(clock.snapshot(2).position_ms, 3)
@@ -506,7 +506,7 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
 
     def test_clock_rejects_invalid_rate_and_duration(self):
-        for value in (0, -1, math.nan, math.inf, True, "2.0"):
+        for value in (0, -1, math.nan, math.inf, True, "2.0", 10**1000):
             with self.subTest(value=value):
                 with self.assertRaises(MediaContractError) as caught:
                     MediaClock(playback_rate=value)
