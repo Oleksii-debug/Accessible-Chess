@@ -64,7 +64,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$RELEASE_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$PUBLICATION_BACKEND_TEST_BLOB"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
 
