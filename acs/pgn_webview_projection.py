@@ -51,14 +51,30 @@ _LABELS = {
         "previous_game": "Попередня партія",
         "next_game": "Наступна партія",
         "parent": "До батьківського варіанта",
+        "search": "Пошук у PGN",
+        "append_moves": "Продовжити лінію",
+        "tag_edit": "Редагувати тег PGN",
+        "tag_delete": "Видалити тег PGN",
         "comment_edit": "Додати або змінити коментар",
         "comment_delete": "Видалити коментар",
+        "nag_edit": "Змінити NAG",
+        "variation_add": "Додати варіант",
         "variation_delete": "Видалити варіант",
         "variation_promote": "Підняти варіант",
         "copy": "Копіювати вибране",
         "export": "Експортувати вибране",
         "comment_title": "Коментар PGN",
         "comment_label": "Текст коментаря",
+        "comment_before": "Перед ходом",
+        "comment_after": "Після ходу",
+        "comment_leading": "На початку варіанта",
+        "comment_trailing": "Наприкінці варіанта",
+        "game_leading_comments": "Коментарі перед головною лінією",
+        "game_trailing_comments": "Коментарі після головної лінії",
+        "nag_title": "Анотації NAG",
+        "nag_label": "NAG, наприклад ! ? $1 $2",
+        "variation_title": "Новий варіант",
+        "variation_label": "Ходи варіанта у PGN/SAN",
         "save": "Зберегти",
         "cancel": "Скасувати",
         "multiple_comments": "На цьому вузлі кілька коментарів. Редагування вимкнено, доки канонічний API не надасть однозначний вибір коментаря.",
@@ -78,14 +94,30 @@ _LABELS = {
         "previous_game": "Previous game",
         "next_game": "Next game",
         "parent": "Return to parent variation",
+        "search": "Search PGN",
+        "append_moves": "Continue line",
+        "tag_edit": "Edit PGN tag",
+        "tag_delete": "Delete PGN tag",
         "comment_edit": "Add or edit comment",
         "comment_delete": "Delete comment",
+        "nag_edit": "Edit NAG",
+        "variation_add": "Add variation",
         "variation_delete": "Delete variation",
         "variation_promote": "Promote variation",
         "copy": "Copy selection",
         "export": "Export selection",
         "comment_title": "PGN comment",
         "comment_label": "Comment text",
+        "comment_before": "Before move",
+        "comment_after": "After move",
+        "comment_leading": "At variation start",
+        "comment_trailing": "At variation end",
+        "game_leading_comments": "Comments before main line",
+        "game_trailing_comments": "Comments after main line",
+        "nag_title": "NAG annotations",
+        "nag_label": "NAGs, for example ! ? $1 $2",
+        "variation_title": "New variation",
+        "variation_label": "Variation moves in PGN/SAN",
         "save": "Save",
         "cancel": "Cancel",
         "multiple_comments": "This node has multiple comments. Editing is disabled until the canonical API exposes an unambiguous comment selection.",
@@ -301,17 +333,67 @@ class PgnWebViewProjection:
             "has_parent": item.parent_id is not None,
         }
 
-    def _comment_editor(self, *, enabled: bool, value: str, message: str) -> dict[str, object]:
+    def _comment_editor(
+        self,
+        *,
+        enabled: bool,
+        value: str,
+        message: str,
+        entries: tuple[dict[str, object], ...] = (),
+        add_slots: tuple[dict[str, str], ...] = (),
+    ) -> dict[str, object]:
         labels = _LABELS[self._language]
         return {
             "enabled": enabled,
             "value": value,
             "message": message,
+            "entries": entries,
+            "add_slots": add_slots,
             "title": labels["comment_title"],
             "label": labels["comment_label"],
             "save_label": labels["save"],
             "cancel_label": labels["cancel"],
         }
+
+    def _comment_editor_for_selected(
+        self,
+        selected: PgnTreeItem | None,
+    ) -> dict[str, object]:
+        labels = _LABELS[self._language]
+        if selected is None:
+            return self._comment_editor(enabled=False, value="", message="")
+        entries: list[dict[str, object]] = []
+        add_slots: list[dict[str, str]] = []
+        if selected.kind == "move":
+            slots = (
+                ("before", selected.comments_before, labels["comment_before"]),
+                ("after", selected.comments_after, labels["comment_after"]),
+            )
+        else:
+            slots = (
+                ("leading", selected.comments, labels["comment_leading"]),
+                ("trailing", selected.trailing_comments, labels["comment_trailing"]),
+            )
+        for slot, comments, slot_label in slots:
+            add_slots.append({"slot": slot, "label": slot_label})
+            for index, comment in enumerate(comments):
+                safe = _bounded_text(comment, language=self._language, limit=8000)
+                entries.append(
+                    {
+                        "slot": slot,
+                        "index": index,
+                        "label": f"{slot_label} {index + 1}",
+                        "value": safe,
+                    }
+                )
+        first_value = str(entries[0]["value"]) if entries else ""
+        return self._comment_editor(
+            enabled=True,
+            value=first_value,
+            message="",
+            entries=tuple(entries),
+            add_slots=tuple(add_slots),
+        )
 
     @staticmethod
     def _selected_from_view(view: PgnGameView) -> PgnTreeItem | None:
@@ -333,6 +415,8 @@ class PgnWebViewProjection:
             type(view.items) is not tuple
             or type(view.tags) is not tuple
             or type(view.warnings) is not tuple
+            or type(view.leading_comments) is not tuple
+            or type(view.trailing_comments) is not tuple
         ):
             raise TypeError("PGN presenter collections must be canonical tuples")
         if len(view.items) > _MAX_PGN_TREE_ITEMS:
@@ -341,6 +425,11 @@ class PgnWebViewProjection:
             raise ValueError("PGN presenter tags exceed the item-count budget")
         if len(view.warnings) > _MAX_PGN_WARNINGS:
             raise ValueError("PGN presenter warnings exceed the item-count budget")
+        if (
+            len(view.leading_comments) > _MAX_PGN_COMMENTS_PER_ITEM
+            or len(view.trailing_comments) > _MAX_PGN_COMMENTS_PER_ITEM
+        ):
+            raise ValueError("PGN main-line comments exceed the item-count budget")
         if view.selected_node_id is not None and (
             type(view.selected_node_id) is not str
             or not view.selected_node_id
@@ -397,8 +486,6 @@ class PgnWebViewProjection:
         elif selected_count != 1:
             raise ValueError("PGN presenter selection is inconsistent")
 
-        selected_comments = tuple(selected.comments) if selected is not None else ()
-        ambiguous_comments = len(selected_comments) > 1
         focus_target = next(
             (item["dom_id"] for item in tree if item["selected"]),
             "",
@@ -422,9 +509,26 @@ class PgnWebViewProjection:
             if safe:
                 safe_warnings.append(safe)
         warnings = tuple(safe_warnings)
+        leading_comments = tuple(
+            safe
+            for safe in (
+                _bounded_text(item, language=self._language, limit=1200)
+                for item in view.leading_comments
+            )
+            if safe
+        )
+        trailing_comments = tuple(
+            safe
+            for safe in (
+                _bounded_text(item, language=self._language, limit=1200)
+                for item in view.trailing_comments
+            )
+            if safe
+        )
+        comment_editor = self._comment_editor_for_selected(selected)
         has_selection = selected is not None
         selected_is_variation = bool(selected and selected.kind == "variation")
-        single_comment = len(selected_comments) == 1
+        has_selected_comments = bool(comment_editor["entries"])
         return {
             "status": "ready",
             "empty_message": "",
@@ -440,6 +544,10 @@ class PgnWebViewProjection:
                 "tags": tags,
                 "warnings_heading": labels["warnings"],
                 "warnings": warnings,
+                "leading_comments_heading": labels["game_leading_comments"],
+                "leading_comments": leading_comments,
+                "trailing_comments_heading": labels["game_trailing_comments"],
+                "trailing_comments": trailing_comments,
                 "tree_heading": labels["tree"],
                 "can_previous_game": view.game_index > 0,
                 "can_next_game": view.game_index + 1 < count,
@@ -449,23 +557,21 @@ class PgnWebViewProjection:
             "actions": (
                 {"action": "pgn.previous_game", "label": labels["previous_game"], "enabled": view.game_index > 0},
                 {"action": "pgn.next_game", "label": labels["next_game"], "enabled": view.game_index + 1 < count},
+                {"action": "pgn.search", "label": labels["search"], "enabled": True},
+                {"action": "pgn.append_moves", "label": labels["append_moves"], "enabled": True},
+                {"action": "pgn.tag_edit", "label": labels["tag_edit"], "enabled": True},
+                {"action": "pgn.tag_delete", "label": labels["tag_delete"], "enabled": True},
                 {"action": "pgn.parent", "label": labels["parent"], "enabled": bool(selected and selected.parent_id)},
-                {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": has_selection and not ambiguous_comments},
-                {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": single_comment},
+                {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": has_selection},
+                {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": has_selected_comments},
+                {"action": "pgn.nag_edit", "label": labels["nag_edit"], "enabled": bool(selected and selected.kind == "move")},
+                {"action": "pgn.variation_add", "label": labels["variation_add"], "enabled": bool(selected and selected.kind == "move")},
                 {"action": "pgn.variation_delete", "label": labels["variation_delete"], "enabled": selected_is_variation},
                 {"action": "pgn.variation_promote", "label": labels["variation_promote"], "enabled": selected_is_variation},
                 {"action": "pgn.copy_selection", "label": labels["copy"], "enabled": has_selection},
                 {"action": "pgn.export_selection", "label": labels["export"], "enabled": has_selection},
             ),
-            "comment_editor": self._comment_editor(
-                enabled=has_selection and not ambiguous_comments,
-                value=_bounded_text(
-                    selected_comments[0] if single_comment else "",
-                    language=self._language,
-                    limit=8000,
-                ),
-                message=labels["multiple_comments"] if ambiguous_comments else "",
-            ),
+            "comment_editor": comment_editor,
         }
 
     def snapshot(self) -> dict[str, object]:
@@ -587,26 +693,98 @@ class PgnWebViewProjection:
         if selected is None:
             raise LookupError("PGN selection is required")
         if action_id == "pgn.comment_edit":
-            if len(selected.comments) > 1:
+            exact = bool(extra and "slot" in extra and "index" in extra)
+            if not exact and len(selected.comments) > 1:
                 raise ValueError("ambiguous PGN comment selection")
         elif action_id == "pgn.comment_delete":
-            if len(selected.comments) != 1:
+            exact = bool(extra and "slot" in extra and "index" in extra)
+            if not exact and len(selected.comments) != 1:
                 raise ValueError("exactly one PGN comment is required")
+        elif action_id in {"pgn.nag_edit", "pgn.variation_add"}:
+            if selected.kind != "move":
+                raise ValueError("PGN move edit action requires a move selection")
         elif action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
             if selected.kind != "variation":
                 raise ValueError("PGN variation action requires variation selection")
         self._presenter.dispatch_edit(action_id, self._dispatch, extra=extra)
         return PgnWebViewEvent("delegated", {"action": action_id})
 
-    def edit_comment(self, text: str) -> PgnWebViewEvent:
+    def append_moves(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("PGN continuation text is invalid")
+        return self._dispatch("pgn.append_moves", {"text": text})
+
+    def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        if type(value) is not str or len(value) > 360 or "\x00" in value:
+            raise ValueError("PGN tag value is invalid")
+        self._dispatch("pgn.tag_edit", {"name": name, "value": value})
+        return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
+
+    def delete_tag(self, name: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        self._dispatch("pgn.tag_delete", {"name": name})
+        return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
+
+    def search(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
+            raise ValueError("PGN search text is invalid")
+        # Search is document-scoped, not move-scoped. A lawful PGN can have
+        # tags/result but no moves, so search must work from the canonical root
+        # even when there is no presentation node to select.
+        self._presenter.dispatch_edit(
+            "pgn.search",
+            self._dispatch,
+            extra={"text": text},
+        )
+        return PgnWebViewEvent("delegated", {"action": "pgn.search"})
+
+    def edit_comment(
+        self,
+        text: str,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+    ) -> PgnWebViewEvent:
         if type(text) is not str:
             raise TypeError("PGN comment text must be text")
         if _utf16_units(text) > 8000 or "\x00" in text:
             raise ValueError("PGN comment text is invalid")
-        return self._dispatch_selected("pgn.comment_edit", extra={"text": text})
+        extra: dict[str, object] = {"text": text}
+        if slot is not None or index is not None:
+            if type(slot) is not str or slot not in {"before", "after", "leading", "trailing"}:
+                raise ValueError("PGN comment slot is invalid")
+            if type(index) is not int or index < -1 or index > 255:
+                raise ValueError("PGN comment index is invalid")
+            extra.update(slot=slot, index=index)
+        return self._dispatch_selected("pgn.comment_edit", extra=extra)
 
-    def delete_comment(self) -> PgnWebViewEvent:
-        return self._dispatch_selected("pgn.comment_delete")
+    def delete_comment(
+        self,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+    ) -> PgnWebViewEvent:
+        extra: dict[str, object] | None = None
+        if slot is not None or index is not None:
+            if type(slot) is not str or slot not in {"before", "after", "leading", "trailing"}:
+                raise ValueError("PGN comment slot is invalid")
+            if type(index) is not int or index < 0 or index > 255:
+                raise ValueError("PGN comment index is invalid")
+            extra = {"slot": slot, "index": index}
+        return self._dispatch_selected("pgn.comment_delete", extra=extra)
+
+    def edit_nags(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or len(text) > 512 or "\x00" in text:
+            raise ValueError("PGN NAG text is invalid")
+        return self._dispatch_selected("pgn.nag_edit", extra={"text": text})
+
+    def add_variation(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("PGN variation text is invalid")
+        return self._dispatch_selected("pgn.variation_add", extra={"text": text})
 
     def delete_variation(self) -> PgnWebViewEvent:
         return self._dispatch_selected("pgn.variation_delete")
