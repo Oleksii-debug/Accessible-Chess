@@ -1056,6 +1056,37 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_manifest_snapshot_rejects_coherent_drift_before_checksum_validation(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            manifest_path = root / MANIFEST_NAME
+            real_checksums = preflight._checksums
+
+            def checksums_after_manifest_drift(checksum_root, inventory, limits):
+                manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+                manifest["integration_sha"] = "b" * 40
+                manifest_path.write_text(
+                    json.dumps(manifest, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                _write_checksums(checksum_root)
+                return real_checksums(checksum_root, inventory, limits)
+
+            with patch.object(
+                preflight,
+                "_checksums",
+                side_effect=checksums_after_manifest_drift,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "release manifest changed during validation",
+                ):
+                    _validate_tree(root)
+
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
