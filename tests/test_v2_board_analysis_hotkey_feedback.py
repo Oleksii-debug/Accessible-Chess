@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 
+from acs.ui_keymap_adapter import build_web_keymap
 from acs.version2_release_ui import Version2ReleaseAccessibleChessAPI
 
 
@@ -114,6 +115,33 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
                 self.assertIsNotNone(resolved)
                 self.assertEqual(resolved["actionId"], expected_action)
                 self.assertEqual(resolved["context"], "analysis")
+
+
+    def test_analysis_shortcut_matrix_is_exhaustive_for_canonical_registry(self) -> None:
+        snapshot = build_web_keymap()
+        self.assertIs(type(snapshot), dict)
+        actions = snapshot.get("actions")
+        self.assertIs(type(actions), list)
+
+        actual: dict[str, str] = {}
+        for action in actions:
+            self.assertIs(type(action), dict)
+            if action.get("context") != "analysis":
+                continue
+            binding = action.get("binding")
+            action_id = action.get("id")
+            if binding is None:
+                continue
+            self.assertIs(type(binding), str)
+            self.assertIs(type(action_id), str)
+            self.assertNotIn(binding, actual)
+            actual[binding] = action_id
+
+        self.assertEqual(
+            actual,
+            _ANALYSIS_SHORTCUTS,
+            "P0-G shortcut coverage must track the canonical live analysis keymap",
+        )
 
     def test_alt_pv_shortcuts_resolve_from_board_and_expose_result(self) -> None:
         api, engine = self.make_api()
