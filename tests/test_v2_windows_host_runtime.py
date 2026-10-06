@@ -862,5 +862,47 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertTrue(runtime.closed)
 
 
+    def test_refused_shutdown_reopens_file_runtime_for_later_actions(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+        self.assertTrue(runtime.resume_after_refused_shutdown())
+        self.assertFalse(runtime.closed)
+
+        result = runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(result, ("fallback", "analysis.restart"))
+        self.assertEqual(
+            fallback_calls,
+            [("analysis.restart", {"source": "board"})],
+        )
+        self.assertTrue(runtime.shutdown())
+
+    def test_refused_shutdown_recovery_is_ui_thread_affine(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                runtime.resume_after_refused_shutdown()
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=worker, name="runtime-recovery-wrong-thread")
+        thread.start()
+        thread.join(5.0)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertIn("UI thread", str(errors[0]))
+        self.assertTrue(runtime.closed)
+
+
 if __name__ == "__main__":
     unittest.main()
