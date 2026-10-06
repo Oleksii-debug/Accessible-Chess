@@ -69,8 +69,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python -m unittest tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_portable_localappdata_persistence_binding tests.test_webview_safe_server tests.test_version2_portable_package -v
-          python -m unittest -v tests.test_portable_launcher_contract.PortableLauncherSourceContractTests.test_report_open_failure_popup_includes_actual_win32_error
           if ($LASTEXITCODE -ne 0) { throw 'Portable package regressions failed' }
+          python -m unittest -v tests.test_portable_launcher_contract.PortableLauncherSourceContractTests.test_report_open_failure_popup_includes_actual_win32_error
+          if ($LASTEXITCODE -ne 0) { throw 'Report-open diagnostic regression failed' }
           python -m py_compile acs/version2_portable_package.py tests/test_portable_localappdata_persistence_binding.py
           if ($LASTEXITCODE -ne 0) { throw 'Portable package module compile failed' }
 
