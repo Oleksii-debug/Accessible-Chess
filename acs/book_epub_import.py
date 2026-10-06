@@ -917,34 +917,43 @@ def _read_entry(
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
     try:
-        chunks: list[bytes] = []
-        total = 0
-        with archive.open(info, "r") as stream:
-            while True:
-                if control_checkpoint is not None:
-                    control_checkpoint()
-                # Read at most one byte beyond the authenticated central size.
-                # This preserves the old exact-size check while making large
-                # decompression interruptible by the trusted host.
-                request = min(64 * 1024, max(1, info.file_size - total + 1))
-                chunk = stream.read(request)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                total += len(chunk)
-                if total > info.file_size or total > limit:
-                    raise _error(
-                        "EPUB package entry size is inconsistent",
-                        BookEpubImportErrorCode.UNSAFE_PACKAGE,
-                    )
-        data = b"".join(chunks)
-    except BookEpubImportError:
-        raise
+        stream = archive.open(info, "r")
     except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
         raise _error(
             "EPUB package entry could not be read safely",
             BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
         ) from exc
+
+    chunks: list[bytes] = []
+    total = 0
+    with stream:
+        while True:
+            # Trusted control is deliberately outside ZIP exception translation.
+            # SourceReadCancelledError is a RuntimeError and must reach the
+            # transaction owner unchanged.
+            if control_checkpoint is not None:
+                control_checkpoint()
+            # Read at most one byte beyond the authenticated central size.
+            # This preserves the old exact-size check while making large
+            # decompression interruptible by the trusted host.
+            request = min(64 * 1024, max(1, info.file_size - total + 1))
+            try:
+                chunk = stream.read(request)
+            except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
+                raise _error(
+                    "EPUB package entry could not be read safely",
+                    BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
+                ) from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > info.file_size or total > limit:
+                raise _error(
+                    "EPUB package entry size is inconsistent",
+                    BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                )
+    data = b"".join(chunks)
     if len(data) != info.file_size or len(data) > limit:
         raise _error(
             "EPUB package entry size is inconsistent",
