@@ -256,6 +256,79 @@ class Version2ReleaseUiTests(unittest.TestCase):
         self.assertTrue(app.closed)
         self.assertIsNone(app.files)
 
+    def test_startup_failure_after_native_guard_does_not_double_shutdown(self):
+        class BindAbort(BaseException):
+            pass
+
+        class CandidateRuntime:
+            def shutdown(self):
+                return True
+
+        class GuardApplication(_Application):
+            def __init__(self):
+                super().__init__()
+                self.shutdown_count = 0
+
+            def shutdown(self):
+                self.shutdown_count += 1
+                self.closed = True
+                return True
+
+        class GuardWindow(_Window):
+            def __init__(self, application):
+                super().__init__()
+                self.application = application
+
+            def destroy(self):
+                self.destroyed = True
+                guard = getattr(
+                    self.application,
+                    "_native_unsaved_close_guard",
+                    None,
+                )
+                if guard is not None:
+                    self.application.shutdown()
+                    self.application._native_close_shutdown_complete = True
+
+        class GuardWebView(_WebView):
+            def __init__(self, application):
+                super().__init__()
+                self.window = GuardWindow(application)
+
+        api = self.make_api()
+        app = GuardApplication()
+        webview = GuardWebView(app)
+        owner = object()
+        primary = BindAbort("binding abort after guard publication")
+
+        def install_menu(window, _controller):
+            window._accessible_chess_native_menu_host = owner
+            return True
+
+        def build_files(value):
+            self.assertIs(value, owner)
+            app._native_unsaved_close_guard = object()
+            return CandidateRuntime()
+
+        def reject_binding(_runtime):
+            raise primary
+
+        app.bind_files = reject_binding
+
+        with self.assertRaises(BindAbort) as caught:
+            run_version2_release_window(
+                api,
+                app,
+                webview_module=webview,
+                menu_installer=install_menu,
+                file_runtime_factory=build_files,
+            )
+
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(webview.window.destroyed)
+        self.assertEqual(app.shutdown_count, 1)
+        self.assertTrue(app._native_close_shutdown_complete)
+
     def test_release_window_fails_closed_when_native_owner_is_missing(self):
         api = self.make_api()
         app = _Application()
