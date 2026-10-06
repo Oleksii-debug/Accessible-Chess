@@ -106,11 +106,15 @@ jobs:
           if [ -n "$EVENT_BASE_SHA" ]; then
             git cat-file -e "$EVENT_BASE_SHA^{commit}"
             git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+            absorbed_base="$(git merge-base "$live_base" HEAD)"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$absorbed_base"
+          else
+            absorbed_base="$(git merge-base "$live_base" HEAD)"
           fi
 
-          git merge-base --is-ancestor "$live_base" HEAD
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base"...HEAD
+          git merge-base --is-ancestor "$absorbed_base" "$live_base"
+          git merge-base --is-ancestor "$absorbed_base" HEAD
+          git diff --check "$absorbed_base"...HEAD
           service_pair="$(git rev-parse HEAD:acs/ui_keymap_service.py):$(git rev-parse HEAD:tests/test_ui_keymap_service.py)"
           case "$service_pair" in
             "$PLUS_MINUS_SERVICE_BLOB:$PLUS_MINUS_SERVICE_TEST_BLOB"|"$CURRENT_SERVICE_BLOB:$CURRENT_SERVICE_TEST_BLOB") ;;
@@ -125,7 +129,7 @@ jobs:
             *) echo 'Unqualified shared keymap document identity' >&2; exit 1 ;;
           esac
 
-          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          changed="$(git diff --name-only "$absorbed_base"...HEAD | sort)"
           focused_expected="$(printf '%s\n' \
             '.github/workflows/keybindings-current-apex-core.yml' \
             '.github/workflows/keybindings-current-apex-dom-native.yml' \
