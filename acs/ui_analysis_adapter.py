@@ -14,7 +14,12 @@ from typing import Any
 
 from .analysis_service import AnalysisLine
 from .chesscore import Board
-from .engine_ports import EngineContractError, EngineContractErrorCode
+from .engine_ports import (
+    ANALYSIS_MAX_MOVETIME_MS,
+    ANALYSIS_MIN_MOVETIME_MS,
+    EngineContractError,
+    EngineContractErrorCode,
+)
 from .notation import NotationError, format_san
 
 MAX_ANALYSIS_PV_PLIES = 256
@@ -128,6 +133,7 @@ class AnalysisPresentation:
     exploration_ply: int = 0
     exploration_length: int = 0
     exploration_fen: str | None = None
+    movetime_ms: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool) or not isinstance(self.running, bool):
@@ -158,6 +164,14 @@ class AnalysisPresentation:
         ):
             raise EngineContractError(
                 "presentation depth must be between 1 and 40",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
+        if self.movetime_ms is not None and (
+            type(self.movetime_ms) is not int
+            or not ANALYSIS_MIN_MOVETIME_MS <= self.movetime_ms <= ANALYSIS_MAX_MOVETIME_MS
+        ):
+            raise EngineContractError(
+                "presentation movetime must be None or a bounded integer",
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
         if not isinstance(self.lines, tuple) or any(
@@ -285,6 +299,7 @@ class AnalysisPresentation:
             "running": self.running,
             "multipv": self.multipv,
             "depth": self.depth,
+            "movetimeMs": self.movetime_ms,
             "lines": [line.as_dict() for line in self.lines],
             # Provider exception/path details are diagnostic-only and never cross
             # the WebView bridge.  The UI needs one stable, non-sensitive state.
@@ -341,6 +356,7 @@ class AnalysisPresentationAdapter:
         *,
         multipv: int = 5,
         depth: int = 16,
+        movetime_ms: int | None = None,
     ) -> None:
         if service is not None:
             required = ("start", "update_position", "stop", "close", "state")
@@ -352,11 +368,13 @@ class AnalysisPresentationAdapter:
                     code=EngineContractErrorCode.INVALID_PROVIDER,
                 )
         multipv, depth = self._normalize_limits(multipv, depth)
+        movetime_ms = self._normalize_movetime(movetime_ms)
         self._service = service
         self._enabled = False
         self._fen: str | None = None
         self._multipv = multipv
         self._depth = depth
+        self._movetime_ms = movetime_ms
         self._last_error: str | None = None
         self._follow_position = True
         self._selected_pv = 1
@@ -391,6 +409,10 @@ class AnalysisPresentationAdapter:
         return self._depth
 
     @property
+    def movetime_ms(self) -> int | None:
+        return self._movetime_ms
+
+    @property
     def exploration(self) -> AnalysisExploration | None:
         return self._exploration
 
@@ -398,7 +420,15 @@ class AnalysisPresentationAdapter:
         if self._service is None:
             raise RuntimeError("analysis service is not configured")
         fen = self._normalize_fen(fen)
-        self._service.start(fen, multipv=self._multipv, depth=self._depth)
+        if self._movetime_ms is None:
+            self._service.start(fen, multipv=self._multipv, depth=self._depth)
+        else:
+            self._service.start(
+                fen,
+                multipv=self._multipv,
+                depth=self._depth,
+                movetime_ms=self._movetime_ms,
+            )
         self._fen = fen
         self._enabled = True
         self._last_error = None
@@ -428,21 +458,41 @@ class AnalysisPresentationAdapter:
         self._last_error = None
         self._exploration = None
 
-    def configure(self, *, multipv: int, depth: int) -> None:
-        """Apply bounded settings atomically and invalidate the old result."""
+    def configure(
+        self,
+        *,
+        multipv: int,
+        depth: int,
+        movetime_ms: int | None = None,
+    ) -> None:
+        """Apply bounded depth/time settings atomically and invalidate old results."""
 
         multipv, depth = self._normalize_limits(multipv, depth)
+        movetime_ms = self._normalize_movetime(movetime_ms)
         service = self._service
         if service is not None:
             configure = getattr(service, "configure", None)
             if callable(configure):
-                configure(multipv=multipv, depth=depth)
+                if movetime_ms is None and self._movetime_ms is None:
+                    configure(multipv=multipv, depth=depth)
+                else:
+                    configure(
+                        multipv=multipv,
+                        depth=depth,
+                        movetime_ms=movetime_ms,
+                    )
             elif self._enabled and self._fen is not None:
-                # Compatibility services can restart through the original
-                # lifecycle boundary.  Publish settings only after success.
+                # Compatibility services retain depth mode. Time mode requires
+                # the canonical extended continuous-analysis contract.
+                if movetime_ms is not None:
+                    raise EngineContractError(
+                        "analysis service does not support time-limited mode",
+                        code=EngineContractErrorCode.INVALID_PROVIDER,
+                    )
                 service.start(self._fen, multipv=multipv, depth=depth)
         self._multipv = multipv
         self._depth = depth
+        self._movetime_ms = movetime_ms
         self._selected_pv = min(self._selected_pv, multipv)
         self._last_error = None
         self._exploration = None
@@ -452,7 +502,15 @@ class AnalysisPresentationAdapter:
             raise RuntimeError("analysis service is not configured")
         displayed_fen = self._normalize_fen(displayed_fen)
         target = self._fen if self.target_locked and self._fen is not None else displayed_fen
-        self._service.start(target, multipv=self._multipv, depth=self._depth)
+        if self._movetime_ms is None:
+            self._service.start(target, multipv=self._multipv, depth=self._depth)
+        else:
+            self._service.start(
+                target,
+                multipv=self._multipv,
+                depth=self._depth,
+                movetime_ms=self._movetime_ms,
+            )
         self._fen = target
         self._enabled = True
         self._last_error = None
@@ -654,6 +712,22 @@ class AnalysisPresentationAdapter:
         return max(1, min(10, multipv)), max(1, min(40, depth))
 
     @staticmethod
+    def _normalize_movetime(movetime_ms: int | None) -> int | None:
+        if movetime_ms is None:
+            return None
+        if type(movetime_ms) is not int:
+            raise EngineContractError(
+                "presentation movetime must be an integer or None",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        if not ANALYSIS_MIN_MOVETIME_MS <= movetime_ms <= ANALYSIS_MAX_MOVETIME_MS:
+            raise EngineContractError(
+                "presentation movetime is outside the supported range",
+                code=EngineContractErrorCode.INVALID_CONFIG,
+            )
+        return movetime_ms
+
+    @staticmethod
     def _normalize_pv_index(index: int) -> int:
         if not isinstance(index, int) or isinstance(index, bool) or not 1 <= index <= 10:
             raise EngineContractError(
@@ -714,6 +788,7 @@ class AnalysisPresentationAdapter:
                 False,
                 False,
                 self._selected_pv,
+                movetime_ms=self._movetime_ms,
             )
         if not self._enabled:
             return AnalysisPresentation(
@@ -747,6 +822,13 @@ class AnalysisPresentationAdapter:
         running = state.running
         multipv = state.multipv
         depth = state.depth
+        movetime_ms = getattr(state, "movetime_ms", None)
+        movetime_ms = self._normalize_movetime(movetime_ms)
+        if movetime_ms != self._movetime_ms:
+            raise EngineContractError(
+                "analysis presentation movetime disagrees with service state",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
         if not isinstance(running, bool):
             raise EngineContractError(
                 "analysis presentation running state must be boolean",
@@ -826,6 +908,7 @@ class AnalysisPresentationAdapter:
             0 if exploration is None else exploration.ply,
             0 if exploration is None else len(exploration.line.pv),
             None if exploration is None else exploration.fen,
+            self._movetime_ms,
         )
 
     def read_pv(self, index: int, displayed_fen: str, *, lang: str = "uk") -> str:
