@@ -16,6 +16,7 @@ from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
+from .epd import looks_like_epd
 from .input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san, format_san
@@ -642,6 +643,7 @@ class AccessibleChessAPI:
         return self._ok("Позиція коректна і готова до гри." if self.lang == "uk" else "Position is valid and ready to play.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        epd_input = looks_like_epd(text)
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
@@ -668,6 +670,9 @@ class AccessibleChessAPI:
             return self._error(self._t("position_history_failed"))
 
         self._publish_root_state(candidate_board, prepared)
+        if epd_input:
+            return self._ok("Позицію EPD завантажено." if self.lang == "uk"
+                            else "EPD position loaded.")
         return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
                         else "Position loaded from text editor.")
 
@@ -686,6 +691,14 @@ class AccessibleChessAPI:
         text = text.strip()
         if not text:
             return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
+        if looks_like_epd(text):
+            result = self.set_position_text(text)
+            if not result.get("ok"):
+                # Move-input errors are normally kept out of the global live
+                # region to avoid duplicate speech. EPD is a position import,
+                # so its localized parse failure must be announced explicitly.
+                result["announceMoveErrors"] = True
+            return result
         commands = {
             "u": self.undo, "y": self.redo,
             "l": lambda: self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + self.get_state()["lastMove"]),
