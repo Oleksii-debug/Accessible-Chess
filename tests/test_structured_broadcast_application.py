@@ -4,12 +4,18 @@ import ast
 from pathlib import Path
 import unittest
 
-from acs.structured_broadcast import StructuredBroadcastEnvelope, StructuredBroadcastSession
+from acs.structured_broadcast import (
+    MAX_BROADCAST_IDENTIFIER_CHARS,
+    MAX_BROADCAST_PGN_BYTES,
+    StructuredBroadcastEnvelope,
+    StructuredBroadcastSession,
+)
 from acs.structured_broadcast_application import (
     BroadcastApplicationError,
     BroadcastApplicationErrorCode,
     LichessCanonicalBroadcastAdapter,
     MAX_CANONICAL_BROADCAST_POSITIONS,
+    MAX_LICHESS_GAME_URL_CHARS,
 )
 
 
@@ -134,6 +140,58 @@ class StructuredBroadcastApplicationTests(unittest.TestCase):
         with self.assertRaises(BroadcastApplicationError) as variant:
             self.ingest(adapter, pgn(variant="Chess960"))
         self.assertEqual(variant.exception.code, BroadcastApplicationErrorCode.ILLEGAL_GAME)
+
+    def test_direct_adapter_ingress_preserves_structured_resource_bounds(self):
+        adapter = self.adapter()
+        with self.assertRaises(BroadcastApplicationError) as round_error:
+            adapter.ingest_broadcast_pgn(
+                provider="lichess",
+                round_id="short",
+                source_id=SOURCE,
+                pgn_text=pgn(),
+            )
+        self.assertEqual(
+            round_error.exception.code,
+            BroadcastApplicationErrorCode.INVALID_INPUT,
+        )
+
+        with self.assertRaises(BroadcastApplicationError) as source_error:
+            adapter.ingest_broadcast_pgn(
+                provider="lichess",
+                round_id=ROUND,
+                source_id="s" * (MAX_BROADCAST_IDENTIFIER_CHARS + 1),
+                pgn_text=pgn(),
+            )
+        self.assertEqual(
+            source_error.exception.code,
+            BroadcastApplicationErrorCode.INVALID_INPUT,
+        )
+
+        with self.assertRaises(BroadcastApplicationError) as size_error:
+            adapter.ingest_broadcast_pgn(
+                provider="lichess",
+                round_id=ROUND,
+                source_id=SOURCE,
+                pgn_text="x" * (MAX_BROADCAST_PGN_BYTES + 1),
+            )
+        self.assertEqual(
+            size_error.exception.code,
+            BroadcastApplicationErrorCode.INVALID_INPUT,
+        )
+
+        oversized_url = "https://lichess.org/broadcast/" + (
+            "a" * (MAX_LICHESS_GAME_URL_CHARS + 1)
+        )
+        bad_url_pgn = pgn().replace(
+            f"https://lichess.org/broadcast/knight-invitational-2/final-round-2/{ROUND}/1jbwRQGy",
+            oversized_url,
+        )
+        with self.assertRaises(BroadcastApplicationError) as url_error:
+            self.ingest(adapter, bad_url_pgn)
+        self.assertEqual(
+            url_error.exception.code,
+            BroadcastApplicationErrorCode.INVALID_PROVIDER_GAME_ID,
+        )
 
     def test_provider_identity_is_round_bound_and_conflicts_fail_closed(self):
         adapter = self.adapter()
