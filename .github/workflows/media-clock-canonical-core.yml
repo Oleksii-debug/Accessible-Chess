@@ -1,0 +1,70 @@
+name: Canonical Media Clock Core
+
+on:
+  pull_request:
+    paths:
+      - "acs/media_core.py"
+      - "tests/test_media_core.py"
+      - ".github/workflows/media-clock-canonical-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  media-clock-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify exact canonical parent geometry
+        shell: bash
+        env:
+          CANONICAL_PARENT: 2fab0518976ad3938f56b9c9cf129f3a368e1f04
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git merge-base "$CANONICAL_PARENT" HEAD)" = "$CANONICAL_PARENT"
+          mapfile -t paths < <(git diff --name-only "$CANONICAL_PARENT" "$GITHUB_SHA")
+          test "${#paths[@]}" -eq 3
+          test "${paths[0]}" = ".github/workflows/media-clock-canonical-core.yml"
+          test "${paths[1]}" = "acs/media_core.py"
+          test "${paths[2]}" = "tests/test_media_core.py"
+          test -z "$(git status --porcelain=v1)"
+
+      - name: Compile canonical Media Core
+        run: python -m py_compile acs/media_core.py tests/test_media_core.py
+
+      - name: Run canonical Media Core regressions
+        run: python -m unittest -v tests.test_media_core tests.test_architecture
+
+      - name: Run canonical Media Core under pytest
+        run: |
+          python -m pip install -q pytest
+          python -m pytest -q tests/test_media_core.py
+
+      - name: Direct clock contract smoke
+        run: |
+          python - <<'PY'
+          from acs.media_core import MediaClock, MediaPlaybackState
+
+          clock = MediaClock(duration_ms=5000)
+          assert clock.snapshot(100).position_ms == 0
+          assert clock.play(100).state is MediaPlaybackState.PLAYING
+          assert clock.snapshot(1100).position_ms == 1000
+          assert clock.pause(1600).position_ms == 1500
+          assert clock.buffer(1700).state is MediaPlaybackState.PAUSED
+          assert clock.resume(1700).state is MediaPlaybackState.PLAYING
+          assert clock.set_playback_rate(1.5, 1700).playback_rate == 1.5
+          assert clock.snapshot(1900).position_ms == 1800
+          assert clock.seek(4900, 1900).position_ms == 4900
+          assert clock.snapshot(2100).state is MediaPlaybackState.ENDED
+          assert clock.snapshot(2100).position_ms == 5000
+          print("MEDIA CLOCK CONTRACT PASS")
+          PY
