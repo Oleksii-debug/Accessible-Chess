@@ -31,6 +31,7 @@ class MediaErrorCode(str, Enum):
     INVALID_TIMESTAMP = "invalid_timestamp"
     INVALID_DURATION = "invalid_duration"
     INVALID_CONFIDENCE = "invalid_confidence"
+    INVALID_PLAYBACK_RATE = "invalid_playback_rate"
     SOURCE_MISMATCH = "source_mismatch"
     DUPLICATE_LINK = "duplicate_link"
     LINK_LIMIT = "link_limit"
@@ -63,12 +64,258 @@ class MediaLinkStatus(str, Enum):
     CONFIRMED = "confirmed"
 
 
+class MediaPlaybackState(str, Enum):
+    """Provider-neutral playback state owned by the media clock."""
+
+    UNSTARTED = "unstarted"
+    PLAYING = "playing"
+    PAUSED = "paused"
+    BUFFERING = "buffering"
+    ENDED = "ended"
+
+
+@dataclass(frozen=True, slots=True)
+class MediaClockSnapshot:
+    """Immutable playback-clock observation at one monotonic host time."""
+
+    position_ms: int
+    state: MediaPlaybackState
+    playback_rate: float
+    duration_ms: int | None
+    revision: int
+
+
+class MediaClock:
+    """Deterministic provider-neutral media clock with explicit host time."""
+
+    __slots__ = (
+        "_position_ms",
+        "_fractional_ms",
+        "_last_now_ms",
+        "_playback_rate",
+        "_duration_ms",
+        "_state",
+        "_revision",
+    )
+
+    def __init__(
+        self, *, position_ms: int = 0,
+        state: MediaPlaybackState = MediaPlaybackState.UNSTARTED,
+        playback_rate: float = 1.0, duration_ms: int | None = None,
+    ) -> None:
+        self._position_ms = _require_nonnegative_int(position_ms, "position_ms")
+        if duration_ms is not None:
+            try:
+                duration = _require_nonnegative_int(duration_ms, "duration_ms")
+            except MediaContractError as exc:
+                raise MediaContractError(
+                    str(exc),
+                    code=MediaErrorCode.INVALID_DURATION,
+                ) from exc
+            if self._position_ms > duration:
+                raise MediaContractError(
+                    "position exceeds media duration",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
+        else:
+            duration = None
+        if type(state) is MediaPlaybackState:
+            normalized_state = state
+        elif type(state) is str:
+            try:
+                normalized_state = MediaPlaybackState(state)
+            except ValueError as exc:
+                raise MediaContractError(
+                    f"unsupported media playback state: {state!r}",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported media playback state",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        self._playback_rate = self._require_rate(playback_rate)
+        self._fractional_ms = 0.0
+        self._duration_ms = duration
+        self._state = normalized_state
+        self._last_now_ms = 0
+        self._revision = 0
+        if duration is not None and self._position_ms == duration:
+            self._state = MediaPlaybackState.ENDED
+
+    @staticmethod
+    def _require_now(now_ms: object) -> int:
+        return _require_nonnegative_int(now_ms, "now_ms")
+
+    @staticmethod
+    def _require_rate(value: object) -> float:
+        if type(value) not in (int, float) or isinstance(value, bool):
+            raise MediaContractError(
+                "playback_rate must be a finite positive number",
+                code=MediaErrorCode.INVALID_PLAYBACK_RATE,
+            )
+        try:
+            rate = float(value)
+        except (OverflowError, ValueError) as exc:
+            raise MediaContractError(
+                "playback_rate must be a finite positive number",
+                code=MediaErrorCode.INVALID_PLAYBACK_RATE,
+            ) from exc
+        if not math.isfinite(rate) or rate <= 0.0:
+            raise MediaContractError(
+                "playback_rate must be a finite positive number",
+                code=MediaErrorCode.INVALID_PLAYBACK_RATE,
+            )
+        return rate
+
+    def _materialize(self, now_ms: int) -> None:
+        now = self._require_now(now_ms)
+        if now < self._last_now_ms:
+            raise MediaContractError(
+                "media clock time cannot move backwards",
+                code=MediaErrorCode.INVALID_TIMESTAMP,
+            )
+        elapsed = now - self._last_now_ms
+        if self._state is MediaPlaybackState.PLAYING and elapsed:
+            try:
+                media_elapsed = elapsed * self._playback_rate + self._fractional_ms
+            except (OverflowError, ValueError) as exc:
+                raise MediaContractError(
+                    "media clock delta is not representable",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                ) from exc
+            if not math.isfinite(media_elapsed):
+                raise MediaContractError(
+                    "media clock delta is not representable",
+                    code=MediaErrorCode.INVALID_TIMESTAMP,
+                )
+            whole_elapsed = int(media_elapsed)
+            self._fractional_ms = media_elapsed - whole_elapsed
+            self._position_ms += whole_elapsed
+            if (
+                self._duration_ms is not None
+                and self._position_ms >= self._duration_ms
+            ):
+                self._position_ms = self._duration_ms
+                self._fractional_ms = 0.0
+                if self._state is not MediaPlaybackState.ENDED:
+                    self._state = MediaPlaybackState.ENDED
+                    self._revision += 1
+        self._last_now_ms = now
+
+    def _snapshot(self) -> MediaClockSnapshot:
+        return MediaClockSnapshot(
+            self._position_ms,
+            self._state,
+            self._playback_rate,
+            self._duration_ms,
+            self._revision,
+        )
+
+    @property
+    def revision(self) -> int:
+        return self._revision
+
+    def snapshot(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        return self._snapshot()
+
+    def play(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._state is MediaPlaybackState.ENDED:
+            return self._snapshot()
+        if self._duration_ms is not None and self._position_ms >= self._duration_ms:
+            self._state = MediaPlaybackState.ENDED
+            self._revision += 1
+            return self._snapshot()
+        if self._state is not MediaPlaybackState.PLAYING:
+            self._state = MediaPlaybackState.PLAYING
+            self._revision += 1
+        return self._snapshot()
+
+    def pause(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._state in (
+            MediaPlaybackState.PLAYING,
+            MediaPlaybackState.BUFFERING,
+        ):
+            self._state = MediaPlaybackState.PAUSED
+            self._fractional_ms = 0.0
+            self._revision += 1
+        return self._snapshot()
+
+    def buffer(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._state in (
+            MediaPlaybackState.ENDED,
+            MediaPlaybackState.PAUSED,
+        ):
+            return self._snapshot()
+        if self._state is not MediaPlaybackState.BUFFERING:
+            self._state = MediaPlaybackState.BUFFERING
+            self._fractional_ms = 0.0
+            self._revision += 1
+        return self._snapshot()
+
+    def resume(self, now_ms: int) -> MediaClockSnapshot:
+        return self.play(now_ms)
+
+    def seek(self, position_ms: int, now_ms: int) -> MediaClockSnapshot:
+        position = _require_nonnegative_int(position_ms, "position_ms")
+        if self._duration_ms is not None and position > self._duration_ms:
+            raise MediaContractError(
+                "media position exceeds source duration",
+                code=MediaErrorCode.INVALID_TIMESTAMP,
+            )
+        self._materialize(now_ms)
+        self._position_ms = position
+        self._fractional_ms = 0.0
+        self._last_now_ms = self._require_now(now_ms)
+        if self._duration_ms is not None and position == self._duration_ms:
+            self._state = MediaPlaybackState.ENDED
+        elif self._state is MediaPlaybackState.ENDED:
+            self._state = MediaPlaybackState.PAUSED
+        self._revision += 1
+        return self._snapshot()
+
+    def set_playback_rate(
+        self,
+        playback_rate: float,
+        now_ms: int,
+    ) -> MediaClockSnapshot:
+        rate = self._require_rate(playback_rate)
+        self._materialize(now_ms)
+        if rate != self._playback_rate:
+            self._playback_rate = rate
+            self._fractional_ms = 0.0
+            self._revision += 1
+        return self._snapshot()
+
+    def end(self, now_ms: int) -> MediaClockSnapshot:
+        self._materialize(now_ms)
+        if self._duration_ms is not None:
+            self._position_ms = self._duration_ms
+            self._fractional_ms = 0.0
+        if self._state is not MediaPlaybackState.ENDED:
+            self._state = MediaPlaybackState.ENDED
+            self._revision += 1
+        return self._snapshot()
+
+
+
 def _require_text(value: object, field_name: str) -> str:
     if type(value) is not str or not value.strip():
         raise MediaContractError(
             f"{field_name} must be non-empty text",
             code=MediaErrorCode.INVALID_TEXT,
         )
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            f"{field_name} must be valid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
     return value
 
 
@@ -93,7 +340,13 @@ def _require_confidence(value: object) -> float:
             "confidence must be a finite number in the range 0..1",
             code=MediaErrorCode.INVALID_CONFIDENCE,
         )
-    number = float(value)
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise MediaContractError(
+            "confidence must be a finite number in the range 0..1",
+            code=MediaErrorCode.INVALID_CONFIDENCE,
+        ) from exc
     if not math.isfinite(number) or number < 0.0 or number > 1.0:
         raise MediaContractError(
             "confidence must be a finite number in the range 0..1",
@@ -120,13 +373,21 @@ class MediaSource:
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _require_text(self.source_id, "source_id"))
         object.__setattr__(self, "title", _require_text(self.title, "title"))
-        try:
-            kind = MediaSourceKind(self.kind)
-        except (TypeError, ValueError) as exc:
+        if type(self.kind) is MediaSourceKind:
+            kind = self.kind
+        elif type(self.kind) is str:
+            try:
+                kind = MediaSourceKind(self.kind)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media source kind",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
             raise MediaContractError(
-                f"unsupported media source kind: {self.kind!r}",
+                "unsupported media source kind",
                 code=MediaErrorCode.INVALID_CONTAINER,
-            ) from exc
+            )
         object.__setattr__(self, "kind", kind)
         object.__setattr__(
             self,
@@ -167,13 +428,21 @@ class MediaChessLink:
             _require_nonnegative_int(self.timestamp_ms, "timestamp_ms"),
         )
         object.__setattr__(self, "chess_ref", _require_text(self.chess_ref, "chess_ref"))
-        try:
-            status = MediaLinkStatus(self.status)
-        except (TypeError, ValueError) as exc:
+        if type(self.status) is MediaLinkStatus:
+            status = self.status
+        elif type(self.status) is str:
+            try:
+                status = MediaLinkStatus(self.status)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media link status",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
             raise MediaContractError(
-                f"unsupported media link status: {self.status!r}",
+                "unsupported media link status",
                 code=MediaErrorCode.INVALID_CONTAINER,
-            ) from exc
+            )
         object.__setattr__(self, "status", status)
         object.__setattr__(self, "confidence", _require_confidence(self.confidence))
         object.__setattr__(
@@ -218,15 +487,37 @@ class MediaPositionTimeline:
         links: Iterable[MediaChessLink] = (),
     ) -> None:
         self.source_id = _require_text(source_id, "source_id")
-        materialized = tuple(links)
+        try:
+            iterator = iter(links)
+        except BaseException as exc:
+            raise MediaContractError(
+                "timeline links must be safely iterable",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+
+        materialized: list[MediaChessLink] = []
+        try:
+            for _ in range(MAX_MEDIA_LINKS + 1):
+                try:
+                    materialized.append(next(iterator))
+                except StopIteration:
+                    break
+        except BaseException as exc:
+            raise MediaContractError(
+                "timeline links must be safely iterable",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+
         if len(materialized) > MAX_MEDIA_LINKS:
             raise MediaContractError(
                 f"media timeline exceeds {MAX_MEDIA_LINKS} links",
                 code=MediaErrorCode.LINK_LIMIT,
             )
+        materialized = tuple(materialized)
+
         seen: set[tuple[int, str]] = set()
         for link in materialized:
-            if not isinstance(link, MediaChessLink):
+            if type(link) is not MediaChessLink:
                 raise MediaContractError(
                     "timeline links must be MediaChessLink values",
                     code=MediaErrorCode.INVALID_CONTAINER,
@@ -477,7 +768,7 @@ class MediaChessSession:
     chess_ref: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.media_cursor, MediaCursor):
+        if type(self.media_cursor) is not MediaCursor:
             raise MediaContractError(
                 "media_cursor must be a MediaCursor",
                 code=MediaErrorCode.INVALID_CONTAINER,
@@ -538,7 +829,7 @@ class MediaChessSession:
         return replace(self, media_cursor=MediaCursor(timeline.source_id, target))
 
     def _require_timeline_source(self, timeline: MediaPositionTimeline) -> None:
-        if not isinstance(timeline, MediaPositionTimeline):
+        if type(timeline) is not MediaPositionTimeline:
             raise MediaContractError(
                 "timeline must be a MediaPositionTimeline",
                 code=MediaErrorCode.INVALID_CONTAINER,
@@ -589,6 +880,13 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _reject_nonfinite_json(value: str) -> object:
+    raise MediaContractError(
+        f"media state contains non-finite JSON number: {value}",
+        code=MediaErrorCode.INVALID_SCHEMA,
+    )
+
+
 def serialize_media_state(
     source: MediaSource,
     timeline: MediaPositionTimeline,
@@ -596,17 +894,17 @@ def serialize_media_state(
 ) -> str:
     """Serialize a bounded, versioned media state snapshot."""
 
-    if not isinstance(source, MediaSource):
+    if type(source) is not MediaSource:
         raise MediaContractError(
             "source must be a MediaSource",
             code=MediaErrorCode.INVALID_CONTAINER,
         )
-    if not isinstance(timeline, MediaPositionTimeline):
+    if type(timeline) is not MediaPositionTimeline:
         raise MediaContractError(
             "timeline must be a MediaPositionTimeline",
             code=MediaErrorCode.INVALID_CONTAINER,
         )
-    if not isinstance(session, MediaChessSession):
+    if type(session) is not MediaChessSession:
         raise MediaContractError(
             "session must be a MediaChessSession",
             code=MediaErrorCode.INVALID_CONTAINER,
@@ -626,8 +924,15 @@ def serialize_media_state(
             "chess_ref": session.chess_ref,
         },
     }
-    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    if len(text.encode("utf-8")) > MAX_MEDIA_STATE_BYTES:
+    try:
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        encoded_length = len(text.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            "serialized media state contains invalid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
+    if encoded_length > MAX_MEDIA_STATE_BYTES:
         raise MediaContractError(
             "serialized media state exceeds the safety limit",
             code=MediaErrorCode.STATE_TOO_LARGE,
@@ -645,13 +950,24 @@ def deserialize_media_state(
             "media state must be text",
             code=MediaErrorCode.INVALID_TEXT,
         )
-    if len(text.encode("utf-8")) > MAX_MEDIA_STATE_BYTES:
+    try:
+        encoded_length = len(text.encode("utf-8", errors="strict"))
+    except UnicodeEncodeError as exc:
+        raise MediaContractError(
+            "media state must be valid UTF-8 text",
+            code=MediaErrorCode.INVALID_TEXT,
+        ) from exc
+    if encoded_length > MAX_MEDIA_STATE_BYTES:
         raise MediaContractError(
             "media state exceeds the safety limit",
             code=MediaErrorCode.STATE_TOO_LARGE,
         )
     try:
-        payload = json.loads(text, object_pairs_hook=_reject_duplicate_json_keys)
+        payload = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json,
+        )
     except (json.JSONDecodeError, RecursionError) as exc:
         raise MediaContractError(
             "media state is not valid JSON",

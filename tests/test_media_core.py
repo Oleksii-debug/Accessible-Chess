@@ -4,6 +4,9 @@ import unittest
 
 from acs.media_core import (
     MEDIA_STATE_SCHEMA,
+    MediaClock,
+    MediaClockSnapshot,
+    MediaPlaybackState,
     MAX_MEDIA_LINKS,
     MediaChessLink,
     MediaChessSession,
@@ -282,7 +285,7 @@ class MediaCoreContractTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
 
     def test_non_finite_or_out_of_range_confidence_is_rejected(self):
-        for value in (math.nan, math.inf, -0.1, 1.1, True):
+        for value in (math.nan, math.inf, -0.1, 1.1, True, 10**1000):
             with self.subTest(value=value):
                 with self.assertRaises(MediaContractError) as caught:
                     self.link(1_000, "tree:a", confirmed=False, confidence=value)
@@ -293,6 +296,51 @@ class MediaCoreContractTests(unittest.TestCase):
         with self.assertRaises(MediaContractError) as caught:
             session.seek_media(120_001, duration_ms=120_000)
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_oversized_confidence_fails_closed_without_overflow_error(self):
+        with self.assertRaises(MediaContractError) as caught:
+            self.link(1_000, "tree:a", confirmed=False, confidence=10**1000)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONFIDENCE)
+
+    def test_media_text_rejects_lone_surrogates_at_domain_boundary(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaSource(
+                source_id="lesson-1",
+                title="broken\ud800",
+                kind=MediaSourceKind.LOCAL_FILE,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
+    def test_serializer_rejects_lone_surrogates_in_state_text(self):
+        source = self.source()
+        object.__setattr__(source, "attribution", "broken\ud800")
+        with self.assertRaises(MediaContractError) as caught:
+            serialize_media_state(
+                source,
+                MediaPositionTimeline("lesson-1", []),
+                MediaChessSession(MediaCursor("lesson-1", 0)),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
+    def test_loader_rejects_nonfinite_numbers_even_in_unconsumed_fields(self):
+        source = self.source()
+        timeline = MediaPositionTimeline("lesson-1", [])
+        session = MediaChessSession(MediaCursor("lesson-1", 0))
+        payload = json.loads(serialize_media_state(source, timeline, session))
+        for raw in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(raw=raw):
+                text = json.dumps(payload, separators=(",", ":")).replace(
+                    '"version":1', f'"version":1,"future_value":{raw}', 1
+                )
+                with self.assertRaises(MediaContractError) as caught:
+                    deserialize_media_state(text)
+                self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_SCHEMA)
+
+    def test_loader_rejects_lone_surrogate_before_utf8_size_check(self):
+        malformed = '{"schema":"accessible-chess.media-state","version":1,"bad":"\ud800"}'
+        with self.assertRaises(MediaContractError) as caught:
+            deserialize_media_state(malformed)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
 
     def test_versioned_state_round_trip_preserves_unicode_and_ambiguity(self):
         source = self.source()
@@ -376,9 +424,232 @@ class MediaCoreContractTests(unittest.TestCase):
             MediaPositionTimeline("lesson-1", [None] * (MAX_MEDIA_LINKS + 1))
         self.assertEqual(caught.exception.code, MediaErrorCode.LINK_LIMIT)
 
+    def test_timeline_bounds_arbitrary_iterables_before_full_materialization(self):
+        seen = []
+
+        def unbounded_links():
+            index = 0
+            while True:
+                seen.append(index)
+                yield self.link(index, f"tree:{index}")
+                index += 1
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline("lesson-1", unbounded_links())
+        self.assertEqual(caught.exception.code, MediaErrorCode.LINK_LIMIT)
+        self.assertEqual(len(seen), MAX_MEDIA_LINKS + 1)
+
+    def test_timeline_rejects_media_link_subclasses_at_dto_boundary(self):
+        class DerivedMediaChessLink(MediaChessLink):
+            pass
+
+        derived = DerivedMediaChessLink(
+            source_id="lesson-1",
+            timestamp_ms=1_000,
+            chess_ref="tree:derived",
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline("lesson-1", [derived])
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_active_enum_like_inputs_fail_closed_without_repr_evaluation(self):
+        class ReprBomb:
+            def __repr__(self):
+                raise AssertionError("repr must not be evaluated")
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClock(state=ReprBomb())
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+        self.assertNotIn("ReprBomb", str(caught.exception))
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaSource(
+                source_id="lesson-1",
+                title="lesson",
+                kind=ReprBomb(),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessLink(
+                source_id="lesson-1",
+                timestamp_ms=0,
+                chess_ref="tree:a",
+                status=ReprBomb(),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_serialize_rejects_timeline_subclasses_at_the_authority_boundary(self):
+        class DerivedMediaPositionTimeline(MediaPositionTimeline):
+            pass
+
+        source = self.source()
+        timeline = DerivedMediaPositionTimeline("lesson-1", [])
+        session = MediaChessSession(MediaCursor("lesson-1", 0))
+        with self.assertRaises(MediaContractError) as caught:
+            serialize_media_state(source, timeline, session)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_session_rejects_cursor_subclasses_at_dto_boundary(self):
+        class DerivedMediaCursor(MediaCursor):
+            pass
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessSession(DerivedMediaCursor("lesson-1", 0))
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
     def test_schema_identifier_is_stable(self):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")
 
+
+    def test_clock_starts_unstarted_and_snapshot_is_deterministic(self):
+        clock = MediaClock()
+        first = clock.snapshot(0)
+        second = clock.snapshot(1000)
+        self.assertIsInstance(first, MediaClockSnapshot)
+        self.assertEqual(first.position_ms, 0)
+        self.assertEqual(first.state, MediaPlaybackState.UNSTARTED)
+        self.assertEqual(first.revision, 0)
+        self.assertEqual(second.position_ms, 0)
+        self.assertEqual(second.revision, 0)
+
+    def test_clock_play_advances_at_explicit_rate(self):
+        clock = MediaClock()
+        started = clock.play(100)
+        self.assertEqual(started.state, MediaPlaybackState.PLAYING)
+        self.assertEqual(started.position_ms, 0)
+        advanced = clock.snapshot(1100)
+        self.assertEqual(advanced.position_ms, 1000)
+        self.assertEqual(advanced.state, MediaPlaybackState.PLAYING)
+
+    def test_clock_pause_freezes_materialized_position(self):
+        clock = MediaClock()
+        clock.play(0)
+        paused = clock.pause(1500)
+        self.assertEqual(paused.position_ms, 1500)
+        self.assertEqual(paused.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(clock.snapshot(3000).position_ms, 1500)
+
+    def test_clock_buffering_freezes_until_resume(self):
+        clock = MediaClock()
+        clock.play(0)
+        buffering = clock.buffer(1200)
+        self.assertEqual(buffering.position_ms, 1200)
+        self.assertEqual(buffering.state, MediaPlaybackState.BUFFERING)
+        self.assertEqual(clock.snapshot(5000).position_ms, 1200)
+        resumed = clock.resume(5000)
+        self.assertEqual(resumed.state, MediaPlaybackState.PLAYING)
+        self.assertEqual(clock.snapshot(5600).position_ms, 1800)
+
+    def test_clock_late_buffer_event_cannot_cancel_explicit_pause(self):
+        clock = MediaClock()
+        clock.play(0)
+        clock.pause(1000)
+        buffered = clock.buffer(1100)
+        self.assertEqual(buffered.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(buffered.position_ms, 1000)
+    def test_clock_pause_during_buffering_honors_explicit_user_pause(self):
+        clock = MediaClock()
+        clock.play(0)
+        clock.buffer(1000)
+        paused = clock.pause(1200)
+        self.assertEqual(paused.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(paused.position_ms, 1000)
+        self.assertEqual(clock.resume(1200).state, MediaPlaybackState.PLAYING)
+
+    def test_clock_fractional_rate_progress_is_not_lost_between_snapshots(self):
+        clock = MediaClock(playback_rate=1.5)
+        clock.play(0)
+        self.assertEqual(clock.snapshot(1).position_ms, 1)
+        self.assertEqual(clock.snapshot(2).position_ms, 3)
+        self.assertEqual(clock.snapshot(3).position_ms, 4)
+
+    def test_clock_rate_change_reanchors_without_position_jump(self):
+        clock = MediaClock()
+        clock.play(0)
+        changed = clock.set_playback_rate(2.0, 1000)
+        self.assertEqual(changed.position_ms, 1000)
+        self.assertEqual(changed.playback_rate, 2.0)
+        self.assertEqual(clock.snapshot(1500).position_ms, 2000)
+
+    def test_clock_seek_reanchors_and_allows_rewind_after_end(self):
+        clock = MediaClock(duration_ms=2000)
+        clock.play(0)
+        ended = clock.snapshot(3000)
+        self.assertEqual(ended.position_ms, 2000)
+        self.assertEqual(ended.state, MediaPlaybackState.ENDED)
+        rewound = clock.seek(500, 3000)
+        self.assertEqual(rewound.position_ms, 500)
+        self.assertEqual(rewound.state, MediaPlaybackState.PAUSED)
+        self.assertEqual(clock.snapshot(3500).position_ms, 500)
+        clock.resume(3500)
+        self.assertEqual(clock.snapshot(4000).position_ms, 1000)
+
+    def test_clock_late_buffer_event_cannot_reopen_ended_media(self):
+        clock = MediaClock(duration_ms=1000)
+        clock.play(0)
+        ended = clock.end(500)
+        self.assertEqual(ended.state, MediaPlaybackState.ENDED)
+        buffered = clock.buffer(600)
+        self.assertEqual(buffered.state, MediaPlaybackState.ENDED)
+        self.assertEqual(buffered.position_ms, 1000)
+    def test_clock_end_clamps_to_duration_and_stays_ended(self):
+        clock = MediaClock(duration_ms=5000)
+        clock.play(0)
+        ended = clock.end(1200)
+        self.assertEqual(ended.position_ms, 5000)
+        self.assertEqual(ended.state, MediaPlaybackState.ENDED)
+        self.assertEqual(clock.snapshot(9000).position_ms, 5000)
+
+    def test_clock_invalid_seek_does_not_mutate_position(self):
+        clock = MediaClock(duration_ms=1000)
+        clock.play(0)
+        clock.snapshot(500)
+        with self.assertRaises(MediaContractError) as caught:
+            clock.seek(1001, 500)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+        self.assertEqual(clock.snapshot(500).position_ms, 500)
+
+    def test_clock_rejects_unrepresentable_elapsed_delta(self):
+        clock = MediaClock(playback_rate=16.0)
+        clock.play(0)
+        before = clock.snapshot(0)
+        with self.assertRaises(MediaContractError) as caught:
+            clock.snapshot(10**1000)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+        after = clock.snapshot(0)
+        self.assertEqual(after, before)
+
+    def test_clock_rejects_non_monotonic_host_time(self):
+        clock = MediaClock()
+        clock.play(10)
+        with self.assertRaises(MediaContractError) as caught:
+            clock.snapshot(9)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_clock_rejects_invalid_rate_and_duration(self):
+        for value in (0, -1, math.nan, math.inf, True, "2.0", 10**1000):
+            with self.subTest(value=value):
+                with self.assertRaises(MediaContractError) as caught:
+                    MediaClock(playback_rate=value)
+                self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_PLAYBACK_RATE)
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClock(position_ms=100, duration_ms=99)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+
+    def test_clock_revision_changes_on_control_events_not_read_only_advance(self):
+        clock = MediaClock()
+        self.assertEqual(clock.revision, 0)
+        clock.snapshot(100)
+        self.assertEqual(clock.revision, 0)
+        started = clock.play(100)
+        self.assertEqual(started.revision, 1)
+        clock.snapshot(200)
+        self.assertEqual(clock.revision, 1)
+        changed = clock.set_playback_rate(1.5, 200)
+        self.assertEqual(changed.revision, 2)
+        repeated = clock.set_playback_rate(1.5, 300)
+        self.assertEqual(repeated.revision, 2)
 
 if __name__ == "__main__":
     unittest.main()
