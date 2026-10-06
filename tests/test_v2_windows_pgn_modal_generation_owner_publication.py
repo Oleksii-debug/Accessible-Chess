@@ -199,5 +199,54 @@ class WindowsPgnModalGenerationOwnerPublicationTests(unittest.TestCase):
             self.assertEqual(terminal.action_id, "pgn.open")
 
 
+    def test_open_owner_publication_keeps_success_when_cancel_arrives_after_publish(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source_path = root / "replacement-after-boundary.pgn"
+            current_path = root / "current-after-boundary.pgn"
+            source_path.write_text('[Event "replacement"]\\n\\n1. d4 *\\n', encoding="utf-8")
+            current_path.write_text('[Event "current"]\\n\\n1. e4 *\\n', encoding="utf-8")
+
+            current = self._session(current_path)
+            prepared = self._session(source_path)
+            prepared_view = prepared.view()
+            cancel_event = threading.Event()
+            live_box: list[PgnDocumentSession | None] = [current]
+            events: list[FileWorkflowEvent] = []
+
+            def publish(session: PgnDocumentSession) -> None:
+                live_box[0] = session
+                cancel_event.set()
+
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source_path),
+                get_pgn_session=lambda: current,
+                set_pgn_session=publish,
+                import_services_factory=_noop_services,
+                event_sink=events.append,
+                next_delegate=lambda action_id, payload: None,
+                post_to_ui=lambda callback: None,
+            )
+            generation, _ = self._prepare_worker_state(delegate, cancel_event)
+            expected_generation = delegate._pgn_session_generation(current)
+
+            delegate._finish_pgn_open_on_owner(
+                generation,
+                prepared,
+                prepared_view,
+                "",
+                "",
+                cancel_event,
+                current,
+                expected_generation,
+            )
+
+            self.assertIs(live_box[0], prepared)
+            self.assertTrue(events)
+            terminal = events[-1]
+            self.assertIs(terminal.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertEqual(terminal.action_id, "pgn.open")
+
+
 if __name__ == "__main__":
     unittest.main()
