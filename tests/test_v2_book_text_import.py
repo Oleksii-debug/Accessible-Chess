@@ -590,6 +590,28 @@ Starting board
         )
         self.assertTrue(all(not block.ordered for block in lists))
 
+    def test_markdown_nonpositive_first_ordered_marker_remains_readable_fallback(self) -> None:
+        result = import_text_book(
+            "0. Cannot be canonical start\n1. Valid list start\n",
+            source_name="nonpositive-first-marker.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(paragraphs, ["0. Cannot be canonical start"])
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].start, 1)
+        self.assertEqual(lists[0].items, ["Valid list start"])
+        self.assertTrue(
+            any("non-positive start" in warning for warning in result.warnings)
+        )
+
     def test_markdown_ordered_list_reimport_keeps_stable_semantic_target(self) -> None:
         source = "4. Alpha\n40. Beta\n2. Gamma\n"
         first = import_text_book(
