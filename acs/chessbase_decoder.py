@@ -30,7 +30,7 @@ from .chessbase_integrity import (
     verify_integrity_snapshot,
 )
 from .chesscore import Board, Move
-from .gametree import Comment, MoveNode, PgnGame, VariationLine
+from .gametree import Comment, MoveNode, PgnGame, TAG_NAME_RE, VariationLine
 from .report_paths import report_safe_name
 
 PROTOCOL_ID = "accessible-chess-libcbh-v1"
@@ -631,9 +631,14 @@ def _decode_game(raw: object, expected_index: int, total_budget: list[int]) -> t
             )
         name = _bounded_text(item.get("name"), "tag.name", 128)
         value = _bounded_text(item.get("value"), "tag.value", MAX_TAG_CHARS)
-        if not name or name in tags:
+        if TAG_NAME_RE.fullmatch(name) is None or "\r" in value or "\n" in value:
             raise _decode_error(
-                "ChessBase decoder returned a duplicate/empty tag name",
+                "ChessBase decoder returned an unrepresentable PGN tag",
+                ChessBaseDecodeCode.PROTOCOL_ERROR,
+            )
+        if name in tags:
+            raise _decode_error(
+                "ChessBase decoder returned a duplicate tag name",
                 ChessBaseDecodeCode.PROTOCOL_ERROR,
             )
         tags[name] = value
