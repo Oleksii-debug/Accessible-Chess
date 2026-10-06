@@ -279,11 +279,11 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
             def __init__(self, shutdown_result, resume_result) -> None:
                 self.shutdown_result = shutdown_result
                 self.resume_result = resume_result
-                self.shutdown_calls = 0
+                self.shutdown_calls = []
                 self.resume_calls = 0
 
             def shutdown(self, timeout=None):
-                self.shutdown_calls += 1
+                self.shutdown_calls.append(timeout)
                 return self.shutdown_result
 
             def resume_after_refused_shutdown(self):
@@ -307,8 +307,8 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
 
                 self.assertFalse(application.shutdown(timeout=0.1))
 
-                self.assertEqual(still_busy.shutdown_calls, 1)
-                self.assertEqual(already_retired.shutdown_calls, 1)
+                self.assertEqual(still_busy.shutdown_calls, [0.1, 0.0])
+                self.assertEqual(already_retired.shutdown_calls, [0.1, 0.0])
                 self.assertEqual(still_busy.resume_calls, 1)
                 self.assertEqual(already_retired.resume_calls, 1)
                 self.assertIsInstance(
