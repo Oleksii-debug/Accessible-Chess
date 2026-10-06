@@ -153,12 +153,12 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
 
     def test_blockquote_images_use_alt_text_without_destination_identity_churn(self):
         first = import_text_book(
-            '> Before ![Board position](https://one.invalid/board.png "first title") after.',
+            '> Before  ![Board position](https://one.invalid/board.png "first title")  after.',
             source_name="quote-one.md",
             source_format=BookTextFormat.MARKDOWN,
         )
         second = import_text_book(
-            '> Before ![Board position](https://two.invalid/changed.png "second title") after.',
+            '> Before  ![Board position](https://two.invalid/changed.png "second title")  after.',
             source_name="quote-two.md",
             source_format=BookTextFormat.MARKDOWN,
         )
@@ -171,8 +171,8 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         ]
         self.assertEqual(len(first_paragraphs), 1)
         self.assertEqual(len(second_paragraphs), 1)
-        self.assertEqual(first_paragraphs[0].text, "Before Board position after.")
-        self.assertEqual(second_paragraphs[0].text, "Before Board position after.")
+        self.assertEqual(first_paragraphs[0].text, "Before  Board position  after.")
+        self.assertEqual(second_paragraphs[0].text, "Before  Board position  after.")
         self.assertEqual(first_paragraphs[0].block_id, second_paragraphs[0].block_id)
         self.assertNotIn("one.invalid", first_paragraphs[0].text)
         self.assertNotIn("first title", first_paragraphs[0].text)
