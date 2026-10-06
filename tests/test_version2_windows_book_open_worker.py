@@ -224,6 +224,42 @@ class BookOpenWorkerTests(unittest.TestCase):
             [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
         )
 
+    def test_started_event_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        events = []
+        cancel_results = []
+        holder = {}
+
+        def sink(event):
+            events.append(event.kind)
+            if event.kind is BookOpenWorkerEventKind.STARTED:
+                cancel_results.append(
+                    holder["worker"].cancel(focus_target="book-cancel")
+                )
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "must-not-run",
+            commit=lambda value: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=sink,
+        )
+        holder["worker"] = worker
+
+        with unittest.mock.patch.object(threading.Thread, "start", autospec=True) as start:
+            self.assertFalse(worker.start(Path("book.md"), focus_target="book-open"))
+
+        self.assertEqual(cancel_results, [True])
+        start.assert_not_called()
+        self.assertFalse(worker.closed)
+        self.assertFalse(worker.active)
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+                BookOpenWorkerEventKind.CANCELLED,
+            ],
+        )
+
     def test_started_event_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         events = []
         shutdown_results = []
