@@ -8,6 +8,10 @@ from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.gametree import parse_games
 from acs.gametree_navigation import GameTreeCursor, VariationStep
 from acs.pgn_webview_bridge import PgnWebViewBridge
+from acs.pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 
 
@@ -201,6 +205,35 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual("after", payload["slot"])
         self.assertEqual(0, payload["index"])
         self.assertEqual(0, payload["move_index"])
+
+    def test_direct_projection_tag_edit_uses_canonical_bounds_and_rejects_line_breaks(self) -> None:
+        before = len(self.calls)
+        invalid = (
+            ("oversized-name", "X" * (MAX_PGN_EDIT_TAG_NAME_CHARS + 1), "safe"),
+            ("oversized-value", "Event", "x" * (MAX_PGN_EDIT_TAG_VALUE_CHARS + 1)),
+            ("nul-value", "Event", "bad\x00value"),
+            ("lf-value", "Event", "line\nbreak"),
+            ("cr-value", "Event", "carriage\rreturn"),
+        )
+        for label, name, value in invalid:
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    self.projection.edit_tag(name, value)
+                self.assertEqual(before, len(self.calls))
+
+        with self.assertRaises(ValueError):
+            self.projection.delete_tag("X" * (MAX_PGN_EDIT_TAG_NAME_CHARS + 1))
+        self.assertEqual(before, len(self.calls))
+
+        event = self.projection.edit_tag(
+            "X" * MAX_PGN_EDIT_TAG_NAME_CHARS,
+            "v" * MAX_PGN_EDIT_TAG_VALUE_CHARS,
+        )
+        self.assertEqual("selection", event.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.tag_edit", action_id)
+        self.assertEqual(MAX_PGN_EDIT_TAG_NAME_CHARS, len(payload["name"]))
+        self.assertEqual(MAX_PGN_EDIT_TAG_VALUE_CHARS, len(payload["value"]))
 
     def test_keyboard_and_parent_navigation_cross_real_registry_exactly_once(self) -> None:
         self.projection.snapshot()
