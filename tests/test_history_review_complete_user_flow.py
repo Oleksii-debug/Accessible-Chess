@@ -248,6 +248,25 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
                 self.assertFalse(result["ok"])
                 self.assertTrue(result["atHistoryEnd"])
 
+    def test_history_renderer_reuses_options_to_avoid_focus_churn(self) -> None:
+        html = (
+            Path(__file__).resolve().parents[1] / "web" / "index.html"
+        ).read_text(encoding="utf-8")
+
+        render_start = html.index("function renderHistory(items,reviewCursor)")
+        render_end = html.index("\nfunction render(s)", render_start)
+        renderer = html[render_start:render_end]
+
+        self.assertIn("let node=list.children[i]", renderer)
+        self.assertIn("makeHistoryOptionNode()", renderer)
+        self.assertNotIn("list.textContent=''", renderer)
+        self.assertIn(
+            "if(target&&document.activeElement!==target)target.focus({preventScroll:true})",
+            renderer,
+        )
+        self.assertIn("aria-posinset", renderer)
+        self.assertIn("aria-setsize", renderer)
+
     def test_history_list_is_keyboard_select_then_enter_commit(self) -> None:
         html = (
             Path(__file__).resolve().parents[1] / "web" / "index.html"
@@ -273,6 +292,14 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
             "ply>=0",
             "History positions",
             "typeof item.ply==='number'",
+            "function makeHistoryOptionNode()",
+            "function clearHistoryOptions(list,hadFocus)",
+            "let node=list.children[i]",
+            "aria-posinset",
+            "aria-setsize",
+            "if(node.textContent!==item.label)node.textContent=item.label",
+            "document.activeElement!==target",
+            "while(list.children.length>valid.length)",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, html)
