@@ -636,6 +636,38 @@ def write_version2_release_receipt(
         ):
             _remove_private_staging_file(staging, staging_identity)
 
+    if not publication_accepted or staging_identity is None:
+        raise Version2ReleaseReceiptError(
+            "release receipt publication did not reach an accepted state"
+        )
+
+    # Staging cleanup happens after the durability barrier and can race with a
+    # concurrent writer through the shared canonical inode. Re-read the exact
+    # canonical pathname only after cleanup, require that it still identifies
+    # this invocation's filesystem object, and require exact semantic bytes.
+    try:
+        final_info = _safe_receipt_lstat(path)
+        if (
+            not stat.S_ISREG(final_info.st_mode)
+            or _is_reparse(final_info)
+            or not _same_file_identity(staging_identity, final_info)
+        ):
+            raise Version2ReleaseReceiptError(
+                "release receipt canonical pathname changed after staging cleanup"
+            )
+        if read_version2_release_receipt(path) != validated_receipt:
+            raise Version2ReleaseReceiptError(
+                "release receipt bytes changed after staging cleanup"
+            )
+        final_after = _safe_receipt_lstat(path)
+        if not _same_file_identity(staging_identity, final_after):
+            raise Version2ReleaseReceiptError(
+                "release receipt canonical pathname changed after final readback"
+            )
+    except Version2ReleaseReceiptError:
+        _remove_private_staging_file(path, staging_identity)
+        raise
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
