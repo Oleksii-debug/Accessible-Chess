@@ -386,6 +386,28 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
 
+    def test_report_open_failure_popup_includes_actual_win32_error(self):
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        start = main.index("report = ac_open_report();")
+        end = main.index('ac_write_line(report, L"ACCESSIBLE CHESS PORTABLE LAUNCH REPORT")', start)
+        failure = main[start:end]
+
+        for token in (
+            "error = GetLastError();",
+            "if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;",
+            'L"Windows error / Код Windows: "',
+            "ac_append_u32(g_message, AC_PATH_CAP + 2048, error);",
+            'L"Accessible Chess — launch report error"',
+            "ExitProcess(error);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, failure)
+
+        self.assertNotIn(
+            "ExitProcess(error == 0 ? 1 : error);",
+            failure,
+        )
+
     def test_report_open_retries_only_bounded_sharing_violation(self):
         for token in (
             "#define AC_REPORT_RETRY_MS 100",
