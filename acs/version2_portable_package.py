@@ -723,6 +723,23 @@ def validate_portable_oneclick_tree(
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         total_bytes += _safe_info(path, label="portable package file", directory=False).st_size
+
+    # Close the acceptance window after all report construction reads.  A
+    # coherent late rewrite of a member plus SHA256SUMS must not turn bytes
+    # different from the originally qualified package into a successful report.
+    final_inventory = _relative_files(root)
+    if final_inventory != inventory:
+        _fail("portable package inventory changed during validation")
+    final_checksums, final_checksum_sha256 = _checksum_inventory(
+        root,
+        final_inventory,
+    )
+    if (
+        final_checksums != checksums
+        or final_checksum_sha256 != checksum_sha256
+    ):
+        _fail("portable package checksum authority changed during validation")
+
     return Version2PortablePackageReport(
         package_root=root,
         integration_sha=sha,
