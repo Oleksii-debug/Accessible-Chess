@@ -108,6 +108,8 @@ class RotationRound:
             {"round_id", "activity", "title", "minutes", "target", "target_ids"},
             "rotation round",
         )
+        if type(data["activity"]) is not str or type(data["target"]) is not str:
+            raise ChildCoachingRotationError("rotation round record is not canonical")
         raw_targets = data["target_ids"]
         if type(raw_targets) is not list:
             raise ChildCoachingRotationError("rotation target_ids must be an array")
@@ -300,6 +302,8 @@ class RotationState:
             "rotation state",
         )
         supplied = _digest_text(data["digest"], "rotation state digest")
+        if type(data["phase"]) is not str:
+            raise ChildCoachingRotationError("rotation state record is not canonical")
         state = cls(
             rotation_id=data["rotation_id"],
             plan_digest=data["plan_digest"],
