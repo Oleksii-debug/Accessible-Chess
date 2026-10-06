@@ -224,6 +224,9 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(api.board.turn, "w")
         self.assertEqual(played["engineGame"]["turn"], "human")
         self.assertEqual(len(engine.calls), 1)
+        expected_after_e4 = Board()
+        expected_after_e4.push_text("e4")
+        self.assertEqual(engine.calls[0][0], expected_after_e4.fen())
         self.assertEqual(engine.calls[0][1:], (6, 325))
         self.assertIn("Stockfish зіграв", played["announcement"])
 
