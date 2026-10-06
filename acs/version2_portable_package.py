@@ -161,6 +161,21 @@ def _launcher_identity(path: Path) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _application_executable_identity(path: Path) -> str:
+    info = _safe_info(path, label="portable application executable", directory=False)
+    maximum = 256 * 1024 * 1024
+    if info.st_size < 1024 or info.st_size > maximum:
+        _fail("portable application executable byte size is outside the accepted envelope")
+    payload = _stable_bytes(
+        path,
+        label="portable application executable",
+        maximum=maximum,
+    )
+    if payload[:2] != b"MZ":
+        _fail("portable application executable is not a Windows PE executable")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _strict_json_object_pairs(items) -> dict[str, object]:
     result: dict[str, object] = {}
     member_count = 0
@@ -657,7 +672,7 @@ def validate_portable_oneclick_tree(
         PORTABLE_LAUNCHER_NAME.casefold(): _launcher_identity(
             root / PORTABLE_LAUNCHER_NAME
         ),
-        "App/AccessibleChess.exe".casefold(): _launcher_identity(
+        "App/AccessibleChess.exe".casefold(): _application_executable_identity(
             app / "AccessibleChess.exe"
         ),
     }
