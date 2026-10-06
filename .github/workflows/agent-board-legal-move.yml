@@ -66,8 +66,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'a9b4696d675a4e468e170626a2837ee50961e2dd'
-          test "$(git rev-parse HEAD:tests/test_agent_board_move_tools.py)" = '37237e7c4f782423d0266547ee5caf20a68af543'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = '840725558b7ffe7288f5e17b14cedff112febf8f'
+          test "$(git rev-parse HEAD:tests/test_agent_board_move_tools.py)" = '5b666c78945087fb84d4da754680e51a2a7a951a'
           test "$(git rev-parse HEAD:acs/chesscore.py)" = 'eb9229b5ee107afe06cdf8a916f466e1474dddd4'
           test "$(git rev-parse HEAD:acs/board_service.py)" = '5058733f0efe74bd42831b98c8f9cba83278d0cf'
           test "$(git rev-parse HEAD:acs/agent_execution_host.py)" = 'fe0ee060a9de7a45a192e185a50c95628d8b007b'

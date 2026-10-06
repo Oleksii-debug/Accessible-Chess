@@ -31,6 +31,10 @@ class ChessAgentToolsError(ValueError):
 
 
 OwnerThreadCall = Callable[[Callable[[], object]], Awaitable[object]]
+# Trusted host seam. A bound application callback must reject without changing
+# board_provider state, or commit exactly one already-validated move and leave
+# board_provider at that resulting FEN. The Agent adapter deliberately does not
+# attempt a blind Board-only rollback of application-owned history or clocks.
 BoardMovePort = Callable[[str], object]
 
 
@@ -401,7 +405,7 @@ class ChessAgentToolRegistry:
             self.executor.register(
                 ToolSpec(
                     "board.play_move",
-                    "Apply one validated move through the host-provided canonical application mutation port.",
+                    "Apply exactly one validated move through a host-provided atomic canonical application mutation port.",
                     risk=ToolRisk.LOCAL_WRITE,
                     input_schema={"move": "legal SAN or coordinate move"},
                 ),

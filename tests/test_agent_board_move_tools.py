@@ -235,7 +235,7 @@ class AgentBoardMoveToolTests(unittest.TestCase):
         self.assertEqual(calls, ["e4"])
         self.assertEqual(board.fen(), before)
 
-    def test_divergent_mutation_port_fails_closed(self) -> None:
+    def test_divergent_trusted_mutation_port_is_detected(self) -> None:
         board = Board()
 
         def wrong(_text: str) -> dict[str, object]:
