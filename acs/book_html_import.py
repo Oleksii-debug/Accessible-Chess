@@ -632,6 +632,26 @@ class _SemanticHtmlParser(HTMLParser):
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
 
+    def _find_capture_index(
+        self,
+        predicate: Callable[[_Capture], bool],
+        *,
+        reverse: bool = False,
+    ) -> int | None:
+        """Find one semantic capture while bounding deep-stack cancellation latency."""
+
+        indexes = (
+            range(len(self._captures) - 1, -1, -1)
+            if reverse
+            else range(len(self._captures))
+        )
+        for scan_count, index in enumerate(indexes, start=1):
+            if self.control_checkpoint is not None and scan_count % 128 == 0:
+                self._checkpoint()
+            if predicate(self._captures[index]):
+                return index
+        return None
+
     @staticmethod
     def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
         if "start" not in attrs:
@@ -646,8 +666,18 @@ class _SemanticHtmlParser(HTMLParser):
         return (value, value >= 1)
 
     def _emit_list(self, captured: _ListCapture) -> None:
-        items = [item for item in captured.items if item]
-        identity_items = [item for item in captured.identity_items if item]
+        items: list[str] = []
+        for item_index, item in enumerate(captured.items, start=1):
+            if self.control_checkpoint is not None and item_index % 128 == 0:
+                self._checkpoint()
+            if item:
+                items.append(item)
+        identity_items: list[str] = []
+        for item_index, item in enumerate(captured.identity_items, start=1):
+            if self.control_checkpoint is not None and item_index % 128 == 0:
+                self._checkpoint()
+            if item:
+                identity_items.append(item)
         ordered = captured.tag == "ol"
         start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
 
@@ -692,7 +722,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._list_warning(
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
-            for item in items:
+            for item_index, item in enumerate(items, start=1):
+                if self.control_checkpoint is not None and item_index % 128 == 0:
+                    self._checkpoint()
                 # Once numbering semantics are outside the canonical ListBlock model
                 # (reversed lists, per-item value overrides, invalid starts, nesting),
                 # never synthesize a numeric sequence. Preserve the source item text
@@ -767,16 +799,18 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _nearest_structural_owner_capture(self) -> _Capture | None:
         """Return the nearest capture whose text may need semantic splitting."""
-        for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
-                return capture
-        return None
+        index = self._find_capture_index(
+            lambda capture: capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"},
+            reverse=True,
+        )
+        return self._captures[index] if index is not None else None
 
     def _nearest_inline_owner_capture(self) -> _Capture | None:
-        for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
-                return capture
-        return None
+        index = self._find_capture_index(
+            lambda capture: capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"},
+            reverse=True,
+        )
+        return self._captures[index] if index is not None else None
 
     def _record_inline_semantic(
         self,
@@ -833,13 +867,8 @@ class _SemanticHtmlParser(HTMLParser):
             # insertion mode even when the source omitted </head>. Mirror that
             # deterministic boundary so readable BODY content cannot remain
             # trapped as metadata merely because HTMLParser does not build a DOM.
-            title_index = next(
-                (
-                    index
-                    for index, capture in enumerate(self._captures)
-                    if capture.kind == "title"
-                ),
-                None,
+            title_index = self._find_capture_index(
+                lambda capture: capture.kind == "title"
             )
             if title_index is not None:
                 while len(self._captures) > title_index:
@@ -933,7 +962,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._record_inline_semantic(self.blocks[-1])
 
         if tag in {"ol", "ul"} and self._lists:
-            for capture in self._captures:
+            for capture_index, capture in enumerate(self._captures, start=1):
+                if self.control_checkpoint is not None and capture_index % 128 == 0:
+                    self._checkpoint()
                 if capture.kind == "list_item" and capture.list_depth == len(self._lists):
                     capture.parts.append(" ")
 
@@ -962,7 +993,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._lists[-1].unsupported = True
                 self._lists[-1].structural_unsupported = True
             if kind == "list_item" and self._lists:
-                for capture in self._captures:
+                for capture_index, capture in enumerate(self._captures, start=1):
+                    if self.control_checkpoint is not None and capture_index % 128 == 0:
+                        self._checkpoint()
                     if capture.kind == "list_item" and capture.list_depth < len(self._lists):
                         capture.parts.append(" ")
             parent_inline_owner = self._nearest_structural_owner_capture()
@@ -1016,13 +1049,8 @@ class _SemanticHtmlParser(HTMLParser):
             # A malformed unclosed <title> must not survive the explicit end of
             # metadata. Otherwise handle_data() keeps treating later BODY text as
             # title metadata and omits it from the semantic document.
-            title_index = next(
-                (
-                    index
-                    for index, capture in enumerate(self._captures)
-                    if capture.kind == "title"
-                ),
-                None,
+            title_index = self._find_capture_index(
+                lambda capture: capture.kind == "title"
             )
             if title_index is not None:
                 while len(self._captures) > title_index:
@@ -1033,13 +1061,9 @@ class _SemanticHtmlParser(HTMLParser):
             return
         if self._head_depth and tag not in {"title", "meta"}:
             return
-        matching_capture_index = next(
-            (
-                index
-                for index in range(len(self._captures) - 1, -1, -1)
-                if self._captures[index].tag == tag
-            ),
-            None,
+        matching_capture_index = self._find_capture_index(
+            lambda capture: capture.tag == tag,
+            reverse=True,
         )
         if matching_capture_index is not None:
             # HTMLParser reports source tags but does not repair malformed
@@ -1060,14 +1084,12 @@ class _SemanticHtmlParser(HTMLParser):
             # fanning out into the stale item capture until EOF and be
             # misattributed to the already-closed list.
             list_depth = len(self._lists)
-            open_item_index = next(
-                (
-                    index
-                    for index in range(len(self._captures) - 1, -1, -1)
-                    if self._captures[index].kind == "list_item"
-                    and self._captures[index].list_depth == list_depth
+            open_item_index = self._find_capture_index(
+                lambda capture: (
+                    capture.kind == "list_item"
+                    and capture.list_depth == list_depth
                 ),
-                None,
+                reverse=True,
             )
             if open_item_index is not None:
                 while len(self._captures) > open_item_index:
