@@ -8,8 +8,17 @@ from .book_webview_projection import BookWebViewEvent, BookWebViewProjection
 
 class BookWebViewBridge:
     def __init__(self, projection: BookWebViewProjection) -> None:
-        if not isinstance(projection, BookWebViewProjection):
-            raise TypeError("projection must be BookWebViewProjection")
+        projection_type = type(projection)
+        if projection_type is not BookWebViewProjection:
+            # Version 2 is the only project-owned subclass extension of this
+            # browser boundary. Resolve it lazily so this foundational bridge
+            # does not create an import cycle while version2_book_workspace is
+            # defining that class. Exact identity rejects provider subclasses
+            # before any overridable projection hook can execute.
+            from .version2_book_workspace import Version2BookWebViewProjection
+
+            if projection_type is not Version2BookWebViewProjection:
+                raise TypeError("projection must be a canonical BookWebViewProjection")
         self._projection = projection
 
     @property
