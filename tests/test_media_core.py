@@ -302,6 +302,50 @@ class MediaCoreContractTests(unittest.TestCase):
             self.link(1_000, "tree:a", confirmed=False, confidence=10**1000)
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONFIDENCE)
 
+    def test_media_text_rejects_lone_surrogates_at_domain_boundary(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaSource(
+                source_id="lesson-1",
+                title="broken\ud800",
+                kind=MediaSourceKind.LOCAL_FILE,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
+    def test_serializer_rejects_lone_surrogates_in_state_text(self):
+        source = MediaSource(
+            source_id="lesson-1",
+            title="Accessible lesson",
+            kind=MediaSourceKind.LOCAL_FILE,
+            attribution="broken\ud800",
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            serialize_media_state(
+                source,
+                MediaPositionTimeline("lesson-1", []),
+                MediaChessSession(MediaCursor("lesson-1", 0)),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
+    def test_loader_rejects_nonfinite_numbers_even_in_unconsumed_fields(self):
+        source = self.source()
+        timeline = MediaPositionTimeline("lesson-1", [])
+        session = MediaChessSession(MediaCursor("lesson-1", 0))
+        payload = json.loads(serialize_media_state(source, timeline, session))
+        for raw in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(raw=raw):
+                text = json.dumps(payload, separators=(",", ":")).replace(
+                    '"version":1', f'"version":1,"future_value":{raw}', 1
+                )
+                with self.assertRaises(MediaContractError) as caught:
+                    deserialize_media_state(text)
+                self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_SCHEMA)
+
+    def test_loader_rejects_lone_surrogate_before_utf8_size_check(self):
+        malformed = '{"schema":"accessible-chess.media-state","version":1,"bad":"\ud800"}'
+        with self.assertRaises(MediaContractError) as caught:
+            deserialize_media_state(malformed)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
     def test_versioned_state_round_trip_preserves_unicode_and_ambiguity(self):
         source = self.source()
         timeline = MediaPositionTimeline(
