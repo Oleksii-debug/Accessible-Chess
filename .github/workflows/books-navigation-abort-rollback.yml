@@ -69,9 +69,11 @@ jobs:
           printf '%s\n' "${paths[@]}"
           expected=(
             ".github/workflows/books-navigation-abort-rollback.yml"
+            "acs/book_board_workflow.py"
             "acs/bookreader.py"
             "tests/test_bookreader_revision_barriers_current.py"
             "tests/test_dev1_books_training_webview_bridge.py"
+            "tests/test_v2_book_board_workflow.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
@@ -81,15 +83,19 @@ jobs:
       - name: Compile Books navigation boundary
         run: >-
           python -m py_compile
+          acs/book_board_workflow.py
           acs/bookreader.py
           tests/test_bookreader_revision_barriers_current.py
           tests/test_dev1_books_training_webview_bridge.py
+          tests/test_v2_book_board_workflow.py
+          tests/test_v2_book_board_workflow.py
 
       - name: Execute Books semantic and browser regressions
         run: >-
           python -m unittest -v
           tests.test_bookreader
           tests.test_bookreader_revision_barriers_current
+          tests.test_v2_book_board_workflow
           tests.test_dev1_books_training_webview_bridge
           tests.test_dev1_books_training_webview_projection
           tests.test_version2_book_workspace
