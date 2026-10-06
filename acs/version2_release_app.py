@@ -132,6 +132,17 @@ def _install_unsaved_pgn_close_guard(
         except BaseException as error:
             raise RuntimeError("Version 2 native close cannot be cancelled") from error
 
+    def announce_close_failure() -> None:
+        reporter = getattr(application, "announce_shutdown_failure", None)
+        if not callable(reporter):
+            return
+        try:
+            reporter()
+        except BaseException:
+            # Presentation is secondary to preserving the live owner and the
+            # original shutdown/resume failure that made FormClosing refuse.
+            pass
+
     def on_form_closing(_sender: object, event: object) -> None:
         if state["shutdown_complete"]:
             return
@@ -162,6 +173,7 @@ def _install_unsaved_pgn_close_guard(
                     before_shutdown(application)
                 except BaseException as error:
                     setattr(application, "_native_close_resume_error", error)
+                    announce_close_failure()
                     cancel_close(event)
                     return
 
@@ -169,9 +181,11 @@ def _install_unsaved_pgn_close_guard(
                 shutdown_complete = shutdown() is True
             except BaseException as error:
                 setattr(application, "_native_close_shutdown_error", error)
+                announce_close_failure()
                 cancel_close(event)
                 return
             if not shutdown_complete:
+                announce_close_failure()
                 cancel_close(event)
                 return
 
