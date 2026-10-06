@@ -1423,6 +1423,55 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             for callback in list(owner.posted):
                 callback()
 
+    def test_pump_close_failure_leaves_runtime_closed_and_recovery_restores_both_halves(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+
+        primary = RuntimeError("pump close failed")
+        with mock.patch.object(runtime._pump, "close", side_effect=primary):
+            with self.assertRaises(RuntimeError) as caught:
+                runtime.shutdown()
+
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(runtime.closed)
+        self.assertTrue(runtime._file_delegate.shutdown_requested)
+        self.assertFalse(runtime._pump.closed)
+
+        self.assertTrue(runtime.resume_after_refused_shutdown())
+        self.assertFalse(runtime.closed)
+        self.assertFalse(runtime._pump.closed)
+        self.assertFalse(runtime._file_delegate.shutdown_requested)
+
+        self.assertEqual(
+            runtime("analysis.restart", {"source": "board"}),
+            ("fallback", "analysis.restart"),
+        )
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime._pump.closed)
+
+    def test_recovery_primary_failure_survives_secondary_pump_close_failure(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
+        primary = RuntimeError("delegate recovery failed")
+        secondary = RuntimeError("pump rollback failed")
+        with mock.patch.object(
+            runtime._file_delegate,
+            "resume_after_refused_shutdown",
+            side_effect=primary,
+        ), mock.patch.object(
+            runtime._pump,
+            "close",
+            side_effect=secondary,
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                runtime.resume_after_refused_shutdown()
+
+        self.assertIs(caught.exception, primary)
+        self.assertTrue(runtime.closed)
+
     def test_shutdown_is_ui_thread_affine_and_retryable_from_owner_thread(self) -> None:
         owner = _Owner()
         runtime = self._runtime(owner)

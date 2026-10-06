@@ -270,13 +270,24 @@ class Version2WindowsFileWorkflowRuntime:
             if runtime_was_closed:
                 with self._lock:
                     self._closed = True
-                self._pump.close()
+                try:
+                    self._pump.close()
+                except BaseException:
+                    # The delegate recovery failure remains authoritative. A
+                    # secondary pump-close abort is only diagnostic; leaving
+                    # the outer runtime closed is the safe fail-closed state.
+                    pass
             raise
         if delegate_restored is not True:
             if runtime_was_closed:
                 with self._lock:
                     self._closed = True
-                self._pump.close()
+                try:
+                    self._pump.close()
+                except BaseException:
+                    # Do not replace the delegate's explicit refusal with an
+                    # unrelated UI-pump rollback failure.
+                    pass
             return False
 
         # Import terminals are canonical mailbox state, not disposable UI work.
@@ -312,9 +323,12 @@ class Version2WindowsFileWorkflowRuntime:
             # caller may retry shutdown. PGN Open publication is already fenced.
             return False
 
-        self._pump.close()
+        # Cross this outer closed-state boundary before closing the UI pump.
+        # If pump.close() aborts, application-level recovery must restore both
+        # the pump and file delegate rather than observing a half-closed runtime.
         with self._lock:
             self._closed = True
+        self._pump.close()
         return True
 
 
