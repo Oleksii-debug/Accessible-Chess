@@ -675,6 +675,52 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             self.assertEqual(async_events, [])
             self.assertEqual(sync_events[-1], result)
 
+    def test_modal_save_as_source_overwrite_safety_change_fails_stale_before_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-overwrite-safety-generation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            target = Path(tmp) / "must-not-save-overwrite-safety-generation.pgn"
+            session = PgnDocumentSession.open(source)
+            controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+
+            def change_overwrite_safety() -> None:
+                session._source_overwrite_safe = False
+
+            dialogs.on_save_dialog = change_overwrite_safety
+            result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_preflight_stale")
+            self.assertFalse(target.exists())
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(poster.callbacks, [])
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events[-1], result)
+
+    def test_modal_save_as_saved_digest_change_fails_stale_before_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "saved-digest-generation.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            target = Path(tmp) / "must-not-save-saved-digest-generation.pgn"
+            session = PgnDocumentSession.open(source)
+            controller, dialogs, poster, sync_events, async_events, _, _ = self._controller(session)
+            dialogs.save_destination = target
+
+            def change_saved_digest() -> None:
+                session._saved_digest = "0" * 64
+
+            dialogs.on_save_dialog = change_saved_digest
+            result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_preflight_stale")
+            self.assertFalse(target.exists())
+            self.assertFalse(controller.pgn_save_running)
+            self.assertEqual(poster.callbacks, [])
+            self.assertEqual(async_events, [])
+            self.assertEqual(sync_events[-1], result)
+
     def test_save_as_corrupted_revision_fails_before_dialog(self) -> None:
         session = PgnDocumentSession.from_text(PGN_TEXT)
         session._document_revision = True
