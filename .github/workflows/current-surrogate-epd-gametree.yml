@@ -1,0 +1,146 @@
+name: Current Surrogate Safety on EPD GameTree Apex
+
+on:
+  pull_request:
+    branches:
+      - anchor/ooxple7-surrogate-epd-dddec52
+    paths:
+      - '.github/workflows/current-surrogate-epd-gametree.yml'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'tests/test_dev1_pgn_webview_projection.py'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'tests/test_pgn_workspace.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-surrogate-epd-gametree-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: dddec5278564ceefd784d01b92f2ee772a3f01d8
+  BRIDGE_BLOB: 31a2f132027cc8c4d75a1d0b149a98239dd1c95e
+  PROJECTION_BLOB: 5327c3c89da28f9150a09eff4cc15131cc80cc76
+  WORKSPACE_BLOB: cc10d63d6ffdb4e6844f6cb01fb54d7f12044fde
+  ADAPTER_BLOB: 56c56fba520fd8b3f56b951588b98c9c417eb72a
+  COMMANDS_BLOB: 79655ccdde7fa3587861d5308a417df5d691b177
+  PROJECTION_TEST_BLOB: c58b9096bcccd8b5a09f2e8bdb9c09ebfe5bcc4b
+  ADAPTER_TEST_BLOB: a28b3669342172ee4ce4c4a1d324fbeab737e119
+  EDITING_TEST_BLOB: f81ecc0fbc9512731ebde7ef56330ed036194b5e
+  WORKSPACE_TEST_BLOB: 7e73878af7f310227b9c958c3af4bf5cabbe65be
+  GAMETREE_TEST_BLOB: 5e5f3b4c0ec3e88c441736e273f929531258ce6c
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  EPD_TEST_BLOB: 90cfe919074b7b48d3ec5c43fb54003d505e4f51
+  WEBAPP_BLOB: e473ee2f2f4ecf4b8415dc3193a9f7224dda76b9
+  WEB_INDEX_BLOB: 4673835b6679c47db62d96efab159743f98963af
+  PGN_BROWSER_BLOB: 10f46590af7287cf3626b2c0b4c293999e480b3c
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact composed geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "${EVENT_BASE_REF}" = "anchor/ooxple7-surrogate-epd-dddec52"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-surrogate-epd-gametree.yml' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'acs/version2_pgn_commands.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' \
+            'tests/test_pgn_workspace.py' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind changed and inherited authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$COMMANDS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$PROJECTION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$ADAPTER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$EDITING_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$WORKSPACE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_gametree_accessible_completion.py)" = "$GAMETREE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_BROWSER_BLOB"
+
+      - name: Compile composed PGN safety surface
+        run: >-
+          python -m py_compile
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_pgn_commands.py
+          tests/test_dev1_pgn_webview_projection.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_pgn_complete_editing_user_flow.py
+          tests/test_pgn_workspace.py
+
+      - name: Parse retained browser PGN surface
+        run: node --check web/full_product_pgn.js
+
+      - name: Run composed surrogate, GameTree and EPD regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+          tests.test_gametree_accessible_completion
+          tests.test_epd
+          tests.test_move_entry
+          tests.test_position_text_authority
+          tests.test_fen_editor_turn_and_visible_status
+
+      - name: PGN browser DOM regression
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest
