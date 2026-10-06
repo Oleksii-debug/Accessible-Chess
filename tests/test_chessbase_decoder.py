@@ -236,7 +236,7 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
         self.assertEqual(result.warnings[0].game_index, 0)
         self.assertEqual(result.warnings[0].code, "backend_record_skipped")
 
-    def test_backend_tags_must_be_canonical_pgn_tag_data(self) -> None:
+    def test_unrepresentable_backend_tags_fail_canonical_game_gate(self) -> None:
         invalid_tags = (
             [{"name": "Bad Tag", "value": "value"}],
             [{"name": "Event", "value": "line one\nline two"}],
@@ -248,7 +248,7 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
                     self.decode(payload([decoded_game(0, [move(12, 28)], tags=tags)]))
                 self.assertEqual(
                     caught.exception.code,
-                    ChessBaseDecodeCode.PROTOCOL_ERROR,
+                    ChessBaseDecodeCode.INVALID_GAME,
                 )
 
     def test_duplicate_json_keys_are_rejected(self) -> None:
