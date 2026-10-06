@@ -84,6 +84,55 @@ class EpubXmlStructureBudgetTests(unittest.TestCase):
         )
         self.assertIn("XML structure limits", str(raised.exception))
 
+    def test_package_xml_attribute_count_is_bounded_before_elementtree_build(self) -> None:
+        payload = b'<root a="1" b="2" c="3"/>'
+        with patch(
+            "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT",
+            2,
+        ):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("XML structure limits", str(raised.exception))
+
+    def test_package_xml_total_attribute_count_is_bounded(self) -> None:
+        payload = b'<root a="1"><a b="2"/><b c="3"/></root>'
+        with (
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT",
+                3,
+            ),
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_TOTAL",
+                2,
+            ),
+        ):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+
+    def test_package_xml_attribute_limits_accept_exact_boundary(self) -> None:
+        payload = b'<root a="1"><a b="2"/></root>'
+        with (
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT",
+                1,
+            ),
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_TOTAL",
+                2,
+            ),
+        ):
+            root = _xml_root(payload, "test package metadata")
+        self.assertEqual(root.attrib, {"a": "1"})
+        self.assertEqual(list(root)[0].attrib, {"b": "2"})
+
     def test_package_xml_structure_limit_accepts_exact_boundary(self) -> None:
         payload = b"<root><a><b/></a></root>"
         with (
