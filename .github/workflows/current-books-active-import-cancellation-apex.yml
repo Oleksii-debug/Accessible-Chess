@@ -1,0 +1,96 @@
+name: Current Books Active Import Cancellation Apex
+
+on:
+  pull_request:
+    branches:
+      - converge/book-reader-final-focus-authority-20261006-c2mbezb111
+    paths:
+      - 'acs/book_html_import.py'
+      - 'acs/book_epub_import.py'
+      - 'tests/test_book_active_import_cancellation.py'
+      - '.github/workflows/current-books-active-import-cancellation-apex.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-books-active-import-cancellation-apex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: 8392d569782fbebc8c1ce38d65a9ff7e64dcc8c8
+  EPUB_IMPORT_BLOB: bb586adcac05ed9b27ec67183e2b2bff424abc74
+  ACTIVE_CANCEL_TEST_BLOB: 79621d08316f2fdbadd9b3d9264539a3911d0819
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          base_ref="${EVENT_BASE_REF:-converge/book-reader-final-focus-authority-20261006-c2mbezb111}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-books-active-import-cancellation-apex.yml' \
+            'acs/book_epub_import.py' \
+            'acs/book_html_import.py' \
+            'tests/test_book_active_import_cancellation.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git hash-object acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git hash-object acs/book_epub_import.py)" = "$EPUB_IMPORT_BLOB"
+          test "$(git hash-object tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile converged import boundary
+        run: >-
+          python -m py_compile
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          tests/test_book_active_import_cancellation.py
+
+      - name: Run active import cancellation regressions
+        run: python -m unittest -v tests.test_book_active_import_cancellation
+
+      - name: Run converged semantic reader contracts
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_book_index
+          tests.test_v2_book_library_game_lookup
+          tests.test_book_presenter_passive_ingress
+
+      - name: Core selftest
+        run: python -m acs.selftest
