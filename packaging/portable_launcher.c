@@ -764,9 +764,7 @@ void WINAPI wWinMainCRTStartup(void) {
             FALSE,
             DUPLICATE_SAME_ACCESS)) {
         error = GetLastError();
-        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        ac_close_child_process_handle();
         ac_fail(report, L"package-local data ownership transfer", error);
     }
 
@@ -779,18 +777,14 @@ void WINAPI wWinMainCRTStartup(void) {
             FALSE,
             DUPLICATE_SAME_ACCESS)) {
         error = GetLastError();
-        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        ac_close_child_process_handle();
         ac_fail(report, L"package-local data directory guard transfer", error);
     }
 
     resume_result = ResumeThread(g_process.hThread);
     if (resume_result == (DWORD)-1) {
         error = GetLastError();
-        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        ac_close_child_process_handle();
         ac_fail(report, L"core process resume", error);
     }
     CloseHandle(g_process.hThread);
