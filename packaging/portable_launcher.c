@@ -154,7 +154,7 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
         return L"Could not initialize the secure local WebView2 server. / Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
     }
     if (code == RELEASE_UI_STARTUP_EXIT_CODE) {
-        return L"Could not start the main accessible Accessible Chess interface. / Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
+        return L"Could not start the main accessible interface for Accessible Chess. / Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
     }
     return L"Unknown early failure in the main application. / Невідома рання помилка основної програми.";
 }
@@ -210,7 +210,7 @@ static void ac_report_write_fail(HANDLE report, DWORD code) {
     MessageBoxW(
         NULL,
         g_message,
-        L"Accessible Chess — launch report write error",
+        L"Accessible Chess — launch report write error / помилка запису звіту",
         MB_OK | MB_ICONERROR | MB_SETFOREGROUND
     );
     ExitProcess(stable_code);
@@ -311,8 +311,10 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     ac_append(g_message, AC_PATH_CAP + 2048, stage);
     ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nWindows error / Код Windows: ");
     ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
+    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nWindows detail / Опис Windows: ");
+    ac_append(g_message, AC_PATH_CAP + 2048, g_error_text);
     if (has_report) {
-        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт: ");
+        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nReport / Звіт: ");
         ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     } else {
         ac_append(
@@ -331,7 +333,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         );
     }
     ac_close_child_process_handle();
-    MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    MessageBoxW(NULL, g_message, L"Accessible Chess — startup error / помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     if (has_report) CloseHandle(report);
     ExitProcess(stable_code);
 }
@@ -700,7 +702,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
         );
     }
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
-    MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    MessageBoxW(NULL, g_message, L"Accessible Chess — startup window not ready / вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     ac_close_child_process_handle();
     CloseHandle(report);
     ExitProcess(ERROR_TIMEOUT);
@@ -771,7 +773,7 @@ void WINAPI wWinMainCRTStartup(void) {
         MessageBoxW(
             NULL,
             g_message,
-            L"Accessible Chess — launch report error",
+            L"Accessible Chess — launch report error / помилка звіту запуску",
             MB_OK | MB_ICONERROR | MB_SETFOREGROUND
         );
         ExitProcess(error);
@@ -978,7 +980,7 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_append(g_message, AC_PATH_CAP + 2048, ac_child_exit_user_detail(exit_code));
             ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nReport / Звіт: ");
             ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
-            MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+            MessageBoxW(NULL, g_message, L"Accessible Chess — startup error / помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
             ac_close_child_process_handle();
             CloseHandle(report);
             ExitProcess(exit_code == 0 ? 1 : exit_code);
