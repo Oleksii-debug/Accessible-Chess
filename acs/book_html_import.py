@@ -157,6 +157,37 @@ _PGN_EVENT_RE = re.compile(r'^\[Event\s+"', re.IGNORECASE)
 _PGN_MARKER_RE = re.compile(r'^\{PGN\s+\d+\}\s*$', re.IGNORECASE)
 _END_PGN_RE = re.compile(r'^End of PGN Supplement\s*$', re.IGNORECASE)
 _HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
+_CSS_IMPORTANT_RE = re.compile(r"\s*!\s*important\s*$", re.IGNORECASE)
+
+
+def _inline_style_hides(style: str) -> bool:
+    """Recognize deterministic inline display:none subtree hiding.
+
+    This intentionally is not a CSS engine. display:none on an element
+    suppresses its entire rendered subtree and cannot be reversed by a
+    descendant. Other CSS visibility mechanisms are left alone because, for
+    example, a descendant can override inherited visibility:hidden.
+    Stylesheet/class rules also stay outside this bounded HTML adapter.
+    """
+
+    effective_display: tuple[str, bool] | None = None
+    for declaration in style.split(";"):
+        name, separator, raw_value = declaration.partition(":")
+        if not separator or name.strip().casefold() != "display":
+            continue
+        value = raw_value.strip()
+        important_match = _CSS_IMPORTANT_RE.search(value)
+        important = important_match is not None
+        if important_match is not None:
+            value = value[: important_match.start()].strip()
+        value = value.casefold()
+        if not value:
+            continue
+        if effective_display is not None and effective_display[1] and not important:
+            continue
+        effective_display = (value, important)
+
+    return effective_display is not None and effective_display[0] == "none"
 
 
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
@@ -564,11 +595,14 @@ class _SemanticHtmlParser(HTMLParser):
                 continue
             attrs[normalized_name] = value or ""
         aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
-        if "hidden" in attrs or aria_hidden == "true":
-            # HTML hidden and ARIA-hidden=true are deterministic boundaries for
-            # this accessibility-first semantic import. Text, image metadata and
-            # explicit chess markers excluded from the rendered/accessibility
-            # surface must not reappear in BookDocument or screen-reader output.
+        inline_style_hidden = _inline_style_hides(attrs.get("style", ""))
+        if "hidden" in attrs or aria_hidden == "true" or inline_style_hidden:
+            # HTML hidden, ARIA-hidden=true and deterministic inline
+            # display:none are boundaries for this accessibility-first semantic
+            # import. Text,
+            # image metadata and explicit chess markers excluded from the
+            # rendered/accessibility surface must not reappear in BookDocument
+            # or screen-reader output.
             # Track all non-void descendants so malformed nesting stays
             # fail-closed instead of resuming ingestion too early.
             if tag not in _VOID_TAGS:
