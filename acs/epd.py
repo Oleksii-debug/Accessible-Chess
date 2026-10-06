@@ -196,12 +196,12 @@ def serialize_epd(record: EpdRecord) -> str:
             if seen_hmvc:
                 raise EpdParseError("duplicate EPD hmvc operation")
             seen_hmvc = True
-            append_operation(f"hmvc {record.position.halfmove};")
+            append_operation(f"hmvc {operation.operand};")
         elif operation.opcode == "fmvn":
             if seen_fmvn:
                 raise EpdParseError("duplicate EPD fmvn operation")
             seen_fmvn = True
-            append_operation(f"fmvn {record.position.fullmove};")
+            append_operation(f"fmvn {operation.operand};")
         elif operation.operand is None:
             append_operation(f"{operation.opcode};")
         else:
