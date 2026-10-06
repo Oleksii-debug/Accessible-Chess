@@ -10,7 +10,7 @@ their execution.
 """
 
 from dataclasses import dataclass
-from .media_core import MediaCursor
+from .media_core import MediaChessSession, MediaCursor, MediaPositionTimeline, MediaSource
 from .media_preprocess import PreprocessCheckpoint, PreprocessStatus
 from .recorded_media_sync import (
     AccessibleRecordedSyncEvent,
