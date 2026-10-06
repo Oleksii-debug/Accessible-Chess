@@ -240,6 +240,8 @@
           snapshot.focus_target !== "" ||
           !Array.isArray(snapshot.actions) ||
           snapshot.actions.length !== 0 ||
+          snapshot.metadata_editor.editable_tags.length !== 0 ||
+          snapshot.game_manager.can_delete !== false ||
           snapshot.comment_editor.enabled !== false) {
         throw new TypeError("PGN empty snapshot is inconsistent");
       }
