@@ -65,7 +65,9 @@ class Version2BookOpenWorker:
         self._generation = 0
         self._closed = False
         self._focus_target = ""
-        self._recovery_cancel_focus: str | None = None
+        self._pending_outcome_kind: str | None = None
+        self._recovery_focus: str | None = None
+        self._recovery_terminal_kind: BookOpenWorkerEventKind | None = None
 
     def _assert_ui_thread(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -84,23 +86,26 @@ class Version2BookOpenWorker:
     def _emit(self, kind: BookOpenWorkerEventKind, focus_target: str) -> None:
         self._event_sink(BookOpenWorkerEvent(kind, focus_target))
 
-    def _publish_pending_recovery_cancel(self) -> None:
-        """Publish one owner-thread cancellation retained by a refused close."""
+    def _publish_pending_recovery_terminal(self) -> None:
+        """Publish one owner-thread terminal retained by a refused close."""
         self._assert_ui_thread()
         with self._lock:
             if self._closed or self._thread is not None or self._cancel is not None:
                 return
-            focus_target = self._recovery_cancel_focus
-        if focus_target is None:
+            focus_target = self._recovery_focus
+            terminal_kind = self._recovery_terminal_kind
+        if focus_target is None or terminal_kind is None:
             return
-        self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
+        self._emit(terminal_kind, focus_target)
         with self._lock:
             if (
                 self._thread is None
                 and self._cancel is None
-                and self._recovery_cancel_focus == focus_target
+                and self._recovery_focus == focus_target
+                and self._recovery_terminal_kind is terminal_kind
             ):
-                self._recovery_cancel_focus = None
+                self._recovery_focus = None
+                self._recovery_terminal_kind = None
 
     def start(self, source: Path, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
@@ -112,7 +117,7 @@ class Version2BookOpenWorker:
         # A refused close can retire an already-finished generation after its
         # owner callback was invalidated. Clear that accessible busy state before
         # a new Book Open is allowed to announce another STARTED terminal.
-        self._publish_pending_recovery_cancel()
+        self._publish_pending_recovery_terminal()
 
         with self._lock:
             if self._closed:
@@ -124,6 +129,7 @@ class Version2BookOpenWorker:
             cancel = threading.Event()
             self._cancel = cancel
             self._focus_target = focus_target
+            self._pending_outcome_kind = None
             thread = threading.Thread(
                 target=self._run,
                 args=(generation, source, focus_target, cancel),
@@ -152,6 +158,8 @@ class Version2BookOpenWorker:
                     self._cancel = None
                     self._thread = None
                     self._focus_target = ""
+                    self._pending_outcome_kind = None
+                    self._pending_outcome_kind = None
             try:
                 self._emit(BookOpenWorkerEventKind.FAILED, focus_target)
             except BaseException:
@@ -181,6 +189,17 @@ class Version2BookOpenWorker:
             outcome = ("cancelled" if cancel.is_set() else "failed", error)
         else:
             outcome = ("cancelled", None) if cancel.is_set() else ("prepared", prepared)
+
+        # Publish the fixed preparation outcome before owner posting. Shutdown
+        # can then preserve a failure that was already authoritative, while a
+        # later cancellation still discards a merely prepared candidate.
+        with self._lock:
+            if (
+                generation == self._generation
+                and self._cancel is cancel
+                and self._thread is threading.current_thread()
+            ):
+                self._pending_outcome_kind = outcome[0]
 
         def finish() -> None:
             self._finish(generation, focus_target, cancel, outcome)
@@ -220,6 +239,7 @@ class Version2BookOpenWorker:
                     self._cancel = None
                     self._thread = None
                     self._focus_target = ""
+                    self._pending_outcome_kind = None
                     stale_reopened = not self._closed
                 else:
                     return
@@ -227,13 +247,18 @@ class Version2BookOpenWorker:
                 self._cancel = None
                 self._thread = None
                 self._focus_target = ""
+                self._pending_outcome_kind = None
                 return
             current_cancel = self._cancel
         if stale_reopened:
-            self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
             with self._lock:
-                if self._recovery_cancel_focus == focus_target:
-                    self._recovery_cancel_focus = None
+                recovery_terminal = self._recovery_terminal_kind
+            terminal = recovery_terminal or BookOpenWorkerEventKind.CANCELLED
+            self._emit(terminal, focus_target)
+            with self._lock:
+                if self._recovery_focus == focus_target:
+                    self._recovery_focus = None
+                    self._recovery_terminal_kind = None
             return
         if current_cancel is not cancel:
             return
@@ -256,6 +281,7 @@ class Version2BookOpenWorker:
                 self._cancel = None
                 self._thread = None
                 self._focus_target = ""
+                self._pending_outcome_kind = None
         self._emit(terminal, focus_target)
 
     def resume_after_refused_shutdown(self) -> bool:
@@ -290,7 +316,7 @@ class Version2BookOpenWorker:
             # already finished, the stale posted callback can no longer publish
             # a terminal. Reconcile the visible/NVDA busy state now, on the UI
             # owner thread, before reporting recovery success.
-            self._publish_pending_recovery_cancel()
+            self._publish_pending_recovery_terminal()
             # Terminal delivery is itself an observer boundary and may re-enter
             # FormClosing. Do not claim recovery if that callback already fenced
             # this worker again.
@@ -312,8 +338,13 @@ class Version2BookOpenWorker:
             thread = self._thread
             if cancel is not None:
                 cancel.set()
-                if self._recovery_cancel_focus is None:
-                    self._recovery_cancel_focus = self._focus_target
+                if self._recovery_focus is None:
+                    self._recovery_focus = self._focus_target
+                    self._recovery_terminal_kind = (
+                        BookOpenWorkerEventKind.FAILED
+                        if self._pending_outcome_kind == "failed"
+                        else BookOpenWorkerEventKind.CANCELLED
+                    )
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
             if thread.is_alive():
@@ -322,6 +353,7 @@ class Version2BookOpenWorker:
             self._cancel = None
             self._thread = None
             self._focus_target = ""
+            self._pending_outcome_kind = None
         return True
 
 
