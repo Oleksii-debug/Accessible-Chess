@@ -9,6 +9,7 @@ on:
       - 'tests/test_portable_launcher_contract.py'
       - 'tests/test_portable_launcher_window_readiness.py'
       - 'tests/test_portable_launcher_core_guard.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/current-launcher-report-data-identity.yml'
       - '.github/workflows/portable-launch-report-reparse-safety.yml'
   workflow_dispatch:
@@ -18,8 +19,9 @@ permissions:
 
 env:
   PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  LAUNCHER_BLOB: b51fd45a0aba2c665787c5362cfa601caa1aabe7
-  CONTRACT_TEST_BLOB: c0b639aaa0f1723f6445f28555cb78c6f21240f8
+  LAUNCHER_BLOB: ed71623ca55f20f2183cc5ff7485c9c6d177b399
+  CONTRACT_TEST_BLOB: 6b7909bcb756edb66d39119e87ef4a7565bb8f92
+  P0_LAUNCHER_WORKFLOW_BLOB: cb2be7bab3ff69f792fb65744b3f888bda6c3fd3
   WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
@@ -66,11 +68,12 @@ jobs:
           test "$(git merge-base "$product_base" HEAD)" = "$product_base"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object .github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
           test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
             'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
@@ -122,11 +125,12 @@ jobs:
           test "$(git merge-base "$product_base" HEAD)" = "$product_base"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object .github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
           test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$product_base" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
             'tests/test_portable_launcher_contract.py' | LC_ALL=C sort)"
