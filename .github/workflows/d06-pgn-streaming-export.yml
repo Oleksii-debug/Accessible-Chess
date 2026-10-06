@@ -3,12 +3,19 @@ name: D06 PGN Incremental Export
 on:
   push:
     branches:
-      - work/v2-a1-pgn-streaming-export-20260831
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/pgn_service.py'
+      - 'tests/test_v2_pgn_streaming_export.py'
+      - 'tests/test_d06_pgn_streaming_export_workflow.py'
+      - '.github/workflows/d06-pgn-streaming-export.yml'
   pull_request:
     paths:
       - 'acs/pgn_service.py'
       - 'tests/test_v2_pgn_streaming_export.py'
+      - 'tests/test_d06_pgn_streaming_export_workflow.py'
       - '.github/workflows/d06-pgn-streaming-export.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,9 +23,6 @@ permissions:
 concurrency:
   group: d06-pgn-streaming-export-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  V2_AUTHORITY: 575ec0088982d2f90adb47c040a5714d68186b0e
 
 jobs:
   focused:
@@ -47,29 +51,42 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Prove authority ancestry and exact format-only scope
+      - name: Bind exact candidate geometry
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$V2_AUTHORITY" HEAD
-          test "$(git merge-base "$V2_AUTHORITY" HEAD)" = "$V2_AUTHORITY"
-          git diff --check "$V2_AUTHORITY" HEAD
-          changed="$(git diff --name-only "$V2_AUTHORITY" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/d06-pgn-streaming-export.yml' \
-            'acs/pgn_service.py' \
-            'tests/test_v2_pgn_streaming_export.py' | sort)"
-          test "$changed" = "$expected"
-          if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1|release_preflight|stage1_release'; then
-            echo 'Stage1 or release contamination detected' >&2
+          base="${PR_BASE_SHA:-}"
+          if test -z "$base"; then
+            base="${PUSH_BASE_SHA:-}"
+          fi
+          if test -z "$base" || test "$base" = "0000000000000000000000000000000000000000"; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          if git diff --name-only "$base" HEAD | grep -E '(^|/)tools/qa/|windows-stage1|release_preflight|stage1_release'; then
+            echo "Stage1 or release contamination detected in candidate delta" >&2
             exit 1
           fi
+          echo "D06_INCREMENTAL_EXPORT_CANDIDATE_BASE=$base"
 
       - name: Compile D06 export surface
-        run: python -m py_compile acs/pgn_service.py tests/test_v2_pgn_streaming_export.py
+        run: >-
+          python -m py_compile
+          acs/pgn_service.py
+          tests/test_v2_pgn_streaming_export.py
+          tests/test_d06_pgn_streaming_export_workflow.py
 
-      - name: Incremental export regression
-        run: python -m unittest -v tests.test_v2_pgn_streaming_export
+      - name: Incremental export and workflow regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_pgn_streaming_export
+          tests.test_d06_pgn_streaming_export_workflow
 
       - name: Existing PGN publication and resource regressions
         run: >-
