@@ -371,7 +371,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             "content_revision": identity[4],
         }
         if extra:
-            unknown = set(extra).difference({"text"})
+            unknown = set(extra).difference({"text", "slot", "index"})
             if unknown:
                 raise ValueError("PGN action contains untrusted authority fields")
             if "text" in extra:
@@ -496,8 +496,56 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             return rejected
         return self._operate_and_render(operation)
 
+    def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        if type(value) is not str or len(value) > 360 or "\x00" in value:
+            raise ValueError("PGN tag value is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.tag_edit",
+                {**self._trusted_current_target(), "name": name, "value": value},
+            )
+        )
+
+    def delete_tag(self, name: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.tag_delete",
+                {**self._trusted_current_target(), "name": name},
+            )
+        )
+
+    def append_moves(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 8192 or "\x00" in text:
+            raise ValueError("PGN continuation text is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.append_moves",
+                {**self._trusted_current_target(), "text": text},
+            )
+        )
+
+    def search(self, text: str) -> PgnWebViewEvent:
+        if type(text) is not str or not text.strip() or len(text) > 4096 or "\x00" in text:
+            raise ValueError("PGN search text is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.search",
+                {**self._trusted_current_target(), "text": text},
+            )
+        )
+
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
+
+    def edit_nags(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.edit_nags(self, text))
+
+    def add_variation(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.add_variation(self, text))
 
     def delete_comment(self) -> PgnWebViewEvent:
         return self._mutate_and_render(super().delete_comment)
