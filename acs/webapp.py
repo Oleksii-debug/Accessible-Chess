@@ -249,11 +249,11 @@ class AccessibleChessAPI:
         except Exception:
             return []
         current_node = self.review_history.cursor_node_id
+        if not self._history_metadata_valid():
+            return []
         if len(lineage) != len(self.sans) + 1:
             return []
         if current_node not in set(lineage):
-            return []
-        if not self._history_metadata_valid():
             return []
         items: list[dict[str, Any]] = [
             {
@@ -591,8 +591,10 @@ class AccessibleChessAPI:
             }
 
         history_items = self._history_items()
+        history_length = len(self.sans) if type(self.sans) is list else 0
         history_projection_valid = (
-            len(history_items) == len(self.sans) + 1
+            self._history_metadata_valid()
+            and len(history_items) == history_length + 1
             and sum(bool(item["selected"]) for item in history_items) == 1
             and sum(bool(item["live"]) for item in history_items) == 1
         )
@@ -601,7 +603,7 @@ class AccessibleChessAPI:
             history_projection_valid and display_view.ply > 0
         )
         can_history_next = (
-            history_projection_valid and display_view.ply < len(self.sans)
+            history_projection_valid and display_view.ply < history_length
         )
         can_undo = (
             history_projection_valid and at_history_end and bool(self.sans)
@@ -628,7 +630,7 @@ class AccessibleChessAPI:
             ),
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
             "positionComplete": self._position_playable(display_board),
-            "reviewCursor": display_view.ply, "historyLength": len(self.sans),
+            "reviewCursor": display_view.ply, "historyLength": history_length,
             "historyItems": history_items,
             "reviewStatus": display_view.status, "atHistoryEnd": at_history_end,
             "canHistoryPrevious": can_history_previous,

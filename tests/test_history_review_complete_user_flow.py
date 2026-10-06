@@ -116,6 +116,22 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), live_fen)
         self.assertFalse(api.get_state()["atHistoryEnd"])
 
+    def test_non_list_history_containers_fail_closed_without_state_exception(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        api.sans = None
+        api.move_sides = None
+
+        state = api.get_state()
+        self.assertEqual(state["historyItems"], [])
+        self.assertEqual(state["historyLength"], 0)
+        self.assertEqual(state["moves"], "Could not read move history.")
+        self.assertEqual(state["lastMove"], "Could not read move history.")
+        self.assertFalse(state["canUndo"])
+        self.assertFalse(state["canRedo"])
+        self.assertFalse(state["canHistoryPrevious"])
+        self.assertFalse(state["canHistoryNext"])
+
     def test_malformed_history_metadata_fails_closed_without_breaking_state(self) -> None:
         cases = (
             (["e4"], [], "length mismatch"),
