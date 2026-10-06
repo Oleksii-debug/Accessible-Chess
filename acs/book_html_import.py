@@ -1062,8 +1062,8 @@ class _SemanticHtmlParser(HTMLParser):
             attrs.get("style", ""),
             self._checkpoint if self.control_checkpoint is not None else None,
         )
-        if "hidden" in attrs or aria_hidden == "true" or inline_style_hidden:
-            # HTML hidden, ARIA-hidden=true and deterministic inline
+        if "hidden" in attrs or "inert" in attrs or aria_hidden == "true" or inline_style_hidden:
+            # HTML hidden/inert, ARIA-hidden=true and deterministic inline
             # display:none are boundaries for this accessibility-first semantic
             # import. Text,
             # image metadata and explicit chess markers excluded from the
