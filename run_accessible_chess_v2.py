@@ -150,6 +150,7 @@ if "--diagnostic" in sys.argv:
         or "teacher" not in navigation
         or "classes" not in navigation
         or product_status.get("remote_transport") != "not_approved"
+        or product_status.get("group_rotation_available") is not True
         or not packaged_starter_materials_ready(starter_materials)
         or (packaged_w2_required and not packaged_w2_library_ready(library_state))
         or cleanup_order != ["application", "analysis", "runtime"]
