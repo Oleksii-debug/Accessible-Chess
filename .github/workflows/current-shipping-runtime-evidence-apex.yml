@@ -18,6 +18,7 @@ concurrency:
 
 env:
   PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  SHIPPING_MERGE_SHA: 14c46f6e726688d58b9bbf01ba9442502d170266
   RUNTIME_PARENT_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
   RELEASE_PARENT_SHA: db267b71414b22dfee52139af074795c2f33195a
 
@@ -31,22 +32,24 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout exact shipping receipt
+      - name: Checkout exact shipping candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove two-parent shipping authority and disjoint union
+      - name: Prove fixed shipping receipt and exact descendant scope
         shell: bash
         run: |
           set -euo pipefail
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$head"
-          receipt="$(git rev-list --parents -n 1 HEAD)"
-          test "$receipt" = "$head $RUNTIME_PARENT_SHA $RELEASE_PARENT_SHA"
-          test "$(git merge-base "$PRODUCT_SHA" HEAD)" = "$PRODUCT_SHA"
+          git cat-file -e "$SHIPPING_MERGE_SHA^{commit}"
+          git merge-base --is-ancestor "$SHIPPING_MERGE_SHA" HEAD
+          receipt="$(git rev-list --parents -n 1 "$SHIPPING_MERGE_SHA")"
+          test "$receipt" = "$SHIPPING_MERGE_SHA $RUNTIME_PARENT_SHA $RELEASE_PARENT_SHA"
+          test "$(git merge-base "$PRODUCT_SHA" "$SHIPPING_MERGE_SHA")" = "$PRODUCT_SHA"
           git diff --check "$PRODUCT_SHA"...HEAD
           test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
 
@@ -55,28 +58,46 @@ jobs:
           import subprocess
 
           product = os.environ["PRODUCT_SHA"]
+          shipping_merge = os.environ["SHIPPING_MERGE_SHA"]
           runtime = os.environ["RUNTIME_PARENT_SHA"]
           release = os.environ["RELEASE_PARENT_SHA"]
 
-          def paths(a: str, b: str) -> set[str]:
-              output = subprocess.check_output(
-                  ["git", "diff", "--name-only", f"{a}...{b}"],
-                  text=True,
-              )
-              return {line for line in output.splitlines() if line}
+          def triple(a: str, b: str) -> set[str]:
+              out = subprocess.check_output(["git", "diff", "--name-only", f"{a}...{b}"], text=True)
+              return {line for line in out.splitlines() if line}
 
-          runtime_paths = paths(product, runtime)
-          release_paths = paths(product, release)
+          def direct(a: str, b: str) -> set[str]:
+              out = subprocess.check_output(["git", "diff", "--name-only", a, b], text=True)
+              return {line for line in out.splitlines() if line}
+
+          runtime_paths = triple(product, runtime)
+          release_paths = triple(product, release)
           overlap = runtime_paths & release_paths
           if overlap:
               print("unexpected parent overlap:", sorted(overlap))
               raise SystemExit("SHIPPING_PARENT_SCOPE_OVERLAP")
-          expected = runtime_paths | release_paths | {".github/workflows/current-shipping-runtime-evidence-apex.yml"}
-          actual = paths(product, "HEAD")
-          if actual != expected:
-              print("missing:", sorted(expected - actual))
-              print("unexpected:", sorted(actual - expected))
+
+          expected = runtime_paths | release_paths | {
+              ".github/workflows/current-shipping-runtime-evidence-apex.yml"
+          }
+          receipt_paths = triple(product, shipping_merge)
+          actual = triple(product, "HEAD")
+          if receipt_paths != expected or actual != expected:
+              print("receipt missing:", sorted(expected - receipt_paths))
+              print("receipt unexpected:", sorted(receipt_paths - expected))
+              print("head missing:", sorted(expected - actual))
+              print("head unexpected:", sorted(actual - expected))
               raise SystemExit("SHIPPING_CONVERGENCE_SCOPE_MISMATCH")
+
+          integration_delta = direct(shipping_merge, "HEAD")
+          allowed = {
+              ".github/workflows/current-runtime-books-pgn-apex.yml",
+              ".github/workflows/current-shipping-runtime-evidence-apex.yml",
+          }
+          if integration_delta != allowed:
+              print("integration delta:", sorted(integration_delta))
+              raise SystemExit("SHIPPING_CI_ONLY_DESCENDANT_MISMATCH")
+
           print(f"RUNTIME_PATHS={len(runtime_paths)}")
           print(f"RELEASE_PATHS={len(release_paths)}")
           print(f"SHIPPING_PATHS={len(actual)}")
@@ -144,7 +165,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
-      - name: Checkout exact shipping receipt
+      - name: Checkout exact shipping candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
