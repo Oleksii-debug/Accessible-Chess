@@ -297,6 +297,11 @@ class MediaCoreContractTests(unittest.TestCase):
             session.seek_media(120_001, duration_ms=120_000)
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
 
+    def test_oversized_confidence_fails_closed_without_overflow_error(self):
+        with self.assertRaises(MediaContractError) as caught:
+            self.link(1_000, "tree:a", confirmed=False, confidence=10**1000)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONFIDENCE)
+
     def test_versioned_state_round_trip_preserves_unicode_and_ambiguity(self):
         source = self.source()
         timeline = MediaPositionTimeline(
