@@ -198,6 +198,7 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
 
     def test_durable_rotation_for_different_lesson_fails_closed(self) -> None:
         self.app.begin_or_resume_default_group_rotation("rotation-1")
+        before = self.store.path.read_bytes()
         self.app.stop_teaching_session()
         other = LessonSession(
             "session-2",
@@ -213,6 +214,59 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertTrue(
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
+        self.assertEqual(before, self.store.path.read_bytes())
+
+    def test_completed_prior_lesson_rolls_over_global_store_atomically(self) -> None:
+        state = self.app.begin_or_resume_default_group_rotation("rotation-1")
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.app.plan_classroom_pairings(
+            batch_id="completed-old-lesson-pairing",
+            game_session_ids=("game-1", "game-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        state = self.app.bind_current_pairing_to_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        state = self.app.advance_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.assertEqual("completed", state.phase.value)
+        old_bytes = self.store.path.read_bytes()
+
+        self.app.stop_teaching_session()
+        other = LessonSession(
+            "session-2",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            self.plan.student_ids,
+            self.plan.cohort_id,
+        )
+        self.app.start_teaching_session(other)
+
+        started = self.app.begin_or_resume_default_group_rotation("rotation-2")
+
+        self.assertEqual("active", started.phase.value)
+        self.assertEqual(1, started.revision)
+        self.assertFalse(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+        loaded = self.store.load()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual("session-2", loaded.plan.lesson_session_id)
+        self.assertEqual("rotation-2", loaded.plan.rotation_id)
+        self.assertEqual(started, loaded.state)
+        self.assertNotEqual(old_bytes, self.store.path.read_bytes())
 
     def test_advance_store_io_failure_marks_rotation_recovery_required(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
