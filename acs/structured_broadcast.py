@@ -17,6 +17,7 @@ creating another chess or networking authority here.
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
+import json
 from typing import Protocol, runtime_checkable
 
 from .media_core import MediaChessLink, MediaLinkStatus
@@ -27,6 +28,9 @@ LICHESS_BROADCAST_REQUIRED_SCOPE = "study:read"
 LICHESS_BROADCAST_MEDIA_TYPE = "application/x-chess-pgn"
 MAX_BROADCAST_PGN_BYTES = 8 * 1024 * 1024
 MAX_BROADCAST_GAMES = 4096
+MAX_BROADCAST_IDENTIFIER_CHARS = 512
+MAX_BROADCAST_CHECKPOINT_BYTES = 8 * 1024 * 1024
+BROADCAST_CHECKPOINT_SCHEMA = 1
 DEFAULT_STALE_AFTER_MS = 30_000
 DEFAULT_RECONNECT_BASE_MS = 1_000
 DEFAULT_RECONNECT_MAX_MS = 30_000
@@ -45,6 +49,7 @@ class BroadcastErrorCode(str, Enum):
     INVALID_CANONICAL_RESULT = "invalid_canonical_result"
     DUPLICATE_GAME = "duplicate_game"
     GAME_NOT_FOUND = "game_not_found"
+    INVALID_CHECKPOINT = "invalid_checkpoint"
 
 
 class BroadcastContractError(ValueError):
@@ -78,6 +83,16 @@ def _require_text(value: object, field_name: str) -> str:
             code=BroadcastErrorCode.INVALID_TEXT,
         )
     return value
+
+
+def _require_identifier_text(value: object, field_name: str) -> str:
+    text = _require_text(value, field_name)
+    if len(text) > MAX_BROADCAST_IDENTIFIER_CHARS:
+        raise BroadcastContractError(
+            f"{field_name} exceeds the identifier safety limit",
+            code=BroadcastErrorCode.INVALID_TEXT,
+        )
+    return text
 
 
 def _require_nonnegative_int(
@@ -185,9 +200,15 @@ class StructuredBroadcastEnvelope:
     pgn_text: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "provider", _require_text(self.provider, "provider"))
-        object.__setattr__(self, "round_id", _require_text(self.round_id, "round_id"))
-        object.__setattr__(self, "source_id", _require_text(self.source_id, "source_id"))
+        object.__setattr__(
+            self, "provider", _require_identifier_text(self.provider, "provider")
+        )
+        object.__setattr__(
+            self, "round_id", _require_identifier_text(self.round_id, "round_id")
+        )
+        object.__setattr__(
+            self, "source_id", _require_identifier_text(self.source_id, "source_id")
+        )
         object.__setattr__(
             self,
             "sequence",
@@ -231,13 +252,15 @@ class CanonicalBroadcastGame:
         object.__setattr__(
             self,
             "provider_game_id",
-            _require_text(self.provider_game_id, "provider_game_id"),
+            _require_identifier_text(self.provider_game_id, "provider_game_id"),
         )
-        object.__setattr__(self, "chess_ref", _require_text(self.chess_ref, "chess_ref"))
+        object.__setattr__(
+            self, "chess_ref", _require_identifier_text(self.chess_ref, "chess_ref")
+        )
         object.__setattr__(
             self,
             "canonical_revision",
-            _require_text(self.canonical_revision, "canonical_revision"),
+            _require_identifier_text(self.canonical_revision, "canonical_revision"),
         )
 
 
@@ -280,9 +303,9 @@ class StructuredBroadcastSession:
     )
 
     def __init__(self, *, provider: str, round_id: str, source_id: str) -> None:
-        self.provider = _require_text(provider, "provider")
-        self.round_id = _require_text(round_id, "round_id")
-        self.source_id = _require_text(source_id, "source_id")
+        self.provider = _require_identifier_text(provider, "provider")
+        self.round_id = _require_identifier_text(round_id, "round_id")
+        self.source_id = _require_identifier_text(source_id, "source_id")
         self._connection_state = BroadcastConnectionState.DISCONNECTED
         self._last_sequence: int | None = None
         self._last_observed_at_ms: int | None = None
@@ -425,6 +448,223 @@ class StructuredBroadcastSession:
             changed_game_ids=tuple(sorted(changed)),
             games=self.games,
         )
+
+    @staticmethod
+    def _checkpoint_payload_digest(payload: dict[str, object]) -> str:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return sha256(b"accessible-chess-broadcast-checkpoint-v1\0" + encoded).hexdigest()
+
+    def to_checkpoint_json(self) -> str:
+        """Return deterministic bounded restart state without claiming connectivity."""
+
+        payload: dict[str, object] = {
+            "provider": self.provider,
+            "round_id": self.round_id,
+            "source_id": self.source_id,
+            "last_sequence": self._last_sequence,
+            "last_observed_at_ms": self._last_observed_at_ms,
+            "last_payload_sha256": self._last_payload_sha256,
+            "games": [
+                {
+                    "provider_game_id": game.provider_game_id,
+                    "chess_ref": game.chess_ref,
+                    "canonical_revision": game.canonical_revision,
+                }
+                for game in self.games
+            ],
+        }
+        checkpoint = {
+            "schema": BROADCAST_CHECKPOINT_SCHEMA,
+            "payload": payload,
+            "payload_sha256": self._checkpoint_payload_digest(payload),
+        }
+        text = json.dumps(
+            checkpoint,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if len(text.encode("utf-8")) > MAX_BROADCAST_CHECKPOINT_BYTES:
+            raise BroadcastContractError(
+                "broadcast checkpoint exceeds the safety limit",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+        return text
+
+    @classmethod
+    def from_checkpoint_json(cls, value: object) -> "StructuredBroadcastSession":
+        """Restore monotonic/replay guards; network state always restarts disconnected."""
+
+        if type(value) is not str or not value or "\x00" in value:
+            raise BroadcastContractError(
+                "broadcast checkpoint must be safe exact JSON text",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+        if len(value.encode("utf-8")) > MAX_BROADCAST_CHECKPOINT_BYTES:
+            raise BroadcastContractError(
+                "broadcast checkpoint exceeds the safety limit",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+
+        def no_duplicate_keys(pairs):
+            result = {}
+            for key, item in pairs:
+                if key in result:
+                    raise BroadcastContractError(
+                        "broadcast checkpoint contains duplicate keys",
+                        code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                    )
+                result[key] = item
+            return result
+
+        try:
+            checkpoint = json.loads(value, object_pairs_hook=no_duplicate_keys)
+        except BroadcastContractError:
+            raise
+        except Exception:
+            raise BroadcastContractError(
+                "broadcast checkpoint JSON is invalid",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            ) from None
+
+        if type(checkpoint) is not dict or set(checkpoint) != {
+            "schema",
+            "payload",
+            "payload_sha256",
+        }:
+            raise BroadcastContractError(
+                "broadcast checkpoint shape is invalid",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+        if checkpoint["schema"] != BROADCAST_CHECKPOINT_SCHEMA:
+            raise BroadcastContractError(
+                "broadcast checkpoint schema is unsupported",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+        payload = checkpoint["payload"]
+        digest = checkpoint["payload_sha256"]
+        if type(payload) is not dict or set(payload) != {
+            "provider",
+            "round_id",
+            "source_id",
+            "last_sequence",
+            "last_observed_at_ms",
+            "last_payload_sha256",
+            "games",
+        }:
+            raise BroadcastContractError(
+                "broadcast checkpoint payload shape is invalid",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+        if (
+            type(digest) is not str
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            or digest != cls._checkpoint_payload_digest(payload)
+        ):
+            raise BroadcastContractError(
+                "broadcast checkpoint integrity check failed",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+
+        try:
+            session = cls(
+                provider=payload["provider"],
+                round_id=payload["round_id"],
+                source_id=payload["source_id"],
+            )
+        except Exception:
+            raise BroadcastContractError(
+                "broadcast checkpoint identity is invalid",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            ) from None
+
+        last_sequence = payload["last_sequence"]
+        last_observed_at_ms = payload["last_observed_at_ms"]
+        last_payload_sha256 = payload["last_payload_sha256"]
+        if last_sequence is None:
+            if (
+                last_observed_at_ms is not None
+                or last_payload_sha256 is not None
+                or payload["games"] not in ([], ())
+            ):
+                raise BroadcastContractError(
+                    "empty broadcast checkpoint carries applied state",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                )
+        else:
+            try:
+                last_sequence = _require_nonnegative_int(
+                    last_sequence,
+                    "last_sequence",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                )
+                last_observed_at_ms = _require_nonnegative_int(
+                    last_observed_at_ms,
+                    "last_observed_at_ms",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                )
+            except BroadcastContractError:
+                raise
+            if (
+                type(last_payload_sha256) is not str
+                or len(last_payload_sha256) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in last_payload_sha256
+                )
+            ):
+                raise BroadcastContractError(
+                    "broadcast checkpoint payload digest is invalid",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                )
+
+        games_raw = payload["games"]
+        if type(games_raw) is not list or len(games_raw) > MAX_BROADCAST_GAMES:
+            raise BroadcastContractError(
+                "broadcast checkpoint game collection is invalid",
+                code=BroadcastErrorCode.INVALID_CHECKPOINT,
+            )
+        games: dict[str, CanonicalBroadcastGame] = {}
+        for item in games_raw:
+            if type(item) is not dict or set(item) != {
+                "provider_game_id",
+                "chess_ref",
+                "canonical_revision",
+            }:
+                raise BroadcastContractError(
+                    "broadcast checkpoint game entry is invalid",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                )
+            try:
+                game = CanonicalBroadcastGame(
+                    provider_game_id=item["provider_game_id"],
+                    chess_ref=item["chess_ref"],
+                    canonical_revision=item["canonical_revision"],
+                )
+            except Exception:
+                raise BroadcastContractError(
+                    "broadcast checkpoint canonical game is invalid",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                ) from None
+            if game.provider_game_id in games:
+                raise BroadcastContractError(
+                    "broadcast checkpoint repeats a provider game",
+                    code=BroadcastErrorCode.INVALID_CHECKPOINT,
+                )
+            games[game.provider_game_id] = game
+
+        session._last_sequence = last_sequence
+        session._last_observed_at_ms = last_observed_at_ms
+        session._last_payload_sha256 = last_payload_sha256
+        session._games = games
+        session._connection_state = BroadcastConnectionState.DISCONNECTED
+        return session
 
     def media_link_for_game(
         self,
