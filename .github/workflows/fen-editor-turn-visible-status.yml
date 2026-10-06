@@ -20,8 +20,8 @@ concurrency:
 
 env:
   WEBAPP_BLOB: 51cc882511c3a874f7bce3dfa97eda01df1501c6
-  WEB_INDEX_BLOB: 2b8f2946d8fb93bce27140d71bee231000d2a213
-  TEST_BLOB: f2b65ed078660ae057f583894b2caf7beafa4364
+  WEB_INDEX_BLOB: 8e6daa05de0d30916b0539ab9ace7d6c06cea572
+  TEST_BLOB: 4f41a130467a981db7a87cd5e471d09a590bbaec
 
 jobs:
   exact-head:
