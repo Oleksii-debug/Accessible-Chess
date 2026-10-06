@@ -787,6 +787,84 @@ Starting board
                     any("list indentation" in warning for warning in result.warnings)
                 )
 
+    def test_markdown_nested_list_image_fallback_keeps_alt_not_destination(self) -> None:
+        result = import_text_book(
+            "- Parent\n"
+            "  - Child ![Board position](private/board.png) after\n"
+            "- Sibling\n",
+            source_name="nested-image-list.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.items, block.ordered, block.start) for block in lists],
+            [(["Parent"], False, None), (["Sibling"], False, None)],
+        )
+        self.assertEqual(paragraphs, ["- Child Board position after"])
+        self.assertNotIn("private/board.png", " ".join(paragraphs))
+        self.assertTrue(
+            any(
+                "unrepresentable list item" in warning
+                and "accessible text" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_markdown_deep_indented_list_image_fallback_keeps_marker_and_alt(self) -> None:
+        for prefix in ("    ", "\t"):
+            with self.subTest(prefix=repr(prefix)):
+                result = import_text_book(
+                    f"{prefix}4) Before ![Tactic](assets/tactic.svg) after\n",
+                    source_name="deep-image-list.md",
+                    source_format="markdown",
+                )
+                self.assertFalse(
+                    any(isinstance(block, ListBlock) for block in result.document.blocks)
+                )
+                paragraphs = [
+                    block.text
+                    for block in result.document.blocks
+                    if isinstance(block, Paragraph)
+                ]
+                self.assertEqual(paragraphs, ["4) Before Tactic after"])
+                self.assertNotIn("assets/tactic.svg", " ".join(paragraphs))
+                self.assertTrue(
+                    any("list indentation" in warning for warning in result.warnings)
+                )
+                self.assertTrue(
+                    any(
+                        "unrepresentable list item" in warning
+                        for warning in result.warnings
+                    )
+                )
+
+    def test_markdown_list_fallback_does_not_invent_images_from_literals(self) -> None:
+        result = import_text_book(
+            "    - \\![escaped](asset.png) and `![code](asset.png)`\n",
+            source_name="deep-literal-image-list.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            paragraphs,
+            ["- \\![escaped](asset.png) and `![code](asset.png)`"],
+        )
+        self.assertFalse(
+            any(
+                "unrepresentable list item" in warning
+                for warning in result.warnings
+            )
+        )
     def test_markdown_lists_are_semantic_while_block_quote_loss_remains_explicit(self) -> None:
         source = '''# Notes
 
