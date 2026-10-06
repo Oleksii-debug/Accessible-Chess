@@ -155,6 +155,40 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertIn("Invalid position", moved["announcement"])
         self.assertEqual(api.board.fen(), invalid_fen)
 
+    def test_position_editor_lock_composes_history_and_analysis_reasons(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("positionEditorHistoryLocked||analysisMutationLocked", html)
+        self.assertIn("setPositionEditorHistoryLock(pe.editable===false)", html)
+        for control_id in (
+            "position-square",
+            "position-piece",
+            "position-piece-apply",
+            "position-turn",
+            "position-castling",
+            "position-ep",
+            "position-halfmove",
+            "position-fullmove",
+            "position-metadata-apply",
+            "position-validate",
+            "position-input",
+            "position-load",
+            "empty-board",
+        ):
+            with self.subTest(control_id=control_id):
+                self.assertIn(f"'{control_id}'", html)
+
+    def test_editor_feedback_is_visible_and_plain_enter_is_keyboard_first(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("positionEditorActionNames=new Set", html)
+        self.assertIn("setPositionEditorActionStatus(name,r&&r.announcement?r.announcement:'')", html)
+        self.assertIn("el('position-square').addEventListener('keydown'", html)
+        self.assertIn("el('position-piece-apply').click()", html)
+        self.assertIn("el('position-metadata-apply').click()", html)
+
     def test_accessible_html_exposes_all_position_editor_controls(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"

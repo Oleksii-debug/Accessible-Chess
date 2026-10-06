@@ -244,6 +244,15 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             state["whitePieces"] = self._pieces_text("w", board)
             state["blackPieces"] = self._pieces_text("b", board)
             state["gameStatus"] = self._game_status(board)
+            state["positionComplete"] = self._position_playable(board)
+            state["positionEditor"] = {
+                "turn": board.turn,
+                "castling": board.castling or "-",
+                "enPassant": "-" if board.ep is None else _webapp.sq_name(board.ep),
+                "halfmove": board.halfmove,
+                "fullmove": board.fullmove,
+                "editable": False,
+            }
             state["lastMove"] = _shared_spoken_san(exploration.san, self.lang)
             state["reviewStatus"] = (
                 f"Тимчасовий перегляд варіанта {exploration.line.multipv}, "
@@ -314,6 +323,31 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         return self._canonical_reset_result(lambda: super(KeymapAwareAccessibleChessAPI, self).set_fen(fen))
+
+    def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        return blocked if blocked is not None else super().edit_position_piece(square, piece)
+
+    def edit_position_metadata(
+        self,
+        turn: str,
+        castling: str,
+        en_passant: str,
+        halfmove_text: str,
+        fullmove_text: str,
+    ) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        return (
+            blocked
+            if blocked is not None
+            else super().edit_position_metadata(
+                turn, castling, en_passant, halfmove_text, fullmove_text
+            )
+        )
+
+    def validate_position_editor(self) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        return blocked if blocked is not None else super().validate_position_editor()
 
     def review_previous(self) -> dict[str, Any]:
         blocked = self._temporary_exploration_error()
