@@ -178,6 +178,16 @@ class BookProgressPassiveIngressCurrentTests(unittest.TestCase):
         )
         self.assertEqual(touched, [])
 
+    def test_v2_payload_missing_generation_fails_closed_with_store_error(self) -> None:
+        with self.assertRaises(BookProgressStoreError) as raised:
+            _validate_payload({"schema_version": 2, "entries": {}})
+
+        self.assertEqual(
+            raised.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIn("generation is missing", str(raised.exception))
+
     def test_snapshot_nested_active_mappings_are_rejected_before_json_hooks(self) -> None:
         class ActiveNestedDict(dict):
             touched = False
