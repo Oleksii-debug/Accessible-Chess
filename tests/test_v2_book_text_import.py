@@ -963,6 +963,36 @@ Starting board
         self.assertEqual(first_list.start, 4)
         self.assertEqual(first_list.items, ["Alpha", "Beta", "Gamma"])
 
+    def test_markdown_ordered_list_progress_restores_after_reimport(self) -> None:
+        source = "4. Alpha\n40. Beta\n2. Gamma\n"
+        first = import_text_book(
+            source,
+            source_name="ordered-progress-restore.md",
+            source_format="markdown",
+        )
+        first_index = next(
+            index
+            for index, block in enumerate(first.document.blocks)
+            if isinstance(block, ListBlock)
+        )
+        first_reader = BookReader(first.document)
+        first_reader.go_to(first_index)
+        snapshot = first_reader.snapshot()
+
+        second = import_text_book(
+            source,
+            source_name="ordered-progress-restore.md",
+            source_format="markdown",
+        )
+        restored = BookReader.restore_snapshot(second.document, snapshot)
+        location = restored.location()
+        restored_block = second.document.blocks[location.index]
+
+        self.assertIsInstance(restored_block, ListBlock)
+        self.assertEqual(location.block_id, restored_block.block_id)
+        self.assertEqual(restored_block.start, 4)
+        self.assertEqual(restored_block.items, ["Alpha", "Beta", "Gamma"])
+
     def test_markdown_lists_keep_semantics_with_up_to_three_leading_spaces(self) -> None:
         cases = (
             (" - First item\n - Second item\n", False, None, ["First item", "Second item"]),
