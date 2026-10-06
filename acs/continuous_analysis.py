@@ -12,8 +12,15 @@ from threading import Condition, Thread, current_thread
 from typing import Callable
 
 from .analysis_service import AnalysisResult, AnalysisService
-from .engine_ports import EngineContractError, EngineContractErrorCode
+from .engine_ports import (
+    ANALYSIS_MAX_MOVETIME_MS,
+    ANALYSIS_MIN_MOVETIME_MS,
+    EngineContractError,
+    EngineContractErrorCode,
+)
 from .input_limits import MAX_FEN_CHARS
+
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -24,6 +31,7 @@ class ContinuousAnalysisState:
     depth: int
     revision: int
     last_result: AnalysisResult | None
+    movetime_ms: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.running, bool):
@@ -76,6 +84,14 @@ class ContinuousAnalysisState:
                 "continuous-analysis revision must be non-negative",
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
+        if self.movetime_ms is not None and (
+            type(self.movetime_ms) is not int
+            or not ANALYSIS_MIN_MOVETIME_MS <= self.movetime_ms <= ANALYSIS_MAX_MOVETIME_MS
+        ):
+            raise EngineContractError(
+                "continuous-analysis movetime must be None or a bounded integer",
+                code=EngineContractErrorCode.INVALID_SESSION,
+            )
         if self.last_result is not None and not isinstance(
             self.last_result,
             AnalysisResult,
@@ -116,8 +132,9 @@ class ContinuousAnalysisService:
         self._fen: str | None = None
         self._multipv = 5
         self._depth = 16
+        self._movetime_ms: int | None = None
         self._revision = 0
-        self._pending: tuple[int, str, int, int] | None = None
+        self._pending: tuple[int, str, int, int, int | None] | None = None
         self._last_result: AnalysisResult | None = None
         self._worker: Thread | None = None
 
@@ -130,6 +147,22 @@ class ContinuousAnalysisService:
                     code=EngineContractErrorCode.INVALID_REQUEST,
                 )
         return max(1, min(10, multipv)), max(1, min(40, depth))
+
+    @staticmethod
+    def _normalize_movetime(movetime_ms: object) -> int | None:
+        if movetime_ms is None:
+            return None
+        if type(movetime_ms) is not int:
+            raise EngineContractError(
+                "continuous-analysis movetime must be an integer or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        if not ANALYSIS_MIN_MOVETIME_MS <= movetime_ms <= ANALYSIS_MAX_MOVETIME_MS:
+            raise EngineContractError(
+                "continuous-analysis movetime is outside the supported range",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
+        return movetime_ms
 
     @staticmethod
     def _normalize_fen(fen: str) -> str:
@@ -148,7 +181,15 @@ class ContinuousAnalysisService:
 
     def state(self) -> ContinuousAnalysisState:
         with self._condition:
-            return ContinuousAnalysisState(self._running, self._fen, self._multipv, self._depth, self._revision, self._last_result)
+            return ContinuousAnalysisState(
+                self._running,
+                self._fen,
+                self._multipv,
+                self._depth,
+                self._revision,
+                self._last_result,
+                self._movetime_ms,
+            )
 
     def _ensure_worker(self) -> None:
         if self._worker is not None and self._worker.is_alive():
@@ -156,9 +197,16 @@ class ContinuousAnalysisService:
         self._worker = Thread(target=self._run, name="acs-continuous-analysis", daemon=True)
         self._worker.start()
 
-    def start(self, fen: str, multipv: int = 5, depth: int = 16) -> int:
+    def start(
+        self,
+        fen: str,
+        multipv: int = 5,
+        depth: int = 16,
+        movetime_ms: int | None = None,
+    ) -> int:
         fen = self._normalize_fen(fen)
         multipv, depth = self._normalize(multipv, depth)
+        movetime_ms = self._normalize_movetime(movetime_ms)
         with self._condition:
             if self._closed:
                 raise RuntimeError("continuous analysis is closed")
@@ -168,10 +216,11 @@ class ContinuousAnalysisService:
             self._fen = fen
             self._multipv = multipv
             self._depth = depth
+            self._movetime_ms = movetime_ms
             self._last_result = None
             self._revision += 1
             revision = self._revision
-            self._pending = (revision, self._fen, multipv, depth)
+            self._pending = (revision, self._fen, multipv, depth, movetime_ms)
             self._condition.notify_all()
             return revision
 
@@ -187,26 +236,50 @@ class ContinuousAnalysisService:
             self._last_result = None
             self._revision += 1
             revision = self._revision
-            self._pending = (revision, self._fen, self._multipv, self._depth)
+            self._pending = (
+                revision,
+                self._fen,
+                self._multipv,
+                self._depth,
+                self._movetime_ms,
+            )
             self._condition.notify_all()
             return revision
 
-    def configure(self, *, multipv: int | None = None, depth: int | None = None) -> int:
+    def configure(
+        self,
+        *,
+        multipv: int | None = None,
+        depth: int | None = None,
+        movetime_ms: object = _UNSET,
+    ) -> int:
         with self._condition:
             if self._closed:
                 raise RuntimeError("continuous analysis is closed")
             new_multipv = self._multipv if multipv is None else multipv
             new_depth = self._depth if depth is None else depth
             new_multipv, new_depth = self._normalize(new_multipv, new_depth)
+            new_movetime = (
+                self._movetime_ms
+                if movetime_ms is _UNSET
+                else self._normalize_movetime(movetime_ms)
+            )
             if self._running and self._fen is not None:
                 self._analysis.invalidate(self._fen)
             self._multipv = new_multipv
             self._depth = new_depth
+            self._movetime_ms = new_movetime
             self._last_result = None
             self._revision += 1
             revision = self._revision
             if self._running and self._fen is not None:
-                self._pending = (revision, self._fen, self._multipv, self._depth)
+                self._pending = (
+                    revision,
+                    self._fen,
+                    self._multipv,
+                    self._depth,
+                    self._movetime_ms,
+                )
                 self._condition.notify_all()
             return revision
 
@@ -253,8 +326,13 @@ class ContinuousAnalysisService:
                 request = self._pending
                 self._pending = None
             assert request is not None
-            revision, fen, multipv, depth = request
-            result = self._analysis.analyze(fen, multipv=multipv, depth=depth)
+            revision, fen, multipv, depth, movetime_ms = request
+            result = self._analysis.analyze(
+                fen,
+                multipv=multipv,
+                depth=depth,
+                movetime_ms=movetime_ms,
+            )
             callback: Callable[[AnalysisResult], None] | None = None
             with self._condition:
                 current = self._running and revision == self._revision and fen == self._fen and not result.stale
