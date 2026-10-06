@@ -1191,13 +1191,21 @@ def _validate_package_document(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if (package.text or "").strip() or any(
-        (child.tail or "").strip() for child in package
-    ):
+    if (package.text or "").strip():
         raise _error(
             "EPUB package contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
+
+    package_children = list(package)
+    for child_index, child in enumerate(package_children, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB package contains invalid mixed text",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
 
     unique_identifier = package.attrib.get("unique-identifier")
     if not _is_exact_identifier(unique_identifier):
@@ -1206,9 +1214,12 @@ def _validate_package_document(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    structural_children = [
-        child.tag for child in package if _is_opf_namespace_tag(child.tag)
-    ]
+    structural_children: list[str] = []
+    for child_index, child in enumerate(package_children, start=1):
+        if control_checkpoint is not None and child_index % 128 == 1:
+            control_checkpoint()
+        if _is_opf_namespace_tag(child.tag):
+            structural_children.append(child.tag)
     required = (_METADATA_TAG, _MANIFEST_TAG, _SPINE_TAG)
     if (
         tuple(structural_children[:3]) != required
@@ -1243,14 +1254,23 @@ def _validate_package_document(
         )
 
     metadata = _required_unique_direct_child(package, "metadata", control_checkpoint)
-    if (metadata.text or "").strip() or any(
-        (child.tail or "").strip() for child in metadata
-    ):
+    if (metadata.text or "").strip():
         raise _error(
             "EPUB metadata contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    for child in metadata:
+    metadata_children = list(metadata)
+    for metadata_index, child in enumerate(metadata_children, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
+        if (child.tail or "").strip():
+            raise _error(
+                "EPUB metadata contains invalid mixed text",
+                BookEpubImportErrorCode.MALFORMED_PACKAGE,
+            )
+    for metadata_index, child in enumerate(metadata_children, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if _is_opf_namespace_tag(child.tag) and child.tag not in {
             f"{{{_OPF_NAMESPACE}}}meta",
             f"{{{_OPF_NAMESPACE}}}link",
@@ -1261,7 +1281,9 @@ def _validate_package_document(
             )
     _validate_package_ids_unique(package, metadata, control_checkpoint)
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
-    for element in metadata:
+    for metadata_index, element in enumerate(metadata_children, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if type(element.tag) is not str or not element.tag.startswith(dc_prefix):
             continue
         if len(element):
@@ -1288,7 +1310,9 @@ def _validate_package_document(
 
     identifier_tag = f"{{{_DUBLIN_CORE_NAMESPACE}}}identifier"
     matching_identifiers: list[str] = []
-    for element in metadata:
+    for metadata_index, element in enumerate(metadata_children, start=1):
+        if control_checkpoint is not None and metadata_index % 128 == 1:
+            control_checkpoint()
         if element.tag != identifier_tag or element.attrib.get("id") != unique_identifier:
             continue
         if len(element):
@@ -1620,7 +1644,7 @@ def _manifest_items(
     opf_dir: str,
     control_checkpoint: Callable[[], None] | None = None,
 ) -> dict[str, _ManifestItem]:
-    manifest = _required_unique_direct_child(package, "manifest")
+    manifest = _required_unique_direct_child(package, "manifest", control_checkpoint)
     if (manifest.text or "").strip():
         raise _error(
             "EPUB manifest contains invalid text content",
@@ -1819,7 +1843,7 @@ def _spine_ids(
     manifest: dict[str, _ManifestItem],
     control_checkpoint: Callable[[], None] | None = None,
 ) -> list[str]:
-    spine = _required_unique_direct_child(package, "spine")
+    spine = _required_unique_direct_child(package, "spine", control_checkpoint)
     if (spine.text or "").strip():
         raise _error(
             "EPUB spine contains invalid text content",
