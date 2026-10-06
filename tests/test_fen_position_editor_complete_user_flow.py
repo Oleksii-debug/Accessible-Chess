@@ -69,6 +69,27 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertTrue(removed["ok"])
         self.assertNotIn("Q", api.board.fen().split()[0])
 
+    def test_root_editor_mutations_are_blocked_while_reviewing_history(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.make_move("e4")["ok"])
+        live_fen = api.board.fen()
+        live_tree = api.review_history.export_tree()
+        self.assertTrue(api.review_previous()["ok"])
+        self.assertFalse(api.get_state()["atHistoryEnd"])
+
+        operations = (
+            api.clear_board,
+            lambda: api.set_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1"),
+            lambda: api.set_position_text("W: K e1 B: K e8", "w"),
+        )
+        for operation in operations:
+            with self.subTest(operation=operation):
+                result = operation()
+                self.assertFalse(result["ok"])
+                self.assertIn("Return to the end of history", result["announcement"])
+                self.assertEqual(api.board.fen(), live_fen)
+                self.assertEqual(api.review_history.export_tree(), live_tree)
+
     def test_side_to_move_action_clears_stale_en_passant_and_preserves_position(self):
         api = AccessibleChessAPI(lang="en")
         self.assertTrue(
