@@ -51,6 +51,19 @@ function event(key, mods = {}, tag = 'INPUT') {
   assert.equal(calls.length, 0);
   await listener(event('n', {ctrlKey:true,shiftKey:true}));
   assert.deepEqual(calls[calls.length-1], ['execute','file.new']);
+  // A user is allowed to save a printable global binding, but editable controls
+  // must not turn ordinary text entry into a destructive global command.
+  shell.keymap.find(row => row.id === 'file.new').binding = 'E';
+  rows.find(row => row.id === 'file.new').binding = 'E';
+  calls.length = 0;
+  await listener(event('e', {}));
+  assert.equal(calls.length, 0, 'plain printable file.new remap must not consume editable typing');
+  // Non-text command keys remain usable from the same editable surface.
+  shell.keymap.find(row => row.id === 'file.new').binding = 'F6';
+  rows.find(row => row.id === 'file.new').binding = 'F6';
+  calls.length = 0;
+  await listener(event('F6', {}));
+  assert.deepEqual(calls[calls.length-1], ['execute','file.new']);
   // Failed move keeps a readable error while speech follows the persisted checkbox.
   const spoken = [], rendered = [];
   let response = {ok:false,announcement:'Перевірте запис і позицію.',announceMoveErrors:false};
