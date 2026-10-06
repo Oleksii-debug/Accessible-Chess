@@ -114,6 +114,48 @@ class Version2ReleaseUiTests(unittest.TestCase):
         api.v2_browser_command("shell", "screen.library", {})
         self.assertEqual(api.v2_snapshot()["screen"]["route_id"], "library")
 
+    def test_keyboard_dispatch_restores_shell_and_focus_when_native_publication_raises(self):
+        api = self.make_api()
+        app = _Application()
+        app._focus = "board-launcher"
+        api.bind_version2_application(app)
+
+        def rejecting_native_command(_command):
+            app._focus = "library-search-player"
+            raise RuntimeError("event publication failed")
+
+        app.native_command = rejecting_native_command
+        result = api.dispatch_action("screen.library")
+
+        self.assertFalse(result["ok"])
+        self.assertNotIn("v2", result)
+        self.assertEqual("board", app.shell.current_route.route_id)
+        self.assertEqual("board-launcher", app._focus)
+
+    def test_keyboard_dispatch_does_not_echo_route_rejected_by_application_sink(self):
+        api = self.make_api()
+        app = _Application()
+        app._focus = "book-reader"
+        app.shell.open_route("books")
+        api.bind_version2_application(app)
+
+        def rejecting_training(command):
+            self.assertEqual("route", command.kind)
+            self.assertEqual("training", command.payload["route_id"])
+            app.shell.open_route("books")
+            app._focus = "book-reader"
+            app.events.append({"kind": "error", "payload": {"message": "Training unavailable"}})
+            return False
+
+        app.native_command = rejecting_training
+        result = api.dispatch_action("screen.training")
+
+        self.assertFalse(result["ok"])
+        self.assertNotIn("v2", result)
+        self.assertEqual("books", app.shell.current_route.route_id)
+        self.assertEqual("book-reader", app._focus)
+        self.assertEqual("error", app.events[-1]["kind"])
+
     def test_release_window_uses_original_document_one_api_and_v2_surfaces(self):
         api = self.make_api()
         app = _Application()

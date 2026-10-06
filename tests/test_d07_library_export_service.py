@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from acs.library_export_service import (
     LibraryExportScope,
     LibraryExportService,
 )
-from acs.pgn_service import open_pgn
+from acs.pgn_service import PgnConcurrentWriteError, open_pgn
 from acs.search_service import GameSearchQuery, GameSearchService
 
 
@@ -183,7 +184,7 @@ class LibraryExportServiceTests(unittest.TestCase):
 
         def consume_stream(destination, games, *, overwrite=False, expected_sha256=None):
             self.assertEqual(sum(1 for _ in games), 5001)
-            self.assertTrue(overwrite)
+            self.assertFalse(overwrite)
             self.assertIsNone(expected_sha256)
             return fingerprint
 
@@ -222,7 +223,7 @@ class LibraryExportServiceTests(unittest.TestCase):
             remaining = list(iterator)
             self.assertEqual(len(loaded_ids), 3)
             self.assertEqual(len((first, *remaining)), 3)
-            self.assertTrue(overwrite)
+            self.assertFalse(overwrite)
             self.assertIsNone(expected_sha256)
             return fingerprint
 
@@ -265,7 +266,7 @@ class LibraryExportServiceTests(unittest.TestCase):
                         consumed.extend(iterator)
                         self.assertEqual(_record_digests(consumed), starting_digests)
                         self.assertEqual(len(consumed), 3)
-                        self.assertTrue(overwrite)
+                        self.assertFalse(overwrite)
                         self.assertIsNone(expected_sha256)
                         return fingerprint
 
@@ -280,6 +281,78 @@ class LibraryExportServiceTests(unittest.TestCase):
                 self.assertFalse(reader_db.conn.in_transaction)
                 visible_after = GameSearchService(reader_db).search(GameSearchQuery(limit=20))
                 self.assertEqual(len(visible_after.items), 4)
+
+    def test_existing_destination_requires_reviewed_generation(self) -> None:
+        request = LibraryExportRequest.selected([self.ids[0]])
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "existing.pgn"
+            original = '[Event "Existing"]\n[Result "*"]\n\n1. d4 *\n'
+            destination.write_text(original, encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                self.service.export_to(destination, request)
+
+            self.assertEqual(destination.read_text(encoding="utf-8"), original)
+
+    def test_reviewed_existing_destination_replaces_only_matching_generation(self) -> None:
+        request = LibraryExportRequest.selected([self.ids[0]])
+        expected_games = self.service.resolve_games(request)
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "existing.pgn"
+            destination.write_text(
+                '[Event "Existing"]\n[Result "*"]\n\n1. d4 *\n',
+                encoding="utf-8",
+            )
+            reviewed = self.service.expected_destination_sha256(destination)
+            self.assertIsNotNone(reviewed)
+
+            result = self.service.export_to(
+                destination,
+                request,
+                expected_sha256=reviewed,
+            )
+            reopened = open_pgn(destination)
+
+        self.assertEqual(result.game_count, 1)
+        self.assertEqual(reopened.games, expected_games)
+
+    def test_destination_changed_during_stream_is_preserved(self) -> None:
+        request = LibraryExportRequest.filtered(GameSearchQuery())
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "shared.pgn"
+            destination.write_text(
+                '[Event "Reviewed destination"]\n[Result "*"]\n\n1. e4 *\n',
+                encoding="utf-8",
+            )
+            reviewed = self.service.expected_destination_sha256(destination)
+            self.assertIsNotNone(reviewed)
+            real_replace = os.replace
+            replace_calls = 0
+
+            def racing_replace(src, dst):
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    destination.write_text(
+                        '[Event "Concurrent writer"]\n[Result "*"]\n\n1. c4 *\n',
+                        encoding="utf-8",
+                    )
+                return real_replace(src, dst)
+
+            with patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+                with self.assertRaises(PgnConcurrentWriteError):
+                    self.service.export_to(
+                        destination,
+                        request,
+                        expected_sha256=reviewed,
+                    )
+
+            self.assertIn(
+                "Concurrent writer",
+                destination.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(list(Path(directory).glob("*.tmp")), [])
+            self.assertEqual(list(Path(directory).glob("*.cas-*.bak")), [])
 
     def test_empty_filtered_result_fails_before_any_file_write(self) -> None:
         request = LibraryExportRequest.filtered(GameSearchQuery(event="does-not-exist"))
