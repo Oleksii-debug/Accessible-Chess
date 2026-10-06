@@ -32,6 +32,7 @@ from .book_html_import import (
 )
 from .bookdocument import (
     MAX_BOOK_DOCUMENT_BLOCKS,
+    MAX_BOOK_DOCUMENT_WARNINGS,
     MAX_BOOK_SOURCE_ANCHOR_CHARS,
     MAX_BOOK_TEXT_FIELD_CHARS,
     BookDocument,
@@ -52,7 +53,7 @@ MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT = 256
 MAX_EPUB_XML_ATTRIBUTES_TOTAL = 100_000
 MAX_EPUB_RENDITIONS = 256
 MAX_EPUB_SPINE_DOCUMENTS = 4_096
-MAX_EPUB_WARNINGS = 4_096
+MAX_EPUB_WARNINGS = MAX_BOOK_DOCUMENT_WARNINGS
 _SUPPORTED_SPINE_MEDIA_TYPES = frozenset({"application/xhtml+xml", "text/html"})
 _EPUB_CONTENT_DOCUMENT_MEDIA_TYPES = frozenset(
     {"application/xhtml+xml", "image/svg+xml"}
@@ -141,8 +142,8 @@ class _Warnings:
         if len(self.values) < MAX_EPUB_WARNINGS:
             self.values.append(text)
             return
-        # BookDocument accepts at most MAX_EPUB_WARNINGS warnings. Keep that
-        # invariant even when overflow itself must be reported.
+        # Keep the EPUB adapter's diagnostic count identical to the canonical
+        # BookDocument ceiling even when overflow itself must be reported.
         if MAX_EPUB_WARNINGS > 0:
             self.values[-1] = "additional EPUB import warnings were suppressed"
         self._suppressed = True
