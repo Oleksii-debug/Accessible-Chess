@@ -271,6 +271,13 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertIn("el('position-piece-apply').click()", html)
         self.assertIn("el('position-metadata-apply').click()", html)
 
+    def test_history_review_disables_live_mutation_controls_in_webview(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("const historyEndMutationIds=[...positionEditorMutationIds,'move-input','move-submit','fen-input','fen-load','undo','redo','white-turn','black-turn']", html)
+        self.assertIn("historyEndMutationIds.forEach(id=>{const n=el(id);if(n)n.disabled=locked})", html)
+
     def test_board_render_restores_keyboard_focus_after_api_state_updates(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"
