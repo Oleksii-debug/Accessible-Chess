@@ -63,8 +63,12 @@ class OllamaReuseTests(unittest.TestCase):
         subtitles = parse_subtitle_context(
             '1\n00:00:01,000 --> 00:00:03,000\nХід конем.\n'.encode(),
             format='srt', source_id='video', source_revision='v1', language='uk')
-        register_speech_context_tool(executor, context=subtitles,
-            current_media=lambda: ('video', 'v1', 1500))
+        register_speech_context_tool(
+            executor,
+            context=subtitles,
+            context_allowed=lambda: True,
+            current_media=lambda: ('video', 'v1', 1500),
+        )
         runtime = UniversalChessAgentRuntime(gateway=gateway, tools=executor,
             provider_id='ollama', model='qwen3:8b', product_instruction='Відповідай українською.')
         result = asyncio.run(runtime.run(run_id='run-1', user_text='Що сказав коментатор?'))
