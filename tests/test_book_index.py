@@ -1,5 +1,8 @@
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+
+import acs.book_index as book_index_module
 
 from acs.book_index import AmbiguousBookTargetError, BookEntryKind, BookIndex, BookTarget
 from acs.bookdocument import (
@@ -377,6 +380,36 @@ class BookIndexTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "maximum search term length"):
             index.find("x" * 257)
         self.assertEqual(index.find("x" * 256), ())
+
+    def test_find_snapshots_mutable_kind_filter_for_one_request(self):
+        index = BookIndex(self.make_document())
+        kinds = {BookEntryKind.HEADING, BookEntryKind.GAME}
+        original_normalize = book_index_module.normalize_search_text
+        mutated = False
+
+        def mutate_caller_filter(value):
+            nonlocal mutated
+            if not mutated:
+                kinds.discard(BookEntryKind.GAME)
+                mutated = True
+            return original_normalize(value)
+
+        with patch.object(
+            book_index_module,
+            "normalize_search_text",
+            side_effect=mutate_caller_filter,
+        ):
+            matches = index.find("model game", kinds=kinds)
+
+        self.assertTrue(mutated)
+        self.assertNotIn(BookEntryKind.GAME, kinds)
+        self.assertEqual(
+            [entry.target.index for entry in matches],
+            [4],
+        )
+        # A later request observes the caller's now-current filter. Only the
+        # in-flight request is insulated from external mutable state.
+        self.assertEqual(index.find("model game", kinds=kinds), ())
 
     def test_find_rejects_non_text_query_deterministically(self):
         index = BookIndex(self.make_document())
