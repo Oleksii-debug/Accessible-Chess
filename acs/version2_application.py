@@ -2440,7 +2440,7 @@ class Version2Application:
                     "kind": "route",
                     "payload": {"route_id": self.shell.current_route.route_id},
                 },
-            )
+            ) + urgent
         events = tuple(self._events)
         self._events.clear()
         return events + urgent
