@@ -54,6 +54,27 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(original.warnings, controlled.warnings)
         self.assertEqual(controlled.pgn_games, 2)
 
+    def test_epub_central_directory_validation_observes_control(self):
+        import acs.book_epub_import as epub
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
+            for index in range(300):
+                archive.writestr(f'entry-{index:03}.txt', b'x')
+
+        failure = SourceReadCancelledError('cancelled during EPUB central directory validation')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._validate_single_disk_zip_end_records(buffer.getvalue(), cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
     def test_epub_archive_index_observes_control_inside_large_package_scan(self):
         import acs.book_epub_import as epub
 
