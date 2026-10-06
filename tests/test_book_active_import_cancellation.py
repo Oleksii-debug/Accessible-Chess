@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
 from acs.chesscore import Board
-from acs.book_html_import import import_html_book, _SemanticHtmlParser
+from acs.book_html_import import import_html_book, _ListCapture, _SemanticHtmlParser
 from acs.book_epub_import import import_epub_book
 from acs.book_text_import import import_text_book, BookTextFormat
 from acs.import_contract import SourceReadCancelledError
@@ -337,6 +337,31 @@ class BookActiveImportCancellationTests(unittest.TestCase):
                                  control_checkpoint=cancel)
         self.assertIs(caught.exception, failure)
         parse.assert_not_called()
+
+    def test_html_list_aggregation_observes_control(self):
+        failure = SourceReadCancelledError('cancelled during HTML list aggregation')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        captured = _ListCapture(
+            tag='ul',
+            attrs={},
+            items=[f'item {index}' for index in range(300)],
+            identity_items=[f'item {index}' for index in range(300)],
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._emit_list(captured)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
 
     def test_html_visible_pgn_scan_observes_control_across_large_prose(self):
         import acs.book_html_import as html
