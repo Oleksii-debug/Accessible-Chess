@@ -405,7 +405,7 @@ class Version2Application:
 
     def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
         self._assert_thread()
-        if not isinstance(event, BookOpenWorkerEvent):
+        if type(event) is not BookOpenWorkerEvent:
             raise TypeError("invalid Book Open worker event")
         english = self.shell.language is UILanguage.EN
         messages = {
