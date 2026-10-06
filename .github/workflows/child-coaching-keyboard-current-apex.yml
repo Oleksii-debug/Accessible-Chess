@@ -65,7 +65,7 @@ jobs:
       FINAL_PRODUCT_APP_BLOB: c9fe2ea37f32de23fe2c7e02475d4f71f2915060
       RELEASE_APP_BLOB: d0a5188175afdc6f3e707745b525abe10c8bf411
       KEYBOARD_TEST_BLOB: 56465c80be186aaddc7e7dbf6ddd21fa7708ed1c
-      GROUP_ROTATION_BINDING_TEST_BLOB: 893acb002b1eb14fbcd2c933235d2164d05aed03
+      GROUP_ROTATION_BINDING_TEST_BLOB: 593b6aaa9563644d7c4aae6ff8ccd6764e0e2c0c
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
