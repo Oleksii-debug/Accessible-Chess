@@ -11,9 +11,6 @@ their execution.
 
 from dataclasses import dataclass
 import math
-from typing import Any
-
-from .media_core import MediaClockSnapshot, MediaPlaybackState
 from .media_preprocess import PreprocessCheckpoint, PreprocessStatus
 from .recorded_media_sync import (
     AccessibleRecordedSyncEvent,
@@ -176,27 +173,28 @@ def _event_text(event: AccessibleRecordedSyncEvent | None) -> str:
     return visible
 
 
-def _validate_clock(clock: MediaClockSnapshot | None) -> tuple[int | None, int | None, str]:
-    if clock is None:
-        return None, None, "unstarted"
-    if type(clock) is not MediaClockSnapshot:
-        raise RecordedMediaAccessibilityError("invalid media clock snapshot")
-    position = _nonnegative_int(clock.position_ms, "media position")
-    duration = _optional_nonnegative_int(clock.duration_ms, "media duration")
-    if duration is not None and position > duration:
+_PLAYBACK_STATES = frozenset(
+    {"unstarted", "playing", "paused", "buffering", "ended"}
+)
+
+
+def _validate_clock_values(
+    *,
+    position_ms: object,
+    duration_ms: object,
+    playback_state: object,
+    revision: object,
+) -> tuple[int | None, int | None, str, int | None]:
+    position = _optional_nonnegative_int(position_ms, "media position")
+    duration = _optional_nonnegative_int(duration_ms, "media duration")
+    if duration is not None and position is not None and position > duration:
         raise RecordedMediaAccessibilityError("media position exceeds duration")
-    if type(clock.state) is not MediaPlaybackState:
+    if type(playback_state) is not str or playback_state not in _PLAYBACK_STATES:
         raise RecordedMediaAccessibilityError("invalid media playback state")
-    if type(clock.playback_rate) not in (int, float) or isinstance(
-        clock.playback_rate, bool
-    ):
-        raise RecordedMediaAccessibilityError("invalid media playback rate")
-    rate = float(clock.playback_rate)
-    if not math.isfinite(rate) or rate <= 0.0:
-        raise RecordedMediaAccessibilityError("invalid media playback rate")
-    if type(clock.revision) is not int or clock.revision < 0:
-        raise RecordedMediaAccessibilityError("invalid media clock revision")
-    return position, duration, clock.state.value
+    safe_revision = None
+    if revision is not None:
+        safe_revision = _nonnegative_int(revision, "media clock revision")
+    return position, duration, playback_state, safe_revision
 
 
 def _validate_sync_snapshot(snapshot: RecordedSyncSnapshot | None) -> RecordedSyncSnapshot | None:
@@ -312,7 +310,7 @@ class RecordedMediaPlayerState:
             _text(value, name, limit=256)
         _text(self.status_text, "status text")
         _text(self.announcement, "announcement text")
-        if self.playback_state not in {state.value for state in MediaPlaybackState}:
+        if self.playback_state not in _PLAYBACK_STATES:
             raise RecordedMediaAccessibilityError("invalid playback state")
         if self.qualification not in _QUALIFICATIONS:
             raise RecordedMediaAccessibilityError("invalid synchronization qualification")
@@ -394,14 +392,22 @@ class RecordedMediaAccessibilityBridge:
     def snapshot(
         self,
         *,
-        clock: MediaClockSnapshot | None = None,
+        position_ms: int | None = None,
+        duration_ms: int | None = None,
+        playback_state: str = "unstarted",
+        revision: int | None = None,
         playback: RecordedPlaybackResolution | None = None,
         sync_snapshot: RecordedSyncSnapshot | None = None,
         preprocess: PreprocessCheckpoint | None = None,
         event: AccessibleRecordedSyncEvent | None = None,
     ) -> dict[str, object]:
         try:
-            position, duration, playback_state = _validate_clock(clock)
+            position, duration, playback_state, safe_revision = _validate_clock_values(
+                position_ms=position_ms,
+                duration_ms=duration_ms,
+                playback_state=playback_state,
+                revision=revision,
+            )
             if playback is not None and type(playback) is not RecordedPlaybackResolution:
                 raise RecordedMediaAccessibilityError(
                     "invalid recorded playback resolution"
@@ -442,7 +448,7 @@ class RecordedMediaAccessibilityBridge:
             else:
                 focus_target = "recorded-media-status"
 
-            if playback_state == MediaPlaybackState.PLAYING.value:
+            if playback_state == "playing":
                 play_action = "pause"
                 play_label = labels["pause"]
             else:
@@ -471,7 +477,7 @@ class RecordedMediaAccessibilityBridge:
 
             state = RecordedMediaPlayerState(
                 ok=qualification != "unavailable" or position is not None,
-                revision=(clock.revision if clock is not None else None),
+                revision=safe_revision,
                 position_ms=position,
                 duration_ms=duration,
                 position_text=position_text,
