@@ -753,7 +753,145 @@ class D06PgnRoundTripTests(unittest.TestCase):
             )
             feed_line.assert_not_called()
 
-    def test_recovery_warning_provenance_does_not_override_canonical_serialization(self):
+    def test_normalized_line_iteration_preserves_split_offsets_without_list(self):
+        iterator = rt._iter_normalized_lines("a\n\nb\n")
+        self.assertNotIsInstance(iterator, list)
+        self.assertEqual(next(iterator), (0, "a"))
+        self.assertEqual(
+            list(iterator),
+            [(2, ""), (3, "b"), (5, "")],
+        )
+
+    def test_many_line_preflight_reaches_parser_without_whole_line_list_contract(self):
+        source = ("\n" * 20_000) + '[Result "*"]\n\n*'
+        with patch("acs.pgn_roundtrip.parse_games", wraps=rt.parse_games) as parser:
+            games = parse_pgn_text(source)
+        self.assertEqual(len(games), 1)
+        parser.assert_called_once()
+
+    def test_unicode_scalar_scan_observes_active_parse_control(self):
+        failure = RuntimeError("cancelled during PGN Unicode scalar scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with patch(
+            "acs.pgn_roundtrip.parse_games",
+            side_effect=AssertionError("parser must not run after cancellation"),
+        ) as parser:
+            with self.assertRaises(RuntimeError) as caught:
+                parse_pgn_text(
+                    "x" * 12_500,
+                    strict=False,
+                    control_checkpoint=cancel,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        parser.assert_not_called()
+
+    def test_model_subclasses_fail_before_overrideable_attribute_hooks(self):
+        touches = []
+
+        class ActivePgnGame(PgnGame):
+            def __getattribute__(self, name):
+                touches.append(("game", name))
+                raise AssertionError("active PgnGame hook must not execute")
+
+        class ActiveVariationLine(VariationLine):
+            def __getattribute__(self, name):
+                touches.append(("line", name))
+                raise AssertionError("active VariationLine hook must not execute")
+
+        class ActiveMoveNode(MoveNode):
+            def __getattribute__(self, name):
+                touches.append(("move", name))
+                raise AssertionError("active MoveNode hook must not execute")
+
+        class ActiveComment(Comment):
+            def __getattribute__(self, name):
+                touches.append(("comment", name))
+                raise AssertionError("active Comment hook must not execute")
+
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (object.__new__(ActivePgnGame),),
+        )
+        self.assertEqual(touches, [])
+
+        game_with_active_line = PgnGame(
+            tags={"Result": "*"},
+            line=object.__new__(ActiveVariationLine),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game_with_active_line,),
+        )
+        self.assertEqual(touches, [])
+
+        game_with_active_move = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[object.__new__(ActiveMoveNode)],
+                result="*",
+            ),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game_with_active_move,),
+        )
+        self.assertEqual(touches, [])
+
+        game_with_active_comment = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                leading_comments=[object.__new__(ActiveComment)],
+                result="*",
+            ),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game_with_active_comment,),
+        )
+        self.assertEqual(touches, [])
+
+    def test_active_comment_style_fails_before_enum_coercion(self):
+        touches = []
+
+        class ActiveStyle:
+            def __eq__(self, other):
+                touches.append(("eq", other))
+                raise AssertionError("active comment-style comparison must not execute")
+
+            def __repr__(self):
+                touches.append(("repr", None))
+                raise AssertionError("active comment-style repr must not execute")
+
+        comment = Comment("safe text")
+        comment.style = ActiveStyle()
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(leading_comments=[comment], result="*"),
+            warnings=[],
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+        self.assertEqual(touches, [])
+
+    def test_recovery_warning_provenance_blocks_strict_serialization(self):
         recovered = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
             strict=False,
@@ -761,13 +899,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
         warnings_before = list(recovered[0].warnings)
         self.assertTrue(warnings_before)
 
-        canonical = serialize_pgn_text(recovered)
-
-        self.assertEqual(recovered[0].warnings, warnings_before)
-        reparsed = parse_pgn_text(canonical, strict=True)
-        self.assertEqual([move.san for move in reparsed[0].line.moves], ["e4", "e5"])
-        self.assertEqual(reparsed[0].line.result, "*")
-        self.assertEqual(reparsed[0].warnings, [])
+        error = self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            recovered,
+        )
+        self.assertIn("explicit normalization", str(error))
+        self.assertEqual(
+            recovered[0].warnings,
+            warnings_before,
+            "failed strict serialization must not consume recovery provenance",
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_bytes,
+            recovered,
+        )
 
 
 if __name__ == "__main__":

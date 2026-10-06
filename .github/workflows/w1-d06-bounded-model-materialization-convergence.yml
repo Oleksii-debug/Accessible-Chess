@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'acs/pgn_roundtrip.py'
+      - 'tests/test_d06_pgn_roundtrip.py'
       - 'acs/pgn_workspace.py'
       - 'tests/test_w1_d06_bounded_model_materialization.py'
       - '.github/workflows/d01-pgn-workspace-webview.yml'
@@ -50,7 +51,10 @@ jobs:
         shell: bash
         env:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SOURCE_HEAD_SHA: 1ec05b87ed2a776bfb3625059a45588c0b1ff6e6
+          W1_WORKSPACE_BLOB: 680349f68480df43e23b094df4709deed275f01d
+          W1_TEST_BLOB: a5de2d703f61cc599717e9ae5325ad1652e854e0
+          D06_SOURCE_BLOB: e4b76af7a33b939b9e56cd3605781fe3077608cb
+          D06_TEST_BLOB: 0a96a3db33ba607ab337008369061cf31492fcdd
         run: |
           set -euo pipefail
           base="${EVENT_BASE_SHA:-}"
@@ -58,17 +62,15 @@ jobs:
             base="$(git rev-parse HEAD^)"
           fi
           git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
-          git cat-file -e "$SOURCE_HEAD_SHA^{commit}"
           git merge-base --is-ancestor "$base" HEAD
-          git merge-base --is-ancestor "$SOURCE_HEAD_SHA" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base" HEAD
-          for path in \
-            acs/pgn_roundtrip.py \
-            acs/pgn_workspace.py \
-            tests/test_w1_d06_bounded_model_materialization.py
-          do
-            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_HEAD_SHA:$path")"
-          done
+          test "$(git rev-parse "$base:acs/pgn_workspace.py")" = "$W1_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$W1_WORKSPACE_BLOB"
+          test "$(git rev-parse "$base:tests/test_w1_d06_bounded_model_materialization.py")" = "$W1_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_w1_d06_bounded_model_materialization.py)" = "$W1_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$D06_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d06_pgn_roundtrip.py)" = "$D06_TEST_BLOB"
 
       - name: Compile converged PGN modules
         run: python -m compileall -q acs/pgn_roundtrip.py acs/pgn_workspace.py tests/test_w1_d06_bounded_model_materialization.py

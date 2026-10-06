@@ -3,9 +3,10 @@ name: Current D06 Strict Cancellation Convergence
 on:
   pull_request:
     branches:
-      - converge/book-pgn-epub-bounds-20261006-zftrkmo118
+      - fix/d06-current-safety-convergence-20261006-zftrkmo119
     paths:
       - '.github/workflows/current-d06-strict-cancellation-convergence.yml'
+      - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
       - 'acs/pgn_roundtrip.py'
       - 'tests/test_d06_pgn_roundtrip.py'
   workflow_dispatch:
@@ -18,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_SOURCE_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
-  D06_TEST_BLOB: 06e184390eb8b3957063ab8480ce707aec4da4fe
+  D06_SOURCE_BLOB: e4b76af7a33b939b9e56cd3605781fe3077608cb
+  D06_TEST_BLOB: 0a96a3db33ba607ab337008369061cf31492fcdd
 
 jobs:
   exact-head:
@@ -50,6 +51,7 @@ jobs:
           changed="$(git diff --name-only "$base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-d06-strict-cancellation-convergence.yml' \
+            '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml' \
             'acs/pgn_roundtrip.py' \
             'tests/test_d06_pgn_roundtrip.py' | sort)"
           test "$changed" = "$expected"

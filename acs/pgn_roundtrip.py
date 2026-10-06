@@ -22,6 +22,7 @@ from typing import Callable, Iterable
 from .gametree import (
     CanonicalPgnGameFramer,
     Comment,
+    CommentStyle,
     GameTreeContractError,
     GameTreeErrorCode,
     GameTreeSerializationError,
@@ -208,8 +209,18 @@ def _raise_limit(message: str, code: PgnRoundTripErrorCode) -> None:
     raise PgnRoundTripError(message, code=code)
 
 
-def _contains_invalid_unicode_scalar(value: str) -> bool:
-    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+def _contains_invalid_unicode_scalar(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    """Reject surrogate code points without hiding long scans from cancellation."""
+
+    for index, character in enumerate(value, start=1):
+        if 0xD800 <= ord(character) <= 0xDFFF:
+            return True
+        if control_checkpoint is not None and index % 4_096 == 0:
+            control_checkpoint()
+    return False
 
 
 def _claim_token(counter: list[int], source_budget: PgnSourceBudget) -> None:
@@ -265,6 +276,19 @@ def _preflight_recovered_brace_comment_lengths(
         index = next_index
 
 
+def _iter_normalized_lines(normalized: str) -> Iterable[tuple[int, str]]:
+    """Yield normalized PGN lines one at a time without a whole-source list."""
+
+    line_start = 0
+    while True:
+        line_end = normalized.find("\n", line_start)
+        if line_end < 0:
+            yield line_start, normalized[line_start:]
+            return
+        yield line_start, normalized[line_start:line_end]
+        line_start = line_end + 1
+
+
 def _preflight_text(
     text: object,
     *,
@@ -290,7 +314,7 @@ def _preflight_text(
             "PGN text exceeds the character safety limit",
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
         )
-    if _contains_invalid_unicode_scalar(text):
+    if _contains_invalid_unicode_scalar(text, control_checkpoint):
         raise PgnRoundTripError(
             "PGN text contains an invalid Unicode scalar value",
             code=PgnRoundTripErrorCode.INVALID_TEXT,
@@ -308,7 +332,6 @@ def _preflight_text(
     tags_in_game = 0
     seen_movetext = False
     comment_until = 0
-    line_start = 0
     game_framer = CanonicalPgnGameFramer()
     preflight_games = 0
 
@@ -329,10 +352,11 @@ def _preflight_text(
             )
         source_budget.claim_games(1)
 
-    lines = normalized.split("\n")
     if control_checkpoint is not None:
         control_checkpoint()
-    for line_index, line in enumerate(lines, start=1):
+    for line_index, (line_start, line) in enumerate(
+        _iter_normalized_lines(normalized), start=1
+    ):
         if control_checkpoint is not None and line_index % 128 == 1:
             control_checkpoint()
         line_end = line_start + len(line)
@@ -371,7 +395,6 @@ def _preflight_text(
                 )
             _claim_token(token_count, source_budget)
             claim_framed_line(line)
-            line_start = line_end + 1
             continue
 
         if line.strip() and not starts_inside_recovered_comment:
@@ -399,7 +422,6 @@ def _preflight_text(
         if starts_inside_recovered_comment:
             if comment_until > line_end:
                 claim_framed_line(line)
-                line_start = line_end + 1
                 continue
             index = comment_until - line_start
             comment_until = 0
@@ -479,7 +501,6 @@ def _preflight_text(
 
         flush_token()
         claim_framed_line(line)
-        line_start = line_end + 1
 
     if control_checkpoint is not None:
         control_checkpoint()
@@ -732,9 +753,19 @@ def _measure_comment(
     budget: list[int],
     token_count: list[int],
 ) -> None:
-    if not isinstance(comment, Comment) or type(comment.text) is not str:
+    if type(comment) is not Comment:
         raise PgnRoundTripError(
             "PGN model contains an invalid comment",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if type(comment.text) is not str:
+        raise PgnRoundTripError(
+            "PGN model contains an invalid comment",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if type(comment.style) is not CommentStyle:
+        raise PgnRoundTripError(
+            "PGN model contains an invalid comment style",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     if len(comment.text) > MAX_PGN_COMMENT_CHARS:
@@ -766,7 +797,12 @@ def _measure_line(
     *,
     depth: int,
 ) -> None:
-    if not isinstance(line, VariationLine) or type(line.moves) is not list:
+    if type(line) is not VariationLine:
+        raise PgnRoundTripError(
+            "PGN model contains an invalid variation line",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if type(line.moves) is not list:
         raise PgnRoundTripError(
             "PGN model contains an invalid variation line",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
@@ -805,7 +841,7 @@ def _measure_line(
     for comment in line.leading_comments:
         _measure_comment(comment, budget, token_count)
     for node in line.moves:
-        if not isinstance(node, MoveNode):
+        if type(node) is not MoveNode:
             raise PgnRoundTripError(
                 "PGN variation contains an invalid move node",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
@@ -901,20 +937,29 @@ def _measure_game(
 ) -> None:
     """Validate one game against shared cumulative serialization budgets."""
 
-    if not isinstance(game, PgnGame) or type(game.tags) is not dict:
+    if type(game) is not PgnGame:
         raise PgnRoundTripError(
             "PGN serialization requires PgnGame values",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
-    # Recovery diagnostics are source/provenance evidence, not PGN wire semantics.
-    # Strict parsing still refuses any recovered source for lossless editing, but
-    # the serializer validates the canonical GameTree itself so lawful historical
-    # recovery can be explicitly normalized by callers that own that decision.
+    if type(game.tags) is not dict:
+        raise PgnRoundTripError(
+            "PGN serialization requires PgnGame values",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    # Recovery diagnostics prove that the source required repair. Strict
+    # serialization must not erase that provenance; the higher-level workflow
+    # owns any explicit normalization decision before this boundary is called.
     if type(game.warnings) is not list or any(
         type(warning) is not str for warning in game.warnings
     ):
         raise PgnRoundTripError(
             "PGN recovery warnings must be a built-in list of text diagnostics",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if game.warnings:
+        raise PgnRoundTripError(
+            "PGN recovery warnings require explicit normalization before strict serialization",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
