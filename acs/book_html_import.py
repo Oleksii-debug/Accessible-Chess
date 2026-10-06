@@ -205,6 +205,21 @@ def _deterministic_display_value(value: str) -> str | None:
     return None
 
 
+_CSS_CONTENT_VISIBILITY_VALUES = frozenset(
+    {"visible", "auto", "hidden", "initial", "unset", "inherit"}
+)
+
+
+def _deterministic_content_visibility_value(value: str) -> str | None:
+    """Return one bounded content-visibility value or None if cascade-dependent."""
+
+    if value in _CSS_CONTENT_VISIBILITY_VALUES:
+        return value
+    # revert/revert-layer depend on other cascade origins/layers that this
+    # bounded inline adapter deliberately does not model.
+    return None
+
+
 
 def _css_ascii_lower(value: str) -> str:
     """Apply CSS ASCII case-insensitive folding without Unicode case expansion."""
@@ -359,25 +374,29 @@ def _css_unescape_token(value: str) -> str:
     return "".join(parts)
 
 def _inline_style_hides(style: str) -> bool:
-    """Recognize deterministic inline display:none subtree hiding.
+    """Recognize deterministic inline subtree-hiding declarations.
 
-    This intentionally is not a CSS engine. display:none on an element
-    suppresses its entire rendered subtree and cannot be reversed by a
-    descendant. Other CSS visibility mechanisms are left alone because, for
-    example, a descendant can override inherited visibility:hidden.
-    Stylesheet/class rules also stay outside this bounded HTML adapter.
+    This intentionally is not a CSS engine. display:none and
+    content-visibility:hidden both suppress an element's rendered/accessibility
+    subtree and cannot be reversed by a descendant. Stylesheet class rules and
+    cascade-dependent CSS-wide values stay outside this bounded HTML adapter.
     """
 
     effective_display: tuple[str, bool] | None = None
-    for declaration in _split_inline_style_declarations(_inline_style_without_comments(style)):
+    effective_content_visibility: tuple[str, bool] | None = None
+
+    for declaration in _split_inline_style_declarations(
+        _inline_style_without_comments(style)
+    ):
         name, separator, raw_value = declaration.partition(":")
-        if (
-            not separator
-            or _css_ascii_lower(
-                _css_unescape_token(name.strip(_CSS_WHITESPACE))
-            ) != "display"
-        ):
+        if not separator:
             continue
+        property_name = _css_ascii_lower(
+            _css_unescape_token(name.strip(_CSS_WHITESPACE))
+        )
+        if property_name not in {"display", "content-visibility"}:
+            continue
+
         value = _css_ascii_lower(
             _css_unescape_token(raw_value.strip(_CSS_WHITESPACE))
         )
@@ -385,17 +404,33 @@ def _inline_style_hides(style: str) -> bool:
         important = important_match is not None
         if important_match is not None:
             value = value[: important_match.start()].strip(_CSS_WHITESPACE)
-        deterministic_value = _deterministic_display_value(value)
-        if deterministic_value is None:
-            # Invalid or value-dependent CSS must not override an earlier valid
-            # display declaration and accidentally resurrect hidden semantics.
-            continue
-        if effective_display is not None and effective_display[1] and not important:
-            continue
-        effective_display = (deterministic_value, important)
 
-    return effective_display is not None and effective_display[0] == "none"
+        if property_name == "display":
+            deterministic_value = _deterministic_display_value(value)
+            if deterministic_value is None:
+                continue
+            if effective_display is not None and effective_display[1] and not important:
+                continue
+            effective_display = (deterministic_value, important)
+            continue
 
+        deterministic_content_visibility = _deterministic_content_visibility_value(value)
+        if deterministic_content_visibility is None:
+            continue
+        if (
+            effective_content_visibility is not None
+            and effective_content_visibility[1]
+            and not important
+        ):
+            continue
+        effective_content_visibility = (deterministic_content_visibility, important)
+
+    display_hidden = effective_display is not None and effective_display[0] == "none"
+    content_hidden = (
+        effective_content_visibility is not None
+        and effective_content_visibility[0] == "hidden"
+    )
+    return display_hidden or content_hidden
 
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     if value is None and optional:
