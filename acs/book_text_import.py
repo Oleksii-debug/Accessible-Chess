@@ -749,8 +749,9 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             flush()
             # A heading is itself the structural owner of the line. Project any
             # recognized inline image through its accessible alt text before
-            # publication so destination URLs/titles never become heading text,
-            # document title, or deterministic reading-progress identity.
+            # publication so destination URLs/titles never become heading text
+            # or document title. The source-derived identity below is retained
+            # deliberately for backward-compatible progress restoration.
             heading_text, heading_had_image = _accessible_inline_text(
                 heading.group(2)
             )
