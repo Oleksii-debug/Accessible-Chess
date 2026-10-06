@@ -46,6 +46,7 @@ def format_media_status(status: Mapping[str, object]) -> str:
         f"Move: {_value(status, 'move_id')}",
     ]
     if status.get("analysis_detached") is True:
+        lines.append("Analysis detached: yes")
         lines.append("Board mode: independent analysis; Restore Media Position is available")
     reason = status.get("reason")
     if reason:

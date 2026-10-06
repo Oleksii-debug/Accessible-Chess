@@ -63,7 +63,7 @@ class PublicApplicationError(Exception):
             self.status = requested_status
             self.code = requested_code
             text = str(message)
-            if any(ch in text for ch in "\\r\\n\\x00"):
+            if any(ch in text for ch in "\r\n\x00"):
                 self.status = 500
                 self.code = "internal_error"
                 self.message = "Internal server error"
