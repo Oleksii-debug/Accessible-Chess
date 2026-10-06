@@ -113,6 +113,36 @@ class AccessibleWebUiTests(unittest.TestCase):
             self.html,
         )
 
+    def test_engine_game_dialog_start_and_cancel_focus_are_atomic(self):
+        self.assertIn(
+            "let engineGameStartInFlight=false,engineGameReturnFocusOnClose=false;",
+            self.html,
+        )
+        self.assertIn(
+            "if(engineGameStartInFlight)return;const button=el('engine-game-start'),cancel=el('engine-game-cancel')",
+            self.html,
+        )
+        self.assertIn(
+            "engineGameStartInFlight=true;button.disabled=true;if(cancel)cancel.disabled=true",
+            self.html,
+        )
+        self.assertIn(
+            "engineGameReturnFocusOnClose=false;el('engine-game-dialog').close();el('move-input').focus()",
+            self.html,
+        )
+        self.assertIn(
+            "finally{engineGameStartInFlight=false;button.disabled=false;if(cancel)cancel.disabled=false}",
+            self.html,
+        )
+        self.assertIn(
+            "el('engine-game-dialog').addEventListener('cancel',e=>{if(engineGameStartInFlight)e.preventDefault()})",
+            self.html,
+        )
+        self.assertIn(
+            "el('engine-game-dialog').addEventListener('close',()=>{const restore=engineGameReturnFocusOnClose;engineGameReturnFocusOnClose=false;if(restore)el('engine-play-open').focus()})",
+            self.html,
+        )
+
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', self.html)
