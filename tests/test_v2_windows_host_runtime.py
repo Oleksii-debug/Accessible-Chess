@@ -579,6 +579,47 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
             )
             self.assertTrue(runtime.shutdown())
+    def test_refused_close_preserves_pending_pgn_open_failure_through_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-refused-failed-open.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                pgn_session_box=session_box,
+            )
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "open",
+                side_effect=RuntimeError("fixed preparation failure"),
+            ):
+                started = runtime("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(runtime.wait_for_pgn_open(2.0))
+
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertEqual(len(owner.posted), 1)
+            self.assertIsNone(session_box["value"])
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(len(imported_events), 1)
+            self.assertEqual(imported_events[0].kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(imported_events[0].error_code, "pgn_open_failed")
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(len(imported_events), 1)
+            self.assertTrue(runtime.shutdown())
+
     def test_real_pgn_open_retries_transient_owner_post_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "runtime-open-retry.pgn"
