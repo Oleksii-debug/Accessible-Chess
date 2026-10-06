@@ -1679,6 +1679,7 @@ def _validate_required_runtime_resources(
                 else None
             ),
             require_clr=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
+            expected_dll=True,
         )
 
     for relative in _REQUIRED_WEB_FILES:
