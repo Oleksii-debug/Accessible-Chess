@@ -19,7 +19,7 @@ concurrency:
 
 env:
   D06_SOURCE_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
-  D06_TEST_BLOB: 84ebb0f7ca97aa0f7a95732cb4a797bd48396461
+  D06_TEST_BLOB: 06e184390eb8b3957063ab8480ce707aec4da4fe
 
 jobs:
   exact-head:
