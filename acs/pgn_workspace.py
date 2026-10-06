@@ -19,7 +19,7 @@ import hashlib
 from typing import Iterable
 
 from .game_identity import identity_for_game
-from .gametree import MoveNode, PgnGame, VariationLine
+from .gametree import MoveNode, PgnGame, VariationLine, RESULTS, TAG_NAME_RE
 from .gametree_annotations import (
     AnnotationEditResult,
     LineAnnotationPatch,
@@ -499,6 +499,28 @@ class PgnWorkspace:
         self._content_revision += 1
         self._dirty = self._content_digest != self._baseline_digest
         return self.view()
+
+    def edit_tag(self, name: str, value: str | None) -> PgnWorkspaceView:
+        """Edit or delete one PGN tag atomically on the selected game."""
+        if type(name) is not str or TAG_NAME_RE.fullmatch(name) is None:
+            raise ValueError("PGN tag name is invalid")
+        if value is not None and type(value) is not str:
+            raise TypeError("PGN tag value must be text or None")
+        if name in {"SetUp", "FEN"}:
+            raise ValueError("SetUp/FEN tags are edited through the position workflow")
+        if name == "Result":
+            if value is None or value not in RESULTS:
+                raise ValueError("PGN Result must be a canonical result token")
+        edited = deepcopy(self._current_game_ref())
+        if value is None:
+            if name == "Result":
+                raise ValueError("PGN Result cannot be deleted")
+            edited.tags.pop(name, None)
+        else:
+            edited.tags[name] = value
+            if name == "Result":
+                edited.line.result = value
+        return self._commit_current_game(edited)
 
     def edit_move_annotations(
         self,
