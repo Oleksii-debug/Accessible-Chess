@@ -372,6 +372,50 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             self.assertIn("expected", kwargs)
             self.assertEqual(read_version2_release_receipt(output), receipt)
 
+    def test_post_staging_cleanup_mutation_rejects_owned_receipt_and_allows_retry(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_remove = release_receipt_module._remove_private_staging_file
+            injected = False
+
+            def remove_then_mutate(path, expected_identity):
+                nonlocal injected
+                candidate = Path(path)
+                real_remove(candidate, expected_identity)
+                if candidate != output and not injected:
+                    payload = json.loads(receipt.to_json())
+                    payload["artifact_id"] = int(payload["artifact_id"]) + 1
+                    output.write_text(
+                        json.dumps(
+                            payload,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+                    injected = True
+
+            with patch(
+                "acs.version2_release_receipt._remove_private_staging_file",
+                side_effect=remove_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "bytes changed after staging cleanup",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
     def test_post_link_durability_failure_cleans_owned_receipt_and_retry_succeeds(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
