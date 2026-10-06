@@ -559,12 +559,19 @@ def create_version2_release_application(
                 book_dialogs,
                 before_shutdown=resume_coordinator.prepare_shutdown,
             )
-        except Exception:
+        except BaseException:
+            # Startup publication failed before the native runtime became a
+            # usable product owner. Retire every newly acquired native worker
+            # best-effort and preserve the original startup failure even if a
+            # cleanup callback itself aborts. Runtime shutdown is idempotent.
             try:
                 book_open_worker.shutdown()
-            finally:
-                if getattr(application, "_book_open_worker", None) is None:
-                    file_runtime.shutdown()
+            except BaseException:
+                pass
+            try:
+                file_runtime.shutdown()
+            except BaseException:
+                pass
             raise
         # Publish every owner-bound application callback only after the native
         # runtime and FormClosing guard are both live. Failed startup must leave
