@@ -109,6 +109,18 @@ class OwnerGameplayFeedbackTests(unittest.TestCase):
         finally:
             self.api._settings = settings
 
+    def test_sound_settings_fail_closed_without_backing_store(self):
+        settings = self.api._settings
+        try:
+            self.api._settings = None
+            state = self.api.get_sound_settings()
+            self.assertFalse(state['ok'])
+            self.assertTrue(state['enabled'])
+            self.assertEqual(state['volume'], 80)
+            self.assertFalse(self.api.set_sound_enabled(False)['ok'])
+        finally:
+            self.api._settings = settings
+
     def test_new_position_dispatch_resets_and_plays_start_sound(self):
         self.api.make_move('e4')
         result = self.api.dispatch_action('file.new')
