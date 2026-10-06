@@ -449,6 +449,7 @@ const shellContext = vm.createContext({
   Array,
   Set,
   String,
+  MAX_SCREEN_HEADING: 600,
   currentLanguage: "en",
   currentRouteId: "board",
   documentRef: shellDocument,
@@ -458,10 +459,18 @@ const shellContext = vm.createContext({
   workspace: shellWorkspace,
   originalMain: shellOriginalMain,
   productRoutes: new Set(["books"]),
+  plainObject: (value) => !!value && typeof value === "object" && !Array.isArray(value),
+  validRouteId: (value) => typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value),
+  validFocusId: (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value),
+  boundedText: (value, limit) => typeof value === "string" && value.length <= limit && !value.includes("\\0") ? value : "",
   captureWorkspaceSelection: () => null,
   restoreWorkspaceSelection: () => false,
   uiText: (_uk, en) => en,
-  renderNavigation: () => { shellNavList.replaceChildren(candidateNavNode); },
+  renderNavigation: () => ({
+    routeIds: new Set(["books"]),
+    currentRouteIds: new Set(["books"]),
+    fragment: candidateNavNode
+  }),
   renderProductSurface: () => { throw shellFailure; },
   restoreStage1Focus: () => false,
   global: {
@@ -496,6 +505,41 @@ assert.deepStrictEqual(
   shownRoutes,
   ["books", "board"],
   "shell route was not restored after candidate presentation failure"
+);
+
+assert(!source.includes('String(item.route_id || "")'), "navigation route id still uses coercion");
+assert(!source.includes('String(screen.route_id || "board")'), "screen route id still uses coercion");
+
+let hostileScreenTouched = false;
+const hostileScreenRoute = {
+  toString() {
+    hostileScreenTouched = true;
+    return "books";
+  }
+};
+const shownRouteCountBeforeHostile = shownRoutes.length;
+let hostileScreenFailure = null;
+try {
+  shellContext.__render(
+    {
+      navigation: [],
+      document: { lang: "uk" },
+      screen: { route_id: hostileScreenRoute, focus_target: "", heading: "Books" }
+    },
+    true
+  );
+} catch (error) {
+  hostileScreenFailure = error;
+}
+assert(hostileScreenFailure instanceof Error || hostileScreenFailure, "hostile screen route was not rejected");
+assert.strictEqual(hostileScreenTouched, false, "hostile screen route reached toString()");
+assert.strictEqual(shellContext.currentRouteId, "board", "hostile screen route changed route identity");
+assert.strictEqual(shellDocument.documentElement.lang, "en", "hostile screen route changed document language");
+assert.deepStrictEqual(shellNavList.children, [oldNavNode], "hostile screen route changed navigation");
+assert.strictEqual(
+  shownRoutes.length,
+  shownRouteCountBeforeHostile,
+  "hostile screen route reached Stage 1 route publication"
 );
 
 console.log("Version 2 final-product event drain serialization contract PASS");
