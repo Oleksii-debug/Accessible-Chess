@@ -213,6 +213,41 @@ class BookOpenWorkerTests(unittest.TestCase):
         self.assertIn("UI thread", str(errors[0]))
 
 
+    def test_refused_close_preserves_retired_pending_book_failure_terminal(self) -> None:
+        callbacks = []
+        events = []
+        commits = []
+        prepared = threading.Event()
+
+        def prepare(source, *, cancel_check):
+            prepared.set()
+            raise RuntimeError("fixed Book preparation failure")
+
+        worker = Version2BookOpenWorker(
+            prepare=prepare,
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=lambda event: events.append(event.kind),
+        )
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self.assertTrue(prepared.wait(2.0))
+        self._wait(lambda: len(callbacks) == 1)
+        self.assertTrue(worker.shutdown())
+
+        self.assertTrue(worker.resume_after_refused_shutdown())
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        self.assertFalse(worker.active)
+        self.assertEqual(commits, [])
+
+        event_count = len(events)
+        callbacks.pop(0)()
+        self.assertEqual(len(events), event_count)
+        self.assertEqual(commits, [])
+        self.assertTrue(worker.shutdown())
     def test_refused_close_reconciles_retired_pending_book_terminal(self) -> None:
         callbacks = []
         events = []
