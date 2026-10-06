@@ -862,7 +862,11 @@ class Version2WindowsFileActionDelegate:
             if not current:
                 return
 
-        if cancelled or error_code == "pgn_open_cancelled":
+        # Background preparation fixes terminal truth for explicit failures.
+        # A Cancel arriving after that work has already failed must not relabel
+        # the completed failure as cancellation. Successful prepared results
+        # remain cancellable until the serialized publication boundary below.
+        if error_code == "pgn_open_cancelled":
             terminal = FileWorkflowEvent(
                 FileWorkflowEventKind.PGN_OPEN_CANCELLED,
                 "pgn.open",
@@ -874,6 +878,12 @@ class Version2WindowsFileActionDelegate:
                 "pgn.open",
                 focus_target=previous_focus,
                 error_code=error_code or "pgn_open_failed",
+            )
+        elif cancelled:
+            terminal = FileWorkflowEvent(
+                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                "pgn.open",
+                focus_target=previous_focus,
             )
         else:
             # The worker result crosses back into the owner/UI thread. Treat it
