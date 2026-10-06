@@ -79,9 +79,20 @@ class EpdFormatTests(unittest.TestCase):
             parse_epd(START_EPD + " hmvc ١;")
         with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
             parse_epd(START_EPD + " fmvn 0;")
-        signed = parse_epd(START_EPD + " hmvc +7; fmvn +12;")
+        signed_text = START_EPD + " hmvc +7; fmvn +12;"
+        signed = parse_epd(signed_text)
         self.assertEqual(signed.position.halfmove, 7)
         self.assertEqual(signed.position.fullmove, 12)
+        self.assertEqual(signed.to_epd(), signed_text)
+        self.assertEqual(parse_epd(signed.to_epd()), signed)
+
+        zero_padded_text = START_EPD + " hmvc 007; fmvn 0012;"
+        zero_padded = parse_epd(zero_padded_text)
+        self.assertEqual(zero_padded.position.halfmove, 7)
+        self.assertEqual(zero_padded.position.fullmove, 12)
+        self.assertEqual(zero_padded.to_epd(), zero_padded_text)
+        self.assertEqual(parse_epd(zero_padded.to_epd()), zero_padded)
+
         with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
             parse_epd(START_EPD + " hmvc -1;")
 
