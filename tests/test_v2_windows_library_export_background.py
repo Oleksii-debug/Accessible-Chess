@@ -439,6 +439,67 @@ class Version2WindowsLibraryExportBackgroundTests(unittest.TestCase):
             self.assertTrue(destination.exists())
             self.assertEqual(len(open_pgn(destination)), 1)
 
+    def test_refused_shutdown_retries_retained_terminal_after_observer_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path, game_id = self._create_library(directory)
+            destination = Path(directory) / "retry-recovery-terminal.pgn"
+            posted: list[object] = []
+            events: list[LibraryExportHostEvent] = []
+            fail_terminal = {"value": True}
+
+            def sink(event: LibraryExportHostEvent) -> None:
+                if (
+                    event.kind is LibraryExportHostEventKind.EXPORTED
+                    and fail_terminal["value"]
+                ):
+                    raise RuntimeError("transient recovery presentation failure")
+                events.append(event)
+
+            delegate = Version2WindowsLibraryExportDelegate(
+                dialogs=_Dialogs(destination),
+                worker_services_factory=self._worker_factory(database_path),
+                post_to_ui=posted.append,
+                event_sink=sink,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-results",
+            )
+            request = LibraryExportRequest.selected([game_id]).browser_payload()
+
+            started = delegate("library.export", request)
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(delegate.wait_for_export(timeout=2.0))
+            self.assertTrue(delegate.export_running)
+            self.assertEqual(len(posted), 1)
+            stale_finish = posted.pop()
+
+            self.assertTrue(
+                delegate.shutdown(retain_terminal_for_recovery=True)
+            )
+            self.assertFalse(delegate.resume_after_refused_shutdown())
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(
+                [event.kind for event in events],
+                [LibraryExportHostEventKind.STARTED],
+            )
+
+            fail_terminal["value"] = False
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    LibraryExportHostEventKind.STARTED,
+                    LibraryExportHostEventKind.EXPORTED,
+                ],
+            )
+            self.assertEqual(events[-1].game_count, 1)
+
+            delivered = len(events)
+            stale_finish()
+            self.assertEqual(len(events), delivered)
+            self.assertFalse(delegate.export_running)
+            self.assertEqual(len(open_pgn(destination)), 1)
+            self.assertTrue(delegate.shutdown())
+
     def test_refused_shutdown_resume_reuses_owner_and_fences_stale_terminal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path, game_id = self._create_library(directory)
