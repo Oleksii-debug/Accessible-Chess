@@ -1256,6 +1256,20 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
+    def announce_shutdown_failure(self) -> None:
+        """Explain a refused native close without exposing internal failure detail."""
+
+        self._assert_thread()
+        message = (
+            "Не вдалося безпечно завершити роботу. Вікно залишено відкритим; "
+            "спробуйте вийти ще раз."
+            if self.shell.language is UILanguage.UA
+            else
+            "Accessible Chess could not close safely. The window remains open; "
+            "try exiting again."
+        )
+        self._events.append({"kind": "error", "payload": {"message": message}})
+
     def _project_board_position(self, position):
         projector = self._board_position_projector
         if projector is None:
