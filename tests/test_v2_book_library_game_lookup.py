@@ -152,6 +152,31 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                     rendered = "".join(traceback.format_exception(caught.exception))
                     self.assertNotIn(payload, rendered)
 
+    def test_warning_json_value_error_is_sanitized_before_pgn_dispatch(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            lookup = AcsdbBookGameLookup(database)
+
+            with mock.patch(
+                "acs.book_library_game_lookup.json.loads",
+                side_effect=ValueError("decimal conversion limit reached"),
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+            ) as parser:
+                with self.assertRaises(BookLibraryGameLookupError) as caught:
+                    lookup.load_book_game(game_id)
+
+            self.assertEqual(
+                str(caught.exception),
+                "stored book game warnings are invalid",
+            )
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertNotIn(
+                "decimal conversion limit reached",
+                "".join(traceback.format_exception(caught.exception)),
+            )
+            parser.assert_not_called()
+
     def test_warning_metadata_respects_canonical_pgn_resource_bounds(self) -> None:
         cases = (
             ("MAX_PGN_TEXT_CHARS", 4, '["x"]'),
