@@ -28,7 +28,7 @@ env:
   OWNER_PORTABLE_SCRIPT_BLOB: 0c881127d7f6aaccc0378cf62c06e2b2b3f470b2
   OWNER_PORTABLE_TEST_BLOB: a1bc15f4c0f6042351e6949aeef55dbec8616aa4
   APP_BLOB: 9aa783700d0fc928a3c160ed7f2588082843a4eb
-  RELEASE_APP_BLOB: 44228cb4028d295c2cf5e5430781a5df97e124a9
+  RELEASE_APP_BLOB: d0a5188175afdc6f3e707745b525abe10c8bf411
   RELEASE_UI_BLOB: f94c319db2e29838aa2e50e800d7a59ad78f0f6c
   APP_TEST_BLOB: 0bfe296b70dc8eb99bef31f1e2852d0fef49c986
   SHUTDOWN_PROGRESS_TEST_BLOB: 9ed8b132edb6a8eb3bb92b2b4ac1c9dabf7ee66d
@@ -101,6 +101,18 @@ env:
   PORTABLE_LAUNCH_REPARSE_WORKFLOW_BLOB: 3bd9dc39fe50642b43a443450bad46d5ee6d3954
   PORTABLE_LAUNCHER_BLOB: ed71623ca55f20f2183cc5ff7485c9c6d177b399
   PORTABLE_LAUNCHER_CONTRACT_TEST_BLOB: 9d82221e8e7933d864f003c2c71718a21f18e432
+  CHILD_CONTEXT_WORKFLOW_BLOB: 0f7d016b82863d94e0a485a18f1198330c0dc782
+  CHILD_CURRENT_WORKFLOW_BLOB: c49c0a78cef1dc2dbd53a6f3c7e437dfc04e5325
+  CHILD_KEYBOARD_WORKFLOW_BLOB: e149df6429aed8a2347dff0fc5f105e8df27e33f
+  GROUP_ROTATION_WORKFLOW_BLOB: 46c63ef66f3b2f094a4cfa00685b7420d54f57e2
+  CHILD_ROTATION_BLOB: 6db594aa3ab21b637588142a9c9e86ff3c9dd63c
+  CHILD_ROTATION_STORE_BLOB: c8f224fa220b1570a71782d27a20c2594551f9a7
+  FINAL_PRODUCT_APPLICATION_BLOB: 5fd141b9c8832658273fe49fdf857f0fabf4e86c
+  V2_ENTRYPOINT_BLOB: b6b40023d1e59fb7ec74e30d151d5d009a14bbad
+  CHILD_KEYBOARD_TEST_BLOB: 980e10e7a2c1fa285f1df25eb42dbc8b7d70717e
+  CHILD_ROTATION_TEST_BLOB: 3acee0fa67f1d1e9320cdc9985912d5ca4edc8c3
+  CHILD_ROTATION_RECOVERY_TEST_BLOB: 5a3233b611cca861de497d3e7692560f7d9b449e
+  GROUP_ROTATION_BINDING_TEST_BLOB: a3d8e457673b48bc707c938a9d4cc5ac5b942344
 
 jobs:
   recovery-hardening:
@@ -151,6 +163,9 @@ jobs:
           git diff --check "$base_sha"...HEAD
           mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
+            ".github/workflows/child-coaching-context-current-apex.yml"
+            ".github/workflows/child-coaching-current-apex-20261004.yml"
+            ".github/workflows/child-coaching-keyboard-current-apex.yml"
             ".github/workflows/current-book-html-inline-style-visibility.yml"
             ".github/workflows/current-launcher-report-data-identity.yml"
             ".github/workflows/current-library-export-destination-cas.yml"
@@ -166,6 +181,7 @@ jobs:
             ".github/workflows/current-webui-accessibility-oracle.yml"
             ".github/workflows/current-windows-runtime-transactional-presentation-retry-apex.yml"
             ".github/workflows/d01-pgn-workspace-webview.yml"
+            ".github/workflows/group-rotation-current-apex.yml"
             ".github/workflows/keybindings-current-apex-dom-native.yml"
             ".github/workflows/owner-gameplay-feedback.yml"
             ".github/workflows/p0-user-oneclick-portable-launcher.yml"
@@ -176,6 +192,8 @@ jobs:
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
             "acs/book_html_import.py"
+            "acs/child_coaching_rotation.py"
+            "acs/child_coaching_rotation_store.py"
             "acs/full_product_actions.py"
             "acs/full_product_native_menu.py"
             "acs/input_limits.py"
@@ -192,6 +210,7 @@ jobs:
             "acs/ui_keymap_adapter.py"
             "acs/ui_native_menu.py"
             "acs/version2_application.py"
+            "acs/version2_final_product_application.py"
             "acs/version2_package_assembler.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
@@ -209,6 +228,7 @@ jobs:
             "acs/webapp_keymap_core.py"
             "docs/changes/OWNER_GAMEPLAY_FEEDBACK_20261006.md"
             "packaging/portable_launcher.c"
+            "run_accessible_chess_v2.py"
             "scripts/build_owner_portable_candidate.py"
             "scripts/record_owner_physical_acceptance.py"
             "tests/js/keymap_recovery_accessibility_test.js"
@@ -219,6 +239,9 @@ jobs:
             "tests/js/stage1_core_language_test.js"
             "tests/js/version2_release_bootstrap_dom_test.js"
             "tests/test_accessible_webui.py"
+            "tests/test_child_coaching_keyboard_actions.py"
+            "tests/test_child_coaching_rotation.py"
+            "tests/test_child_coaching_rotation_completed_recovery.py"
             "tests/test_dev1_release_ui_regressions.py"
             "tests/test_full_product_native_menu.py"
             "tests/test_issue22_release_contract.py"
@@ -247,6 +270,7 @@ jobs:
             "tests/test_v2_windows_upgrade_status_shipping.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
+            "tests/test_version2_group_rotation_binding.py"
             "tests/test_version2_package_assembler.py"
             "tests/test_version2_package_pe_identity.py"
             "tests/test_version2_package_preflight.py"
@@ -281,6 +305,18 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/portable-launch-report-reparse-safety.yml)" = "$PORTABLE_LAUNCH_REPARSE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "$PORTABLE_LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "$PORTABLE_LAUNCHER_CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/child-coaching-context-current-apex.yml)" = "$CHILD_CONTEXT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/child-coaching-current-apex-20261004.yml)" = "$CHILD_CURRENT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/child-coaching-keyboard-current-apex.yml)" = "$CHILD_KEYBOARD_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/group-rotation-current-apex.yml)" = "$GROUP_ROTATION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/child_coaching_rotation.py)" = "$CHILD_ROTATION_BLOB"
+          test "$(git rev-parse HEAD:acs/child_coaching_rotation_store.py)" = "$CHILD_ROTATION_STORE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_final_product_application.py)" = "$FINAL_PRODUCT_APPLICATION_BLOB"
+          test "$(git rev-parse HEAD:run_accessible_chess_v2.py)" = "$V2_ENTRYPOINT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_child_coaching_keyboard_actions.py)" = "$CHILD_KEYBOARD_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_child_coaching_rotation.py)" = "$CHILD_ROTATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_child_coaching_rotation_completed_recovery.py)" = "$CHILD_ROTATION_RECOVERY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
@@ -393,6 +429,10 @@ jobs:
         run: >-
           python -m py_compile
           acs/full_product_native_menu.py
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
+          acs/version2_final_product_application.py
+          run_accessible_chess_v2.py
           acs/book_html_import.py
           acs/library_webview_projection.py
           acs/notation.py
@@ -421,6 +461,10 @@ jobs:
           tests/test_accessible_webui.py
           tests/test_dev1_release_ui_regressions.py
           tests/test_full_product_native_menu.py
+          tests/test_child_coaching_keyboard_actions.py
+          tests/test_child_coaching_rotation.py
+          tests/test_child_coaching_rotation_completed_recovery.py
+          tests/test_version2_group_rotation_binding.py
           tests/test_issue22_release_contract.py
           tests/test_notation.py
           tests/test_position_text_authority.py
@@ -516,6 +560,10 @@ jobs:
           tests.test_stage1_release_composition_ui
           tests.test_ui_native_menu_recovery
           tests.test_training
+          tests.test_child_coaching_rotation
+          tests.test_child_coaching_rotation_completed_recovery
+          tests.test_child_coaching_keyboard_actions
+          tests.test_version2_group_rotation_binding
           tests.test_p0f_packaged_starter_application
           tests.test_stage_p0f_release_content
           tests.test_w3_p0f_starter_books_training_content
