@@ -949,15 +949,18 @@ class AccessibleChessAPI:
         if type(color) is not str or color not in ("w", "b"):
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
         try:
-            candidate_board = copy.deepcopy(self.board)
-            candidate_board.turn = color
-            prepared = self._prepare_root_state(candidate_board)
-        except Exception:
-            return self._error(self._t("editor_history_failed"))
-        # Changing side-to-move is an editor operation, so the edited position
-        # becomes a new live root rather than rewriting an immutable history node.
-        self._publish_root_state(candidate_board, prepared)
-        return self._ok(self._t("white_turn") if color == "w" else self._t("black_turn"))
+            # Route manual side-to-move edits through the canonical editable
+            # position transition.  A manually changed turn has no trustworthy
+            # preceding double-pawn move, so stale en-passant state must not
+            # survive the edit.
+            state = self._position_state_from_live_board().with_turn(color)
+        except (PositionValidationError, ValueError):
+            return self._error(self._t("position_invalid"))
+        return self._commit_position_editor_state(
+            state,
+            self._t("white_turn") if color == "w" else self._t("black_turn"),
+            self._t("white_turn") if color == "w" else self._t("black_turn"),
+        )
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         if type(fen) is not str:
