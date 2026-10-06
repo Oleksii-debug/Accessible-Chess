@@ -74,12 +74,39 @@ class BlockingProvider(FinalProvider):
         raise AssertionError("cancelled provider must not complete normally")
 
 
-def runtime_for(provider) -> UniversalChessAgentRuntime:
+class LibraryToolProvider(FinalProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+        self.tool_message = ""
+
+    async def complete(self, request):
+        self.thread_ids.append(get_ident())
+        self.calls += 1
+        if self.calls == 1:
+            text = (
+                '{"type":"tool","tool_id":"library.search",'
+                '"arguments":{"player":"Alpha","limit":5}}'
+            )
+        else:
+            self.tool_message = request.messages[-1].content
+            text = '{"type":"final","text":"Found Alpha versus Beta."}'
+        return ModelResponse(
+            request_id=request.request_id,
+            text=text,
+            provider_id="fixture",
+            provider_kind=ProviderKind.LOCAL,
+            model=request.model or "fixture-model",
+            usage=ModelUsage(total_tokens=3),
+        )
+
+
+def runtime_for(provider, executor: ToolExecutor | None = None) -> UniversalChessAgentRuntime:
     gateway = ModelGateway()
     gateway.register(provider)
     return UniversalChessAgentRuntime(
         gateway=gateway,
-        tools=ToolExecutor(),
+        tools=executor or ToolExecutor(),
         provider_id="fixture",
         model="fixture-model",
         product_instruction="Use Accessible Chess canonical application state.",
@@ -274,6 +301,50 @@ class AgentExecutionHostTests(unittest.TestCase):
             self.assertGreaterEqual(len(dispatch_threads), 2)
             self.assertEqual(set(dispatch_threads), {owner.thread_id})
             self.assertNotEqual(owner.thread_id, get_ident())
+        finally:
+            owner.close()
+
+    def test_background_runtime_executes_library_tool_on_owner_and_returns_answer(self):
+        owner = OwnerHarness()
+        try:
+            executor = ToolExecutor()
+            dispatch_threads: list[int] = []
+
+            def invoke(callback):
+                def observed():
+                    dispatch_threads.append(get_ident())
+                    return callback()
+                return owner.invoke(observed)
+
+            ChessAgentToolRegistry(
+                executor=executor,
+                board_provider=lambda: owner.board,
+                board_commands_provider=owner.board_commands,
+                search_service=owner.search,
+                owner_call=AgentOwnerThreadCall(invoke),
+            ).register_all()
+            provider = LibraryToolProvider()
+            app = self.application_shell()
+            host = bind_agent_runtime(app, runtime_for(provider, executor))
+            try:
+                accepted = app.browser_command(
+                    "agent",
+                    "agent.submit",
+                    {"text": "Find Alpha's game."},
+                )
+                self.assertEqual(accepted["kind"], "accepted")
+                done = wait_for(app.agent.projection, "completed")
+                self.assertEqual(
+                    done["transcript"][-1]["text"],
+                    "Found Alpha versus Beta.",
+                )
+                self.assertIn('"white":"Alpha"', provider.tool_message)
+                self.assertIn('"black":"Beta"', provider.tool_message)
+                self.assertEqual(provider.calls, 2)
+                self.assertTrue(dispatch_threads)
+                self.assertEqual(set(dispatch_threads), {owner.thread_id})
+            finally:
+                self.assertTrue(host.shutdown(timeout=3))
         finally:
             owner.close()
 
