@@ -1274,6 +1274,57 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.pgn_open_running)
 
 
+    def test_refused_close_reopens_running_cancelled_pgn_open_until_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-running-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            entered = threading.Event()
+            release = threading.Event()
+            real_open = PgnDocumentSession.open
+
+            def blocked_open(path):
+                entered.set()
+                if not release.wait(2.0):
+                    raise AssertionError("test did not release PGN Open")
+                return real_open(path)
+
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=posted.append,
+            )
+            with mock.patch.object(PgnDocumentSession, "open", side_effect=blocked_open):
+                started = delegate("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(entered.wait(2.0))
+
+                self.assertFalse(delegate.shutdown(0.0))
+                self.assertTrue(delegate.resume_after_refused_shutdown())
+                self.assertTrue(delegate.pgn_open_running)
+
+                blocked = delegate("library.import", {})
+                self.assertEqual(blocked.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(blocked.error_code, "file_worker_busy")
+
+                release.set()
+                self.assertTrue(delegate.wait_for_pgn_open(2.0))
+                self.assertEqual(len(posted), 1)
+                posted.pop(0)()
+
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertEqual(
+                [event.kind for event in events if event.action_id == "pgn.open"],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(delegate.shutdown())
     def test_refused_close_can_reopen_idle_file_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "refused-close.pgn"
