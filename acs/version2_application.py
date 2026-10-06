@@ -72,11 +72,14 @@ class PreparedBookOpen:
 
 
 class Version2Application:
-    # Some canonical shutdown/recovery tests deliberately construct a minimal
-    # application via __new__ instead of __init__. Keep optional Training state
-    # absent-safe on those valid pre-Training construction paths.
+    # Some canonical shutdown/recovery paths deliberately construct a minimal
+    # application via __new__ instead of __init__. Keep optional native owners and
+    # Training state absent-safe on those valid pre-composition construction paths.
     training_workspace = None
     training = None
+    _files = None
+    _book_open_worker = None
+    _pending_shell_publication = None
     _pgn_browser_lease_required = False
     _book_browser_lease_required = False
     _book_browser_dispatch_token = None
