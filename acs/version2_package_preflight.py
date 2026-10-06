@@ -52,6 +52,8 @@ _MAX_RELEASE_MANIFEST_BYTES = 64 * 1024
 _MAX_CHECKSUMS_BYTES = 32 * 1024 * 1024
 _RELEASE_MANIFEST_MAX_OBJECT_MEMBERS = 64
 _RELEASE_MANIFEST_MAX_KEY_CHARS = 128
+_MAX_PACKAGE_PATH_COMPONENTS = 256
+_MAX_PACKAGE_PATH_UTF16_UNITS = 32_767
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -274,6 +276,10 @@ def _portable_component(value: str, *, label: str) -> None:
 def _relative_token(value: str, *, label: str) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         _fail(f"{label} must be non-empty text")
+    # Fail before path parsing or UTF-16 encoding can amplify an attacker-sized
+    # archive member name. UTF-16 units are never fewer than Python code points.
+    if len(value) > _MAX_PACKAGE_PATH_UTF16_UNITS:
+        _fail(f"{label} exceeds the package path-length limit")
     normalized = value.replace("\\", "/")
     token = PurePosixPath(normalized)
     if (
@@ -283,11 +289,19 @@ def _relative_token(value: str, *, label: str) -> str:
         or any(part in {"", ".", ".."} for part in token.parts)
     ):
         _fail(f"{label} is unsafe")
+    if len(token.parts) > _MAX_PACKAGE_PATH_COMPONENTS:
+        _fail(f"{label} exceeds the package path-depth limit")
     for part in token.parts:
         _portable_component(part, label=label)
     canonical = token.as_posix()
     if canonical != normalized:
         _fail(f"{label} is not canonical")
+    try:
+        utf16_units = len(canonical.encode("utf-16-le", errors="strict")) // 2
+    except UnicodeEncodeError:
+        _fail(f"{label} is not valid Win32 Unicode")
+    if utf16_units > _MAX_PACKAGE_PATH_UTF16_UNITS:
+        _fail(f"{label} exceeds the package path-length limit")
     return canonical
 
 
