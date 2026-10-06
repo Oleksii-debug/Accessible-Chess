@@ -1,3 +1,25 @@
+# Live close override — 2026-10-06 execution-run audit
+
+Live GitHub exact refs supersede historical SHA/status snapshots in this file.
+
+- Default main: `f1ffbeb55ca6e7a816366649247ad68f48116da6`.
+- Canonical shipping #2184: `a3bd423a87b65af0850c0c3c8a74daac824e4668`; open/draft/mergeable at audit close.
+- Exact-head shipping Actions: {"queued":53,"pending":3}. Nonterminal is not GREEN.
+- Bounded children preserved, not integrated: #2221 `a4aaaf737a95d5f1123b46eef42a42a6e49243e8`, #2222 `609ba9310362ac0ef2720b82945a804a1238db90`, #2223 `529dc92ac5a8e4a62a407b5891a5665bef6cbae5`.
+- All three children were clean ahead-only descendants of the current shipping head at audit close; they require fresh geometry plus terminal attributable CI before serial intake.
+- Whole-product completion remains gated by exact accepted shipping/package qualification and physical Windows/NVDA/restart acceptance.
+- Full CBF/CBI semantic compatibility remains intentionally unclaimed until lawful authentic fixtures and an independent semantic oracle exist.
+- The supplied Drive work ledger is historical/superseded; live GitHub and issue #14 govern current state.
+
+HUMAN_TESTED=NO  
+HUMAN_ACCEPTED=NO  
+NVDA_VERIFIED=NO  
+FINAL_WINDOWS_ZIP=NO
+
+[APSTEP:scenario-work%3Ascenario-murtbnuw-hy6ez0h%3Achat%3Ageneration-3:101]
+
+---
+
 # Accessible Chess — Version 2 Human Acceptance Current
 
 ## 2026-10-06 final execution-run audit override
