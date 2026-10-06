@@ -192,6 +192,8 @@ class FullProductNativeMenuTests(unittest.TestCase):
         position_menu = next(menu for menu in menus if menu.menu_id == "position")
         copy_fen = next(item for item in position_menu.items if item.action_id == "position.copy_fen")
         self.assertEqual("Copy current FEN", copy_fen.label)
+        new_pgn = next(item for item in position_menu.items if item.action_id == "pgn.new_from_position")
+        self.assertEqual("Create PGN from current position", new_pgn.label)
         restart = next(item for item in menus[7].items if item.action_id == "analysis.restart")
         self.assertTrue(restart.label.endswith("\tCtrl+Alt+R"))
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
@@ -200,6 +202,10 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual(
             "Скопіювати поточний FEN",
             next(item.label for item in ua_position.items if item.action_id == "position.copy_fen"),
+        )
+        self.assertEqual(
+            "Створити PGN з поточної позиції",
+            next(item.label for item in ua_position.items if item.action_id == "pgn.new_from_position"),
         )
         self.assertEqual("&Учитель/Клас", ua[11].label)
 
