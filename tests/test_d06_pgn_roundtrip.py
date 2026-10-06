@@ -479,5 +479,56 @@ class D06PgnRoundTripTests(unittest.TestCase):
             serializer.assert_not_called()
 
 
+    def test_bytes_parse_runs_one_semantic_preflight(self):
+        source = '[Result "*"]\n\n*'
+        with patch(
+            "acs.pgn_roundtrip._preflight_text",
+            side_effect=[source, AssertionError("semantic preflight ran twice")],
+        ) as preflight:
+            games = parse_pgn_bytes(source.encode("utf-8"))
+        self.assertEqual(len(games), 1)
+        self.assertEqual(preflight.call_count, 1)
+
+    def test_byte_export_rejects_multibyte_overflow_before_encode_allocation(self):
+        class NoEncodeText(str):
+            def encode(self, *args, **kwargs):
+                raise AssertionError("encode must not run after byte-size preflight fails")
+
+        with (
+            patch(
+                "acs.pgn_roundtrip.serialize_pgn_text",
+                return_value=NoEncodeText("é" * 6),
+            ),
+            patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+                serialize_pgn_bytes,
+                (),
+            )
+
+    def test_canonical_byte_export_rejects_overflow_before_encode_allocation(self):
+        class NoEncodeText(str):
+            def encode(self, *args, **kwargs):
+                raise AssertionError("encode must not run after byte-size preflight fails")
+
+        class CanonicalResult:
+            text = NoEncodeText("é" * 6)
+            games = ()
+
+        with (
+            patch(
+                "acs.pgn_roundtrip.canonical_round_trip_text",
+                return_value=CanonicalResult(),
+            ),
+            patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.BYTE_SIZE_LIMIT,
+                canonical_round_trip_bytes,
+                b"*",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
