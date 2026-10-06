@@ -78,8 +78,10 @@
     const input = root.querySelector("#agent-input");
     const send = root.querySelector("#agent-send");
     const stop = root.querySelector("#agent-stop");
-    if (status) status.textContent = String(snapshot.live_status || "");
-    if (details) details.textContent = String(snapshot.status_text || "");
+    const liveText = String(snapshot.live_status || "");
+    const detailText = String(snapshot.status_text || "");
+    if (status && status.textContent !== liveText) status.textContent = liveText;
+    if (details && details.textContent !== detailText) details.textContent = detailText;
     if (input) {
       input.disabled = snapshot.available === false;
       if (typeof snapshot.input_placeholder === "string") input.placeholder = snapshot.input_placeholder;
