@@ -183,6 +183,29 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(api._engine_game_phase, "idle")
         self.assertEqual(engine.calls, [])
 
+    def test_engine_reply_history_failure_is_atomic_and_pauses_session(self) -> None:
+        api, engine = self.make_api()
+        standard_fen = api.board.fen()
+        standard_tree = api.review_history.export_tree()
+        original = api._prepare_live_presentation
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated engine history failure")
+
+        api._prepare_live_presentation = fail
+        try:
+            result = api.start_engine_game("black", 4, 0, 0)
+        finally:
+            api._prepare_live_presentation = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), standard_fen)
+        self.assertEqual(api.review_history.export_tree(), standard_tree)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+        self.assertEqual(len(engine.calls), 1)
+        self.assertEqual(api._engine_game_phase, "error")
+
     def test_human_white_move_gets_one_legal_engine_reply(self) -> None:
         api, engine = self.make_api()
 
