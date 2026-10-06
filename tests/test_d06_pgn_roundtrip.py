@@ -517,8 +517,9 @@ class D06PgnRoundTripTests(unittest.TestCase):
             games = ()
 
         with (
+            patch("acs.pgn_roundtrip.parse_pgn_bytes", return_value=()),
             patch(
-                "acs.pgn_roundtrip.canonical_round_trip_text",
+                "acs.pgn_roundtrip._canonicalize_parsed_games",
                 return_value=CanonicalResult(),
             ),
             patch("acs.pgn_roundtrip.MAX_PGN_SOURCE_BYTES", 10),
@@ -662,6 +663,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
                 source,
                 strict=False,
             )
+
+
+    def test_canonical_bytes_preflights_source_once_then_canonical_output_once(self):
+        source = '[Result "*"]\n\n*'
+        observed = []
+
+        def preflight(text, **kwargs):
+            observed.append(text)
+            return text
+
+        with patch("acs.pgn_roundtrip._preflight_text", side_effect=preflight):
+            encoded, games = canonical_round_trip_bytes(source.encode("utf-8"))
+
+        self.assertTrue(encoded)
+        self.assertEqual(len(games), 1)
+        self.assertEqual(len(observed), 2)
 
 
 if __name__ == "__main__":
