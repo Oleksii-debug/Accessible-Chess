@@ -1,0 +1,76 @@
+name: Current Package Passive Control Ingress
+
+on:
+  push:
+    branches:
+      - fix/package-passive-control-ingress-20261006-76mubs
+  pull_request:
+    paths:
+      - ".github/workflows/current-package-passive-control-ingress.yml"
+      - "acs/version2_package_preflight.py"
+      - "acs/version2_portable_package.py"
+      - "tests/test_version2_package_preflight.py"
+      - "tests/test_version2_portable_package.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-package-passive-control-ingress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    env:
+      BASE_SHA: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
+      PREFLIGHT_BLOB: 8ed76073e3b045c09682b2805727bc060f736abe
+      PORTABLE_BLOB: 81080ee6a1f48ca3129771080cde74ebc58e82dc
+      PREFLIGHT_TEST_BLOB: 57e2184f633de82f795ebec22d6d50734c665f4d
+      PORTABLE_TEST_BLOB: 2f8134a7dd12f39d0e9c8764f1d0d84a61a33513
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prove bounded exact child scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          mapfile -t actual < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-package-passive-control-ingress.yml"
+            "acs/version2_package_preflight.py"
+            "acs/version2_portable_package.py"
+            "tests/test_version2_package_preflight.py"
+            "tests/test_version2_portable_package.py"
+          )
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${actual[$i]}" = "${expected[$i]}"
+          done
+          test "$(git rev-parse "HEAD:acs/version2_package_preflight.py")" = "$PREFLIGHT_BLOB"
+          test "$(git rev-parse "HEAD:acs/version2_portable_package.py")" = "$PORTABLE_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_version2_package_preflight.py")" = "$PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_version2_portable_package.py")" = "$PORTABLE_TEST_BLOB"
+
+      - name: Compile package authorities and regressions
+        shell: bash
+        run: |
+          python -m py_compile             acs/version2_package_preflight.py             acs/version2_portable_package.py             tests/test_version2_package_preflight.py             tests/test_version2_portable_package.py
+
+      - name: Run focused and adjacent package contracts
+        shell: bash
+        run: |
+          python -m unittest             tests.test_version2_package_preflight             tests.test_version2_portable_package             tests.test_version2_package_assembler             tests.test_v2_package_required_resources             tests.test_version2_release_payload
