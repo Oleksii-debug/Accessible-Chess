@@ -382,6 +382,16 @@ class Version2Application:
             raise RuntimeError("Book Open worker is already bound")
         self._book_open_worker = worker
 
+    def unbind_book_open_worker(self, worker: Version2BookOpenWorker) -> bool:
+        """Release only the exact unpublished Book worker owned by startup."""
+        self._assert_thread()
+        if not isinstance(worker, Version2BookOpenWorker):
+            raise TypeError("Book Open worker must be Version2BookOpenWorker")
+        if self._book_open_worker is not worker:
+            return False
+        self._book_open_worker = None
+        return True
+
     def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
         self._assert_thread()
         if not isinstance(event, BookOpenWorkerEvent):
@@ -491,14 +501,18 @@ class Version2Application:
         # write its route before a focus-restore tail fails, so recover from the
         # actual shell state.
         shell_checkpoint = self.shell._capture_presentation_state()
+        focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("pgn")
         except BaseException:
-            # Restore the exact route/focus/dialog presentation checkpoint rather
-            # than issuing another route transition that could itself fail and
-            # replace the primary PGN publication error.
-            self.shell._restore_presentation_state(shell_checkpoint)
-            self._focus = self.shell.restore_focus_target()
+            # Restore both presentation authorities exactly. Rollback is
+            # best-effort so a secondary rollback abort cannot replace the
+            # primary route/publication failure.
+            self._focus = focus_checkpoint
+            try:
+                self.shell._restore_presentation_state(shell_checkpoint)
+            except BaseException:
+                pass
             raise
         self.session, self.pgn = session, bridge
         self.pgn_board_active = False
