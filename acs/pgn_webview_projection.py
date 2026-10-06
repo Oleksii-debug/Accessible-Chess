@@ -394,6 +394,21 @@ class PgnWebViewProjection:
                 "tree": (),
                 "focus_target": "",
                 "actions": (),
+                "metadata_editor": {
+                    "open_label": labels["metadata_open"],
+                    "title": labels["metadata_title"],
+                    "tag_select_label": labels["tag_select_label"],
+                    "new_tag_label": labels["new_tag"],
+                    "tag_name_label": labels["tag_name_label"],
+                    "tag_value_label": labels["tag_value_label"],
+                    "tag_save_label": labels["tag_save"],
+                    "tag_delete_label": labels["tag_delete"],
+                    "result_label": labels["result"],
+                    "result_save_label": labels["result_save"],
+                    "close_label": labels["cancel"],
+                    "result": "*",
+                    "editable_tags": (),
+                },
                 "comment_editor": self._comment_editor(enabled=False, value="", message=""),
             }
 
