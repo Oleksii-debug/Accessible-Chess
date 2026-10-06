@@ -66,7 +66,7 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
             self.addCleanup(runtime.close)
 
             self.assertIsInstance(application, Version2FinalProductApplication)
-            self.assertIs(api.v2_application, application)
+            self.assertIs(api._version2(), application)
             self.assertIsNotNone(application._rotation_store)
             assert application._rotation_store is not None
             self.assertEqual(
