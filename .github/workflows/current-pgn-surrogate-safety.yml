@@ -3,7 +3,7 @@ name: Current PGN Surrogate Safety
 on:
   pull_request:
     branches:
-      - converge/current-pgn-fen-tag-bounds-20261006-hy6ez0h113
+      - anchor/zftrkmo122-pgn-tag-bounds-3081ac9
     paths:
       - '.github/workflows/current-pgn-surrogate-safety.yml'
       - 'acs/pgn_workspace.py'
@@ -12,6 +12,7 @@ on:
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'tests/test_pgn_complete_editing_user_flow.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_dev1_pgn_webview_projection.py'
   workflow_dispatch:
 
 permissions:
@@ -24,11 +25,12 @@ concurrency:
 env:
   BASE_SHA: 3081ac91685647f5d246403279168ea01e92c3ab
   WORKSPACE_BLOB: f988640b268164b75266a2f201b03d9eec60e9ae
-  PROJECTION_BLOB: 5bf0870dbdaa057ac82e1d7d263e56c1e6c4826a
-  BRIDGE_BLOB: a68ff123dc20bd84a5609122f127808b711d8ba2
-  ADAPTER_BLOB: 5caf712050dc763b4c2e52a2919ddcff45eb7e2e
+  PROJECTION_BLOB: 3768e5f84ed891c392b1a78dc600055f83ecc195
+  BRIDGE_BLOB: eb6436e825e00b941cb28c52c86b79819a60fc66
+  ADAPTER_BLOB: 2bf30f552a306a6701aa5241424f83b21acabd01
   FLOW_TEST_BLOB: e6d99cb1274a22231bec124770ea6668380f4f6e
   ADAPTER_TEST_BLOB: a28b3669342172ee4ce4c4a1d324fbeab737e119
+  PROJECTION_TEST_BLOB: c58b9096bcccd8b5a09f2e8bdb9c09ebfe5bcc4b
 
 jobs:
   exact-head:
@@ -61,6 +63,7 @@ jobs:
             'acs/pgn_workspace.py' \
             'acs/pgn_workspace_webview_adapter.py' \
             'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
             'tests/test_pgn_complete_editing_user_flow.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$WORKSPACE_BLOB"
@@ -69,6 +72,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$ADAPTER_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$FLOW_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$ADAPTER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$PROJECTION_TEST_BLOB"
 
       - uses: actions/setup-python@v5
         with:
@@ -83,6 +87,7 @@ jobs:
           acs/pgn_workspace_webview_adapter.py
           tests/test_pgn_complete_editing_user_flow.py
           tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_dev1_pgn_webview_projection.py
 
       - name: PGN malformed-text and atomicity regressions
         run: >-
