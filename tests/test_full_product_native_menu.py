@@ -190,7 +190,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
         for item in actions:
             registry.definition(item.action_id)
         position_menu = next(menu for menu in menus if menu.menu_id == "position")
-        read_fen = next(item for item in position_menu.items if item.action_id == "position.read_fen")
+        read_fen = next(item for item in position_menu.items if item.action_id == "board.read_fen")
         self.assertEqual("Read current FEN", read_fen.label)
         copy_fen = next(item for item in position_menu.items if item.action_id == "position.copy_fen")
         self.assertEqual("Copy current FEN", copy_fen.label)
@@ -203,7 +203,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua_position = next(menu for menu in ua if menu.menu_id == "position")
         self.assertEqual(
             "Прочитати поточний FEN",
-            next(item.label for item in ua_position.items if item.action_id == "position.read_fen"),
+            next(item.label for item in ua_position.items if item.action_id == "board.read_fen"),
         )
         self.assertEqual(
             "Скопіювати поточний FEN",
