@@ -326,7 +326,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
     def test_synced_cursor_does_not_cross_browser_boundary(self) -> None:
         bridge = RecordedMediaAccessibilityBridge()
         state = bridge.snapshot(
-            clock=_clock(),
+            **_clock_kwargs(),
             sync_snapshot=_sync_snapshot((_link(20_000, "secret/node:42"),)),
         )
         forbidden_tokens = (
