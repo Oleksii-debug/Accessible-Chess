@@ -544,6 +544,8 @@ async function run() {
   pendingSaveButton.listeners.click();
   check(pendingSaveButton.disabled, "comment Save stayed enabled while mutation was pending");
   check(pendingCancelButton.disabled, "comment Cancel stayed enabled while mutation was pending");
+  check(pendingTextarea.readOnly === true, "comment text stayed editable while mutation was pending");
+  check(document.activeElement === pendingTextarea, "pending comment save did not keep focus on the text surface");
   check(pendingDialog.getAttribute("aria-busy") === "true", "pending comment dialog did not expose aria-busy");
   let pendingEscapePrevented = false;
   pendingDialog.listeners.cancel({
@@ -612,6 +614,7 @@ async function run() {
   dialogEdit.listeners.click();
   const rejectedDialog = dialogText.parentNode;
   const rejectedSave = rejectedDialog.descendants().find((item) => item.tagName === "BUTTON" && item.textContent === "Save");
+  document.activeElement = rejectedSave;
   rejectedSave.listeners.click();
   await flush();
   await flush();
@@ -624,6 +627,7 @@ async function run() {
   );
   check(!rejectedSave.disabled, "rejected comment save did not re-enable Save");
   check(rejectedCancel && !rejectedCancel.disabled, "rejected comment save did not re-enable Cancel");
+  check(dialogText.readOnly === false, "rejected comment save left comment text read-only");
   check(rejectedDialog.getAttribute("aria-busy") === "false", "rejected comment save left dialog busy");
   console.log("PGN workspace keyboard/privacy DOM contract PASS");
 }
