@@ -361,11 +361,29 @@ class _Builder:
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
+_BACKTICK_FENCE_RE = re.compile(r"^ {0,3}(`{3,})([^`]*)$")
+_TILDE_FENCE_RE = re.compile(r"^ {0,3}(~{3,})(.*)$")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+
+
+def _match_fence_opener(line: str) -> tuple[str, str] | None:
+    """Return a bounded CommonMark fenced-code opener.
+
+    Backtick fence info strings may not contain a backtick. Tilde fence info
+    strings may contain backticks, so sharing the stricter backtick grammar
+    makes a valid tilde code block fall through into semantic Markdown parsing.
+    """
+
+    match = _BACKTICK_FENCE_RE.match(line)
+    if match is not None:
+        return match.group(1), match.group(2)
+    match = _TILDE_FENCE_RE.match(line)
+    if match is not None:
+        return match.group(1), match.group(2)
+    return None
 
 
 def _semantic_image_opener(line: str, index: int) -> tuple[int, str] | None:
@@ -678,11 +696,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 "Markdown book visible text exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        fence = _FENCE_RE.match(line)
-        if fence:
+        fence = _match_fence_opener(line)
+        if fence is not None:
             flush()
-            marker = fence.group(1)
-            language = fence.group(2).strip().lower().split(None, 1)[0] if fence.group(2).strip() else ""
+            marker, info = fence
+            language = info.strip().lower().split(None, 1)[0] if info.strip() else ""
             body_lines: list[str] = []
             fence_chars = 0
             index += 1
