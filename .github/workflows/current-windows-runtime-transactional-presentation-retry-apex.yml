@@ -1,6 +1,9 @@
 name: Current Windows Runtime Transactional Presentation Retry Apex
 
 on:
+  push:
+    branches:
+      - test/windows-runtime-transactional-retry-apex-20261006-hy6ez0h
   pull_request:
     branches:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
