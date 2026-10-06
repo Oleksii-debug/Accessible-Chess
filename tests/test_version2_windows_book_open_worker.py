@@ -143,6 +143,70 @@ class BookOpenWorkerTests(unittest.TestCase):
             [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
         )
 
+    def test_post_failure_retains_one_owner_thread_failure_terminal(self) -> None:
+        commits = []
+        events = []
+
+        def reject_post(_callback):
+            raise RuntimeError("transient owner post failure")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commits.append,
+            post_to_ui=reject_post,
+            event_sink=lambda event: events.append(event.kind),
+        )
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: not worker.active)
+        self.assertEqual(events, [BookOpenWorkerEventKind.STARTED])
+        self.assertEqual(commits, [])
+
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        self.assertEqual(commits, [])
+
+        # Delivery consumes the retained terminal exactly once.
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        self.assertTrue(worker.shutdown())
+
+    def test_post_failure_terminal_survives_observer_failure_for_retry(self) -> None:
+        events = []
+        failures = [True]
+
+        def reject_post(_callback):
+            raise RuntimeError("transient owner post failure")
+
+        def sink(event):
+            if event.kind is BookOpenWorkerEventKind.FAILED and failures[0]:
+                failures[0] = False
+                raise RuntimeError("transient presentation failure")
+            events.append(event.kind)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _value: None,
+            post_to_ui=reject_post,
+            event_sink=sink,
+        )
+        self.assertTrue(worker.start(Path("book.md")))
+        self._wait(lambda: not worker.active)
+
+        with self.assertRaisesRegex(RuntimeError, "presentation failure"):
+            worker.flush_pending_terminal()
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        self.assertTrue(worker.shutdown())
     def test_thread_start_failure_does_not_leave_worker_busy(self) -> None:
         events = []
         worker = Version2BookOpenWorker(
