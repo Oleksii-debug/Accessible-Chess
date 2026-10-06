@@ -50,6 +50,16 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
             "native_window_handle": handle,
         },
         "menu_from_handle_error": "",
+        "same_process_elements_with_exact_automation_id": [
+            {
+                "automation_id": "AccessibleChessFullProductMenu",
+                "control_type": "ControlType.MenuBar",
+                "process_id": pid,
+                "enabled": True,
+                "offscreen": False,
+                "native_window_handle": handle,
+            }
+        ],
         "exact_menu_bars": [
             {
                 "automation_id": "AccessibleChessFullProductMenu",
@@ -124,6 +134,33 @@ def test_source_uia_oracle_binds_concrete_menu_handle_to_canonical_menubar() -> 
     )
     assert checks["uia_handle_automation_id_canonical"] is False
 
+    duplicate_id = {
+        **canonical,
+        "same_process_elements_with_exact_automation_id": [
+            canonical["same_process_elements_with_exact_automation_id"][0],
+            {
+                **canonical["same_process_elements_with_exact_automation_id"][0],
+                "control_type": "ControlType.Pane",
+                "native_window_handle": handle + 2,
+            },
+        ],
+    }
+    checks = _uia_menu_handle_binding_checks(
+        duplicate_id,
+        pid=pid,
+        menu_handle=handle,
+    )
+    assert checks["uia_automation_id_unique_in_process"] is False
+    assert checks["uia_automation_id_row_binds_same_handle"] is False
+    assert checks["uia_from_handle_matches_automation_id_row"] is False
+
+
+def test_source_uia_probe_waits_for_exact_automation_id_not_any_process_menubar() -> None:
+    source = Path("scripts/p0_native_menubar_uia_probe.ps1").read_text(encoding="utf-8")
+
+    assert "if($exact.Count -eq 1){ break }" in source
+    assert "$exact.Count -eq 1 -or $bars.Count -gt 0" not in source
+
 
 def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_errors() -> None:
     from scripts.p0_native_menubar_uia_oracle import _uia_menu_handle_binding_checks
@@ -144,6 +181,16 @@ def test_source_uia_oracle_fails_closed_when_from_handle_probe_is_missing_or_err
                 "native_window_handle": 7,
             },
             "menu_from_handle_error": "ElementNotAvailableException",
+            "same_process_elements_with_exact_automation_id": [
+                {
+                    "automation_id": "AccessibleChessFullProductMenu",
+                    "control_type": "ControlType.MenuBar",
+                    "process_id": 1,
+                    "enabled": True,
+                    "offscreen": False,
+                    "native_window_handle": 7,
+                }
+            ],
             "exact_menu_bars": [
                 {
                     "automation_id": "AccessibleChessFullProductMenu",
