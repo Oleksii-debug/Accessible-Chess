@@ -1,0 +1,122 @@
+name: Current EPD on GameTree Apex
+
+on:
+  pull_request:
+    branches:
+      - anchor/ooxple7-epd-gametree-8f7bd3a
+    paths:
+      - '.github/workflows/current-epd-gametree-apex.yml'
+      - 'acs/epd.py'
+      - 'acs/webapp.py'
+      - 'tests/test_epd.py'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-epd-gametree-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 8f7bd3a93b622fccafe8a8e4ba7b99bb50d4fdd7
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  MOVE_ENTRY_BLOB: 30bd6fd478638030d0042a1418b69a3eb600dc66
+  POSITION_TEXT_BLOB: e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
+  WEBAPP_BLOB: e473ee2f2f4ecf4b8415dc3193a9f7224dda76b9
+  WEB_INDEX_BLOB: 4673835b6679c47db62d96efab159743f98963af
+  EPD_TEST_BLOB: 90cfe919074b7b48d3ec5c43fb54003d505e4f51
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
+  MOVE_ENTRY_TEST_BLOB: bceae6b13563625630e2fba43133f4d3efc51659
+  POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
+  POSITION_EDITOR_TEST_BLOB: 53d03f9daa249ca013af2feb67f889794b172235
+  POSITION_PASSIVE_TEST_BLOB: cdcb08afea6cd8c798723dbda33cac48b644b1e8
+  FEN_TURN_TEST_BLOB: b70774b1bd9fbd333733dd4d0dd0d2a23956b9d7
+  GAMETREE_TEST_BLOB: 5e5f3b4c0ec3e88c441736e273f929531258ce6c
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact successor geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "${EVENT_BASE_REF}" = "anchor/ooxple7-epd-gametree-8f7bd3a"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-epd-gametree-apex.yml' \
+            'acs/epd.py' \
+            'acs/webapp.py' \
+            'tests/test_epd.py' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind EPD and retained authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/move_entry.py)" = "$MOVE_ENTRY_BLOB"
+          test "$(git rev-parse HEAD:acs/position_text.py)" = "$POSITION_TEXT_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_move_entry.py)" = "$MOVE_ENTRY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_text_authority.py)" = "$POSITION_TEXT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_editor.py)" = "$POSITION_EDITOR_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_editor_passive_boundary.py)" = "$POSITION_PASSIVE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_editor_turn_and_visible_status.py)" = "$FEN_TURN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_gametree_accessible_completion.py)" = "$GAMETREE_TEST_BLOB"
+
+      - name: Compile composed EPD and GameTree slice
+        run: >-
+          python -m py_compile
+          acs/epd.py
+          acs/move_entry.py
+          acs/position_text.py
+          acs/webapp.py
+          tests/test_epd.py
+          tests/test_gametree_accessible_completion.py
+
+      - name: Run EPD and retained product regressions
+        run: >-
+          python -m unittest -v
+          tests.test_epd
+          tests.test_move_entry
+          tests.test_position_text_authority
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_fen_editor_turn_and_visible_status
+          tests.test_gametree_accessible_completion
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: Core selftest
+        run: python -m acs.selftest
