@@ -180,7 +180,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
             ],
             [menu.menu_id for menu in menus],
         )
-        self.assertEqual("&Teacher/Classroom", menus[11].label)
+        self.assertEqual("Teacher/&Classroom", menus[11].label)
         actions = [
             item
             for menu in menus
@@ -194,6 +194,47 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
         self.assertEqual("&Файл", ua[0].label)
         self.assertEqual("&Учитель/Клас", ua[11].label)
+
+    def test_top_level_mnemonics_are_unique_in_each_supported_language(self) -> None:
+        expected_visible = {
+            UILanguage.EN: (
+                "File", "Game", "Position", "PGN", "Library", "Import", "Export",
+                "Engine", "Analysis", "Books", "Training", "Teacher/Classroom",
+                "Settings", "Help",
+            ),
+            UILanguage.UA: (
+                "Файл", "Гра", "Позиція", "PGN", "Бібліотека", "Імпорт", "Експорт",
+                "Stockfish", "Аналіз", "Книги", "Тренування", "Учитель/Клас",
+                "Налаштування", "Довідка",
+            ),
+        }
+        registry = build_full_product_action_registry()
+
+        for language, visible_labels in expected_visible.items():
+            menus = build_full_product_menu_spec(registry, language=language)
+            mnemonic_keys = []
+            for menu, visible in zip(menus, visible_labels):
+                self.assertEqual(1, menu.label.count("&"), menu.label)
+                marker = menu.label.index("&")
+                self.assertLess(marker + 1, len(menu.label), menu.label)
+                mnemonic_keys.append(menu.label[marker + 1].casefold())
+                self.assertEqual(visible, menu.label.replace("&", ""))
+
+            self.assertEqual(len(mnemonic_keys), len(set(mnemonic_keys)))
+
+            menu_alt_bindings = {f"alt+{key}" for key in mnemonic_keys}
+            default_plain_alt_bindings = {
+                binding.casefold()
+                for definition in registry.definitions()
+                if (binding := registry.get_binding(definition.action_id)) is not None
+                and binding.startswith("Alt+")
+                and binding.count("+") == 1
+                and len(binding.removeprefix("Alt+")) == 1
+            }
+            self.assertTrue(
+                menu_alt_bindings.isdisjoint(default_plain_alt_bindings),
+                (language, menu_alt_bindings & default_plain_alt_bindings),
+            )
 
     def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
         controller, calls, commands, _exits = make_controller()
