@@ -1158,7 +1158,9 @@ def write_portable_oneclick_zip(
     finally:
         try:
             temporary.unlink()
-        except FileNotFoundError:
+        except OSError:
+            # Best-effort temp cleanup must never replace the primary
+            # fail-closed publication error with a secondary unlink failure.
             pass
 
 
