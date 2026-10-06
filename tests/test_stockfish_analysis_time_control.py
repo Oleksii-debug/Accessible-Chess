@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-import threading
 import time
+import tempfile
 import unittest
 
 from acs.analysis_service import AnalysisService
 from acs.continuous_analysis import ContinuousAnalysisService
+from acs.chesscore import Board
 from acs.engine import UCIEngine
 from acs.engine_ports import EngineContractError
 from acs.ui_analysis_adapter import AnalysisPresentationAdapter
@@ -93,12 +94,12 @@ class StockfishAnalysisTimeControlTests(unittest.TestCase):
         self.assertIn("go depth 18", engine.sent)
         self.assertFalse(any(item.startswith("go movetime") for item in engine.sent))
 
-    def test_time_limits_fail_closed_outside_controlled_range(self):
-        engine = _UciAnalysisHarness()
+    def test_time_limits_fail_closed_at_public_analysis_service_boundary(self):
+        service = AnalysisService(lambda: _RecordingAnalysisEngine())
         for value in (True, 49, 60_001, "1000"):
             with self.subTest(value=value):
                 with self.assertRaises(EngineContractError):
-                    engine.analyze("fen-a", movetime_ms=value)
+                    service.analyze("fen-a", movetime_ms=value)
 
     def test_continuous_analysis_switches_depth_time_and_back(self):
         engine = _RecordingAnalysisEngine()
@@ -127,16 +128,16 @@ class StockfishAnalysisTimeControlTests(unittest.TestCase):
         try:
             adapter.configure(multipv=3, depth=24, movetime_ms=1200)
             self.assertEqual(adapter.movetime_ms, 1200)
-            adapter.enable("fen-a")
+            adapter.enable(Board.START)
             self.assertTrue(_wait(lambda: service.state().last_result is not None))
-            snap = adapter.snapshot("fen-a")
+            snap = adapter.snapshot(Board.START)
             self.assertEqual(snap.movetime_ms, 1200)
             self.assertEqual(snap.as_dict()["movetimeMs"], 1200)
 
             adapter.configure(multipv=3, depth=22, movetime_ms=None)
             self.assertIsNone(adapter.movetime_ms)
             self.assertTrue(_wait(lambda: service.state().last_result is not None))
-            self.assertIsNone(adapter.snapshot("fen-a").movetime_ms)
+            self.assertIsNone(adapter.snapshot(Board.START).movetime_ms)
         finally:
             adapter.close()
 
@@ -161,10 +162,10 @@ class StockfishAnalysisTimeControlTests(unittest.TestCase):
     def test_web_api_reports_time_mode_and_keeps_bestmove_accessible(self):
         engine = _RecordingAnalysisEngine()
         service = ContinuousAnalysisService(AnalysisService(lambda: engine))
-        with self.subTest("api"):
+        with tempfile.TemporaryDirectory() as td:
             api = KeymapAwareAccessibleChessAPI(
                 "uk",
-                keymap_path=Path("unused-stockfish-time-keymap.json"),
+                keymap_path=Path(td) / "keymap.json",
                 continuous_analysis=service,
             )
             try:
