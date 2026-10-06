@@ -155,10 +155,14 @@ def _utc_time(value: object, label: str) -> datetime:
 
 
 def _trusted_utc_now(source: TrustedTimeSource) -> datetime:
-    if not callable(getattr(source, "utc_now", None)):
+    try:
+        utc_now = getattr(source, "utc_now")
+    except Exception as exc:
+        raise UpdateSecurityError("trusted update time is unavailable") from exc
+    if not callable(utc_now):
         raise TypeError("time_source must implement TrustedTimeSource")
     try:
-        value = source.utc_now()
+        value = utc_now()
     except Exception as exc:
         raise UpdateSecurityError("trusted update time is unavailable") from exc
     if type(value) is not datetime or value.tzinfo is not timezone.utc:

@@ -246,6 +246,20 @@ class UpdateSecurityTests(unittest.TestCase):
                     pass
             self.assertNotIn("secret-clock-detail", str(caught.exception))
 
+            class _ExplodingAttributeTimeSource:
+                def __getattribute__(self, name):
+                    if name == "utc_now":
+                        raise RuntimeError("secret-clock-attribute")
+                    return super().__getattribute__(name)
+
+            with self.assertRaisesRegex(UpdateSecurityError, "time is unavailable") as caught:
+                with open_verified_update(
+                    verified,
+                    time_source=_ExplodingAttributeTimeSource(),
+                ):
+                    pass
+            self.assertNotIn("secret-clock-attribute", str(caught.exception))
+
     def test_trusted_time_is_rechecked_after_package_hashing(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
