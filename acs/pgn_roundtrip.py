@@ -945,11 +945,9 @@ def _measure_game(
     # Recovery diagnostics prove that the source required repair. Strict
     # serialization must not erase that provenance; the higher-level workflow
     # owns any explicit normalization decision before this boundary is called.
-    if type(game.warnings) is not list or any(
-        type(warning) is not str for warning in game.warnings
-    ):
+    if type(game.warnings) is not list:
         raise PgnRoundTripError(
-            "PGN recovery warnings must be a built-in list of text diagnostics",
+            "PGN recovery warnings must be a built-in list",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     if game.warnings:
