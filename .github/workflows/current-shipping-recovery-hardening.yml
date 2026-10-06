@@ -6,7 +6,7 @@ on:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   pull_request:
     branches:
-      - fix/current-shipping-owner-cancel-recovery-order-20261006-ooxple7
+      - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
   workflow_dispatch:
 
 permissions:
