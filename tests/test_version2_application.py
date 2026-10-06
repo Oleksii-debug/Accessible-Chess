@@ -31,6 +31,7 @@ from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import PreparedBookOpen, Version2Application
 from acs.version2_windows_book_open_worker import (
+    BookOpenWorkerEvent,
     BookOpenWorkerEventKind,
     Version2BookOpenWorker,
 )
@@ -140,6 +141,24 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("window remains open", english)
         self.assertIn("try exiting again", english)
         self.assertNotIn(str(self.root), english)
+
+    def test_book_open_event_rejects_derived_event_before_hooks(self):
+        touched = []
+
+        class ActiveEvent(BookOpenWorkerEvent):
+            def __getattribute__(self, name):
+                if name in {"kind", "focus_target"}:
+                    touched.append(name)
+                    raise AssertionError(
+                        "derived Book Open event field must not execute"
+                    )
+                return super().__getattribute__(name)
+
+        with self.assertRaisesRegex(TypeError, "invalid Book Open worker event"):
+            self.app._book_open_event(object.__new__(ActiveEvent))
+
+        self.assertEqual(touched, [])
+        self.assertEqual(self.app.drain_events(), ())
 
     def test_file_event_rejects_derived_event_before_hooks(self):
         touched = []
