@@ -127,6 +127,22 @@ class PositionEditorTests(unittest.TestCase):
                 with self.assertRaisesRegex(PositionValidationError, "castling rights"):
                     position.with_castling(rights)  # type: ignore[arg-type]
 
+    def test_castling_iterable_consumption_is_bounded_before_materialization(self):
+        consumed = []
+
+        def symbols():
+            values = ("K", "Q", "k", "q", "K", "q")
+            for index, value in enumerate(values):
+                consumed.append(index)
+                if index == 5:
+                    raise AssertionError("overflow probe must stop before a sixth item")
+                yield value
+
+        with self.assertRaisesRegex(PositionValidationError, "too many symbols"):
+            standard_position().with_castling(symbols())
+
+        self.assertEqual(consumed, [0, 1, 2, 3, 4])
+
     def test_en_passant_rank_must_match_side_to_move(self):
         PositionState.from_fen("8/8/8/3pP3/8/8/8/K6k w - d6 0 12")
         PositionState.from_fen("8/8/8/8/3Pp3/8/8/K6k b - d3 0 12")
