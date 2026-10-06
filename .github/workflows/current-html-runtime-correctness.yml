@@ -8,6 +8,7 @@ on:
       - '.github/workflows/current-html-runtime-correctness.yml'
       - 'acs/book_html_import.py'
       - 'tests/test_book_active_import_cancellation.py'
+      - 'tests/test_book_html_runtime_correctness.py'
   workflow_dispatch:
 
 permissions:
@@ -18,8 +19,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HTML_IMPORT_BLOB: dd25ff7639bbc181343afad15e1ba20222adf9f6
+  HTML_IMPORT_BLOB: 00add608990e5ed200340c86be7587148140a48a
   ACTIVE_CANCEL_TEST_BLOB: d107470d0c12e940ba741e43dddf936e9a55cda4
+  RUNTIME_TEST_BLOB: 7faf3fd0f71bf7627c09ae8483fd4cf548061ff1
 
 jobs:
   exact-head:
@@ -48,15 +50,17 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/current-html-runtime-correctness.yml' \
             'acs/book_html_import.py' \
-            'tests/test_book_active_import_cancellation.py' | sort)"
+            'tests/test_book_active_import_cancellation.py' \
+            'tests/test_book_html_runtime_correctness.py' | sort)"
           test "$changed" = "$expected"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_html_runtime_correctness.py)" = "$RUNTIME_TEST_BLOB"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Compile changed Python
-        run: python -m py_compile acs/book_html_import.py tests/test_book_active_import_cancellation.py
+        run: python -m py_compile acs/book_html_import.py tests/test_book_active_import_cancellation.py tests/test_book_html_runtime_correctness.py
       - name: Run active import and HTML runtime regressions
-        run: python -m unittest tests.test_book_active_import_cancellation
+        run: python -m unittest tests.test_book_active_import_cancellation tests.test_book_html_runtime_correctness
