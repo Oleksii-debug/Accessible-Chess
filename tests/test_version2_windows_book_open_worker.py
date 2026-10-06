@@ -230,8 +230,10 @@ class BookOpenWorkerTests(unittest.TestCase):
         self.assertEqual(commits, ["reopened-book"])
         self.assertTrue(worker.shutdown())
 
-    def test_refused_close_does_not_reopen_live_worker(self) -> None:
+    def test_refused_close_reopens_draining_cancelled_worker_and_returns_idle(self) -> None:
         callbacks = []
+        events = []
+        commits = []
         entered = threading.Event()
         release = threading.Event()
 
@@ -242,23 +244,77 @@ class BookOpenWorkerTests(unittest.TestCase):
 
         worker = Version2BookOpenWorker(
             prepare=prepare,
-            commit=lambda value: None,
+            commit=commits.append,
             post_to_ui=callbacks.append,
-            event_sink=lambda event: None,
+            event_sink=lambda event: events.append(event.kind),
         )
-        self.assertTrue(worker.start(Path("book.md")))
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
         self.assertTrue(entered.wait(2))
 
         self.assertFalse(worker.shutdown(timeout=0))
         self.assertTrue(worker.closed)
-        self.assertFalse(worker.resume_after_refused_shutdown())
+        self.assertTrue(worker.resume_after_refused_shutdown())
+        self.assertFalse(worker.closed)
+        self.assertTrue(worker.active)
 
         release.set()
-        self.assertTrue(worker.shutdown(timeout=2))
-        self.assertTrue(worker.resume_after_refused_shutdown())
-        for callback in callbacks:
-            callback()
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+
+        self.assertEqual(commits, [])
         self.assertFalse(worker.active)
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.CANCELLED],
+        )
+
+        # The refused-close recovery is a real product recovery, not merely a
+        # shutdown retry seam: a fresh Book Open can run after the stale
+        # cancelled generation drains.
+        self.assertTrue(worker.start(Path("book-2.md")))
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+        self.assertEqual(commits, ["stale-book"])
+        self.assertTrue(worker.shutdown())
+
+    def test_refused_close_post_failure_clears_stale_busy_lease(self) -> None:
+        callbacks = []
+        commits = []
+        entered = threading.Event()
+        release = threading.Event()
+        reject_post = [True]
+
+        def prepare(source, *, cancel_check):
+            entered.set()
+            release.wait(2)
+            return "prepared-book"
+
+        def post(callback):
+            if reject_post[0]:
+                raise RuntimeError("owner temporarily unavailable")
+            callbacks.append(callback)
+
+        worker = Version2BookOpenWorker(
+            prepare=prepare,
+            commit=commits.append,
+            post_to_ui=post,
+            event_sink=lambda event: None,
+        )
+        self.assertTrue(worker.start(Path("book.md")))
+        self.assertTrue(entered.wait(2))
+        self.assertFalse(worker.shutdown(timeout=0))
+        self.assertTrue(worker.resume_after_refused_shutdown())
+
+        release.set()
+        self._wait(lambda: not worker.active)
+        self.assertEqual(commits, [])
+
+        reject_post[0] = False
+        self.assertTrue(worker.start(Path("book-2.md")))
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+        self.assertEqual(commits, ["prepared-book"])
+        self.assertTrue(worker.shutdown())
 
 
 
