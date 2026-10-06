@@ -17,6 +17,7 @@ from .position_editor import PositionState, PositionValidationError
 MAX_EPD_CHARS = MAX_FEN_CHARS
 MAX_EPD_OPERATIONS = 256
 MAX_EPD_OPCODE_CHARS = 15
+_MAX_EPD_COUNTER_VALUE = (10 ** MAX_EPD_CHARS) - 1
 
 _OPCODE_RE = re.compile(r"^(?:[a-z][a-z0-9_]{1,14}|[A-Z][A-Za-z0-9_]{0,14})$")
 
@@ -59,6 +60,25 @@ class EpdRecord:
             raise TypeError("EPD operations must contain EpdOperation values")
         if len(self.operations) > MAX_EPD_OPERATIONS:
             raise EpdParseError("EPD contains too many operations")
+        seen: set[str] = set()
+        for operation in self.operations:
+            if operation.opcode in seen:
+                raise EpdParseError(f"duplicate EPD {operation.opcode} operation")
+            seen.add(operation.opcode)
+            if operation.opcode == "hmvc":
+                value = _parse_counter(operation)
+                if value != self.position.halfmove:
+                    raise EpdParseError(
+                        "EPD hmvc operation does not match the position halfmove counter"
+                    )
+            elif operation.opcode == "fmvn":
+                value = _parse_counter(operation)
+                if value < 1:
+                    raise EpdParseError("EPD fmvn must be at least 1")
+                if value != self.position.fullmove:
+                    raise EpdParseError(
+                        "EPD fmvn operation does not match the position fullmove counter"
+                    )
 
     def to_epd(self) -> str:
         return serialize_epd(self)
@@ -77,12 +97,20 @@ def looks_like_epd(text: object) -> bool:
         return False
     if len(parts) == 4:
         return True
-    tail = parts[4].lstrip()
+    tail = parts[4].strip()
     if not tail:
         return False
-    # A normal FEN has numeric halfmove/fullmove fields after the same first
-    # four fields. EPD operations begin with an opcode and end with semicolons.
-    return (tail[0].isascii() and tail[0].isalpha()) or ";" in tail
+    # Preserve ordinary six-field FEN routing exactly. Any other board-shaped
+    # tail belongs to the EPD position-import channel, including malformed EPD,
+    # so callers can report one localized position-format error instead of
+    # silently treating the paste as a chess move.
+    tail_fields = tail.split()
+    if (
+        len(tail_fields) == 2
+        and all(field.isascii() and field.isdecimal() for field in tail_fields)
+    ):
+        return False
+    return True
 
 
 def parse_epd(text: str) -> EpdRecord:
@@ -137,11 +165,30 @@ def serialize_epd(record: EpdRecord) -> str:
 
     if type(record) is not EpdRecord:
         raise TypeError("record must be an EpdRecord")
+    if (
+        record.position.halfmove > _MAX_EPD_COUNTER_VALUE
+        or record.position.fullmove > _MAX_EPD_COUNTER_VALUE
+    ):
+        # PositionState intentionally has no format-specific decimal ceiling.
+        # Stop here before Python attempts an enormous integer-to-string
+        # conversion that cannot fit inside one bounded EPD record anyway.
+        raise EpdParseError("serialized EPD is too long")
     fields = record.position.to_fen().split()
     if len(fields) != 6:
         raise EpdParseError("canonical position did not produce six FEN fields")
 
+    core = " ".join(fields[:4])
     rendered: list[str] = []
+    serialized_length = len(core)
+
+    def append_operation(item: str) -> None:
+        nonlocal serialized_length
+        next_length = serialized_length + 1 + len(item)
+        if next_length > MAX_EPD_CHARS:
+            raise EpdParseError("serialized EPD is too long")
+        rendered.append(item)
+        serialized_length = next_length
+
     seen_hmvc = False
     seen_fmvn = False
     for operation in record.operations:
@@ -149,23 +196,22 @@ def serialize_epd(record: EpdRecord) -> str:
             if seen_hmvc:
                 raise EpdParseError("duplicate EPD hmvc operation")
             seen_hmvc = True
-            rendered.append(f"hmvc {record.position.halfmove};")
+            append_operation(f"hmvc {operation.operand};")
         elif operation.opcode == "fmvn":
             if seen_fmvn:
                 raise EpdParseError("duplicate EPD fmvn operation")
             seen_fmvn = True
-            rendered.append(f"fmvn {record.position.fullmove};")
+            append_operation(f"fmvn {operation.operand};")
         elif operation.operand is None:
-            rendered.append(f"{operation.opcode};")
+            append_operation(f"{operation.opcode};")
         else:
-            rendered.append(f"{operation.opcode} {operation.operand};")
+            append_operation(f"{operation.opcode} {operation.operand};")
 
     if record.position.halfmove != 0 and not seen_hmvc:
-        rendered.append(f"hmvc {record.position.halfmove};")
+        append_operation(f"hmvc {record.position.halfmove};")
     if record.position.fullmove != 1 and not seen_fmvn:
-        rendered.append(f"fmvn {record.position.fullmove};")
+        append_operation(f"fmvn {record.position.fullmove};")
 
-    core = " ".join(fields[:4])
     return core if not rendered else core + " " + " ".join(rendered)
 
 
@@ -236,6 +282,12 @@ def _parse_counter(operation: EpdOperation) -> int:
 
 
 def _validate_operand(operand: str) -> None:
+    if len(operand) > MAX_EPD_CHARS:
+        raise EpdParseError("EPD operand is too long")
+    if operand == "":
+        raise EpdParseError("EPD operand text must not be empty")
+    if operand.startswith(" ") or operand.endswith(" "):
+        raise EpdParseError("EPD operand must not have leading or trailing spaces")
     if not operand.isascii():
         raise EpdParseError("EPD operands must use ASCII text")
 
