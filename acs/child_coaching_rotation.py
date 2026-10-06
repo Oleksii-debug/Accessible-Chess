@@ -248,8 +248,13 @@ class RotationState:
             raise ChildCoachingRotationError(
                 "rotation round_index must be a bounded non-negative integer"
             )
-        if type(self.revision) is not int or self.revision < 0:
-            raise ChildCoachingRotationError("rotation revision must be a non-negative integer")
+        if (
+            type(self.revision) is not int
+            or not 0 <= self.revision <= _MAX_WIRE_INTEGER
+        ):
+            raise ChildCoachingRotationError(
+                "rotation revision must be a non-negative integer within exact wire bounds"
+            )
         ref = self.pair_play_batch_ref
         if ref is not None:
             ref = _identifier(ref, "pair-play batch reference")
