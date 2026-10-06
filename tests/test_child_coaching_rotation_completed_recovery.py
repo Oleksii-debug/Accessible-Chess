@@ -27,6 +27,20 @@ from acs.teaching_session import PositionSourceKind, TeachingPositionSource
 
 
 class CompletedRotationRecoveryTests(unittest.TestCase):
+    def test_store_path_ingress_rejects_active_text_subclass_passively(self) -> None:
+        class ActivePathText(str):
+            def __fspath__(self):
+                raise AssertionError("active path hook executed")
+
+            def __str__(self):
+                raise AssertionError("active string hook executed")
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "built-in text or an exact platform Path",
+        ):
+            ChildCoachingRotationStore(ActivePathText("rotation.json"))
+
     def _lesson(self):
         return compile_lesson_session(
             preset_templates()[1],
