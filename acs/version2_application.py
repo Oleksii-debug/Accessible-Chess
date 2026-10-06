@@ -1585,8 +1585,17 @@ class Version2Application:
             if payload:
                 raise ValueError("book file selection belongs to the host")
             self._assert_book_open_allowed()
-            if self._book_open_worker is not None and self._book_open_worker.active:
-                raise ValueError("Book Open is already running")
+            if self._book_open_worker is not None:
+                # A completed background Open can retain its exact owner-thread
+                # terminal after BeginInvoke/observer failure. Recover that
+                # accessibility truth before showing another modal file picker;
+                # otherwise a new Open UI can overtake the prior terminal even
+                # though the worker will later refuse the new generation.
+                self._book_open_worker.flush_pending_terminal()
+                if self._book_open_worker.closed:
+                    raise ValueError("Book Open worker is unavailable")
+                if self._book_open_worker.active:
+                    raise ValueError("Book Open is already running")
             source = self.open_book_dialog()
             if source is None:
                 return None
