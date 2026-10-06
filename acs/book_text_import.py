@@ -650,10 +650,17 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 continue
 
             if ordered and start_value is not None and start_value < 1:
-                builder.paragraph(line.strip(), number)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
                 builder.warning(
                     "Markdown ordered list with non-positive start was preserved as reading text because canonical List start must be positive"
                 )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 index += 1
                 continue
 
