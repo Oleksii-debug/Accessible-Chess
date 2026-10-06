@@ -50,15 +50,23 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-sqlite-ledger-20261002"
           git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
-          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
-          git diff --check "$EVENT_BASE_SHA...HEAD"
-          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | LC_ALL=C sort)"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_BASE_REF:refs/remotes/origin/$EXPECTED_BASE_REF"
+          live_base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
+          git cat-file -e "$live_base^{commit}"
+          # A queued pull_request event may retain the target SHA from enqueue time.
+          # Accept only a monotonic target advance; rewind/divergence remains fail-closed.
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+          test "$(git merge-base "$EVENT_BASE_SHA" "$live_base")" = "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base...HEAD"
+          changed="$(git diff --name-only "$live_base...HEAD" | LC_ALL=C sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/classroom-moderation-pending-recovery.yml' \
             'acs/classroom_moderation_rpc.py' \
             'tests/test_classroom_moderation_rpc.py' | LC_ALL=C sort)"
           test "$changed" = "$allowed"
+          echo "CLASSROOM_MODERATION_PENDING_RECOVERY_BASE=$live_base"
           echo "CLASSROOM_MODERATION_PENDING_RECOVERY_SCOPE=PASS"
 
       - name: Compile recovery composition
