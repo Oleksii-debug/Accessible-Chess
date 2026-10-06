@@ -186,13 +186,20 @@ def _source_bytes(source: object) -> bytes:
     return source
 
 
-def _validate_single_disk_zip_end_records(raw: bytes) -> int:
+def _validate_single_disk_zip_end_records(
+    raw: bytes,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> int:
     signature = b"PK\x05\x06"
     search_start = max(0, len(raw) - (22 + 0xFFFF))
     cursor = len(raw)
     eocd_offset: int | None = None
+    eocd_candidates = 0
     while True:
+        if control_checkpoint is not None and eocd_candidates % 128 == 0:
+            control_checkpoint()
         candidate = raw.rfind(signature, search_start, cursor)
+        eocd_candidates += 1
         if candidate < 0:
             break
         if candidate + 22 <= len(raw):
@@ -339,6 +346,8 @@ def _validate_single_disk_zip_end_records(raw: bytes) -> int:
     central_cursor = central_offset
     observed_entries = 0
     while central_cursor < central_end:
+        if control_checkpoint is not None and observed_entries % 128 == 0:
+            control_checkpoint()
         if (
             central_cursor + 46 > central_end
             or raw[central_cursor : central_cursor + 4] != b"PK\x01\x02"
@@ -2099,7 +2108,9 @@ def import_epub_book(
             raise TypeError("control_checkpoint must be callable")
         control_checkpoint()
     raw = _source_bytes(source)
-    expected_archive_entries = _validate_single_disk_zip_end_records(raw)
+    expected_archive_entries = _validate_single_disk_zip_end_records(
+        raw, control_checkpoint
+    )
     display_source = _required_text(source_name, "source_name")
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
