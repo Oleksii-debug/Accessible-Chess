@@ -47,9 +47,9 @@ jobs:
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      ROTATION_BLOB: 098e55b7558fbfa1fea9840eb4144c11d0a5c1f8
+      ROTATION_BLOB: 6db594aa3ab21b637588142a9c9e86ff3c9dd63c
       ROTATION_STORE_BLOB: 3b4bae55c8403f0fe4c5f79e677769888a82fb45
-      ROTATION_TEST_BLOB: 1f56613b6538e33dc21cd83fde041bb5647c0137
+      ROTATION_TEST_BLOB: ac547c5c6eec732e5cb1a64ca7f29ed835bfafe1
       ROTATION_RECOVERY_TEST_BLOB: 5a3233b611cca861de497d3e7692560f7d9b449e
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
       FINAL_PRODUCT_APP_BLOB: 284db73d1dc9795146dc6773c440620d9d68b7ea
