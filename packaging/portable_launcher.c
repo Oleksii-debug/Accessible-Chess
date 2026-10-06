@@ -47,6 +47,7 @@ static CHAR g_utf8[AC_UTF8_CAP];
 static STARTUPINFOW g_startup;
 static PROCESS_INFORMATION g_process;
 static HANDLE g_instance_lock = INVALID_HANDLE_VALUE;
+static BOOL g_child_cleanup_required = FALSE;
 
 typedef struct AC_WINDOW_SEARCH {
     DWORD process_id;
@@ -159,8 +160,26 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     return L"Невідома рання помилка основної програми.";
 }
 
+static void ac_best_effort_retire_unready_child(DWORD exit_code) {
+    DWORD wait_result;
+    DWORD stable_code = exit_code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : exit_code;
+
+    if (!g_child_cleanup_required) return;
+    if (g_process.hProcess == NULL || g_process.hProcess == INVALID_HANDLE_VALUE) return;
+
+    if (!TerminateProcess(g_process.hProcess, stable_code)) {
+        wait_result = WaitForSingleObject(g_process.hProcess, 0);
+        if (wait_result == WAIT_OBJECT_0) g_child_cleanup_required = FALSE;
+        return;
+    }
+
+    wait_result = WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS);
+    if (wait_result == WAIT_OBJECT_0) g_child_cleanup_required = FALSE;
+}
+
 static void ac_report_write_fail(HANDLE report, DWORD code) {
     DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+    ac_best_effort_retire_unready_child(stable_code);
     if (report != NULL && report != INVALID_HANDLE_VALUE) CloseHandle(report);
 
     ac_copy(
@@ -246,6 +265,7 @@ static void ac_error_detail(DWORD code) {
 
 static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     BOOL has_report = report != NULL && report != INVALID_HANDLE_VALUE;
+    ac_best_effort_retire_unready_child(code);
     ac_error_detail(code);
     if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
@@ -565,6 +585,8 @@ static void ac_fail_startup_timeout(HANDLE report) {
         }
     }
 
+    if (child_stopped) g_child_cleanup_required = FALSE;
+
     ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT");
     ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
@@ -750,6 +772,7 @@ void WINAPI wWinMainCRTStartup(void) {
         CloseHandle(g_process.hProcess);
         ac_fail(report, L"core process resume", error);
     }
+    g_child_cleanup_required = TRUE;
     CloseHandle(g_process.hThread);
     CloseHandle(g_instance_lock);
     g_instance_lock = INVALID_HANDLE_VALUE;
@@ -761,7 +784,6 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
     g_message[0] = L'\0';
     if (!ac_append_u32(g_message, AC_PATH_CAP + 2048, g_process.dwProcessId)) {
-        CloseHandle(g_process.hProcess);
         ac_fail(report, L"child process identity report", ERROR_BUFFER_OVERFLOW);
     }
     ac_write_line(report, g_message);
@@ -772,6 +794,7 @@ void WINAPI wWinMainCRTStartup(void) {
     for (;;) {
         wait_result = WaitForSingleObject(g_process.hProcess, AC_STARTUP_POLL_MS);
         if (wait_result == WAIT_OBJECT_0) {
+            g_child_cleanup_required = FALSE;
             if (!GetExitCodeProcess(g_process.hProcess, &exit_code)) {
                 error = GetLastError();
                 CloseHandle(g_process.hProcess);
@@ -801,12 +824,10 @@ void WINAPI wWinMainCRTStartup(void) {
 
         if (wait_result == WAIT_FAILED) {
             error = GetLastError();
-            CloseHandle(g_process.hProcess);
             ac_fail(report, L"startup window observation", error);
         }
 
         if (wait_result != WAIT_TIMEOUT) {
-            CloseHandle(g_process.hProcess);
             ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);
         }
 
@@ -829,6 +850,7 @@ void WINAPI wWinMainCRTStartup(void) {
         }
     }
 
+    g_child_cleanup_required = FALSE;
     ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY");
     ac_write_line(report, L"USER_WINDOW_PROVEN: YES");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
