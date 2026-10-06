@@ -92,6 +92,23 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         )
         return api, fake
 
+    def test_board_semantic_queries_fail_closed_on_invalid_editor_position(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.clear_board()["ok"])
+        self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
+        self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
+
+        legal = api.dispatch_action("board.legal_moves", "e1")
+        attackers = api.dispatch_action("board.attackers", "e1")
+        current = api.dispatch_action("board.current", "e1")
+
+        self.assertFalse(legal["ok"])
+        self.assertFalse(attackers["ok"])
+        self.assertIn("не готова", legal["announcement"])
+        self.assertIn("не готова", attackers["announcement"])
+        self.assertTrue(current["ok"])
+        self.assertIn("e 1", current["announcement"])
+
     def test_final_facade_preserves_locked_analysis_across_normal_move(self):
         api, fake = self.make_api()
         self.assertTrue(api.toggle_engine()["ok"])
