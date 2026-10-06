@@ -698,6 +698,9 @@ class Version2ImportUiWakeupPumpTests(unittest.TestCase):
         self.assertTrue(pump.resume_after_refused_shutdown())
 
         self.assertFalse(pump.closed)
+        self.assertEqual(delivered, [])
+        self.assertEqual(mailbox.pending_count, 1)
+        self.assertTrue(pump.request_pending_wakeup())
         self.assertEqual(delivered, [terminal])
         self.assertEqual(mailbox.pending_count, 0)
 
