@@ -139,6 +139,44 @@ class BookProgressPassiveIngressCurrentTests(unittest.TestCase):
         )
         self.assertFalse(entries.touched)
 
+    def test_snapshot_nested_active_mappings_are_rejected_before_json_hooks(self) -> None:
+        class ActiveNestedDict(dict):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("nested mapping JSON hook must not execute")
+
+            def items(self):
+                return self._touch()
+
+            def __iter__(self):
+                return self._touch()
+
+            def __len__(self):
+                return self._touch()
+
+            def __getitem__(self, key):
+                return self._touch()
+
+        for field in ("return_points", "fallback_digests"):
+            with self.subTest(field=field):
+                ActiveNestedDict.touched = False
+                snapshot = {
+                    "schema_version": 2,
+                    "current_target": "block:chapter",
+                    "return_points": {},
+                    "fallback_digests": {},
+                }
+                snapshot[field] = ActiveNestedDict({})
+                with self.assertRaises(BookProgressStoreError) as raised:
+                    _snapshot_copy(snapshot)
+                self.assertEqual(
+                    raised.exception.code,
+                    BookProgressStoreErrorCode.CORRUPT_STORE,
+                )
+                self.assertFalse(ActiveNestedDict.touched)
+
     def test_exact_reader_and_document_keep_round_trip_semantics(self) -> None:
         document = self._document()
         reader = BookReader(document)
