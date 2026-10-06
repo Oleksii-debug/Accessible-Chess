@@ -374,6 +374,72 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_refused_close_resume_preserves_completed_import_terminal_truth(self) -> None:
+        class CompletingLibrary(_Library):
+            def __init__(self) -> None:
+                super().__init__()
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def import_games(self, games, **kwargs) -> LibraryImportResult:
+                self.calls += 1
+                progress_callback = kwargs["progress_callback"]
+                progress_callback(LibraryImportProgress(1, 0, len(games)))
+                self.entered.set()
+                if not self.release.wait(2.0):
+                    raise AssertionError("test did not release completing import")
+                # Deliberately ignore the cancellation request: once canonical
+                # storage reports success, shutdown recovery must preserve that
+                # exact terminal truth rather than synthesize cancellation.
+                progress_callback(LibraryImportProgress(1, len(games), len(games)))
+                return LibraryImportResult(1, 1, len(games), 0, 1, len(games))
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "completed-during-shutdown.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = CompletingLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+
+            release = threading.Timer(0.05, library.release.set)
+            release.daemon = True
+            release.start()
+            try:
+                self.assertTrue(runtime.shutdown(5.0))
+            finally:
+                library.release.set()
+                release.cancel()
+
+            self.assertTrue(runtime.closed)
+            self.assertFalse(runtime.import_running)
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            kinds = [event.kind for event in imported_events]
+            self.assertIn(FileWorkflowEventKind.IMPORT_COMPLETED, kinds)
+            self.assertNotIn(FileWorkflowEventKind.IMPORT_CANCELLED, kinds)
+            self.assertEqual(kinds[-1], FileWorkflowEventKind.IMPORT_COMPLETED)
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                kinds,
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_refused_close_keeps_running_cancelled_import_runtime_usable(self) -> None:
         class BlockingLibrary(_Library):
             def __init__(self) -> None:
