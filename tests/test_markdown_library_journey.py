@@ -151,6 +151,38 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
                 self.assertEqual([block.text for block in paragraphs], ["> not a top-level quote"])
                 self.assertFalse(any("block quote structure" in warning for warning in book.warnings))
 
+    def test_blockquote_images_use_alt_text_without_destination_identity_churn(self):
+        first = import_text_book(
+            '> Before ![Board position](https://one.invalid/board.png "first title") after.',
+            source_name="quote-one.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        second = import_text_book(
+            '> Before ![Board position](https://two.invalid/changed.png "second title") after.',
+            source_name="quote-two.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        first_paragraphs = [
+            block for block in first.document.blocks if type(block) is Paragraph
+        ]
+        second_paragraphs = [
+            block for block in second.document.blocks if type(block) is Paragraph
+        ]
+        self.assertEqual(len(first_paragraphs), 1)
+        self.assertEqual(len(second_paragraphs), 1)
+        self.assertEqual(first_paragraphs[0].text, "Before Board position after.")
+        self.assertEqual(second_paragraphs[0].text, "Before Board position after.")
+        self.assertEqual(first_paragraphs[0].block_id, second_paragraphs[0].block_id)
+        self.assertNotIn("one.invalid", first_paragraphs[0].text)
+        self.assertNotIn("first title", first_paragraphs[0].text)
+        self.assertTrue(
+            any("image destination was excluded" in warning for warning in first.warnings)
+        )
+        self.assertTrue(
+            any("block quote structure" in warning for warning in first.warnings)
+        )
+
     def test_invalid_tilde_closers_stay_opaque_until_matching_close(self):
         source = (
             "~~~~code`meta\n"
