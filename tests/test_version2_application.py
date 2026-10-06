@@ -124,6 +124,35 @@ class Version2ApplicationTests(unittest.TestCase):
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
 
+    def test_shutdown_failure_announcement_bypasses_pending_shell_publication_only(self):
+        held_event = {
+            "kind": "status",
+            "payload": {"announcement": "held-domain-event"},
+        }
+        self.app._events.append(held_event)
+        self.app._pending_shell_publication = (
+            91,
+            "screen.library",
+            17,
+            {"kind": "route"},
+            self.app.shell._capture_presentation_state(),
+            "prior-focus",
+            None,
+            None,
+        )
+
+        self.app.announce_shutdown_failure()
+
+        urgent = self.app.drain_events()
+        self.assertEqual(len(urgent), 1)
+        self.assertEqual(urgent[0]["kind"], "error")
+        self.assertIn("Вікно залишено відкритим", urgent[0]["payload"]["message"])
+        self.assertEqual(tuple(self.app._events), (held_event,))
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.app._pending_shell_publication = None
+        self.assertEqual(self.app.drain_events(), (held_event,))
+
     def test_shutdown_failure_announcement_is_localized_path_free_and_actionable(self):
         self.app.announce_shutdown_failure()
         event = self.app.drain_events()[-1]
