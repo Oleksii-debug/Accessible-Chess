@@ -174,6 +174,8 @@ jobs:
               CURATION_MIN_PLIES,
               CURATION_POLICY_ID,
               CURATION_RESULT_MINIMUMS,
+              DOWNLOAD_LIMIT_BYTES,
+              _validate_curation_manifest_evidence,
           )
 
           root = Path('.p0f-lawful')
@@ -183,10 +185,19 @@ jobs:
           assert manifest['runtime_network_required'] is False
           source = manifest['starter_source']
           curation = source['curation']
+          starter_payload = (root / 'starter_uk.pgn').read_bytes()
+          starter_text = starter_payload.decode('utf-8', errors='strict')
           assert source['compressed_sha256'] == CORPUS_SHA256
+          assert 0 < source['compressed_bytes'] <= DOWNLOAD_LIMIT_BYTES
+          assert source['subset_sha256'] == hashlib.sha256(starter_payload).hexdigest()
           assert source['license_id'] == CORPUS_LICENSE_ID == 'CC0-1.0'
           assert source['selection'] == CURATION_POLICY_ID
           assert source['selected_games'] >= 200
+          _validate_curation_manifest_evidence(
+              curation,
+              source['selected_games'],
+              starter_text,
+          )
           assert curation['policy_id'] == CURATION_POLICY_ID
           assert curation['parser'] == 'acs.pgn_roundtrip.parse_pgn_text(strict=True)'
           assert curation['criteria']['minimum_plies'] == CURATION_MIN_PLIES
