@@ -1982,7 +1982,12 @@ class BookProgressStore:
         key = _book_key(book_key)
         if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
-        snapshot = _snapshot_copy(reader.snapshot())
+        # BookReader is intentionally mutable application state and has an
+        # instance __dict__.  The exact-type check above rejects subclasses, but
+        # it does not prevent a caller from shadowing snapshot on one instance.
+        # Dispatch through the concrete canonical class so durable persistence
+        # cannot execute or store caller-supplied instance behavior.
+        snapshot = _snapshot_copy(BookReader.snapshot(reader))
 
         with self._exclusive_access():
             previous_identity = self._data_path_identity_unlocked(
