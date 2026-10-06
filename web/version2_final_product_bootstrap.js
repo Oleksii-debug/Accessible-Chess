@@ -10,9 +10,19 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  let pendingShellPublicationToken = 0;
+  let shellPublicationRequestSequence = 0;
+  let pendingShellPublicationRequestId = 0;
+  let pendingShellPublicationArea = "";
+  let pendingShellPublicationActionId = "";
+  let shellRouteTransitionInFlight = false;
+
+  function uiTextFor(language, uk, en) {
+    return language === "en" ? en : uk;
+  }
 
   function uiText(uk, en) {
-    return currentLanguage === "en" ? en : uk;
+    return uiTextFor(currentLanguage, uk, en);
   }
 
   function api() {
@@ -20,9 +30,10 @@
   }
 
   function announce(message) {
-    if (!message) return;
+    const text = boundedText(message, MAX_ANNOUNCEMENT_TEXT);
+    if (!text) return;
     live.textContent = "";
-    global.setTimeout(function () { live.textContent = String(message).slice(0, 300); }, 20);
+    global.setTimeout(function () { live.textContent = text; }, 20);
   }
 
   const nav = documentRef.createElement("nav");
@@ -258,8 +269,52 @@
     return false;
   }
 
+  const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+  const ROUTE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+  const ACTION_ID_PATTERN = /^[a-z][a-z0-9_.-]{0,127}$/;
+  const MAX_NATIVE_EVENT_BATCH = 64;
+  const MAX_NAVIGATION_ITEMS = 32;
+  const MAX_NAVIGATION_LABEL = 240;
+  const MAX_SCREEN_HEADING = 600;
+  const MAX_ANNOUNCEMENT_TEXT = 1200;
+  const NATIVE_EVENT_KINDS = new Set([
+    "route",
+    "delegated",
+    "book-board",
+    "render-import",
+    "status",
+    "error",
+    "render",
+    "dialog-open",
+    "dialog-close"
+  ]);
+
+  function validFocusId(value) {
+    return typeof value === "string" && FOCUS_ID_PATTERN.test(value);
+  }
+
+  function validRouteId(value) {
+    return typeof value === "string" && ROUTE_ID_PATTERN.test(value);
+  }
+
+  function validActionId(value) {
+    return typeof value === "string" && ACTION_ID_PATTERN.test(value);
+  }
+
+  function boundedText(value, limit) {
+    return typeof value === "string" &&
+      value.length <= limit &&
+      value.indexOf("\x00") < 0
+      ? value
+      : "";
+  }
+
+  function plainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
   function focusById(id) {
-    if (!id) return false;
+    if (!validFocusId(id)) return false;
     const target = documentRef.getElementById(id);
     if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
     if (!target.hasAttribute("tabindex") && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) {
@@ -276,14 +331,27 @@
 
   function productSurfaceFocusTarget(snapshot, routeId) {
     if (routeId === "pgn" && snapshot.pgn && typeof snapshot.pgn === "object") {
-      return String(snapshot.pgn.focus_target || "");
+      return validFocusId(snapshot.pgn.focus_target) ? snapshot.pgn.focus_target : "";
     }
     if (routeId === "books" && snapshot.books && typeof snapshot.books === "object") {
       const block = snapshot.books.block && typeof snapshot.books.block === "object" ? snapshot.books.block : {};
-      return String(block.dom_id || "");
+      return validFocusId(block.dom_id) ? block.dom_id : "";
     }
     if (routeId === "training" && snapshot.training && typeof snapshot.training === "object") {
-      return "training-answer";
+      const training = snapshot.training;
+      const answer = training.answer && typeof training.answer === "object"
+        ? training.answer
+        : {};
+      if (answer.disabled !== true) return "training-answer";
+      const actions = Array.isArray(training.actions) ? training.actions : [];
+      const continueAction = actions.find(function (action) {
+        return action && action.command === "training.continue" && action.enabled === true;
+      });
+      if (continueAction) return "training-action-continue";
+      const resetAction = actions.find(function (action) {
+        return action && action.command === "training.reset.request" && action.enabled === true;
+      });
+      return resetAction ? "training-action-reset" : "";
     }
     if (routeId === "teacher" && snapshot.teacher && typeof snapshot.teacher === "object") {
       return "teacher-pointer-input";
@@ -292,7 +360,7 @@
       const sections = Array.isArray(snapshot.education.sections) ? snapshot.education.sections : [];
       for (let index = 0; index < sections.length; index += 1) {
         const items = Array.isArray(sections[index].items) ? sections[index].items : [];
-        if (items.length && items[0].dom_id) return String(items[0].dom_id);
+        if (items.length && validFocusId(items[0].dom_id)) return items[0].dom_id;
       }
     }
     return emptyStatusId(routeId);
@@ -301,22 +369,22 @@
   function restoreProductFocus(snapshot, routeId, requestedFocus) {
     const active = documentRef.activeElement;
     if (active && workspace.contains(active)) return true;
-    if (focusById(requestedFocus)) return true;
     if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;
+    if (focusById(requestedFocus)) return true;
     return focusById("v2-nav-" + routeId);
   }
 
-  function renderEmptyProduct(routeId, heading, status) {
+  function renderEmptyProduct(routeId, heading, status, language) {
     const title = documentRef.createElement("h2");
     const labels = {
       pgn: "PGN",
-      library: uiText("Бібліотека", "Library"),
-      books: uiText("Книги", "Books"),
-      training: uiText("Тренування", "Training"),
-      teacher: uiText("Режим викладача", "Teacher mode"),
-      classes: uiText("Класи й учні", "Classes and students")
+      library: uiTextFor(language, "Бібліотека", "Library"),
+      books: uiTextFor(language, "Книги", "Books"),
+      training: uiTextFor(language, "Тренування", "Training"),
+      teacher: uiTextFor(language, "Режим викладача", "Teacher mode"),
+      classes: uiTextFor(language, "Класи й учні", "Classes and students")
     };
-    title.textContent = String(heading || labels[routeId] || routeId);
+    title.textContent = heading || labels[routeId] || routeId;
     const message = documentRef.createElement("p");
     message.id = emptyStatusId(routeId);
     message.tabIndex = -1;
@@ -324,26 +392,33 @@
     if (status) {
       message.textContent = status;
     } else if (routeId === "pgn") {
-      message.textContent = uiText("PGN ще не відкрито.", "No PGN is open yet.");
+      message.textContent = uiTextFor(language, "PGN ще не відкрито.", "No PGN is open yet.");
     } else if (routeId === "library") {
-      message.textContent = uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.");
+      message.textContent = uiTextFor(
+        language,
+        "Бібліотека ще не готова до перегляду.",
+        "The Library is not ready to browse yet."
+      );
     } else if (routeId === "training") {
-      message.textContent = uiText(
+      message.textContent = uiTextFor(
+        language,
         "Відкрийте книгу, перейдіть до блоку «Вправа», а потім відкрийте Тренування.",
         "Open a book, move to an Exercise block, then open Training."
       );
     } else if (routeId === "teacher") {
-      message.textContent = uiText(
+      message.textContent = uiTextFor(
+        language,
         "Немає активного заняття. Режим викладача стане доступним після відкриття канонічного заняття.",
         "No teaching session is active. Teacher mode becomes available after a canonical session is opened."
       );
     } else if (routeId === "classes") {
-      message.textContent = uiText(
+      message.textContent = uiTextFor(
+        language,
         "Дані класів недоступні. Існуючий файл не буде перезаписано автоматично.",
         "Classes data is unavailable. Existing data will not be overwritten automatically."
       );
     } else {
-      message.textContent = uiText("Книгу ще не відкрито.", "No book is open yet.");
+      message.textContent = uiTextFor(language, "Книгу ще не відкрито.", "No book is open yet.");
     }
     workspace.replaceChildren(title, message);
   }
@@ -354,129 +429,604 @@
       if (!bridge || typeof bridge.v2_browser_command !== "function") {
         return Promise.reject(new Error("V2 bridge unavailable"));
       }
-      return bridge.v2_browser_command(area, command, payload || {}).then(function (result) {
-        if (area === "library" && command === "library.open_game" &&
-            result && result.kind !== "error") {
-          return refresh(true).then(function () { return result; });
+      if (area === "library" && command === "library.open_game") {
+        const openPayload = payload == null ? {} : payload;
+        if (!plainObject(openPayload) || Object.keys(openPayload).length !== 0) {
+          return Promise.reject(new Error("invalid Library Open payload"));
         }
-        return result;
-      });
+        return runPublishedBrowserTransition(
+          bridge,
+          "library",
+          command,
+          uiText("Не вдалося відкрити партію.", "Could not open the game."),
+          false
+        );
+      }
+      return bridge.v2_browser_command(area, command, payload || {});
     };
   }
 
+  function shellPublicationToken(result) {
+    if (!plainObject(result) ||
+        (result.kind !== "route" && result.kind !== "delegated") ||
+        !plainObject(result.payload)) {
+      return 0;
+    }
+    const token = result.payload.publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
+  function nextShellPublicationRequestId() {
+    if (shellPublicationRequestSequence >= Number.MAX_SAFE_INTEGER - 1) return 0;
+    shellPublicationRequestSequence += 1;
+    return shellPublicationRequestSequence;
+  }
+
+  function clearPendingShellPublicationStart(requestId) {
+    if (pendingShellPublicationRequestId !== requestId) return;
+    pendingShellPublicationRequestId = 0;
+    pendingShellPublicationArea = "";
+    pendingShellPublicationActionId = "";
+  }
+
+  function startShellPublication(bridge, area, actionId, requestId) {
+    function attempt() {
+      return bridge.v2_browser_command(
+        area,
+        actionId,
+        { publication_protocol: "ack-v1", request_id: requestId }
+      ).then(function (result) {
+        if (plainObject(result) && result.kind === "error") return result;
+        if (!shellPublicationToken(result)) {
+          throw new TypeError("invalid shell publication start");
+        }
+        return result;
+      });
+    }
+
+    return attempt().catch(function () { return attempt(); });
+  }
+
+  function finishShellPublication(bridge, command, token) {
+    const expectedKind =
+      command === "shell.presentation_commit"
+        ? "presentation-commit"
+        : "presentation-rollback";
+
+    function publicationFailure(hostResponded, cause) {
+      // Normalize every failure into an internal passive record. Promise
+      // rejection values and malformed bridge responses are untrusted: they
+      // may be frozen/sealed objects or Proxies with active property traps.
+      return Object.freeze({
+        hostResponded: hostResponded === true,
+        cause: cause
+      });
+    }
+
+    function attempt() {
+      return bridge.v2_browser_command("shell", command, { token: token }).then(
+        function (result) {
+          try {
+            if (plainObject(result) && result.kind === "error") {
+              throw new Error("shell publication acknowledgement rejected");
+            }
+            if (!plainObject(result) || result.kind !== expectedKind ||
+                !plainObject(result.payload) || result.payload.token !== token) {
+              throw new Error("invalid shell publication acknowledgement");
+            }
+            return result;
+          } catch (error) {
+            // A resolved bridge call is host-response authority even when the
+            // payload itself is malformed or has active accessors.
+            throw publicationFailure(true, error);
+          }
+        },
+        function (error) {
+          // Transport rejection is opaque. Store it only as a cause; never read
+          // from or write to the caller-controlled rejection object.
+          throw publicationFailure(false, error);
+        }
+      );
+    }
+
+    // The Python boundary is idempotent for the same token/outcome. A single
+    // retry therefore closes local bridge response loss without duplicating a
+    // route commit or rollback.
+    return attempt().catch(function (firstFailure) {
+      return attempt().catch(function (secondFailure) {
+        if (firstFailure.hostResponded && !secondFailure.hostResponded) {
+          // At least one attempt reached Python, so preserve that authority even
+          // when the final retry failed only at transport. Re-wrap instead of
+          // mutating the opaque second rejection value.
+          throw publicationFailure(true, secondFailure.cause);
+        }
+        throw secondFailure;
+      });
+    });
+  }
+
+  function clearPendingShellPublication(token) {
+    if (pendingShellPublicationToken !== token) return;
+    pendingShellPublicationToken = 0;
+    if (eventDrainPending || deferredNativeEventBatch !== null) {
+      eventDrainPending = false;
+      global.setTimeout(drainEvents, 0);
+    }
+  }
+
+  function recoverShellPublication(bridge, token, failedMessage, preservePresentation) {
+    return finishShellPublication(
+      bridge,
+      "shell.presentation_rollback",
+      token
+    ).then(function () {
+      if (preservePresentation) {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }
+      return refresh(true).then(function () {
+        clearPendingShellPublication(token);
+        announce(failedMessage);
+        return true;
+      }, function () {
+        announce(failedMessage);
+        return false;
+      });
+    }, function (error) {
+      // A host-level rejection proves only that Python answered. It does not
+      // prove that Python forgot this token: rollback/commit cleanup can fail
+      // internally while the exact publication remains pending and retryable.
+      // Read host authority directly and publish only a snapshot that carries no
+      // pending token. If a token is still present, keep recovery fenced.
+      if (error && error.hostResponded) {
+        if (!bridge || typeof bridge.v2_snapshot !== "function") {
+          announce(failedMessage);
+          return Promise.resolve(false);
+        }
+        return bridge.v2_snapshot().then(function (snapshot) {
+          const hostToken = snapshotShellPublicationToken(snapshot);
+          if (hostToken) {
+            if (hostToken !== token) pendingShellPublicationToken = hostToken;
+            announce(failedMessage);
+            return false;
+          }
+          if (preservePresentation) {
+            clearPendingShellPublication(token);
+            announce(failedMessage);
+            return true;
+          }
+          try {
+            render(snapshot, true);
+          } catch (_) {
+            announce(failedMessage);
+            return false;
+          }
+          clearPendingShellPublication(token);
+          announce(failedMessage);
+          return true;
+        }, function () {
+          announce(failedMessage);
+          return false;
+        });
+      }
+      announce(failedMessage);
+      return false;
+    });
+  }
+
+  function recoverPendingShellPublicationStart(bridge, failedMessage) {
+    const requestId = pendingShellPublicationRequestId;
+    const pendingArea = pendingShellPublicationArea;
+    const pendingActionId = pendingShellPublicationActionId;
+    if (!requestId || !pendingArea || !pendingActionId) return Promise.resolve(true);
+    return startShellPublication(
+      bridge,
+      pendingArea,
+      pendingActionId,
+      requestId
+    ).then(function (result) {
+      if (result && result.kind === "error") {
+        clearPendingShellPublicationStart(requestId);
+        return true;
+      }
+      const token = shellPublicationToken(result);
+      if (!token) return false;
+      clearPendingShellPublicationStart(requestId);
+      pendingShellPublicationToken = token;
+      return recoverShellPublication(bridge, token, failedMessage);
+    }, function () {
+      announce(failedMessage);
+      return false;
+    });
+  }
+
+  function recoverOutstandingShellPublication(bridge, failedMessage) {
+    function continueAfterKnownToken() {
+      return recoverPendingShellPublicationStart(bridge, failedMessage);
+    }
+    if (!pendingShellPublicationToken) return continueAfterKnownToken();
+    const previousToken = pendingShellPublicationToken;
+    return recoverShellPublication(
+      bridge,
+      previousToken,
+      failedMessage
+    ).then(function (recovered) {
+      if (!recovered) return false;
+      return continueAfterKnownToken();
+    });
+  }
+
+  function startPublishedBrowserTransition(
+    bridge,
+    area,
+    actionId,
+    failedMessage,
+    announceHostError
+  ) {
+    const requestId = nextShellPublicationRequestId();
+    if (!requestId) {
+      announce(failedMessage);
+      return Promise.resolve(null);
+    }
+    pendingShellPublicationRequestId = requestId;
+    pendingShellPublicationArea = area;
+    pendingShellPublicationActionId = actionId;
+
+    return startShellPublication(
+      bridge,
+      area,
+      actionId,
+      requestId
+    ).then(function (result) {
+      if (result && result.kind === "error") {
+        clearPendingShellPublicationStart(requestId);
+        if (announceHostError && result.payload) {
+          announce(result.payload.message || "");
+        }
+        return result;
+      }
+      const token = shellPublicationToken(result);
+      if (!token) {
+        announce(failedMessage);
+        return null;
+      }
+      clearPendingShellPublicationStart(requestId);
+      pendingShellPublicationToken = token;
+
+      return refresh(true).then(function () {
+        return finishShellPublication(
+          bridge,
+          "shell.presentation_commit",
+          token
+        ).then(function () {
+          clearPendingShellPublication(token);
+          if (
+            area === "library" &&
+            actionId === "library.open_game" &&
+            result.kind === "delegated"
+          ) {
+            // publication_token is transport authority only. Never leak it into
+            // the strict Library delegated-event schema after commit.
+            return {
+              kind: "delegated",
+              payload: { action: "library.open_game" }
+            };
+          }
+          return result;
+        }, function () {
+          return recoverShellPublication(
+            bridge,
+            token,
+            failedMessage
+          ).then(function () { return null; });
+        });
+      }, function (error) {
+        return recoverShellPublication(
+          bridge,
+          token,
+          failedMessage,
+          !!(error && error.committedPresentationPreserved === true)
+        ).then(function () { return null; });
+      });
+    }, function () {
+      // Keep the exact area/action/request tuple. The host may already have
+      // executed the transition and lost both responses; the next interaction
+      // must replay this request before doing anything new.
+      announce(failedMessage);
+      return null;
+    });
+  }
+
+  function runPublishedBrowserTransition(
+    bridge,
+    area,
+    actionId,
+    failedMessage,
+    announceHostError
+  ) {
+    if (shellRouteTransitionInFlight) return Promise.resolve(null);
+    shellRouteTransitionInFlight = true;
+    return Promise.resolve()
+      .then(waitForEventDrainIdle)
+      .then(function () {
+        return recoverOutstandingShellPublication(bridge, failedMessage);
+      })
+      .then(function (recovered) {
+        if (!recovered) return null;
+        return startPublishedBrowserTransition(
+          bridge,
+          area,
+          actionId,
+          failedMessage,
+          announceHostError
+        );
+      })
+      .then(function (result) {
+        finishRouteTransition();
+        return result;
+      }, function () {
+        announce(failedMessage);
+        finishRouteTransition();
+        return null;
+      });
+  }
+
   function renderNavigation(snapshot) {
-    const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
+    if (!Array.isArray(snapshot.navigation) ||
+        snapshot.navigation.length < 1 ||
+        snapshot.navigation.length > MAX_NAVIGATION_ITEMS) {
+      throw new TypeError("V2 navigation schema is invalid");
+    }
+    const routeIds = new Set();
+    const currentRouteIds = new Set();
     const fragment = documentRef.createDocumentFragment();
-    items.forEach(function (item) {
+    snapshot.navigation.forEach(function (item) {
+      if (!plainObject(item)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      const routeId = item.route_id;
+      const actionId = item.action_id;
+      const label = boundedText(item.label, MAX_NAVIGATION_LABEL);
+      const current =
+        item.current === true || item.current === "true"
+          ? true
+          : item.current === false || item.current === "false"
+            ? false
+            : null;
+      if (!validRouteId(routeId) || !validActionId(actionId) || !label ||
+          current === null || routeIds.has(routeId)) {
+        throw new TypeError("V2 navigation item is invalid");
+      }
+      routeIds.add(routeId);
+      if (current) currentRouteIds.add(routeId);
+
       const row = documentRef.createElement("div");
       const button = documentRef.createElement("button");
       button.type = "button";
-      button.id = "v2-nav-" + String(item.route_id || "");
-      button.textContent = String(item.label || item.route_id || "");
-      if (String(item.current) === "true") button.setAttribute("aria-current", "page");
+      button.id = "v2-nav-" + routeId;
+      button.textContent = label;
+      if (current) button.setAttribute("aria-current", "page");
       button.addEventListener("click", function () {
         const bridge = api();
         if (!bridge || typeof bridge.v2_browser_command !== "function") return;
-        bridge.v2_browser_command("shell", String(item.action_id || ""), {}).then(function (result) {
-          if (result && result.kind === "error" && result.payload) announce(result.payload.message || "");
-          refresh(true);
-        }, function () { announce(uiText("Не вдалося відкрити розділ.", "Could not open the section.")); });
+        const failedMessage = uiText(
+          "Не вдалося відкрити розділ.",
+          "Could not open the section."
+        );
+        runPublishedBrowserTransition(
+          bridge,
+          "shell",
+          actionId,
+          failedMessage,
+          true
+        );
       });
       row.appendChild(button);
       fragment.appendChild(row);
     });
-    navList.replaceChildren(fragment);
+    return {
+      routeIds: routeIds,
+      currentRouteIds: currentRouteIds,
+      fragment: fragment
+    };
   }
 
-  function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
-    originalMain.hidden = true;
-    workspace.hidden = false;
+  function commitShellChrome(navigationState, language, routeId) {
+    currentLanguage = language;
+    documentRef.documentElement.lang = language;
+    nav.setAttribute(
+      "aria-label",
+      uiTextFor(language, "Розділи Accessible Chess", "Accessible Chess sections")
+    );
+    navHeading.textContent = uiTextFor(language, "Розділи", "Sections");
+    navList.replaceChildren(navigationState.fragment);
+    currentRouteId = routeId;
+    if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
+  }
 
-    if (routeId === "pgn") {
-      if (snapshot.pgn && global.AccessibleChessPgnSurface) {
-        global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "library") {
-      if (snapshot.library && global.AccessibleChessLibrarySurface) {
-        global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "books") {
-      if (snapshot.books && global.AccessibleChessBookSurface) {
-        global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "training") {
-      const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
-      if (snapshot.training && global.AccessibleChessTrainingSurface) {
-        global.AccessibleChessTrainingSurface.render(
-          workspace, snapshot.training, areaInvoke("training"), announce, focus || "training-answer"
-        );
-        requestedFocus = focus;
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "teacher") {
-      if (snapshot.teacher && global.AccessibleChessTeacherSurface) {
-        global.AccessibleChessTeacherSurface.render(
-          workspace, snapshot.teacher, areaInvoke("teacher"), announce, requestedFocus || ""
-        );
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "classes") {
-      if (snapshot.education && global.AccessibleChessEducationSurface) {
-        global.AccessibleChessEducationSurface.render(
-          workspace,
-          snapshot.education,
-          areaInvoke("classes"),
-          announce,
-          requestedFocus || "",
-          uiText("Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
-        );
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
+  function deactivateLibrarySurface() {
+    const surface = global.AccessibleChessLibrarySurface;
+    if (surface && typeof surface.deactivate === "function") {
+      surface.deactivate(workspace);
     }
+  }
 
-    if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
+  function renderProductSurface(
+    snapshot,
+    routeId,
+    requestedFocus,
+    heading,
+    language
+  ) {
+    const previousWorkspaceNodes = Array.from(
+      workspace.childNodes || workspace.children || []
+    );
+    const previousActiveElement = documentRef.activeElement;
+
+    try {
+      if (routeId === "pgn") {
+        if (snapshot.pgn && global.AccessibleChessPgnSurface) {
+          global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
+        } else {
+          renderEmptyProduct(routeId, heading, "", language);
+        }
+        return requestedFocus;
+      }
+      if (routeId === "library") {
+        if (snapshot.library && global.AccessibleChessLibrarySurface) {
+          global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
+        } else {
+          renderEmptyProduct(routeId, heading, "", language);
+        }
+        return requestedFocus;
+      }
+      if (routeId === "books") {
+        if (snapshot.books && global.AccessibleChessBookSurface) {
+          global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
+        } else {
+          renderEmptyProduct(routeId, heading, "", language);
+        }
+        return requestedFocus;
+      }
+      if (routeId === "training") {
+        const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
+        if (snapshot.training && global.AccessibleChessTrainingSurface) {
+          global.AccessibleChessTrainingSurface.render(
+            workspace, snapshot.training, areaInvoke("training"), announce, focus || "training-answer"
+          );
+        } else {
+          renderEmptyProduct(routeId, heading, "", language);
+        }
+        return focus;
+      }
+      if (routeId === "teacher") {
+        if (snapshot.teacher && global.AccessibleChessTeacherSurface) {
+          global.AccessibleChessTeacherSurface.render(
+            workspace, snapshot.teacher, areaInvoke("teacher"), announce, requestedFocus || ""
+          );
+        } else {
+          renderEmptyProduct(routeId, heading, "", language);
+        }
+        return requestedFocus;
+      }
+      if (routeId === "classes") {
+        if (snapshot.education && global.AccessibleChessEducationSurface) {
+          global.AccessibleChessEducationSurface.render(
+            workspace,
+            snapshot.education,
+            areaInvoke("classes"),
+            announce,
+            requestedFocus || "",
+            uiTextFor(language, "Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
+          );
+        } else {
+          renderEmptyProduct(routeId, heading, "", language);
+        }
+        return requestedFocus;
+      }
+      throw new TypeError("unsupported V2 product route");
+    } catch (error) {
+      try {
+        workspace.replaceChildren(...previousWorkspaceNodes);
+      } catch (_) {}
+      if (
+        previousActiveElement &&
+        typeof previousActiveElement.focus === "function" &&
+        !hiddenByAncestor(previousActiveElement)
+      ) {
+        try {
+          previousActiveElement.focus({ preventScroll: true });
+        } catch (_) {}
+      }
+      throw {
+        committedPresentationPreserved: true,
+        cause: error
+      };
+    }
   }
 
   function render(snapshot, restoreFocus) {
-    if (!snapshot || typeof snapshot !== "object") return;
+    if (!plainObject(snapshot)) return;
     const selectionSnapshot = captureWorkspaceSelection();
-    currentLanguage = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
-    documentRef.documentElement.lang = currentLanguage;
-    nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
-    navHeading.textContent = uiText("Розділи", "Sections");
-    renderNavigation(snapshot);
-    const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
-    const routeId = String(screen.route_id || "board");
-    currentRouteId = routeId;
-    if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
-    const requestedFocus = String(screen.focus_target || "");
-    const heading = String(screen.heading || "");
+    const nextLanguage =
+      snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
+    const navigationState = renderNavigation(snapshot);
+    const screen = plainObject(snapshot.screen) ? snapshot.screen : {};
+    const routeId = screen.route_id;
+    const requestedFocus = validFocusId(screen.focus_target) ? screen.focus_target : "";
+    const heading = boundedText(screen.heading, MAX_SCREEN_HEADING);
+    if (!validRouteId(routeId) || !heading ||
+        !navigationState.routeIds.has(routeId) ||
+        navigationState.currentRouteIds.size !== 1 ||
+        !navigationState.currentRouteIds.has(routeId)) {
+      throw new TypeError("V2 screen schema is invalid");
+    }
 
     if (productRoutes.has(routeId)) {
-      renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
+      const workspaceWasHidden = workspace.hidden;
+      const productFocus = renderProductSurface(
+        snapshot,
+        routeId,
+        requestedFocus,
+        heading,
+        nextLanguage
+      );
+      if (routeId !== "library") deactivateLibrarySurface();
+      commitShellChrome(navigationState, nextLanguage, routeId);
+      originalMain.hidden = true;
+      workspace.hidden = false;
+      if (restoreFocus || workspaceWasHidden) {
+        restoreProductFocus(snapshot, routeId, productFocus);
+      }
       restoreWorkspaceSelection(selectionSnapshot, routeId);
       return;
     }
 
+    commitShellChrome(navigationState, nextLanguage, routeId);
+    deactivateLibrarySurface();
     workspace.hidden = true;
     workspace.replaceChildren();
     originalMain.hidden = false;
     if (restoreFocus) restoreStage1Focus(routeId, requestedFocus);
   }
 
+  function snapshotShellPublicationToken(snapshot) {
+    if (!plainObject(snapshot)) return 0;
+    const token = snapshot.shell_publication_token;
+    return Number.isSafeInteger(token) && token > 0 ? token : 0;
+  }
+
   function refresh(restoreFocus) {
     const bridge = api();
     if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve();
-    return bridge.v2_snapshot().then(function (snapshot) { render(snapshot, !!restoreFocus); });
+    return bridge.v2_snapshot().then(function (snapshot) {
+      const orphanedToken = snapshotShellPublicationToken(snapshot);
+      if (
+        orphanedToken &&
+        !pendingShellPublicationToken &&
+        !pendingShellPublicationRequestId
+      ) {
+        // A WebView reload can erase the browser's request/token memory after
+        // Python already acquired the publication hold. Never render that
+        // unacknowledged candidate as committed state. Recover through the same
+        // idempotent rollback protocol, then read one canonical snapshot.
+        pendingShellPublicationToken = orphanedToken;
+        return recoverShellPublication(
+          bridge,
+          orphanedToken,
+          uiText(
+            "Відновлено попередній розділ після перезапуску подання.",
+            "Restored the previous section after the view restarted."
+          )
+        ).then(function (recovered) {
+          if (!recovered) {
+            throw new Error("orphaned shell publication recovery is still pending");
+          }
+        });
+      }
+      render(snapshot, !!restoreFocus);
+    });
   }
 
   function isVersion2DomainAction(actionId) {
@@ -486,7 +1036,24 @@
   }
 
   function delegatedHasOwnPresentationEvent(actionId) {
-    return actionId === "library.import" || actionId === "library.cancel_import";
+    return actionId === "library.import" || actionId === "library.cancel_import" ||
+      actionId === "library.export";
+  }
+
+  function restoreQueuedNativeFocus(id) {
+    if (!validFocusId(id)) return false;
+    const target = documentRef.getElementById(id);
+    if (!target || hiddenByAncestor(target) || typeof target.focus !== "function") return false;
+    if (documentRef.activeElement === target) return true;
+    const active = documentRef.activeElement;
+    if (
+      active &&
+      (workspace.contains(active) || nav.contains(active)) &&
+      !hiddenByAncestor(active)
+    ) {
+      return true;
+    }
+    return focusById(id);
   }
 
   function refreshStage1Surface() {
@@ -503,8 +1070,11 @@
   }
 
   function applyQueuedEvent(event, orderedStage1Refreshes) {
-    if (!event || typeof event !== "object") return false;
-    const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+    if (!plainObject(event) || !NATIVE_EVENT_KINDS.has(event.kind)) return false;
+    if (!plainObject(event.payload)) return false;
+    const payload = event.payload;
+    if (event.kind === "route" && !validRouteId(payload.route_id)) return false;
+    if (event.kind === "delegated" && !validActionId(payload.action_id)) return false;
     if (event.kind === "render-import") {
       if (currentRouteId === "library" && global.AccessibleChessLibrarySurface &&
           typeof global.AccessibleChessLibrarySurface.apply === "function") {
@@ -525,50 +1095,127 @@
       const actionId = typeof payload.action_id === "string" ? payload.action_id : "";
       if (delegatedHasOwnPresentationEvent(actionId)) return false;
       if (actionId && !isVersion2DomainAction(actionId)) {
-        refreshStage1Surface();
+        orderedStage1Refreshes.push(refreshStage1Surface);
         return false;
       }
     }
     if (event.kind === "book-board") {
-      orderedStage1Refreshes.push(refreshStage1Surface());
+      orderedStage1Refreshes.push(refreshStage1Surface);
     }
     if (payload.announcement) announce(payload.announcement);
     if (event.kind === "error" && payload.message) announce(payload.message);
     return event.kind !== "error" && event.kind !== "status";
   }
 
+  let eventDrainInFlight = false;
+  let eventDrainPending = false;
+  let deferredNativeEventBatch = null;
+  let eventDrainIdleWaiters = [];
+
+  function waitForEventDrainIdle() {
+    if (!eventDrainInFlight) return Promise.resolve();
+    return new Promise(function (resolve) {
+      eventDrainIdleWaiters.push(resolve);
+    });
+  }
+
+  function browserOwnsPendingShellPublication() {
+    return !!pendingShellPublicationToken || !!pendingShellPublicationRequestId;
+  }
+
+  function finishRouteTransition() {
+    shellRouteTransitionInFlight = false;
+    if (
+      eventDrainPending &&
+      !browserOwnsPendingShellPublication() &&
+      !eventDrainInFlight
+    ) {
+      eventDrainPending = false;
+      drainEvents();
+    }
+  }
+
+  function finishEventDrain() {
+    eventDrainInFlight = false;
+    const waiters = eventDrainIdleWaiters;
+    eventDrainIdleWaiters = [];
+    waiters.forEach(function (resolve) { resolve(); });
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) return;
+    if (!eventDrainPending) return;
+    eventDrainPending = false;
+    drainEvents();
+  }
+
   function drainEvents() {
+    if (shellRouteTransitionInFlight || browserOwnsPendingShellPublication()) {
+      eventDrainPending = true;
+      return;
+    }
+    if (eventDrainInFlight) {
+      eventDrainPending = true;
+      return;
+    }
     const bridge = api();
     if (!bridge || typeof bridge.v2_drain_events !== "function") return;
-    bridge.v2_drain_events().then(function (events) {
-      if (!Array.isArray(events) || !events.length) return;
+    eventDrainInFlight = true;
+    eventDrainPending = false;
+    let drained;
+    try {
+      if (deferredNativeEventBatch !== null) {
+        drained = deferredNativeEventBatch;
+        deferredNativeEventBatch = null;
+      } else {
+        drained = bridge.v2_drain_events();
+      }
+    } catch (_) {
+      finishEventDrain();
+      return;
+    }
+    Promise.resolve(drained).then(function (events) {
+      if (!Array.isArray(events) || !events.length || events.length > MAX_NATIVE_EVENT_BATCH) return;
+      if (browserOwnsPendingShellPublication()) {
+        // A route-start response may be lost after Python acquired its hold but
+        // before this browser learned the token. Treat the retained request_id
+        // as the same publication fence so a previously started native-event
+        // drain cannot publish stale UI while route authority is unresolved.
+        deferredNativeEventBatch = events;
+        eventDrainPending = true;
+        return;
+      }
       let needsRefresh = false;
-      let queuedFocusTarget = "";
+      let queuedTerminalFocus = "";
       const orderedStage1Refreshes = [];
       events.forEach(function (event) {
+        if (
+          plainObject(event) &&
+          (event.kind === "status" || event.kind === "error") &&
+          plainObject(event.payload) &&
+          validFocusId(event.payload.focus_target)
+        ) {
+          queuedTerminalFocus = event.payload.focus_target;
+        }
         const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);
-        if (!refreshRequired) return;
-        needsRefresh = true;
-        const payload = event && event.payload && typeof event.payload === "object" ? event.payload : {};
-        const candidate = typeof payload.focus_target === "string" ? payload.focus_target : "";
-        if (candidate) queuedFocusTarget = candidate;
+        if (refreshRequired) needsRefresh = true;
       });
-      if (needsRefresh) {
-        const repaintBarrier = orderedStage1Refreshes.length
-          ? Promise.all(orderedStage1Refreshes)
-          : Promise.resolve();
-        repaintBarrier.then(function () {
-          return refresh(true);
-        }).then(function () {
-          if (queuedFocusTarget) focusById(queuedFocusTarget);
-        }, function () {});
+      if (!needsRefresh && !orderedStage1Refreshes.length) {
+        if (queuedTerminalFocus) restoreQueuedNativeFocus(queuedTerminalFocus);
+        return;
       }
-    }, function () {});
+      const repaintBarrier = orderedStage1Refreshes.reduce(function (chain, refreshStage1) {
+        return chain.then(function () { return refreshStage1(); });
+      }, Promise.resolve());
+      return repaintBarrier.then(function () {
+        // A repaint owns focus through refresh(true). Raw terminal focus is used
+        // only in the no-repaint path above, so one event can never produce two
+        // competing focus transitions.
+        return needsRefresh ? refresh(true) : undefined;
+      });
+    }).then(finishEventDrain, finishEventDrain);
   }
 
   documentRef.addEventListener("focusin", function (event) {
     const target = event.target;
-    if (!target || !target.id || !/^[A-Za-z0-9_-]{1,160}$/.test(target.id)) return;
+    if (!target || !validFocusId(target.id)) return;
     if (target.id.indexOf("v2-nav-") === 0) return;
     const bridge = api();
     if (bridge && typeof bridge.v2_record_focus === "function") {
