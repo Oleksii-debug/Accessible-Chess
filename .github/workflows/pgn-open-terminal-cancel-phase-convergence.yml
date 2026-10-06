@@ -1,0 +1,119 @@
+name: PGN Open Terminal Truth + Cancellation Phase Convergence
+
+on:
+  push:
+    branches:
+      - converge/current-runtime-pgn-open-terminal-cancel-phase-20261006-ooxple7
+  pull_request:
+    branches:
+      - fix/current-runtime-pgn-open-terminal-truth-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-open-terminal-cancel-phase-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  BASE_BRANCH: fix/current-runtime-pgn-open-terminal-truth-20261006-c2mbezb
+  BASE_SHA: 32ceb0f6a21b315ca7c941d8f0f7ab71ddccaf07
+  CANCEL_PHASE_SHA: 673ba1dbb0a233f4e38c89c0ef318a2c03b0f7b5
+  SOURCE_BLOB: 01575e19315e69624d104d9c5d2b23a3f36e469d
+  OPEN_TEST_BLOB: 8268832a903d77f0d40e027c5f2cd2a335e47aae
+  SAVE_TEST_BLOB: a9fb0eb40d8b48b75a900318db72ad62bb825b3e
+
+jobs:
+  terminal-cancel-phase:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact terminal-truth parent and bounded combined delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+
+          git fetch --no-tags origin "+refs/heads/$BASE_BRANCH:refs/remotes/origin/terminal-parent"
+          live_base="$(git rev-parse refs/remotes/origin/terminal-parent)"
+          test "$live_base" = "$BASE_SHA"
+          git cat-file -e "$CANCEL_PHASE_SHA^{commit}"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+
+          mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/pgn-open-terminal-cancel-phase-convergence.yml"
+            "acs/version2_windows_file_workflows.py"
+            "tests/test_v2_windows_pgn_open_worker.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$OPEN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$SAVE_TEST_BLOB"
+          grep -Fq 'if error_code == "pgn_open_cancelled":' acs/version2_windows_file_workflows.py
+          grep -Fq 'self._cancel_event = None' acs/version2_windows_file_workflows.py
+          grep -Fq 'test_late_cancel_after_worker_failure_does_not_rewrite_failure' tests/test_v2_windows_pgn_open_worker.py
+          grep -Fq 'controller_box["value"]("pgn.cancel_open", {})' tests/test_v2_windows_pgn_open_worker.py
+
+      - name: Compile combined PGN Open boundary
+        run: >-
+          python -m py_compile
+          acs/version2_windows_file_workflows.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_save_worker.py
+
+      - name: Execute PGN Open terminal/cancellation authority
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_open_invalid_session
+          tests.test_v2_windows_file_worker_preflight
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_nvda_file_workflows
+
+      - name: Execute adjacent persistence and owner handoff
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_pgn_document_passive_ingress
+          tests.test_pgn_save_snapshot
+          tests.test_v2_windows_host_runtime
+          tests.test_version2_application
+          tests.test_whole_product_user_journey
+
+      - name: Core selftest
+        run: python -m acs.selftest
