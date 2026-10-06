@@ -934,6 +934,44 @@ Starting board
                     )
                 )
 
+    def test_markdown_decorative_image_in_list_does_not_leak_destination(self) -> None:
+        result = import_text_book(
+            "- Before ![](private/decorative.png) after\n",
+            source_name="decorative-list-image.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before after"])
+        self.assertNotIn("private/decorative.png", lists[0].items[0])
+        self.assertTrue(
+            any(
+                "image inside a list item" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_markdown_decorative_image_in_prose_does_not_leak_destination(self) -> None:
+        result = import_text_book(
+            "Before ![](private/decorative.png) after\n",
+            source_name="decorative-prose-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertNotIn("private/decorative.png", " ".join(paragraphs))
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
     def test_markdown_list_fallback_does_not_invent_images_from_literals(self) -> None:
         result = import_text_book(
             "    - \\![escaped](asset.png) and `![code](asset.png)`\n",
