@@ -2,7 +2,7 @@
 
 Live GitHub exact refs supersede historical SHA/status snapshots in this file.
 
-- Default main: `f1ffbeb55ca6e7a816366649247ad68f48116da6`.
+- Default `main`: use the live GitHub ref; this audit record itself is committed on `main`, so an embedded self-SHA would be stale by construction.
 - Canonical shipping #2184: `a3bd423a87b65af0850c0c3c8a74daac824e4668`; open/draft/mergeable at audit close.
 - Exact-head shipping Actions: {"queued":53,"pending":3}. Nonterminal is not GREEN.
 - Bounded children preserved, not integrated: #2221 `a4aaaf737a95d5f1123b46eef42a42a6e49243e8`, #2222 `609ba9310362ac0ef2720b82945a804a1238db90`, #2223 `529dc92ac5a8e4a62a407b5891a5665bef6cbae5`.
