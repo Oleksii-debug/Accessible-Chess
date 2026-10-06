@@ -1535,7 +1535,7 @@ class Version2Application:
         return canonical
 
     def _delegate(self, action, payload):
-        if action == "position.read_fen":
+        if action == "board.read_fen":
             if payload:
                 raise ValueError("Read FEN accepts no payload")
             canonical = self._canonical_visible_fen()
