@@ -12,6 +12,7 @@ from acs.media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationResult,
     MediaReconciliationState,
 )
 from acs.media_preprocess import (
@@ -113,6 +114,135 @@ class RecordedMediaSyncTests(unittest.TestCase):
             confidence,
             evidence,
         )
+
+
+    def reconciliation(
+        self,
+        *,
+        timestamp=0,
+        state=MediaReconciliationState.VERIFIED,
+        chess_ref="tree:typed",
+        candidates=(),
+        evidence_ids=("board:0",),
+        confidence=.93,
+        reason="typed canonical reconciliation",
+    ):
+        return MediaReconciliationResult(
+            source_id="video-1",
+            state=state,
+            evidence_ids=evidence_ids,
+            chess_ref=chess_ref,
+            candidate_refs=candidates,
+            confidence=confidence,
+            reason=reason,
+        )
+
+    def test_typed_verified_reconciliation_becomes_confirmed_timeline_link(self):
+        result = self.reconciliation(
+            state=MediaReconciliationState.INFERRED,
+            chess_ref="tree:typed-inferred",
+            evidence_ids=("board:0", "speech:0"),
+        )
+        builder = RecordedMediaTimelineBuilder(self.plan(), Canonical(result))
+        step = builder.accept(self.frame(), speech_context=(self.speech(),))
+
+        self.assertEqual(step.kind, RecordedSyncStepKind.LINKED)
+        self.assertTrue(step.link.confirmed)
+        self.assertEqual(step.link.chess_ref, "tree:typed-inferred")
+        self.assertEqual(
+            step.link.qualification,
+            MediaReconciliationState.INFERRED,
+        )
+        self.assertEqual(step.link.evidence_ids, ("board:0", "speech:0"))
+
+    def test_typed_observed_single_candidate_remains_unconfirmed(self):
+        result = self.reconciliation(
+            state=MediaReconciliationState.OBSERVED,
+            chess_ref=None,
+            candidates=("tree:candidate",),
+            evidence_ids=("board:0",),
+            confidence=.61,
+        )
+        builder = RecordedMediaTimelineBuilder(self.plan(), Canonical(result))
+        step = builder.accept(self.frame())
+
+        self.assertEqual(step.kind, RecordedSyncStepKind.LINKED)
+        self.assertFalse(step.link.confirmed)
+        self.assertEqual(step.link.chess_ref, "tree:candidate")
+        self.assertEqual(
+            step.link.qualification,
+            MediaReconciliationState.OBSERVED,
+        )
+
+    def test_typed_ambiguous_and_resync_results_create_fail_closed_barriers(self):
+        for state in (
+            MediaReconciliationState.AMBIGUOUS,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        ):
+            with self.subTest(state=state):
+                candidates = (
+                    ("tree:a", "tree:b")
+                    if state is MediaReconciliationState.AMBIGUOUS
+                    else ()
+                )
+                result = self.reconciliation(
+                    state=state,
+                    chess_ref=None,
+                    candidates=candidates,
+                    evidence_ids=("board:0", "speech:0"),
+                )
+                builder = RecordedMediaTimelineBuilder(self.plan(), Canonical(result))
+                step = builder.accept(self.frame())
+                self.assertEqual(step.kind, RecordedSyncStepKind.NO_LINK)
+                barrier = builder.timeline.barrier_at(0)
+                self.assertIsNotNone(barrier)
+                self.assertEqual(barrier.state, state)
+                self.assertEqual(
+                    barrier.evidence_ids,
+                    ("board:0", "speech:0"),
+                )
+                self.assertFalse(
+                    builder.timeline.resolve_at_or_before(500).resolved
+                )
+
+    def test_typed_no_change_reuses_only_same_timestamp_confirmed_anchor(self):
+        existing = self.link(0, "tree:existing")
+        result = self.reconciliation(
+            state=MediaReconciliationState.NO_CHANGE,
+            chess_ref=None,
+            evidence_ids=("board:0",),
+        )
+        builder = RecordedMediaTimelineBuilder(
+            self.plan(),
+            Canonical(result),
+            timeline=MediaPositionTimeline("video-1", (existing,)),
+        )
+        step = builder.accept(self.frame())
+        self.assertEqual(step.kind, RecordedSyncStepKind.NO_CHANGE)
+        self.assertEqual(step.link, existing)
+        self.assertIsNone(builder.timeline.barrier_at(0))
+
+        empty = RecordedMediaTimelineBuilder(self.plan(), Canonical(result))
+        unresolved = empty.accept(self.frame())
+        self.assertEqual(unresolved.kind, RecordedSyncStepKind.NO_LINK)
+        self.assertEqual(
+            empty.timeline.barrier_at(0).state,
+            MediaReconciliationState.OBSERVED,
+        )
+
+    def test_typed_reconciliation_source_mismatch_fails_closed(self):
+        result = MediaReconciliationResult(
+            source_id="other-source",
+            state=MediaReconciliationState.VERIFIED,
+            evidence_ids=("board:0",),
+            chess_ref="tree:x",
+            confidence=1.0,
+            reason="wrong source",
+        )
+        builder = RecordedMediaTimelineBuilder(self.plan(), Canonical(result))
+        with self.assertRaises(RecordedSyncContractError) as caught:
+            builder.accept(self.frame())
+        self.assertEqual(caught.exception.code, RecordedSyncErrorCode.SOURCE_MISMATCH)
 
     def test_stable_frame_uses_canonical_port_and_replay_is_idempotent(self):
         link = self.link()

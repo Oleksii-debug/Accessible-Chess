@@ -21,6 +21,7 @@ from .media_core import (
     MediaCursor,
     MediaLinkStatus,
     MediaPositionTimeline,
+    MediaReconciliationResult,
     MediaReconciliationState,
     MediaTimelineBarrier,
     MediaSource,
@@ -145,7 +146,7 @@ class CanonicalRecordedFramePort(Protocol):
         *,
         frame: BoardFrameEvidence,
         speech_context: tuple[SpeechEvidence, ...],
-    ) -> MediaChessLink | None: ...
+    ) -> MediaChessLink | MediaReconciliationResult | None: ...
 
 
 def _event(text: str) -> AccessibleRecordedSyncEvent:
@@ -253,14 +254,19 @@ class RecordedMediaTimelineBuilder:
         *,
         state: MediaReconciliationState,
         reason: str,
+        evidence_ids: tuple[str, ...] | None = None,
     ) -> None:
+        if evidence_ids is None:
+            evidence_ids = (
+                (frame.observation_ref,)
+                if frame.observation_ref is not None
+                else ()
+            )
         barrier = MediaTimelineBarrier(
             source_id=self.plan.source.source_id,
             timestamp_ms=frame.timestamp_ms,
             state=state,
-            evidence_ids=(
-                frame.observation_ref,
-            ) if frame.observation_ref is not None else (),
+            evidence_ids=evidence_ids,
             reason=reason,
         )
         existing = self.timeline.barrier_at(frame.timestamp_ms)
@@ -339,7 +345,7 @@ class RecordedMediaTimelineBuilder:
             )
 
         try:
-            link = self.canonical.resolve_recorded_frame(
+            canonical_result = self.canonical.resolve_recorded_frame(
                 frame=frame,
                 speech_context=context,
             )
@@ -348,6 +354,123 @@ class RecordedMediaTimelineBuilder:
                 "canonical chess application rejected recorded-media evidence",
                 code=RecordedSyncErrorCode.CANONICAL_REJECTED,
             ) from None
+
+        if type(canonical_result) is MediaReconciliationResult:
+            result = canonical_result
+            if result.source_id != self.plan.source.source_id:
+                raise RecordedSyncContractError(
+                    "canonical reconciliation belongs to a different media source",
+                    code=RecordedSyncErrorCode.SOURCE_MISMATCH,
+                )
+            if (
+                frame.disposition is FrameDisposition.AMBIGUOUS
+                and result.state in (
+                    MediaReconciliationState.VERIFIED,
+                    MediaReconciliationState.INFERRED,
+                )
+            ):
+                raise RecordedSyncContractError(
+                    "ambiguous visual evidence cannot publish confirmed chess truth",
+                    code=RecordedSyncErrorCode.UNSAFE_CONFIRMATION,
+                )
+
+            if result.state in (
+                MediaReconciliationState.VERIFIED,
+                MediaReconciliationState.INFERRED,
+            ):
+                if result.chess_ref is None:
+                    raise RecordedSyncContractError(
+                        "resolved canonical reconciliation has no chess reference",
+                        code=RecordedSyncErrorCode.INVALID_CANONICAL_RESULT,
+                    )
+                link = MediaChessLink(
+                    source_id=self.plan.source.source_id,
+                    timestamp_ms=frame.timestamp_ms,
+                    chess_ref=result.chess_ref,
+                    status=MediaLinkStatus.CONFIRMED,
+                    confidence=result.confidence,
+                    evidence=result.reason,
+                    qualification=result.state,
+                    evidence_ids=result.evidence_ids,
+                )
+            elif (
+                result.state is MediaReconciliationState.OBSERVED
+                and len(result.candidate_refs) == 1
+            ):
+                link = MediaChessLink(
+                    source_id=self.plan.source.source_id,
+                    timestamp_ms=frame.timestamp_ms,
+                    chess_ref=result.candidate_refs[0],
+                    status=MediaLinkStatus.CANDIDATE,
+                    confidence=result.confidence,
+                    evidence=result.reason,
+                    qualification=MediaReconciliationState.OBSERVED,
+                    evidence_ids=result.evidence_ids,
+                )
+            elif result.state is MediaReconciliationState.NO_CHANGE:
+                existing = tuple(
+                    item
+                    for item in self.timeline.links_at(frame.timestamp_ms)
+                    if item.confirmed
+                )
+                if len(existing) == 1 and self.timeline.barrier_at(frame.timestamp_ms) is None:
+                    return RecordedSyncStep(
+                        RecordedSyncStepKind.NO_CHANGE,
+                        frame.timestamp_ms,
+                        existing[0],
+                        _event("Canonical reconciliation reported no change."),
+                    )
+                self._record_barrier(
+                    frame,
+                    state=MediaReconciliationState.OBSERVED,
+                    reason=result.reason,
+                    evidence_ids=result.evidence_ids,
+                )
+                return RecordedSyncStep(
+                    RecordedSyncStepKind.NO_LINK,
+                    frame.timestamp_ms,
+                    None,
+                    _event(
+                        "Canonical reconciliation reported no change without a reusable recorded position."
+                    ),
+                )
+            else:
+                barrier_state = result.state
+                if barrier_state not in (
+                    MediaReconciliationState.OBSERVED,
+                    MediaReconciliationState.AMBIGUOUS,
+                    MediaReconciliationState.RESYNC_REQUIRED,
+                ):
+                    raise RecordedSyncContractError(
+                        "canonical reconciliation returned an unsupported unresolved state",
+                        code=RecordedSyncErrorCode.INVALID_CANONICAL_RESULT,
+                    )
+                self._record_barrier(
+                    frame,
+                    state=barrier_state,
+                    reason=result.reason,
+                    evidence_ids=result.evidence_ids,
+                )
+                if barrier_state is MediaReconciliationState.AMBIGUOUS:
+                    message = (
+                        "Recorded media evidence remains ambiguous; canonical position was not changed."
+                    )
+                elif barrier_state is MediaReconciliationState.RESYNC_REQUIRED:
+                    message = (
+                        "Recorded media synchronization requires a new canonical anchor."
+                    )
+                else:
+                    message = (
+                        "Recorded media evidence was observed but no canonical position was accepted."
+                    )
+                return RecordedSyncStep(
+                    RecordedSyncStepKind.NO_LINK,
+                    frame.timestamp_ms,
+                    None,
+                    _event(message),
+                )
+        else:
+            link = canonical_result
 
         if link is None:
             if frame.disposition is FrameDisposition.AMBIGUOUS:
