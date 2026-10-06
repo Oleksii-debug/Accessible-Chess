@@ -546,6 +546,65 @@ Starting board
             )
         )
 
+    def test_markdown_invalid_raw_destination_space_stays_literal(self) -> None:
+        source = "Before ![Board](foo bar) after\n"
+        result = import_text_book(
+            source,
+            source_name="invalid-space-image-destination.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, [source.strip()])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_markdown_quoted_image_title_may_contain_closing_parenthesis(self) -> None:
+        result = import_text_book(
+            'Before ![Board](asset.png "study ) title") after\n',
+            source_name="quoted-title-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board"])
+        self.assertNotIn("title", " ".join(paragraphs))
+
+    def test_markdown_angle_destination_may_contain_space_and_parenthesis(self) -> None:
+        result = import_text_book(
+            "Before ![Board](<assets/study ) board.png>) after\n",
+            source_name="angle-image-destination.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board"])
+
     def test_markdown_empty_image_destination_keeps_accessible_alt_text(self) -> None:
         result = import_text_book(
             "Before ![Board]() after\n",
