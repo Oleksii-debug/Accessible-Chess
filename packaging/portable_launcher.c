@@ -159,8 +159,34 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     return L"Невідома рання помилка основної програми.";
 }
 
+static void ac_close_child_process_handle(void) {
+    if (g_process.hProcess == NULL || g_process.hProcess == INVALID_HANDLE_VALUE) return;
+    CloseHandle(g_process.hProcess);
+    g_process.hProcess = NULL;
+}
+
+static BOOL ac_retire_child_for_report_failure(DWORD code) {
+    DWORD wait_result;
+    DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+
+    if (g_process.hProcess == NULL || g_process.hProcess == INVALID_HANDLE_VALUE) return TRUE;
+
+    wait_result = WaitForSingleObject(g_process.hProcess, 0);
+    if (wait_result == WAIT_OBJECT_0) return TRUE;
+    if (wait_result == WAIT_FAILED) return FALSE;
+
+    if (!TerminateProcess(g_process.hProcess, stable_code)) {
+        return WaitForSingleObject(g_process.hProcess, 0) == WAIT_OBJECT_0;
+    }
+    return WaitForSingleObject(
+        g_process.hProcess,
+        AC_TIMEOUT_CLEANUP_WAIT_MS
+    ) == WAIT_OBJECT_0;
+}
+
 static void ac_report_write_fail(HANDLE report, DWORD code) {
     DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+    BOOL child_stopped = ac_retire_child_for_report_failure(stable_code);
     if (report != NULL && report != INVALID_HANDLE_VALUE) CloseHandle(report);
 
     ac_copy(
@@ -173,6 +199,15 @@ static void ac_report_write_fail(HANDLE report, DWORD code) {
         L"Windows error / Код Windows: "
     );
     ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
+    if (!child_stopped) {
+        ac_append(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"\r\n\r\nThe main Accessible Chess process may still be running. Do not start another copy until it is closed."
+            L"\r\nОсновний процес Accessible Chess може ще працювати. Не запускайте другу копію, доки його не буде завершено."
+        );
+    }
+    ac_close_child_process_handle();
     MessageBoxW(
         NULL,
         g_message,
@@ -607,7 +642,7 @@ static void ac_fail_startup_timeout(HANDLE report) {
     }
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-    CloseHandle(g_process.hProcess);
+    ac_close_child_process_handle();
     CloseHandle(report);
     ExitProcess(ERROR_TIMEOUT);
 }
@@ -723,7 +758,7 @@ void WINAPI wWinMainCRTStartup(void) {
         error = GetLastError();
         TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        CloseHandle(g_process.hProcess);
+        ac_close_child_process_handle();
         ac_fail(report, L"package-local data ownership transfer", error);
     }
 
@@ -738,7 +773,7 @@ void WINAPI wWinMainCRTStartup(void) {
         error = GetLastError();
         TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        CloseHandle(g_process.hProcess);
+        ac_close_child_process_handle();
         ac_fail(report, L"package-local data directory guard transfer", error);
     }
 
@@ -747,7 +782,7 @@ void WINAPI wWinMainCRTStartup(void) {
         error = GetLastError();
         TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        CloseHandle(g_process.hProcess);
+        ac_close_child_process_handle();
         ac_fail(report, L"core process resume", error);
     }
     CloseHandle(g_process.hThread);
@@ -761,7 +796,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
     g_message[0] = L'\0';
     if (!ac_append_u32(g_message, AC_PATH_CAP + 2048, g_process.dwProcessId)) {
-        CloseHandle(g_process.hProcess);
+        ac_close_child_process_handle();
         ac_fail(report, L"child process identity report", ERROR_BUFFER_OVERFLOW);
     }
     ac_write_line(report, g_message);
@@ -774,7 +809,7 @@ void WINAPI wWinMainCRTStartup(void) {
         if (wait_result == WAIT_OBJECT_0) {
             if (!GetExitCodeProcess(g_process.hProcess, &exit_code)) {
                 error = GetLastError();
-                CloseHandle(g_process.hProcess);
+                ac_close_child_process_handle();
                 ac_fail(report, L"early child exit-code read", error);
             }
             ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT");
@@ -794,19 +829,19 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
             ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
             MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-            CloseHandle(g_process.hProcess);
+            ac_close_child_process_handle();
             CloseHandle(report);
             ExitProcess(exit_code == 0 ? 1 : exit_code);
         }
 
         if (wait_result == WAIT_FAILED) {
             error = GetLastError();
-            CloseHandle(g_process.hProcess);
+            ac_close_child_process_handle();
             ac_fail(report, L"startup window observation", error);
         }
 
         if (wait_result != WAIT_TIMEOUT) {
-            CloseHandle(g_process.hProcess);
+            ac_close_child_process_handle();
             ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);
         }
 
@@ -834,7 +869,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
     ac_write_line(report, L"NEXT: user verifies keyboard and NVDA behavior on these exact packaged bytes");
     ac_flush_report(report);
-    CloseHandle(g_process.hProcess);
+    ac_close_child_process_handle();
     CloseHandle(report);
     ExitProcess(0);
 }
