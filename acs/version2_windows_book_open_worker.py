@@ -93,6 +93,16 @@ class Version2BookOpenWorker:
         with self._lock:
             return self._closed
 
+    @property
+    def terminal_pending(self) -> bool:
+        """Whether one exact owner-side terminal still awaits acceptance."""
+        with self._lock:
+            return bool(
+                self._terminal_delivery_active
+                or self._recovery_focus is not None
+                or self._recovery_terminal_kind is not None
+            )
+
     def _emit(self, kind: BookOpenWorkerEventKind, focus_target: str) -> None:
         self._event_sink(BookOpenWorkerEvent(kind, focus_target))
 
