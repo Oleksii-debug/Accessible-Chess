@@ -108,7 +108,7 @@ def _workspace_error(message: str, code: PgnWorkspaceErrorCode) -> PgnWorkspaceE
     return PgnWorkspaceError(message, code=code)
 
 
-def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
+def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
     try:
         bounded = materialize_pgn_games_bounded(games)
     except PgnRoundTripError as exc:
@@ -141,7 +141,7 @@ def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
             "PGN document changes under canonical round-trip",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
         )
-    return list(reparsed)
+    return list(reparsed), _digest_text(text)
 
 
 def _digest_text(text: str) -> str:
@@ -157,11 +157,11 @@ class PgnWorkspace:
     """
 
     def __init__(self, games: Iterable[PgnGame]) -> None:
-        self._games = _validate_document(games)
+        self._games, self._content_digest = _validate_document(games)
         self._selected_game_index = 0
         self._cursor = GameTreeCursor()
         self._content_revision = 0
-        self._baseline_digest = self.content_digest
+        self._baseline_digest = self._content_digest
         self._dirty = False
 
     @classmethod
@@ -208,7 +208,11 @@ class PgnWorkspace:
 
     @property
     def content_digest(self) -> str:
-        return _digest_text(serialize_pgn_text(tuple(self._games)))
+        # _validate_document() already serialized and strict-round-tripped the
+        # exact canonical game set. Cache that digest until a content commit;
+        # navigation can then read document identity without reserializing a
+        # potentially large multi-game PGN on the Windows owner thread.
+        return self._content_digest
 
     def view(self) -> PgnWorkspaceView:
         game = self._current_game_ref()
@@ -257,10 +261,63 @@ class PgnWorkspace:
     def to_bytes(self) -> bytes:
         return serialize_pgn_bytes(tuple(self._games))
 
+    def _saved_checkpoint_values(
+        self,
+        saved_digest: object,
+    ) -> tuple[str | None, bool]:
+        """Validate one persistence generation without building presentation data."""
+
+        if saved_digest is not None and (
+            type(saved_digest) is not str
+            or len(saved_digest) != 64
+            or any(character not in "0123456789abcdef" for character in saved_digest)
+        ):
+            raise TypeError("PGN saved digest must be lowercase SHA-256 hex or None")
+        dirty = saved_digest is None or self._content_digest != saved_digest
+        return saved_digest, dirty
+
+    def _checkpoint_saved_digest(self, saved_digest: object) -> bool:
+        """Commit only persistence authority, without record-identity rendering.
+
+        Background Save/Save As owner commits already prepare their complete
+        user-facing document projection before mutating persistence authority.
+        They therefore need a bounded checkpoint primitive that does not call
+        identity_for_game() on the Windows owner thread.
+        """
+
+        saved_digest, dirty = self._saved_checkpoint_values(saved_digest)
+        self._baseline_digest = saved_digest
+        self._dirty = dirty
+        return dirty
+
+    def _rebase_saved_digest(self, saved_digest: object) -> PgnWorkspaceView:
+        """Rebase dirty tracking to one verified persisted document generation.
+
+        A document may have no persisted generation yet, or background Save/Save As
+        may durably publish an older snapshot while newer edits already exist in
+        memory. The workspace baseline follows that exact persistence authority.
+        Build the complete next projection before mutating the checkpoint so a
+        semantic identity failure cannot leave a partially rebased workspace.
+        """
+
+        saved_digest, dirty = self._saved_checkpoint_values(saved_digest)
+        game = self._current_game_ref()
+        next_view = PgnWorkspaceView(
+            game_count=self.game_count,
+            selected_game_index=self._selected_game_index,
+            cursor=self._cursor,
+            dirty=dirty,
+            content_revision=self._content_revision,
+            content_digest=self.content_digest,
+            current_record_digest=identity_for_game(game).record_digest,
+        )
+        self._baseline_digest = saved_digest
+        self._dirty = dirty
+        return next_view
+
     def mark_saved(self) -> PgnWorkspaceView:
-        self._baseline_digest = self.content_digest
-        self._dirty = False
-        return self.view()
+        # The ordinary synchronous save persists the current generation.
+        return self._rebase_saved_digest(self.content_digest)
 
     def _current_game_ref(self) -> PgnGame:
         return self._games[self._selected_game_index]
@@ -411,7 +468,7 @@ class PgnWorkspace:
     ) -> PgnWorkspaceView:
         candidate = list(self._games)
         candidate[self._selected_game_index] = game
-        validated = _validate_document(candidate)
+        validated, content_digest = _validate_document(candidate)
         next_cursor = self._cursor if cursor is None else cursor
         try:
             validate_cursor(validated[self._selected_game_index], next_cursor)
@@ -421,9 +478,10 @@ class PgnWorkspace:
                 PgnWorkspaceErrorCode.CURSOR,
             ) from exc
         self._games = validated
+        self._content_digest = content_digest
         self._cursor = next_cursor
         self._content_revision += 1
-        self._dirty = self.content_digest != self._baseline_digest
+        self._dirty = self._content_digest != self._baseline_digest
         return self.view()
 
     def edit_move_annotations(

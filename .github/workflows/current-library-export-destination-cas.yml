@@ -3,20 +3,32 @@ name: Current Library Export Destination CAS
 on:
   pull_request:
     branches:
-      - converge/current-product-books-provider-20261005-ooxple7
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
-      - 'acs/library_export_service.py'
-      - 'acs/version2_windows_library_export.py'
-      - 'tests/test_d07_library_export_service.py'
-      - 'tests/test_v2_windows_library_export.py'
       - '.github/workflows/current-library-export-destination-cas.yml'
+      - '.github/workflows/current-library-open-publication-ack.yml'
+      - 'acs/full_product_actions.py'
+      - 'acs/library_export_service.py'
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_windows_host_runtime.py'
+      - 'acs/version2_windows_library_export.py'
+      - 'tests/js/library_export_surface_dom_test.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - 'tests/test_library_open_game_publication.py'
+      - 'tests/test_v2_windows_host_runtime.py'
+      - 'tests/test_v2_windows_library_export_background.py'
+      - 'web/full_product_library.js'
+      - 'web/version2_release_bootstrap.js'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: current-library-export-destination-cas-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: current-library-export-destination-cas-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,22 +47,24 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Prove current Product ancestry and exact scope
+      - name: Prove current shipping ancestry and exact scope
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
-          PINNED_PRODUCT_SHA: b3ccef128ff2f885d9c71cc036ab630533158f62
-          PINNED_PGN_SERVICE_BLOB: aa74b3727d0313b76676b753e32100cf8f6d90b8
+          SHIPPING_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+          PINNED_PGN_SERVICE_BLOB: 76ae657c9cea85cbb57b5c202bc2954717ce9d58
           PINNED_PGN_EXPORT_HOST_BLOB: 913a74348f1323887d9d880285814a7680869ae1
           PINNED_PGN_COMMANDS_BLOB: 74a94b45597fbdc1607e7b3452df41b88837b42f
+          LIBRARY_OPEN_TEST_BLOB: cc3c1eadd86498e6ced76c3ea898f80b33d25975
+          LIBRARY_HOST_RUNTIME_TEST_BLOB: 5bf76149f11751ee46820a4ad21e595a82585ef8
+          LIBRARY_EXPORT_BACKGROUND_TEST_BLOB: 9b7de203065595261988568e3b9702d7cfcb61b1
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
-          test "${EVENT_BASE_REF:-$PRODUCT_REF}" = "$PRODUCT_REF"
+          test "${EVENT_BASE_REF:-$SHIPPING_REF}" = "$SHIPPING_REF"
 
           if [ -n "${{ github.event.pull_request.number }}" ]; then
             git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
@@ -60,37 +74,44 @@ jobs:
             }
           fi
 
-          git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/$PRODUCT_REF"
-          live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_REF")"
-          test "$live_product" = "$PINNED_PRODUCT_SHA" || {
-            echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_PRODUCT_MOVED pinned=$PINNED_PRODUCT_SHA live=$live_product" >&2
-            exit 1
-          }
+          git fetch --no-tags origin "+refs/heads/$SHIPPING_REF:refs/remotes/origin/$SHIPPING_REF"
+          live_shipping="$(git rev-parse "refs/remotes/origin/$SHIPPING_REF")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
-            test "$EVENT_BASE_SHA" = "$live_product"
+            test "$EVENT_BASE_SHA" = "$live_shipping"
           fi
 
-          git merge-base --is-ancestor "$live_product" HEAD
-          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
-          git diff --check "$live_product"...HEAD
+          git merge-base --is-ancestor "$live_shipping" HEAD
+          test "$(git merge-base "$live_shipping" HEAD)" = "$live_shipping"
+          git diff --check "$live_shipping"...HEAD
 
-          changed="$(git diff --name-only "$live_product"...HEAD | sort)"
+          changed="$(git diff --name-only "$live_shipping"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-library-export-destination-cas.yml' \
-            'acs/library_export_service.py' \
-            'acs/version2_windows_library_export.py' \
-            'tests/test_d07_library_export_service.py' \
-            'tests/test_v2_windows_library_export.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected Library export destination-CAS scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+            '.github/workflows/current-library-open-publication-ack.yml' \
+            'tests/test_library_open_game_publication.py' \
+            'tests/test_v2_windows_host_runtime.py' \
+            'tests/test_v2_windows_library_export_background.py' | sort)"
+          if [ "$changed" = "$expected" ]; then
+            scope_mode=EXACT_RECONVERGENCE
+            test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$LIBRARY_HOST_RUNTIME_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
+          else
+            if ! git diff --quiet "$live_shipping"...HEAD -- \
+              '.github/workflows/current-library-export-destination-cas.yml' \
+              '.github/workflows/current-library-open-publication-ack.yml'; then
+              printf 'Unexpected Library workflow mutation outside exact reconvergence:\n%s\n' "$changed" >&2
+              exit 1
+            fi
+            scope_mode=DEPENDENT_VALIDATION
+          fi
 
           test "$(git rev-parse HEAD:acs/pgn_service.py)" = "$PINNED_PGN_SERVICE_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_pgn_export.py)" = "$PINNED_PGN_EXPORT_HOST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$PINNED_PGN_COMMANDS_BLOB"
 
-          echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_PRODUCT=$live_product"
+          echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SHIPPING=$live_shipping"
+          echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SCOPE_MODE=$scope_mode"
           echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SCOPE=PASS"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -100,16 +121,37 @@ jobs:
       - name: Compile changed boundary
         run: >-
           python -m compileall -q
+          acs/full_product_actions.py
           acs/library_export_service.py
+          acs/library_export_webview_projection.py
+          acs/library_webview_bridge.py
+          acs/ui_keymap_adapter.py
+          acs/version2_application.py
+          acs/version2_windows_host_runtime.py
           acs/version2_windows_library_export.py
-          tests/test_d07_library_export_service.py
-          tests/test_v2_windows_library_export.py
+          tests/test_library_open_game_publication.py
+          tests/test_v2_windows_library_export_background.py
+          tests/test_v2_windows_host_runtime.py
 
-      - name: Execute Library export and canonical writer regressions
+      - name: Execute Library and release focus DOM oracles
+        run: |
+          node tests/js/library_export_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Execute Library export, publication, host-runtime, and canonical writer regressions
         run: >-
           python -m unittest -v
+          tests.test_library_open_game_publication
+          tests.test_v2_windows_library_export_background
+          tests.test_v2_windows_host_runtime
+          tests.test_d07_library_export_reachability
           tests.test_d07_library_export_service
+          tests.test_d07_library_export_webview
+          tests.test_dev1_library_webview_projection
           tests.test_v2_windows_library_export
+          tests.test_full_product_library_keybindings
+          tests.test_ui_keymap_adapter
+          tests.test_version2_windows_composition_profile
           tests.test_pgn_service
           tests.test_pgn_concurrent_save
           tests.test_v2_windows_pgn_export

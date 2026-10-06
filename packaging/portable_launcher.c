@@ -26,6 +26,7 @@
 #define AC_WINDOW_RESPONSE_PROBE_MS 100
 #define AC_STARTUP_READY_STABILITY_MS 500
 #define AC_STARTUP_WINDOW_TIMEOUT_MS 30000
+#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000
 #define AC_REPORT_RETRY_MS 100
 #define AC_REPORT_RETRY_COUNT 40
 #define ACCESSIBILITY_HOST_INIT_EXIT_CODE 71
@@ -158,8 +159,33 @@ static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     return L"Невідома рання помилка основної програми.";
 }
 
+static void ac_close_child_process_handle(void) {
+    if (g_process.hProcess == NULL || g_process.hProcess == INVALID_HANDLE_VALUE) return;
+    CloseHandle(g_process.hProcess);
+    g_process.hProcess = NULL;
+}
+
+static BOOL ac_retire_owned_child(DWORD code) {
+    DWORD wait_result;
+    DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+
+    if (g_process.hProcess == NULL || g_process.hProcess == INVALID_HANDLE_VALUE) return TRUE;
+
+    wait_result = WaitForSingleObject(g_process.hProcess, 0);
+    if (wait_result == WAIT_OBJECT_0) return TRUE;
+
+    if (!TerminateProcess(g_process.hProcess, stable_code)) {
+        return WaitForSingleObject(g_process.hProcess, 0) == WAIT_OBJECT_0;
+    }
+    return WaitForSingleObject(
+        g_process.hProcess,
+        AC_TIMEOUT_CLEANUP_WAIT_MS
+    ) == WAIT_OBJECT_0;
+}
+
 static void ac_report_write_fail(HANDLE report, DWORD code) {
     DWORD stable_code = code == ERROR_SUCCESS ? ERROR_WRITE_FAULT : code;
+    BOOL child_stopped = ac_retire_owned_child(stable_code);
     if (report != NULL && report != INVALID_HANDLE_VALUE) CloseHandle(report);
 
     ac_copy(
@@ -172,6 +198,15 @@ static void ac_report_write_fail(HANDLE report, DWORD code) {
         L"Windows error / Код Windows: "
     );
     ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
+    if (!child_stopped) {
+        ac_append(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"\r\n\r\nThe main Accessible Chess process may still be running. Do not start another copy until it is closed."
+            L"\r\nОсновний процес Accessible Chess може ще працювати. Не запускайте другу копію, доки його не буде завершено."
+        );
+    }
+    ac_close_child_process_handle();
     MessageBoxW(
         NULL,
         g_message,
@@ -244,10 +279,14 @@ static void ac_error_detail(DWORD code) {
 }
 
 static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
+    BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);
     BOOL has_report = report != NULL && report != INVALID_HANDLE_VALUE;
     ac_error_detail(code);
     if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
+        ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+        ac_write_line(report, L"USER_NVDA_PROVEN: NO");
+        ac_write_line(report, child_stopped ? L"CHILD_LEFT_RUNNING: NO" : L"CHILD_LEFT_RUNNING: YES");
         ac_write_utf8(report, L"STAGE: ");
         ac_write_line(report, stage);
         ac_write_utf8(report, L"WIN32_ERROR: ");
@@ -271,6 +310,14 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     } else {
         ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт запуску не створено.");
     }
+    if (!child_stopped) {
+        ac_append(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"\r\n\r\nОсновний процес може ще працювати. Не запускайте другу копію, доки його не буде завершено."
+        );
+    }
+    ac_close_child_process_handle();
     MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     if (has_report) CloseHandle(report);
     ExitProcess(code == 0 ? 1 : code);
@@ -537,33 +584,89 @@ static void ac_prepare_paths(void) {
 }
 
 static void ac_fail_startup_timeout(HANDLE report) {
+    DWORD cleanup_error = ERROR_SUCCESS;
+    DWORD cleanup_wait = WAIT_FAILED;
+    BOOL child_stopped = FALSE;
+
+    /*
+     * A timed-out child still owns the package-local single-instance lock and
+     * data-directory guard.  Retire it before any fallible report write so a
+     * report failure cannot strand an invisible process that blocks retry.
+     */
+    if (!TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)) {
+        cleanup_error = GetLastError();
+        cleanup_wait = WaitForSingleObject(g_process.hProcess, 0);
+        if (cleanup_wait == WAIT_OBJECT_0) {
+            child_stopped = TRUE;
+            cleanup_error = ERROR_SUCCESS;
+        }
+    } else {
+        cleanup_wait = WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS);
+        if (cleanup_wait == WAIT_OBJECT_0) {
+            child_stopped = TRUE;
+        } else if (cleanup_wait == WAIT_FAILED) {
+            cleanup_error = GetLastError();
+        } else {
+            cleanup_error = ERROR_TIMEOUT;
+        }
+    }
+
     ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT");
     ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
-    ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
+    if (child_stopped) {
+        ac_write_line(report, L"TIMEOUT_CHILD_CLEANUP: PASS");
+        ac_write_line(report, L"CHILD_LEFT_RUNNING: NO");
+        ac_write_line(report, L"NEXT: keep launch-report.txt and retry once from the extracted package root");
+    } else {
+        ac_write_line(report, L"TIMEOUT_CHILD_CLEANUP: FAILED");
+        ac_write_utf8(report, L"TIMEOUT_CHILD_CLEANUP_WIN32_ERROR: ");
+        g_message[0] = L'\0';
+        ac_append_u32(
+            g_message,
+            AC_PATH_CAP + 2048,
+            cleanup_error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : cleanup_error
+        );
+        ac_write_line(report, g_message);
+        ac_write_line(report, L"CHILD_LEFT_RUNNING: YES");
+        ac_write_line(report, L"NEXT: keep launch-report.txt; the timed-out process could not be stopped automatically");
+    }
     ac_write_line(report, L"DETAIL: Accessible Chess did not expose a stable responsive visible application window before the startup deadline.");
-    ac_write_line(report, L"NEXT: close any stuck Accessible Chess process, keep launch-report.txt, and retry once from the extracted package root");
     ac_flush_report(report);
 
-    ac_copy(
-        g_message,
-        AC_PATH_CAP + 2048,
-        L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
-        L"Процес залишено запущеним, щоб не перервати можливе відновлення даних.\r\n"
-        L"Якщо вікно не реагує або так і не з'явиться, закрийте завислий процес і збережіть звіт:\r\n"
-    );
+    if (child_stopped) {
+        ac_copy(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"Завислий процес автоматично завершено. Можна повторити запуск з цієї папки.\r\n"
+            L"Збережіть звіт:\r\n"
+        );
+    } else {
+        ac_copy(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"Автоматично завершити завислий процес не вдалося. Не запускайте другу копію, доки процес не буде завершено.\r\n"
+            L"Збережіть звіт:\r\n"
+        );
+    }
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-    CloseHandle(g_process.hProcess);
+    ac_close_child_process_handle();
     CloseHandle(report);
     ExitProcess(ERROR_TIMEOUT);
 }
 
 void WINAPI wWinMainCRTStartup(void) {
     HANDLE report;
+    HANDLE root_guard = INVALID_HANDLE_VALUE;
+    HANDLE app_guard = INVALID_HANDLE_VALUE;
     HANDLE core_guard = INVALID_HANDLE_VALUE;
     HANDLE data_guard = INVALID_HANDLE_VALUE;
     HANDLE child_instance_lock = NULL;
+    HANDLE child_root_guard = NULL;
+    HANDLE child_app_guard = NULL;
     HANDLE child_data_guard = NULL;
     DWORD error;
     DWORD wait_result;
@@ -578,6 +681,15 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
         ac_fail(INVALID_HANDLE_VALUE, L"package-root validation", ERROR_DIRECTORY);
+    }
+    root_guard = ac_open_direct_directory_guard(g_root);
+    if (root_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"package-root directory guard",
+            error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error
+        );
     }
 
     g_instance_lock = ac_open_instance_lock();
@@ -601,6 +713,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"HUMAN_TESTED: NO");
     ac_write_line(report, L"NVDA_VERIFIED: NO");
     ac_write_line(report, L"PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE");
+    ac_write_line(report, L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
     ac_write_utf8(report, L"PACKAGE_ROOT: ");
     ac_write_line(report, g_root);
     ac_write_utf8(report, L"CORE: ");
@@ -609,6 +722,16 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, g_data);
 
     if (!ac_direct_directory(g_app_dir)) ac_fail(report, L"App directory validation", ERROR_PATH_NOT_FOUND);
+    app_guard = ac_open_direct_directory_guard(g_app_dir);
+    if (app_guard == INVALID_HANDLE_VALUE) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"App runtime directory guard",
+            error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error
+        );
+    }
+    ac_write_line(report, L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
     core_guard = ac_open_direct_private_file(g_core);
     if (core_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -668,10 +791,34 @@ void WINAPI wWinMainCRTStartup(void) {
             FALSE,
             DUPLICATE_SAME_ACCESS)) {
         error = GetLastError();
-        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        CloseHandle(g_process.hProcess);
         ac_fail(report, L"package-local data ownership transfer", error);
+    }
+
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
+            root_guard,
+            g_process.hProcess,
+            &child_root_guard,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        CloseHandle(g_process.hThread);
+        ac_fail(report, L"package-root directory guard transfer", error);
+    }
+
+    if (!DuplicateHandle(
+            GetCurrentProcess(),
+            app_guard,
+            g_process.hProcess,
+            &child_app_guard,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS)) {
+        error = GetLastError();
+        CloseHandle(g_process.hThread);
+        ac_fail(report, L"App runtime directory guard transfer", error);
     }
 
     if (!DuplicateHandle(
@@ -683,32 +830,33 @@ void WINAPI wWinMainCRTStartup(void) {
             FALSE,
             DUPLICATE_SAME_ACCESS)) {
         error = GetLastError();
-        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        CloseHandle(g_process.hProcess);
         ac_fail(report, L"package-local data directory guard transfer", error);
     }
 
     resume_result = ResumeThread(g_process.hThread);
     if (resume_result == (DWORD)-1) {
         error = GetLastError();
-        TerminateProcess(g_process.hProcess, error == 0 ? 1 : error);
         CloseHandle(g_process.hThread);
-        CloseHandle(g_process.hProcess);
         ac_fail(report, L"core process resume", error);
     }
     CloseHandle(g_process.hThread);
     CloseHandle(g_instance_lock);
     g_instance_lock = INVALID_HANDLE_VALUE;
+    CloseHandle(root_guard);
+    root_guard = INVALID_HANDLE_VALUE;
+    CloseHandle(app_guard);
+    app_guard = INVALID_HANDLE_VALUE;
     CloseHandle(data_guard);
     data_guard = INVALID_HANDLE_VALUE;
+    ac_write_line(report, L"PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD");
+    ac_write_line(report, L"APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD");
     ac_write_line(report, L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD");
 
     ac_write_line(report, L"PROCESS_CREATED: YES");
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
     g_message[0] = L'\0';
     if (!ac_append_u32(g_message, AC_PATH_CAP + 2048, g_process.dwProcessId)) {
-        CloseHandle(g_process.hProcess);
         ac_fail(report, L"child process identity report", ERROR_BUFFER_OVERFLOW);
     }
     ac_write_line(report, g_message);
@@ -721,7 +869,6 @@ void WINAPI wWinMainCRTStartup(void) {
         if (wait_result == WAIT_OBJECT_0) {
             if (!GetExitCodeProcess(g_process.hProcess, &exit_code)) {
                 error = GetLastError();
-                CloseHandle(g_process.hProcess);
                 ac_fail(report, L"early child exit-code read", error);
             }
             ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT");
@@ -732,6 +879,8 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
             ac_write_line(report, ac_child_exit_reason(exit_code));
             ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+            ac_write_line(report, L"USER_NVDA_PROVEN: NO");
+            ac_write_line(report, L"CHILD_LEFT_RUNNING: NO");
             ac_flush_report(report);
 
             ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");
@@ -741,19 +890,17 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
             ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
             MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-            CloseHandle(g_process.hProcess);
+            ac_close_child_process_handle();
             CloseHandle(report);
             ExitProcess(exit_code == 0 ? 1 : exit_code);
         }
 
         if (wait_result == WAIT_FAILED) {
             error = GetLastError();
-            CloseHandle(g_process.hProcess);
             ac_fail(report, L"startup window observation", error);
         }
 
         if (wait_result != WAIT_TIMEOUT) {
-            CloseHandle(g_process.hProcess);
             ac_fail(report, L"startup window observation", ERROR_INVALID_DATA);
         }
 
@@ -781,7 +928,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
     ac_write_line(report, L"NEXT: user verifies keyboard and NVDA behavior on these exact packaged bytes");
     ac_flush_report(report);
-    CloseHandle(g_process.hProcess);
+    ac_close_child_process_handle();
     CloseHandle(report);
     ExitProcess(0);
 }

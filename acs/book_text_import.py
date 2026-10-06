@@ -362,20 +362,159 @@ class _Builder:
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
-_IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
 _LIST_RE = re.compile(
-    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
+    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
 
 
-def _iter_semantic_images(line: str):
-    """Yield unescaped inline images outside conservative backtick literals.
+def _semantic_image_opener(line: str, index: int) -> tuple[int, str] | None:
+    """Return destination start and accessible alt text for a bounded image opener."""
 
-    This is deliberately a bounded, single-pass recognizer rather than a second
-    Markdown parser. Escaped punctuation and backtick-delimited text stay
-    readable source text. If a backtick run is never closed, the rest of the
-    line is conservatively treated as literal instead of inventing semantics.
+    if not line.startswith("![", index):
+        return None
+    cursor = index + 2
+    alt: list[str] = []
+    while cursor < len(line):
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < len(line):
+            escaped = line[cursor + 1]
+            if escaped in "\\[]()!":
+                alt.append(escaped)
+                cursor += 2
+                continue
+            alt.append(char)
+            cursor += 1
+            continue
+        if char == "]" and cursor + 1 < len(line) and line[cursor + 1] == "(":
+            return cursor + 2, "".join(alt)
+        alt.append(char)
+        cursor += 1
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class _SemanticImageMatch:
+    start_index: int
+    end_index: int
+    alt: str
+
+    def start(self) -> int:
+        return self.start_index
+
+    def end(self) -> int:
+        return self.end_index
+
+    def group(self, index: int) -> str:
+        if index != 1:
+            raise IndexError("semantic image match exposes only alt-text group 1")
+        return self.alt
+
+
+def _semantic_image_end(line: str, destination_start: int) -> int | None:
+    """Return the exclusive end of one bounded CommonMark inline-image target."""
+
+    length = len(line)
+    cursor = destination_start
+    leading_whitespace = False
+    while cursor < length and line[cursor] in " \t":
+        leading_whitespace = True
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    # Empty destination followed by a quoted title.
+    destination_complete = False
+    if leading_whitespace and line[cursor] in {'"', "'"}:
+        destination_complete = True
+    elif line[cursor] == "<":
+        cursor += 1
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char == "<":
+                return None
+            if char == ">":
+                cursor += 1
+                destination_complete = True
+                break
+            cursor += 1
+        if not destination_complete:
+            return None
+    else:
+        nested = 0
+        started = cursor
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char in " \t":
+                if nested:
+                    return None
+                destination_complete = True
+                break
+            if ord(char) < 0x20 or ord(char) == 0x7F:
+                return None
+            if char == "(":
+                nested += 1
+                cursor += 1
+                continue
+            if char == ")":
+                if nested:
+                    nested -= 1
+                    cursor += 1
+                    continue
+                return cursor + 1
+            cursor += 1
+        if cursor == started or not destination_complete:
+            return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    opener = line[cursor]
+    if opener not in {'"', "'", "("}:
+        return None
+    closer = ")" if opener == "(" else opener
+    cursor += 1
+    while cursor < length:
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < length:
+            cursor += 2
+            continue
+        if char == closer:
+            cursor += 1
+            break
+        if opener == "(" and char == "(":
+            return None
+        cursor += 1
+    else:
+        return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor < length and line[cursor] == ")":
+        return cursor + 1
+    return None
+
+
+def _iter_semantic_images(line: str):
+    """Yield bounded inline images outside conservative backtick literals.
+
+    This remains a single-pass recognizer, not a second Markdown parser.
+    Escaped punctuation and backtick-delimited text stay readable source text.
+    Image destinations follow a bounded CommonMark inline-target grammar:
+    empty targets, angle-bracket targets, balanced raw parentheses and optional
+    titles are recognized; malformed or ambiguous targets remain literal text.
     """
 
     index = 0
@@ -402,12 +541,79 @@ def _iter_semantic_images(line: str):
         if char == "\\":
             index = min(length, index + 2)
             continue
-        match = _IMAGE_RE.match(line, index)
-        if match is not None:
-            yield match
-            index = match.end()
-            continue
+
+        opener = _semantic_image_opener(line, index)
+        if opener is not None:
+            destination_start, alt_text = opener
+            image_end = _semantic_image_end(line, destination_start)
+            if image_end is not None:
+                yield _SemanticImageMatch(
+                    start_index=index,
+                    end_index=image_end,
+                    alt=alt_text,
+                )
+                index = image_end
+                continue
+
         index += 1
+
+
+def _semantic_image_stripped_text(text: str) -> str:
+    """Remove recognized image references while preserving all other source text."""
+
+    parts: list[str] = []
+    cursor = 0
+    for match in _iter_semantic_images(text):
+        parts.append(text[cursor:match.start()])
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _accessible_list_item_text(text: str) -> tuple[str, bool]:
+    """Preserve inline image alt text inside a flat canonical list item.
+
+    BookDocument ListBlock has no nested image child kind.  A Markdown image in
+    a list item therefore stays in the list as selectable/readable alt text,
+    while the caller emits an explicit structural-loss warning.  Asset URLs are
+    never fetched or exposed as inferred chess semantics.
+    """
+
+    matches = _iter_semantic_images(text)
+    first = next(matches, None)
+    if first is None:
+        return text.strip(), False
+
+    parts: list[str] = []
+    cursor = 0
+    match = first
+    while match is not None:
+        parts.append(text[cursor:match.start()])
+        alt = match.group(1).strip()
+        if alt:
+            parts.append(alt)
+        cursor = match.end()
+        match = next(matches, None)
+    parts.append(text[cursor:])
+    return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
+
+
+def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
+    """Flatten an unrepresentable list row without leaking image destinations.
+
+    Keep the authored marker visible so reading order and list intent survive the
+    fallback, but reduce semantic inline images to their accessible alt text.
+    This never fetches assets or infers chess content.
+    """
+
+    ordered = match.group("number") is not None
+    marker = (
+        f"{match.group('number')}{match.group('delimiter')}"
+        if ordered
+        else match.group("bullet")
+    )
+    item, had_image = _accessible_list_item_text(match.group("text"))
+    return f"{marker} {item}".rstrip(), had_image
 
 
 def _is_fence_close(line: str, marker: str) -> bool:
@@ -538,13 +744,13 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
 
         image_matches = _iter_semantic_images(line)
         first_image = next(image_matches, None)
-        if first_image is not None:
+        if first_image is not None and _LIST_RE.match(line) is None:
             flush()
-            # Before this source-order repair, all regex-shaped image Notes were
-            # appended first and one combined Paragraph containing the remaining
-            # prose was appended last. Keep that historical Paragraph identity
-            # while recognizing only unescaped images outside literal code now.
-            legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
+            # Keep the historical Paragraph identity for ordinary image
+            # references, but derive it from the same bounded recognizer that
+            # owns visible semantics. This keeps nested/escaped destination URLs
+            # out of deterministic reading-progress identity.
+            legacy_paragraph_identity = _semantic_image_stripped_text(line).strip() or None
             legacy_identity_available = legacy_paragraph_identity is not None
             cursor = 0
             match = first_image
@@ -589,23 +795,44 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             start_value = int(list_match.group("number")) if ordered else None
 
             if "\t" in indent or len(indent) > 3:
-                builder.paragraph(line.strip(), number)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
                 builder.warning(
                     "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
                 )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 index += 1
                 continue
 
             if ordered and start_value is not None and start_value < 1:
-                builder.paragraph(line.strip(), number)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
                 builder.warning(
                     "Markdown ordered list with non-positive start was preserved as reading text because canonical List start must be positive"
                 )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 index += 1
                 continue
 
-            items = [list_match.group("text").strip()]
-            expected = (start_value + 1) if start_value is not None else None
+            first_item, list_image_warning = _accessible_list_item_text(
+                list_match.group("text")
+            )
+            items = [first_item]
+            marker_identity = (
+                list_match.group("delimiter")
+                if ordered
+                else list_match.group("bullet")
+            )
             next_index = index + 1
             while next_index < len(lines):
                 if control_checkpoint is not None and next_index % 128 == 0:
@@ -617,18 +844,29 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 candidate_ordered = candidate_match.group("number") is not None
                 if candidate_ordered != ordered:
                     break
-                if ordered:
-                    candidate_number = int(candidate_match.group("number"))
-                    if candidate_number != expected:
-                        break
-                    expected = candidate_number + 1
+                candidate_marker_identity = (
+                    candidate_match.group("delimiter")
+                    if candidate_ordered
+                    else candidate_match.group("bullet")
+                )
+                if candidate_marker_identity != marker_identity:
+                    break
+                # Markdown numbering after the first ordered marker does not
+                # define the rendered sequence. The first marker establishes
+                # the canonical start; later authored numbers remain list items
+                # unless the delimiter or indentation changes. Requiring +1
+                # here created false list boundaries for keyboard/NVDA readers.
                 visible += len(candidate)
                 if visible > MAX_TEXT_VISIBLE_CHARS:
                     raise BookTextImportError(
                         "Markdown book visible text exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
                     )
-                items.append(candidate_match.group("text").strip())
+                candidate_item, candidate_had_image = _accessible_list_item_text(
+                    candidate_match.group("text")
+                )
+                items.append(candidate_item)
+                list_image_warning = list_image_warning or candidate_had_image
                 next_index += 1
 
             builder.list_block(
@@ -637,6 +875,10 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 ordered=ordered,
                 start=start_value if ordered else None,
             )
+            if list_image_warning:
+                builder.warning(
+                    "Markdown image inside a list item was preserved as accessible list-item text; no asset was fetched and nested image structure is not represented"
+                )
 
             # One to three leading spaces can represent a top-level Markdown
             # list when the whole list uses that indentation.  A deeper list
@@ -665,7 +907,14 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                         "Markdown book visible text exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
                     )
-                builder.paragraph(nested_line.strip(), next_index + 1)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    nested_match
+                )
+                builder.paragraph(fallback_text, next_index + 1)
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 if not nested_warning_emitted:
                     builder.warning(
                         "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"

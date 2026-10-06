@@ -157,7 +157,283 @@ _PGN_EVENT_RE = re.compile(r'^\[Event\s+"', re.IGNORECASE)
 _PGN_MARKER_RE = re.compile(r'^\{PGN\s+\d+\}\s*$', re.IGNORECASE)
 _END_PGN_RE = re.compile(r'^End of PGN Supplement\s*$', re.IGNORECASE)
 _HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
+_CSS_WHITESPACE = " \t\r\n\f"
+_CSS_IMPORTANT_RE = re.compile(r"[ \t\r\n\f]*![ \t\r\n\f]*important[ \t\r\n\f]*$")
 
+_CSS_DISPLAY_SINGLE_VALUES = frozenset(
+    {
+        "none", "contents", "block", "inline", "run-in", "flow", "flow-root",
+        "table", "flex", "grid", "ruby", "math", "grid-lanes", "inline-grid-lanes",
+        "list-item", "inline-block", "inline-table", "inline-flex", "inline-grid",
+        "table-row-group",
+        "table-header-group", "table-footer-group", "table-row", "table-cell",
+        "table-column-group", "table-column", "table-caption", "ruby-base",
+        "ruby-text", "ruby-base-container", "ruby-text-container",
+        "initial", "unset",
+    }
+)
+_CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
+# CSS Display Level 4 permits math as the inside alternative paired with an
+# outside display keyword (for example, "block math").
+_CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby", "math"})
+
+
+def _deterministic_display_value(value: str) -> str | None:
+    """Return one bounded valid display value, or None for invalid/indeterminate CSS."""
+
+    tokens = tuple(
+        token for token in re.split(r"[ \t\r\n\f]+", value) if token
+    )
+    if len(tokens) == 1 and tokens[0] in _CSS_DISPLAY_SINGLE_VALUES:
+        return tokens[0]
+    if len(tokens) not in {2, 3} or len(set(tokens)) != len(tokens):
+        return None
+
+    token_set = set(tokens)
+    outside = token_set & _CSS_DISPLAY_OUTSIDE
+    inside = token_set & _CSS_DISPLAY_INSIDE
+    if len(tokens) == 2 and len(outside) == 1 and len(inside) == 1:
+        return " ".join(tokens)
+
+    if "list-item" in token_set:
+        remaining = token_set - {"list-item"}
+        outside = remaining & _CSS_DISPLAY_OUTSIDE
+        flow_inside = remaining & {"flow", "flow-root"}
+        if (
+            remaining == outside | flow_inside
+            and len(outside) <= 1
+            and len(flow_inside) <= 1
+        ):
+            return " ".join(tokens)
+    return None
+
+
+_CSS_CONTENT_VISIBILITY_VALUES = frozenset(
+    {"visible", "auto", "hidden", "initial", "unset"}
+)
+
+
+def _deterministic_content_visibility_value(value: str) -> str | None:
+    """Return one bounded content-visibility value or None if cascade-dependent."""
+
+    if value in _CSS_CONTENT_VISIBILITY_VALUES:
+        return value
+    # revert/revert-layer depend on other cascade origins/layers that this
+    # bounded inline adapter deliberately does not model.
+    return None
+
+
+
+def _css_ascii_lower(value: str) -> str:
+    """Apply CSS ASCII case-insensitive folding without Unicode case expansion."""
+
+    return "".join(
+        chr(ord(char) + 32) if "A" <= char <= "Z" else char
+        for char in value
+    )
+
+
+def _inline_style_without_comments(style: str) -> str:
+    """Remove real CSS comments as whitespace before bounded display parsing.
+
+    Comment-looking text inside quoted CSS strings or behind a backslash escape
+    is data, not comment syntax. Preserve it verbatim so bounded display parsing
+    cannot accidentally consume a later real declaration. An unterminated real
+    comment still consumes the remainder.
+    """
+
+    parts: list[str] = []
+    cursor = 0
+    quote: str | None = None
+    while cursor < len(style):
+        char = style[cursor]
+        if char == "\\":
+            parts.append(char)
+            if cursor + 1 < len(style):
+                parts.append(style[cursor + 1])
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if quote is not None:
+            parts.append(char)
+            if char == quote:
+                quote = None
+            cursor += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            parts.append(char)
+            cursor += 1
+            continue
+        if char == "/" and cursor + 1 < len(style) and style[cursor + 1] == "*":
+            # Preserve a token boundary even when a preceding hexadecimal
+            # CSS escape consumes one following whitespace code point.
+            parts.append("  ")
+            end = style.find("*/", cursor + 2)
+            if end < 0:
+                break
+            cursor = end + 2
+            continue
+        parts.append(char)
+        cursor += 1
+    return "".join(parts)
+
+def _split_inline_style_declarations(style: str) -> tuple[str, ...]:
+    """Split only top-level declarations in one bounded inline style."""
+
+    declarations: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    nesting: list[str] = []
+    matching = {")": "(", "]": "[", "}": "{"}
+    cursor = 0
+    while cursor < len(style):
+        char = style[cursor]
+        if char == "\\":
+            current.append(char)
+            if cursor + 1 < len(style):
+                current.append(style[cursor + 1])
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            cursor += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            current.append(char)
+            cursor += 1
+            continue
+        if char in "([{":
+            nesting.append(char)
+            current.append(char)
+            cursor += 1
+            continue
+        if char in ")]}":
+            if nesting and nesting[-1] == matching[char]:
+                nesting.pop()
+            current.append(char)
+            cursor += 1
+            continue
+        if char == ";" and not nesting:
+            declarations.append("".join(current))
+            current = []
+            cursor += 1
+            continue
+        current.append(char)
+        cursor += 1
+    declarations.append("".join(current))
+    return tuple(declarations)
+
+def _css_unescape_token(value: str) -> str:
+    """Decode CSS escapes for one bounded property/value token."""
+
+    parts: list[str] = []
+    cursor = 0
+    hexdigits = "0123456789abcdefABCDEF"
+    while cursor < len(value):
+        char = value[cursor]
+        if char != "\\":
+            parts.append(char)
+            cursor += 1
+            continue
+        cursor += 1
+        if cursor >= len(value):
+            # A trailing escape is invalid CSS. Preserve an impossible token
+            # rather than manufacturing a valid display keyword.
+            parts.append("\\")
+            break
+        escaped = value[cursor]
+        if escaped in "\n\r\f":
+            # Backslash + newline is not a valid CSS identifier escape. Keep
+            # an impossible token instead of joining text into display/none.
+            parts.append("\\")
+            parts.append(escaped)
+            cursor += 1
+            continue
+        if escaped in hexdigits:
+            end = cursor
+            while end < len(value) and end - cursor < 6 and value[end] in hexdigits:
+                end += 1
+            codepoint = int(value[cursor:end], 16)
+            if codepoint == 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                parts.append("\uFFFD")
+            else:
+                parts.append(chr(codepoint))
+            cursor = end
+            if cursor < len(value) and value[cursor] in " \t\r\n\f":
+                if value[cursor] == "\r" and cursor + 1 < len(value) and value[cursor + 1] == "\n":
+                    cursor += 2
+                else:
+                    cursor += 1
+            continue
+        parts.append(escaped)
+        cursor += 1
+    return "".join(parts)
+
+def _inline_style_hides(style: str) -> bool:
+    """Recognize deterministic inline subtree-hiding declarations.
+
+    This intentionally is not a CSS engine. display:none and
+    content-visibility:hidden both suppress an element's rendered/accessibility
+    subtree and cannot be reversed by a descendant. Stylesheet class rules and
+    cascade-dependent CSS-wide values stay outside this bounded HTML adapter.
+    """
+
+    effective_display: tuple[str, bool] | None = None
+    effective_content_visibility: tuple[str, bool] | None = None
+
+    for declaration in _split_inline_style_declarations(
+        _inline_style_without_comments(style)
+    ):
+        name, separator, raw_value = declaration.partition(":")
+        if not separator:
+            continue
+        property_name = _css_ascii_lower(
+            _css_unescape_token(name.strip(_CSS_WHITESPACE))
+        )
+        if property_name not in {"display", "content-visibility"}:
+            continue
+
+        value = _css_ascii_lower(
+            _css_unescape_token(raw_value.strip(_CSS_WHITESPACE))
+        )
+        important_match = _CSS_IMPORTANT_RE.search(value)
+        important = important_match is not None
+        if important_match is not None:
+            value = value[: important_match.start()].strip(_CSS_WHITESPACE)
+
+        if property_name == "display":
+            deterministic_value = _deterministic_display_value(value)
+            if deterministic_value is None:
+                continue
+            if effective_display is not None and effective_display[1] and not important:
+                continue
+            effective_display = (deterministic_value, important)
+            continue
+
+        deterministic_content_visibility = _deterministic_content_visibility_value(value)
+        if deterministic_content_visibility is None:
+            continue
+        if (
+            effective_content_visibility is not None
+            and effective_content_visibility[1]
+            and not important
+        ):
+            continue
+        effective_content_visibility = (deterministic_content_visibility, important)
+
+    display_hidden = effective_display is not None and effective_display[0] == "none"
+    content_hidden = (
+        effective_content_visibility is not None
+        and effective_content_visibility[0] == "hidden"
+    )
+    return display_hidden or content_hidden
 
 def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     if value is None and optional:
@@ -564,11 +840,14 @@ class _SemanticHtmlParser(HTMLParser):
                 continue
             attrs[normalized_name] = value or ""
         aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
-        if "hidden" in attrs or aria_hidden == "true":
-            # HTML hidden and ARIA-hidden=true are deterministic boundaries for
-            # this accessibility-first semantic import. Text, image metadata and
-            # explicit chess markers excluded from the rendered/accessibility
-            # surface must not reappear in BookDocument or screen-reader output.
+        inline_style_hidden = _inline_style_hides(attrs.get("style", ""))
+        if "hidden" in attrs or aria_hidden == "true" or inline_style_hidden:
+            # HTML hidden, ARIA-hidden=true and deterministic inline
+            # display:none are boundaries for this accessibility-first semantic
+            # import. Text,
+            # image metadata and explicit chess markers excluded from the
+            # rendered/accessibility surface must not reappear in BookDocument
+            # or screen-reader output.
             # Track all non-void descendants so malformed nesting stays
             # fail-closed instead of resuming ingestion too early.
             if tag not in _VOID_TAGS:
@@ -679,7 +958,7 @@ class _SemanticHtmlParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs_list)
-        if tag.lower() not in {"img", "meta", "br", "hr", "input", "link"}:
+        if tag.lower() not in _VOID_TAGS:
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:

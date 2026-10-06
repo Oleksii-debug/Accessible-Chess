@@ -670,13 +670,23 @@ class BookBoardWorkflow:
                     "original book reading location is unavailable",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 ) from exc
+            # Suppress any in-flight result from the closing Board context before
+            # committing the return. Invalidation is fallible; keep the exact
+            # session/revision recoverable until it succeeds so a failed Return
+            # never reports an error after already discarding Board authority.
+            # Restoring the origin above may have moved the externally-owned
+            # BookReader. Roll that cursor back with one non-fallible scalar
+            # assignment if invalidation aborts, so failed Return publishes
+            # neither a hidden Book cursor move nor a closed Board session.
+            # The workflow lock stays held, so a newer Book Board session cannot
+            # start in this window and be invalidated by the older Return.
+            try:
+                self._engine.invalidate()
+            except BaseException:
+                self._reader._index = current.index
+                raise
             self._session = None
             self._revision += 1
-            # Suppress any in-flight result from the closing Board context before
-            # another session can acquire this workflow lock and begin analysis.
-            # AnalysisService.invalidate() advances a shared generation; calling it
-            # after releasing the lock could invalidate the newer session instead.
-            self._engine.invalidate()
         return origin
 
     @staticmethod

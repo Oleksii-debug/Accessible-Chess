@@ -15,6 +15,7 @@ from acs.book_epub_import import (
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
     _Warnings,
+    _xml_root,
 )
 from acs.bookdocument import (
     MAX_BOOK_DOCUMENT_WARNINGS,
@@ -58,6 +59,192 @@ def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
 {spine}
   </spine>
 </package>'''.encode("utf-8")
+
+
+class EpubXmlStructureBudgetTests(unittest.TestCase):
+    def test_package_xml_depth_is_bounded_before_elementtree_build(self) -> None:
+        payload = b"<root><a><b><c/></b></a></root>"
+        with patch("acs.book_epub_import.MAX_EPUB_XML_DEPTH", 3):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("XML structure limits", str(raised.exception))
+
+    def test_package_xml_element_count_is_bounded_before_elementtree_build(self) -> None:
+        payload = b"<root><a/><b/><c/></root>"
+        with patch("acs.book_epub_import.MAX_EPUB_XML_ELEMENTS", 3):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("XML structure limits", str(raised.exception))
+
+    def test_package_xml_attribute_count_is_bounded_before_elementtree_build(self) -> None:
+        payload = b'<root a="1" b="2" c="3"/>'
+        with patch(
+            "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT",
+            2,
+        ):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("XML structure limits", str(raised.exception))
+
+    def test_package_xml_total_attribute_count_is_bounded(self) -> None:
+        payload = b'<root a="1"><a b="2"/><b c="3"/></root>'
+        with (
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT",
+                3,
+            ),
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_TOTAL",
+                2,
+            ),
+        ):
+            with self.assertRaises(BookEpubImportError) as raised:
+                _xml_root(payload, "test package metadata")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+
+    def test_package_xml_attribute_limits_accept_exact_boundary(self) -> None:
+        payload = b'<root a="1"><a b="2"/></root>'
+        with (
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_PER_ELEMENT",
+                1,
+            ),
+            patch(
+                "acs.book_epub_import.MAX_EPUB_XML_ATTRIBUTES_TOTAL",
+                2,
+            ),
+        ):
+            root = _xml_root(payload, "test package metadata")
+        self.assertEqual(root.attrib, {"a": "1"})
+        self.assertEqual(list(root)[0].attrib, {"b": "2"})
+
+    def test_package_xml_structure_limit_accepts_exact_boundary(self) -> None:
+        payload = b"<root><a><b/></a></root>"
+        with (
+            patch("acs.book_epub_import.MAX_EPUB_XML_DEPTH", 3),
+            patch("acs.book_epub_import.MAX_EPUB_XML_ELEMENTS", 3),
+        ):
+            root = _xml_root(payload, "test package metadata")
+        self.assertEqual(root.tag, "root")
+        self.assertEqual(len(list(root.iter())), 3)
+
+
+    def test_import_maps_opf_structure_overflow_to_resource_limit(self) -> None:
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            entries={
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
+            },
+        )
+        # container.xml has exactly three elements; the OPF has more. This
+        # proves the real import path accepts the container then rejects the
+        # structurally over-budget package metadata before ElementTree build.
+        with patch("acs.book_epub_import.MAX_EPUB_XML_ELEMENTS", 3):
+            with self.assertRaises(BookEpubImportError) as raised:
+                import_epub_book(raw, source_name="xml-structure-budget.epub")
+        self.assertEqual(
+            raised.exception.code,
+            BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("package metadata", str(raised.exception))
+
+
+class EpubRenditionBudgetTests(unittest.TestCase):
+    def test_import_rejects_rootfile_count_above_budget_before_opf_parse(self) -> None:
+        container = b"""<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+    <rootfile full-path="OEBPS/alternate.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"""
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            container=container,
+            entries={
+                "OEBPS/alternate.opf": b"<broken",
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
+            },
+        )
+
+        with patch("acs.book_epub_import.MAX_EPUB_RENDITIONS", 1):
+            with self.assertRaises(BookEpubImportError) as raised:
+                import_epub_book(raw, source_name="too-many-renditions.epub")
+        self.assertEqual(raised.exception.code, BookEpubImportErrorCode.RESOURCE_LIMIT)
+        self.assertIn("too many package renditions", str(raised.exception))
+
+    def test_import_accepts_rendition_count_at_exact_budget(self) -> None:
+        opf = _opf(
+            manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+            spine='    <itemref idref="c1"/>',
+        )
+        raw = _epub(
+            opf=opf,
+            entries={
+                "OEBPS/Text/ch1.xhtml": b"<html><body><p>Readable</p></body></html>",
+            },
+        )
+
+        with patch("acs.book_epub_import.MAX_EPUB_RENDITIONS", 1):
+            result = import_epub_book(raw, source_name="one-rendition.epub")
+        self.assertEqual(result.spine_documents, 1)
+
+
+class EpubImageReferenceDeduplicationTests(unittest.TestCase):
+    def test_duplicate_resolved_images_preserve_first_seen_order_once(self) -> None:
+        manifest = """    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="img1" href="Images/board.png" media-type="image/png"/>
+    <item id="img2" href="Images/second.png" media-type="image/png"/>"""
+        spine = """    <itemref idref="c1"/>
+    <itemref idref="c2"/>"""
+        chapter_one = b"""<html><body><p>One</p>
+<img src="../Images/board.png" alt="Board"/>
+<img src="../Images/second.png" alt="Second"/></body></html>"""
+        chapter_two = b"""<html><body><p>Two</p>
+<img src="../Images/board.png" alt="Board again"/></body></html>"""
+        raw = _epub(
+            opf=_opf(manifest=manifest, spine=spine),
+            entries={
+                "OEBPS/Text/ch1.xhtml": chapter_one,
+                "OEBPS/Text/ch2.xhtml": chapter_two,
+                "OEBPS/Images/board.png": b"PNG",
+                "OEBPS/Images/second.png": b"PNG2",
+            },
+        )
+
+        result = import_epub_book(raw, source_name="image-order.epub")
+
+        self.assertEqual(
+            result.image_references,
+            (
+                "OEBPS/Images/board.png",
+                "OEBPS/Images/second.png",
+            ),
+        )
 
 
 class EpubWarningBudgetTests(unittest.TestCase):

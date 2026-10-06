@@ -107,6 +107,49 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(workflow.revision, 0)
                 self.assertEqual(reader.snapshot(), before)
 
+    def test_semantic_recovery_warning_count_remains_accessible_and_path_free(self):
+        reader, workflow, bridge, _ = self.compose(
+            BookDocument(
+                title="Recovered semantic game",
+                blocks=[
+                    Game(
+                        pgn='[Result "*"]\n\n1. e4 {unterminated',
+                        title="Recovered game",
+                    )
+                ],
+            )
+        )
+        before = reader.snapshot()
+
+        ua_snapshot = bridge.projection.snapshot()
+        ua_warning = ua_snapshot["block"]["warning"]
+
+        self.assertIsInstance(ua_snapshot["semantic_tree"], dict)
+        self.assertNotIn("_recovery_warning_count", ua_snapshot["semantic_tree"])
+        self.assertIn("Шаховий текст відновлено з попередженнями:", ua_warning)
+        self.assertNotIn("unterminated", ua_warning.casefold())
+        actions = {
+            item["command"]: item["enabled"]
+            for item in ua_snapshot["actions"]
+        }
+        self.assertTrue(actions["book.open_game"])
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
+        switched = bridge.dispatch("book.language", {"language": "en"})
+        en_snapshot = switched.payload["snapshot"]
+        self.assertEqual(switched.kind, "render")
+        self.assertIsInstance(en_snapshot["semantic_tree"], dict)
+        self.assertIn(
+            "Chess text was recovered with warnings:",
+            en_snapshot["block"]["warning"],
+        )
+        self.assertNotIn("unterminated", en_snapshot["block"]["warning"].casefold())
+        self.assertFalse(workflow.active)
+        self.assertEqual(workflow.revision, 0)
+        self.assertEqual(reader.snapshot(), before)
+
     def test_semantic_reading_relocalizes_without_moving_reader_progress(self):
         reader, workflow, bridge, _ = self.compose(
             BookDocument(

@@ -180,7 +180,86 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
         self.assertNotIn("safe_error_", repr(events[0]))
         self.assertFalse(mailbox.overflowed)
 
-    def test_non_import_worker_event_is_rejected(self) -> None:
+    def test_background_pgn_save_terminal_is_accepted_and_drained(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_SAVED,
+            "pgn.save",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+
+        _run_thread(lambda: mailbox(event))
+
+        self.assertEqual(mailbox.pending_count, 1)
+        self.assertEqual(mailbox.drain(), (event,))
+
+    def test_pgn_save_success_kind_must_match_action(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        errors: list[BaseException] = []
+
+        def produce() -> None:
+            for event in (
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED_AS,
+                    "pgn.save",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                ),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED,
+                    "pgn.save_as",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                ),
+            ):
+                try:
+                    mailbox(event)
+                except BaseException as exc:
+                    errors.append(exc)
+
+        _run_thread(produce)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all(isinstance(error, ValueError) for error in errors))
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_async_terminal_error_code_must_match_failure_kind(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        errors: list[BaseException] = []
+
+        def produce() -> None:
+            for event in (
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "pgn.save",
+                    focus_target="pgn-game-list",
+                ),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_SAVED,
+                    "pgn.save",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                    error_code="contradictory_success_error",
+                ),
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_OPENED,
+                    "pgn.open",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                    error_code="contradictory_open_error",
+                ),
+            ):
+                try:
+                    mailbox(event)
+                except BaseException as exc:
+                    errors.append(exc)
+
+        _run_thread(produce)
+        self.assertEqual(len(errors), 3)
+        self.assertTrue(all(isinstance(error, ValueError) for error in errors))
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_unowned_worker_event_is_rejected(self) -> None:
         mailbox = Version2ImportUiEventMailbox()
         errors: list[BaseException] = []
 
@@ -188,8 +267,9 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
             try:
                 mailbox(
                     FileWorkflowEvent(
-                        FileWorkflowEventKind.PGN_SAVED,
-                        "pgn.save",
+                        FileWorkflowEventKind.FAILED,
+                        "pgn.cancel_save",
+                        error_code="not_an_async_terminal_owner",
                     )
                 )
             except BaseException as exc:
@@ -199,6 +279,28 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], ValueError)
         self.assertEqual(mailbox.pending_count, 0)
+
+    def test_pgn_save_overflow_keeps_save_action_and_safe_focus(self) -> None:
+        mailbox = Version2ImportUiEventMailbox(max_events=4)
+
+        def produce() -> None:
+            for index in range(5):
+                mailbox(
+                    FileWorkflowEvent(
+                        FileWorkflowEventKind.FAILED,
+                        "pgn.save_as",
+                        focus_target="pgn-game-list",
+                        error_code=f"safe_save_error_{index}",
+                    )
+                )
+
+        _run_thread(produce)
+        event, = mailbox.drain()
+        self.assertEqual(event.kind, FileWorkflowEventKind.FAILED)
+        self.assertEqual(event.action_id, "pgn.save_as")
+        self.assertEqual(event.focus_target, "pgn-game-list")
+        self.assertEqual(event.error_code, "ui_event_queue_overflow")
+        self.assertNotIn("safe_save_error_", repr(event))
 
     def test_real_background_import_uses_mailbox_without_cross_thread_projection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -249,6 +351,238 @@ class Version2ImportUiEventMailboxTests(unittest.TestCase):
             with AcsDatabase(database_path) as database:
                 count = database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
             self.assertEqual(count, 1)
+
+    def test_worker_queue_owns_detached_event_snapshot(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_COMPLETED,
+            "library.import",
+            focus_target="library-import-file",
+            processed_games=2,
+            total_games=2,
+            game_count=2,
+        )
+
+        _run_thread(lambda: mailbox(event))
+        object.__setattr__(event, "kind", FileWorkflowEventKind.FAILED)
+        object.__setattr__(event, "error_code", "caller_corruption")
+        object.__setattr__(event, "game_count", 999)
+
+        queued, = mailbox.drain()
+        self.assertIsNot(queued, event)
+        self.assertEqual(queued.kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+        self.assertEqual(queued.error_code, "")
+        self.assertEqual(queued.game_count, 2)
+
+    def test_owner_async_queue_owns_detached_event_snapshot(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        event = FileWorkflowEvent(
+            FileWorkflowEventKind.PGN_SAVED,
+            "pgn.save",
+            focus_target="pgn-game-list",
+            game_count=1,
+        )
+
+        returned = mailbox.put_async_owner(event)
+        self.assertIs(returned, event)
+        object.__setattr__(event, "kind", FileWorkflowEventKind.FAILED)
+        object.__setattr__(event, "error_code", "caller_corruption")
+
+        queued, = mailbox.drain()
+        self.assertIsNot(queued, event)
+        self.assertEqual(queued.kind, FileWorkflowEventKind.PGN_SAVED)
+        self.assertEqual(queued.error_code, "")
+        self.assertEqual(queued.game_count, 1)
+
+    def test_derived_event_is_rejected_before_field_hooks(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        touched = []
+
+        class ActiveEvent(FileWorkflowEvent):
+            def __getattribute__(self, name):
+                if name in {"kind", "action_id", "error_code"}:
+                    touched.append(name)
+                    raise AssertionError("derived mailbox event hook executed")
+                return super().__getattribute__(name)
+
+        hostile = ActiveEvent.__new__(ActiveEvent)
+        for name, value in (
+            ("kind", FileWorkflowEventKind.IMPORT_CANCELLED),
+            ("action_id", "library.import"),
+            ("focus_target", "library-import-file"),
+            ("processed_games", 0),
+            ("total_games", 0),
+            ("game_count", 0),
+            ("warning_count", 0),
+            ("error_code", ""),
+            ("source_bytes_read", 0),
+            ("source_total_bytes", 0),
+            ("source_parsing", False),
+            ("source_format", ""),
+            ("retained_book_blocks", 0),
+        ):
+            object.__setattr__(hostile, name, value)
+
+        errors = []
+
+        def submit() -> None:
+            try:
+                mailbox(hostile)
+            except BaseException as exc:
+                errors.append(exc)
+
+        _run_thread(submit)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], TypeError)
+        self.assertEqual(touched, [])
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_exact_event_with_active_scalar_is_rejected_before_hooks(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        touched = []
+
+        class ActiveInt(int):
+            def __lt__(self, other):
+                touched.append("lt")
+                raise AssertionError("active mailbox scalar hook executed")
+
+            def __gt__(self, other):
+                touched.append("gt")
+                raise AssertionError("active mailbox scalar hook executed")
+
+        hostile = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_PROGRESS,
+            "library.import",
+            processed_games=1,
+            total_games=2,
+        )
+        object.__setattr__(hostile, "processed_games", ActiveInt(1))
+        errors = []
+
+        def submit() -> None:
+            try:
+                mailbox(hostile)
+            except BaseException as exc:
+                errors.append(exc)
+
+        _run_thread(submit)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], TypeError)
+        self.assertEqual(touched, [])
+        self.assertEqual(mailbox.pending_count, 0)
+
+    def test_delivery_batch_rolls_back_queue_on_abort(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        first = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_STARTED,
+            "library.import",
+            total_games=2,
+        )
+        second = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_PROGRESS,
+            "library.import",
+            processed_games=1,
+            total_games=2,
+        )
+        _run_thread(lambda: (mailbox(first), mailbox(second)))
+        before = mailbox.pending_count
+
+        class DeliveryAbort(BaseException):
+            pass
+
+        with self.assertRaises(DeliveryAbort):
+            with mailbox.delivery_batch() as leased:
+                self.assertEqual(
+                    [event.kind for event in leased],
+                    [
+                        FileWorkflowEventKind.IMPORT_STARTED,
+                        FileWorkflowEventKind.IMPORT_PROGRESS,
+                    ],
+                )
+                raise DeliveryAbort()
+
+        self.assertEqual(mailbox.pending_count, before)
+        drained = mailbox.drain()
+        self.assertEqual(
+            [event.kind for event in drained],
+            [
+                FileWorkflowEventKind.IMPORT_STARTED,
+                FileWorkflowEventKind.IMPORT_PROGRESS,
+            ],
+        )
+
+    def test_delivery_batch_commits_exact_prefix_only_after_success(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        events = (
+            FileWorkflowEvent(
+                FileWorkflowEventKind.IMPORT_STARTED,
+                "library.import",
+                total_games=2,
+            ),
+            FileWorkflowEvent(
+                FileWorkflowEventKind.IMPORT_PROGRESS,
+                "library.import",
+                processed_games=1,
+                total_games=2,
+            ),
+            FileWorkflowEvent(
+                FileWorkflowEventKind.IMPORT_COMPLETED,
+                "library.import",
+                processed_games=2,
+                total_games=2,
+                game_count=2,
+            ),
+        )
+        _run_thread(lambda: tuple(mailbox(event) for event in events))
+
+        with mailbox.delivery_batch(max_events=2) as leased:
+            self.assertEqual(len(leased), 2)
+            self.assertEqual(mailbox.pending_count, 3)
+
+        self.assertEqual(mailbox.pending_count, 1)
+        remaining = mailbox.drain()
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].kind, FileWorkflowEventKind.IMPORT_COMPLETED)
+
+    def test_delivery_batch_blocks_producer_from_reordering_leased_prefix(self) -> None:
+        mailbox = Version2ImportUiEventMailbox()
+        first = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_PROGRESS,
+            "library.import",
+            processed_games=1,
+            total_games=3,
+        )
+        _run_thread(lambda: mailbox(first))
+
+        producer_entered = threading.Event()
+        producer_finished = threading.Event()
+        second = FileWorkflowEvent(
+            FileWorkflowEventKind.IMPORT_PROGRESS,
+            "library.import",
+            processed_games=2,
+            total_games=3,
+        )
+
+        def produce() -> None:
+            producer_entered.set()
+            mailbox(second)
+            producer_finished.set()
+
+        with mailbox.delivery_batch() as leased:
+            self.assertEqual(len(leased), 1)
+            self.assertEqual(leased[0].processed_games, 1)
+            worker = threading.Thread(target=produce, name="mailbox-lease-producer")
+            worker.start()
+            self.assertTrue(producer_entered.wait(1.0))
+            self.assertFalse(producer_finished.wait(0.05))
+            self.assertEqual(mailbox.pending_count, 1)
+
+        worker.join(2.0)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(producer_finished.is_set())
+        remaining = mailbox.drain()
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].processed_games, 2)
 
     def test_constructor_and_partial_drain_are_bounded(self) -> None:
         with self.assertRaises(TypeError):

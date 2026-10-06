@@ -35,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: p0-user-oneclick-portable-launcher-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: p0-user-oneclick-portable-launcher-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,20 +58,6 @@ jobs:
           if ($actual -ne $expected) {
             throw "Exact candidate mismatch: expected $expected, got $actual"
           }
-
-      - name: Reject superseded pull-request candidate
-        if: ${{ github.event_name == 'pull_request' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $eventSha = '${{ github.event.pull_request.head.sha }}'
-          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve live pull-request head' }
-          $liveSha = (git rev-parse FETCH_HEAD).Trim()
-          if ($liveSha -ne $eventSha) {
-            throw "P0_ONECLICK_SUPERSEDED event=$eventSha live=$liveSha"
-          }
-          Write-Host 'P0_ONECLICK_EXACT_HEAD=PASS'
 
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -321,7 +307,8 @@ jobs:
                 'STATUS: FAILED_EARLY_EXIT',
                 "CHILD_EXIT_CODE: $($case.Code)",
                 "CHILD_EXIT_REASON: $($case.Reason)",
-                'USER_WINDOW_PROVEN: NO'
+                'USER_WINDOW_PROVEN: NO',
+                'USER_NVDA_PROVEN: NO'
               )) {
                 if (-not $text.Contains($required)) {
                   throw "Synthetic early exit $($case.Code) missing report evidence: $required"
@@ -374,6 +361,12 @@ jobs:
             'PREFLIGHT: PASS',
             'PROCESS_CREATED: YES',
             'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE',
+            'PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD',
+            'APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD',
+            'PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD',
             'STATUS: STARTUP_WINDOW_READY',
             'USER_WINDOW_PROVEN: YES',
             'USER_NVDA_PROVEN: NO'
@@ -416,7 +409,71 @@ jobs:
 
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
+
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class AccessibleChessDirectoryDeleteProbe {
+              private const uint DeleteAccess = 0x00010000;
+              private const uint ShareRead = 0x00000001;
+              private const uint ShareWrite = 0x00000002;
+              private const uint ShareDelete = 0x00000004;
+              private const uint OpenExisting = 3;
+              private const uint BackupSemantics = 0x02000000;
+              private const uint OpenReparsePoint = 0x00200000;
+              private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              private static extern IntPtr CreateFileW(
+                  string fileName,
+                  uint desiredAccess,
+                  uint shareMode,
+                  IntPtr securityAttributes,
+                  uint creationDisposition,
+                  uint flagsAndAttributes,
+                  IntPtr templateFile
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern bool CloseHandle(IntPtr handle);
+
+              public static int Probe(string path) {
+                  IntPtr handle = CreateFileW(
+                      path,
+                      DeleteAccess,
+                      ShareRead | ShareWrite | ShareDelete,
+                      IntPtr.Zero,
+                      OpenExisting,
+                      BackupSemantics | OpenReparsePoint,
+                      IntPtr.Zero
+                  );
+                  if (handle == InvalidHandleValue) {
+                      return Marshal.GetLastWin32Error();
+                  }
+                  CloseHandle(handle);
+                  return 0;
+              }
+          }
+          '@
+
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 32) {
+              throw "Transferred directory guard missing for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
+
           Start-Sleep -Seconds 7
+
+          $reportedChild.Kill()
+          $reportedChild.WaitForExit()
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 0) {
+              throw "Directory guard leaked after child exit for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
 
       - name: Execute transient-window false-success regression
         shell: pwsh
@@ -476,6 +533,7 @@ jobs:
           $launcher = Join-Path $root 'AccessibleChess.exe'
           $child = Join-Path $app 'AccessibleChess.exe'
           $report = Join-Path $root 'launch-report.txt'
+          $lock = Join-Path $root '.accessible-chess-instance.lock'
           New-Item -ItemType Directory -Force $app | Out-Null
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe $child
@@ -506,10 +564,34 @@ jobs:
               'STATUS: FAILED_STARTUP_TIMEOUT',
               'USER_WINDOW_PROVEN: NO',
               'USER_NVDA_PROVEN: NO',
-              'CHILD_LEFT_RUNNING: YES'
+              'TIMEOUT_CHILD_CLEANUP: PASS',
+              'CHILD_LEFT_RUNNING: NO'
             )) {
               if (-not $text.Contains($required)) { throw "Hung-window report missing: $required" }
             }
+
+            $childDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+              $ownedChildren = @(
+                Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                  try { $_.Path -eq $child } catch { $false }
+                }
+              )
+              if ($ownedChildren.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $childDeadline)
+            if ($ownedChildren.Count -ne 0) {
+              throw "Hung-window timeout left $($ownedChildren.Count) package-local child process(es) running"
+            }
+
+            $exclusiveLock = [IO.File]::Open(
+              $lock,
+              [IO.FileMode]::Open,
+              [IO.FileAccess]::ReadWrite,
+              [IO.FileShare]::None
+            )
+            $exclusiveLock.Dispose()
+
             if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
           }
           finally {
@@ -528,6 +610,7 @@ jobs:
           $launcher = Join-Path $root 'AccessibleChess.exe'
           $child = Join-Path $app 'AccessibleChess.exe'
           $report = Join-Path $root 'launch-report.txt'
+          $lock = Join-Path $root '.accessible-chess-instance.lock'
           New-Item -ItemType Directory -Force $app | Out-Null
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe $child
@@ -554,18 +637,66 @@ jobs:
               'STATUS: FAILED_STARTUP_TIMEOUT',
               'USER_WINDOW_PROVEN: NO',
               'USER_NVDA_PROVEN: NO',
-              'CHILD_LEFT_RUNNING: YES'
+              'TIMEOUT_CHILD_CLEANUP: PASS',
+              'CHILD_LEFT_RUNNING: NO'
             )) {
               if (-not $text.Contains($required)) { throw "No-window report missing: $required" }
             }
+
+            $childDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+              $ownedChildren = @(
+                Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                  try { $_.Path -eq $child } catch { $false }
+                }
+              )
+              if ($ownedChildren.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $childDeadline)
+            if ($ownedChildren.Count -ne 0) {
+              throw "No-window timeout left $($ownedChildren.Count) package-local child process(es) running"
+            }
+
+            $exclusiveLock = [IO.File]::Open(
+              $lock,
+              [IO.FileMode]::Open,
+              [IO.FileAccess]::ReadWrite,
+              [IO.FileShare]::None
+            )
+            $exclusiveLock.Dispose()
+
             if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
 
-            Get-Process -ErrorAction SilentlyContinue | Where-Object {
-              try { $_.Path -eq $child } catch { $false }
-            } | Stop-Process -Force -ErrorAction SilentlyContinue
+            # Prove the user's next one-click attempt is no longer coalesced behind
+            # the timed-out child: remove fault injection and relaunch the same root EXE.
+            Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+            $retry = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+            if (-not $retry.WaitForExit(10000)) {
+              $retry.Kill()
+              $retry.WaitForExit()
+              throw 'Portable launcher retry after timeout did not reach a terminal launcher state'
+            }
+            if ($retry.ExitCode -ne 0) {
+              throw "Portable launcher retry after timeout failed with exit code $($retry.ExitCode)"
+            }
+            $retryText = Get-Content -LiteralPath $report -Raw -Encoding utf8
+            foreach ($required in @(
+              'PREFLIGHT: PASS',
+              'PROCESS_CREATED: YES',
+              'STATUS: STARTUP_WINDOW_READY',
+              'USER_WINDOW_PROVEN: YES',
+              'USER_NVDA_PROVEN: NO'
+            )) {
+              if (-not $retryText.Contains($required)) {
+                throw "Retry launch report missing: $required"
+              }
+            }
           }
           finally {
             Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
           }
 
       - name: Diff and source hygiene
@@ -602,6 +733,11 @@ jobs:
           assert 'DuplicateHandle(' in source
           assert 'DUPLICATE_SAME_ACCESS' in source
           assert 'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE' in source
+          assert '#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000' in source
+          assert 'TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)' in source
+          assert 'WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)' in source
+          assert 'TIMEOUT_CHILD_CLEANUP: PASS' in source
+          assert 'CHILD_LEFT_RUNNING: NO' in source
           assert 'STARTF_USESTDHANDLES' not in source
           assert 'bInheritHandle = TRUE' not in source
           print('PORTABLE_ONECLICK_SOURCE_HYGIENE=PASS')

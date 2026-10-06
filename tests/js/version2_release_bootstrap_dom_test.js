@@ -106,6 +106,9 @@ let intervalCallback = null;
 let snapshotCalls = 0;
 let nextSnapshotOverride = null;
 let libraryApplyCalls = 0;
+let libraryDeactivateCalls = 0;
+let libraryInvoke = null;
+let libraryOpenEffects = 0;
 let failNextBookRender = false;
 let failNextTrainingRender = false;
 let stage1RefreshCalls = 0;
@@ -125,6 +128,8 @@ let dropRouteResponsesAfterEffect = 0;
 let dropNextCommitResponseAfterEffect = false;
 let dropNextRollbackResponseAfterEffect = false;
 let failPublicationTransportBeforeEffect = 0;
+let rejectPublicationHostBeforeEffect = 0;
+let rejectHostThenFrozenTransport = 0;
 
 function snapshot(route) {
   const focus = {
@@ -207,22 +212,43 @@ const windowObject = {
         return Promise.resolve(value);
       },
       v2_browser_command: (area, command, payload) => {
-        if (area !== "shell" || payload == null || typeof payload !== "object" ||
+        if ((area !== "shell" && area !== "library") ||
+            payload == null || typeof payload !== "object" ||
             Array.isArray(payload)) {
           return Promise.reject(new Error("unexpected browser command"));
         }
 
-        if (command === "shell.presentation_commit" ||
-            command === "shell.presentation_rollback") {
+        if (area === "shell" && (command === "shell.presentation_commit" ||
+            command === "shell.presentation_rollback")) {
           const keys = Object.keys(payload);
           if (keys.length !== 1 || keys[0] !== "token" ||
               !Number.isSafeInteger(payload.token) || payload.token <= 0) {
             return Promise.reject(new Error("invalid publication acknowledgement"));
           }
           const commit = command === "shell.presentation_commit";
+          if (rejectHostThenFrozenTransport === 2) {
+            rejectHostThenFrozenTransport = 1;
+            return Promise.resolve({
+              kind: "error",
+              payload: { message: "simulated host rejection before frozen transport failure" }
+            });
+          }
+          if (rejectHostThenFrozenTransport === 1) {
+            rejectHostThenFrozenTransport = 0;
+            return Promise.reject(
+              Object.freeze(new Error("simulated frozen publication transport outage"))
+            );
+          }
           if (failPublicationTransportBeforeEffect > 0) {
             failPublicationTransportBeforeEffect -= 1;
             return Promise.reject(new Error("simulated publication transport outage"));
+          }
+          if (rejectPublicationHostBeforeEffect > 0) {
+            rejectPublicationHostBeforeEffect -= 1;
+            return Promise.resolve({
+              kind: "error",
+              payload: { message: "simulated retryable host rejection" }
+            });
           }
           if (pendingShellPublication === null) {
             if (lastShellPublicationResolution &&
@@ -265,15 +291,20 @@ const windowObject = {
         }
 
         const keys = Object.keys(payload).sort();
+        const isShellRoute =
+          area === "shell" && String(command).indexOf("screen.") === 0;
+        const isLibraryOpen =
+          area === "library" && command === "library.open_game";
         if (keys.length !== 2 || keys[0] !== "publication_protocol" ||
             keys[1] !== "request_id" ||
             payload.publication_protocol !== "ack-v1" ||
             !Number.isSafeInteger(payload.request_id) || payload.request_id <= 0 ||
-            String(command).indexOf("screen.") !== 0) {
-          return Promise.reject(new Error("unexpected browser route command"));
+            (!isShellRoute && !isLibraryOpen)) {
+          return Promise.reject(new Error("unexpected browser publication command"));
         }
         if (pendingShellPublication !== null) {
           if (pendingShellPublication.requestId !== payload.request_id ||
+              pendingShellPublication.area !== area ||
               pendingShellPublication.command !== String(command)) {
             return Promise.reject(new Error("publication already pending"));
           }
@@ -281,29 +312,55 @@ const windowObject = {
             dropRouteResponsesAfterEffect -= 1;
             return Promise.reject(new Error("simulated lost route response"));
           }
-          return Promise.resolve({
-            kind: "route",
-            payload: { publication_token: pendingShellPublication.token }
-          });
+          return Promise.resolve(
+            isLibraryOpen
+              ? {
+                  kind: "delegated",
+                  payload: {
+                    action: "library.open_game",
+                    publication_token: pendingShellPublication.token
+                  }
+                }
+              : {
+                  kind: "route",
+                  payload: { publication_token: pendingShellPublication.token }
+                }
+          );
         }
         const token = nextShellPublicationToken++;
         const previousRoute = currentRoute;
-        currentRoute = String(command).replace(/^screen\./, "");
-        shellRouteEffects += 1;
+        if (isLibraryOpen) {
+          currentRoute = "pgn";
+          libraryOpenEffects += 1;
+        } else {
+          currentRoute = String(command).replace(/^screen\./, "");
+          shellRouteEffects += 1;
+        }
         pendingShellPublication = {
           token: token,
           previousRoute: previousRoute,
           requestId: payload.request_id,
+          area: area,
           command: String(command)
         };
         if (dropRouteResponsesAfterEffect > 0) {
           dropRouteResponsesAfterEffect -= 1;
           return Promise.reject(new Error("simulated lost route response"));
         }
-        return Promise.resolve({
-          kind: "route",
-          payload: { publication_token: token }
-        });
+        return Promise.resolve(
+          isLibraryOpen
+            ? {
+                kind: "delegated",
+                payload: {
+                  action: "library.open_game",
+                  publication_token: token
+                }
+              }
+            : {
+                kind: "route",
+                payload: { publication_token: token }
+              }
+        );
       },
       v2_drain_events: () => {
         drainCalls += 1;
@@ -327,15 +384,27 @@ const windowObject = {
     }
   },
   AccessibleChessLibrarySurface: {
-    render: (root, _snapshot, _invoke, _announce, requestedFocus) => {
+    render: (root, _snapshot, invoke, _announce, requestedFocus) => {
+      libraryInvoke = invoke;
       const input = new FakeElement("input");
       input.id = "library-search-player";
+      const exportFiltered = new FakeElement("button");
+      exportFiltered.id = "library-export-filtered";
+      const importFile = new FakeElement("button");
+      importFile.id = "library-import-file";
       root.replaceChildren(input);
+      root.appendChild(exportFiltered);
+      root.appendChild(importFile);
       if (requestedFocus === input.id) input.focus();
+      else if (requestedFocus === exportFiltered.id) exportFiltered.focus();
+      else if (requestedFocus === importFile.id) importFile.focus();
     },
     apply: (_root, event) => {
       if (!event || event.kind !== "render-import") throw new Error("unexpected Library event");
       libraryApplyCalls += 1;
+    },
+    deactivate: (_root) => {
+      libraryDeactivateCalls += 1;
     }
   },
   AccessibleChessBookSurface: {
@@ -353,7 +422,12 @@ const windowObject = {
     render: (root, trainingSnapshot) => {
       if (failNextTrainingRender) {
         failNextTrainingRender = false;
-        throw new TypeError("malformed Training product snapshot");
+        const partialCandidate = new FakeElement("p");
+        partialCandidate.id = "malformed-training-partial";
+        root.replaceChildren(partialCandidate);
+        const malformed = new TypeError("malformed Training product snapshot");
+        Object.freeze(malformed);
+        throw malformed;
       }
       if (trainingSnapshot && trainingSnapshot.answer &&
           trainingSnapshot.answer.disabled === true) {
@@ -435,13 +509,17 @@ async function clickRoute(routeId) {
     workspace.hidden === true,
     "malformed Books render exposed an uncommitted product workspace"
   );
+  const boardNavAfterMalformedProduct = documentRef.getElementById("v2-nav-board");
+  const booksNavAfterMalformedProduct = documentRef.getElementById("v2-nav-books");
   check(
-    documentRef.getElementById("v2-nav-board") === boardNavBeforeMalformedProduct,
-    "malformed Books render replaced committed navigation"
+    boardNavAfterMalformedProduct !== null &&
+      boardNavAfterMalformedProduct.attributes["aria-current"] === "page",
+    "malformed Books render advanced committed navigation away from Board"
   );
   check(
-    boardNavBeforeMalformedProduct.attributes["aria-current"] === "page",
-    "malformed Books render advanced aria-current away from Board"
+    booksNavAfterMalformedProduct === null ||
+      booksNavAfterMalformedProduct.attributes["aria-current"] !== "page",
+    "malformed Books render left Books marked as the current route"
   );
   check(
     documentRef.activeElement === moveInput,
@@ -456,6 +534,68 @@ async function clickRoute(routeId) {
   check(shellPublicationRollbacks === 1, "malformed Books render did not execute one rollback");
   check(shellPublicationCommits === 0, "malformed Books render incorrectly committed the route");
   check(pendingShellPublication === null, "malformed Books render left a pending publication");
+
+  failNextBookRender = true;
+  rejectPublicationHostBeforeEffect = 2;
+  const snapshotsBeforeRetryableHostRejection = snapshotCalls;
+  await clickRoute("books");
+  check(
+    currentRoute === "books",
+    "retryable host rollback rejection unexpectedly changed the candidate host route"
+  );
+  check(
+    pendingShellPublication !== null,
+    "retryable host rollback rejection forgot the still-pending host publication"
+  );
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "retryable host rollback rejection published the unacknowledged Books candidate"
+  );
+  check(
+    documentRef.getElementById("v2-nav-board").attributes["aria-current"] === "page",
+    "retryable host rollback rejection advanced committed navigation"
+  );
+  check(
+    snapshotCalls === snapshotsBeforeRetryableHostRejection + 2,
+    "retryable host rollback rejection did not separate candidate read from authority re-check"
+  );
+
+  await clickRoute("board");
+  check(
+    currentRoute === "board" && pendingShellPublication === null,
+    "next route did not recover the retryable rejected publication before continuing"
+  );
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "recovery after retryable host rejection did not preserve canonical Board visibility"
+  );
+
+  failNextBookRender = true;
+  rejectHostThenFrozenTransport = 2;
+  const snapshotsBeforeFrozenTransport = snapshotCalls;
+  await clickRoute("books");
+  check(
+    snapshotCalls === snapshotsBeforeFrozenTransport + 2,
+    "frozen transport rejection after host response skipped authority re-check"
+  );
+  check(
+    currentRoute === "books" && pendingShellPublication !== null,
+    "frozen transport rejection lost retryable host publication authority"
+  );
+  check(
+    originalMain.hidden === false && workspace.hidden === true,
+    "frozen transport rejection published malformed Books candidate"
+  );
+  await clickRoute("board");
+  check(
+    currentRoute === "board" && pendingShellPublication === null,
+    "next route did not recover publication after frozen transport rejection"
+  );
+
+  // Keep the legacy absolute counters below scoped to their original scenario;
+  // the retryability case above has already asserted its own recovery effects.
+  shellPublicationRollbacks = 1;
+  shellPublicationCommits = 0;
 
   await clickRoute("books");
   const committedBookBlock = documentRef.getElementById("book-block-1");
@@ -698,6 +838,350 @@ async function clickRoute(routeId) {
   check(documentRef.getElementById("library-search-player") === libraryInput, "status-only event replaced active Library controls");
   check(documentRef.activeElement === libraryInput, "status-only event moved keyboard focus");
 
+  const beforeExportTerminalSnapshots = snapshotCalls;
+  live.focus();
+  check(
+    !workspace.contains(documentRef.activeElement),
+    "export terminal recovery precondition did not move focus outside the active workspace"
+  );
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    snapshotCalls === beforeExportTerminalSnapshots,
+    "Library export terminal focus triggered an unnecessary V2 snapshot"
+  );
+  check(
+    live.textContent === "Export completed.",
+    "Library export terminal announcement did not reach the live region"
+  );
+  check(
+    documentRef.activeElement === libraryInput,
+    "Library export terminal event did not restore the pre-dialog Library focus"
+  );
+
+  const libraryExportFiltered = documentRef.getElementById("library-export-filtered");
+  check(libraryExportFiltered !== null, "Library filtered-export focus target missing");
+  live.focus();
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Filtered export completed.",
+      focus_target: "library-export-filtered"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === libraryExportFiltered,
+    "Library export terminal event did not restore stable toolbar focus"
+  );
+  check(
+    live.textContent === "Filtered export completed.",
+    "Library toolbar terminal announcement was lost"
+  );
+
+  const beforeExportOperationApplyCalls = libraryApplyCalls;
+  const beforeExportOperationSnapshots = snapshotCalls;
+  live.focus();
+  eventQueue = [
+    {
+      kind: "render-import",
+      payload: { import: {}, focus_target: "", announcement: "" }
+    },
+    {
+      kind: "status",
+      payload: {
+        announcement: "Export state and terminal focus committed.",
+        focus_target: "library-search-player"
+      }
+    }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    libraryApplyCalls === beforeExportOperationApplyCalls + 1,
+    "Library export operation-state event did not apply incrementally"
+  );
+  check(
+    snapshotCalls === beforeExportOperationSnapshots,
+    "Library export operation-state plus terminal event forced a whole-product snapshot"
+  );
+  check(
+    documentRef.activeElement === libraryInput,
+    "Library export operation-state event prevented terminal focus restoration"
+  );
+  check(
+    live.textContent === "Export state and terminal focus committed.",
+    "Library export operation-state batch lost its terminal announcement"
+  );
+
+  const libraryImportFile = documentRef.getElementById("library-import-file");
+  check(libraryImportFile !== null, "Library import recovery focus target missing");
+  live.focus();
+  eventQueue = [
+    {
+      kind: "render-import",
+      payload: { import: {}, focus_target: "", announcement: "" }
+    },
+    {
+      kind: "status",
+      payload: {
+        announcement: "The Library operation has already finished.",
+        focus_target: "library-import-file"
+      }
+    }
+  ];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === libraryImportFile,
+    "stale export recovery did not restore shared Library operation focus"
+  );
+  check(
+    live.textContent === "The Library operation has already finished.",
+    "stale export recovery status was not announced"
+  );
+
+  const newerLibraryFocus = new FakeElement("button");
+  newerLibraryFocus.id = "library-newer-user-focus";
+  workspace.appendChild(newerLibraryFocus);
+  newerLibraryFocus.focus();
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed after user moved.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === newerLibraryFocus,
+    "late Library export terminal event stole a newer visible workspace focus"
+  );
+  check(
+    live.textContent === "Export completed after user moved.",
+    "late Library export terminal announcement was lost while preserving newer focus"
+  );
+
+  const newerLibraryNavigationFocus = documentRef.getElementById("v2-nav-library");
+  check(newerLibraryNavigationFocus !== null, "Library navigation focus target missing");
+  newerLibraryNavigationFocus.focus();
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Export completed after navigation focus moved.",
+      focus_target: "library-search-player"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === newerLibraryNavigationFocus,
+    "late Library export terminal event stole newer navigation focus"
+  );
+  check(
+    live.textContent === "Export completed after navigation focus moved.",
+    "terminal announcement was lost while preserving newer navigation focus"
+  );
+
+  live.focus();
+  eventQueue = [{
+    kind: "error",
+    payload: {
+      message: "The action could not be completed.",
+      focus_target: "malformed.focus"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === live,
+    "malformed Library export terminal focus reached the DOM focus boundary"
+  );
+  check(
+    live.textContent === "The action could not be completed.",
+    "Library export terminal error was not announced"
+  );
+
+  eventQueue = [{
+    kind: "status",
+    payload: {
+      announcement: "Missing target ignored.",
+      focus_target: "missing-export-focus"
+    }
+  }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    documentRef.activeElement === live,
+    "missing Library export terminal target changed keyboard focus"
+  );
+  check(
+    snapshotCalls === beforeExportTerminalSnapshots,
+    "Library export terminal focus-only events unexpectedly rerendered the V2 product"
+  );
+
+  check(typeof libraryInvoke === "function", "Library render did not expose its command boundary");
+
+  const effectsBeforeInvalidLibraryPayload = libraryOpenEffects;
+  let invalidLibraryPayloadRejected = false;
+  try {
+    await libraryInvoke("library.open_game", { unexpected: true });
+  } catch (_) {
+    invalidLibraryPayloadRejected = true;
+  }
+  check(invalidLibraryPayloadRejected, "Library open accepted a non-empty browser payload");
+  check(
+    libraryOpenEffects === effectsBeforeInvalidLibraryPayload,
+    "invalid Library open payload reached canonical host effect"
+  );
+
+  // Library -> PGN is a domain-owner transition, not just a post-hoc refresh.
+  // A malformed candidate snapshot must roll the host and PGN owner back before
+  // the old Library surface can be treated as authoritative again.
+  const malformedLibraryOpen = snapshot("pgn");
+  malformedLibraryOpen.screen = Object.assign({}, malformedLibraryOpen.screen, {
+    route_id: "invalid-route"
+  });
+  nextSnapshotOverride = malformedLibraryOpen;
+  const libraryEffectsBeforeRenderFailure = libraryOpenEffects;
+  const rollbacksBeforeLibraryRenderFailure = shellPublicationRollbacks;
+  const deactivationsBeforeLibraryRenderFailure = libraryDeactivateCalls;
+  const failedLibraryOpen = await libraryInvoke("library.open_game", {});
+  for (let index = 0; index < 8; index += 1) await flush();
+  check(failedLibraryOpen === null, "failed Library open leaked a delegated success");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeRenderFailure + 1,
+    "failed Library open did not execute exactly one staged host effect"
+  );
+  check(
+    shellPublicationRollbacks === rollbacksBeforeLibraryRenderFailure + 1,
+    "failed Library open did not roll back its staged PGN owner"
+  );
+  check(currentRoute === "library", "failed Library open did not restore the Library route");
+  check(
+    libraryDeactivateCalls === deactivationsBeforeLibraryRenderFailure,
+    "failed candidate render retired the still-authoritative Library surface"
+  );
+  check(pendingShellPublication === null, "failed Library open left host publication pending");
+  check(
+    documentRef.getElementById("library-search-player") !== null,
+    "failed Library open did not restore the canonical Library surface"
+  );
+  check(
+    documentRef.activeElement === documentRef.getElementById("library-search-player"),
+    "failed Library open did not restore canonical Library keyboard focus"
+  );
+  check(live.textContent === "Could not open the game.", "failed Library open was not announced");
+
+  // A lost start response must replay the exact Library request rather than
+  // opening the selected game twice. A lost commit response is idempotent too.
+  const libraryEffectsBeforeLostResponse = libraryOpenEffects;
+  const commitsBeforeLibraryLostResponse = shellPublicationCommits;
+  const deactivationsBeforeCommittedLibraryOpen = libraryDeactivateCalls;
+  dropRouteResponsesAfterEffect = 1;
+  dropNextCommitResponseAfterEffect = true;
+  const committedLibraryOpen = await libraryInvoke("library.open_game", {});
+  for (let index = 0; index < 8; index += 1) await flush();
+  check(
+    committedLibraryOpen && committedLibraryOpen.kind === "delegated",
+    "Library open did not return its delegated success after publication"
+  );
+  check(
+    committedLibraryOpen.payload &&
+      Object.keys(committedLibraryOpen.payload).length === 1 &&
+      committedLibraryOpen.payload.action === "library.open_game",
+    "Library open leaked publication transport authority into delegated event schema"
+  );
+  check(currentRoute === "pgn", "Library open did not commit the PGN route");
+  check(
+    libraryDeactivateCalls === deactivationsBeforeCommittedLibraryOpen + 1,
+    "committed Library -> PGN transition did not retire stale Library commands"
+  );
+  check(
+    libraryOpenEffects === libraryEffectsBeforeLostResponse + 1,
+    "lost Library start response duplicated the canonical open effect"
+  );
+  check(
+    shellPublicationCommits === commitsBeforeLibraryLostResponse + 1,
+    "lost Library commit response duplicated or lost the commit"
+  );
+  check(pendingShellPublication === null, "committed Library open left a publication pending");
+
+  await clickRoute("library");
+  check(currentRoute === "library", "test setup did not return to Library");
+  check(typeof libraryInvoke === "function", "Library command boundary was not rebound");
+
+  // If both start responses disappear, retain area+action+request as an
+  // unknown-token fence. The next route must recover that exact Library
+  // publication first, without re-executing the game open or draining events
+  // against uncertain presentation authority.
+  const libraryEffectsBeforeUnknownToken = libraryOpenEffects;
+  const rollbacksBeforeUnknownLibraryToken = shellPublicationRollbacks;
+  const drainCallsBeforeUnknownLibraryToken = drainCalls;
+  dropRouteResponsesAfterEffect = 2;
+  const unresolvedLibraryOpen = await libraryInvoke("library.open_game", {});
+  await flush();
+  check(unresolvedLibraryOpen === null, "unknown-token Library open reported success");
+  check(currentRoute === "pgn", "unknown-token Library open lost its one staged PGN route");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeUnknownToken + 1,
+    "unknown-token Library open executed more than once"
+  );
+  check(pendingShellPublication !== null, "unknown-token Library open forgot host publication");
+
+  eventQueue = [{
+    kind: "status",
+    payload: { announcement: "Deferred across Library open publication." }
+  }];
+  intervalCallback();
+  await flush();
+  check(
+    drainCalls === drainCallsBeforeUnknownLibraryToken,
+    "unknown-token Library open allowed native event drain"
+  );
+  check(eventQueue.length === 1, "unknown-token Library open consumed deferred native event");
+
+  await clickRoute("board");
+  for (let index = 0; index < 8; index += 1) await flush();
+  check(currentRoute === "board", "next route did not recover Library open before navigation");
+  check(pendingShellPublication === null, "Library recovery left publication pending");
+  check(
+    libraryOpenEffects === libraryEffectsBeforeUnknownToken + 1,
+    "Library recovery replayed the game-open effect"
+  );
+  check(
+    shellPublicationRollbacks === rollbacksBeforeUnknownLibraryToken + 1,
+    "Library recovery did not roll back the unknown-token publication once"
+  );
+  check(
+    drainCalls === drainCallsBeforeUnknownLibraryToken + 1,
+    "deferred event was not drained once after Library publication recovery"
+  );
+  check(
+    live.textContent === "Deferred across Library open publication.",
+    "deferred event did not publish after Library authority recovery"
+  );
+
+  await clickRoute("library");
+  check(currentRoute === "library", "Library publication regression did not restore test route");
+
   const beforeOversizedEventSnapshots = snapshotCalls;
   const beforeOversizedEventRefreshes = stage1RefreshCalls;
   moveInput.focus();
@@ -774,6 +1258,54 @@ async function clickRoute(routeId) {
   check(
     documentRef.activeElement === moveInput,
     "raw native event focus_target overrode canonical snapshot focus"
+  );
+
+  const shutdownFailureMessage =
+    "Accessible Chess could not close safely. The window remains open; try exiting again.";
+  const beforeShutdownErrorSnapshots = snapshotCalls;
+  const beforeShutdownErrorRefreshes = stage1RefreshCalls;
+  eventQueue = [{ kind: "error", payload: { message: shutdownFailureMessage } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    live.textContent === shutdownFailureMessage,
+    "native refused-close error did not reach the NVDA live region"
+  );
+  check(
+    snapshotCalls === beforeShutdownErrorSnapshots,
+    "refused-close error triggered an unrelated V2 snapshot refresh"
+  );
+  check(
+    stage1RefreshCalls === beforeShutdownErrorRefreshes,
+    "refused-close error triggered an unrelated Stage 1 repaint"
+  );
+
+  const longRefusedCloseMessage =
+    "Accessible Chess could not close safely. Detailed recovery information: " +
+    "x".repeat(640);
+  check(
+    longRefusedCloseMessage.length > 300 && longRefusedCloseMessage.length < 1200,
+    "long refused-close fixture does not exercise the bounded announcement range"
+  );
+  const beforeLongShutdownSnapshots = snapshotCalls;
+  const beforeLongShutdownRefreshes = stage1RefreshCalls;
+  eventQueue = [{ kind: "error", payload: { message: longRefusedCloseMessage } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  check(
+    live.textContent === longRefusedCloseMessage,
+    "bounded refused-close diagnostic was truncated in the visible/NVDA live region"
+  );
+  check(
+    snapshotCalls === beforeLongShutdownSnapshots,
+    "long refused-close diagnostic triggered an unrelated V2 snapshot refresh"
+  );
+  check(
+    stage1RefreshCalls === beforeLongShutdownRefreshes,
+    "long refused-close diagnostic triggered an unrelated Stage 1 repaint"
   );
 
   const beforeSerializedDrainCalls = drainCalls;

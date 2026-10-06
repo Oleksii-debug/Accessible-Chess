@@ -121,6 +121,57 @@ def _portable_report(root: Path) -> Version2PortablePackageReport:
 
 
 class OwnerPortableCandidateValidationTests(unittest.TestCase):
+    def test_public_validation_controls_are_passive_before_package_work(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        class ActiveCount(int):
+            def __le__(self, other):
+                touched.append("count")
+                raise AssertionError("active count hook executed")
+
+        with mock.patch.object(
+            owner_candidate,
+            "validate_portable_oneclick_tree",
+            side_effect=AssertionError("portable validation must not start"),
+        ) as portable:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                owner_candidate.validate_owner_portable_candidate_tree(
+                    ActivePath(),
+                    expected_integration_sha=_SHA,
+                    expected_sound_archive_sha256=_ARCHIVE_SHA,
+                )
+        portable.assert_not_called()
+        self.assertEqual(touched, [])
+
+        for source_count, game_count in ((ActiveCount(6), 3738), (6, ActiveCount(3738))):
+            with self.subTest(
+                source_count=type(source_count).__name__,
+                game_count=type(game_count).__name__,
+            ):
+                with mock.patch.object(
+                    owner_candidate,
+                    "validate_portable_oneclick_tree",
+                    side_effect=AssertionError("portable validation must not start"),
+                ) as portable:
+                    with self.assertRaisesRegex(
+                        owner_candidate.OwnerPortableCandidateError,
+                        "count is invalid",
+                    ):
+                        owner_candidate.validate_owner_portable_candidate_tree(
+                            "unused-package",
+                            expected_integration_sha=_SHA,
+                            expected_sound_archive_sha256=_ARCHIVE_SHA,
+                            expected_seed_source_count=source_count,
+                            expected_seed_game_count=game_count,
+                        )
+                portable.assert_not_called()
+                self.assertEqual(touched, [])
+
     def test_exact_sound_and_canonical_seed_pass_owner_gate(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "candidate"
@@ -353,6 +404,130 @@ class OwnerPortableCandidateValidationTests(unittest.TestCase):
 
 
 class OwnerPortableCandidateAssemblyTests(unittest.TestCase):
+    def test_builder_rejects_active_containers_paths_and_counts_before_package_work(self) -> None:
+        touched: list[str] = []
+
+        class ActiveTuple(tuple):
+            def __len__(self):
+                touched.append("len")
+                raise AssertionError("active tuple len hook executed")
+
+            def __iter__(self):
+                touched.append("iter")
+                raise AssertionError("active tuple iteration hook executed")
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        class ActiveCount(int):
+            def __le__(self, other):
+                touched.append("count")
+                raise AssertionError("active count hook executed")
+
+        active_tuple = ActiveTuple(("first.docx", "second.docx"))
+        with mock.patch.object(
+            owner_candidate,
+            "assemble_portable_oneclick_tree",
+            side_effect=AssertionError("portable assembly must not start"),
+        ) as assemble:
+            with self.assertRaisesRegex(TypeError, "exact two-item tuple"):
+                owner_candidate.assemble_owner_portable_candidate(
+                    "canonical",
+                    "launcher.exe",
+                    active_tuple,
+                    "output",
+                    "candidate.zip",
+                    integration_sha=_SHA,
+                    expected_document_sha256=("1" * 64, "2" * 64),
+                    expected_sound_archive_sha256=_ARCHIVE_SHA,
+                )
+        assemble.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with mock.patch.object(
+            owner_candidate,
+            "assemble_portable_oneclick_tree",
+            side_effect=AssertionError("portable assembly must not start"),
+        ) as assemble:
+            with self.assertRaisesRegex(TypeError, "exact two-item tuple"):
+                owner_candidate.assemble_owner_portable_candidate(
+                    "canonical",
+                    "launcher.exe",
+                    ("first.docx", "second.docx"),
+                    "output",
+                    "candidate.zip",
+                    integration_sha=_SHA,
+                    expected_document_sha256=active_tuple,
+                    expected_sound_archive_sha256=_ARCHIVE_SHA,
+                )
+        assemble.assert_not_called()
+        self.assertEqual(touched, [])
+
+        path_cases = (
+            (ActivePath(), "launcher.exe", ("first.docx", "second.docx"), "output", "candidate.zip"),
+            ("canonical", ActivePath(), ("first.docx", "second.docx"), "output", "candidate.zip"),
+            ("canonical", "launcher.exe", (ActivePath(), "second.docx"), "output", "candidate.zip"),
+            ("canonical", "launcher.exe", ("first.docx", "second.docx"), ActivePath(), "candidate.zip"),
+            ("canonical", "launcher.exe", ("first.docx", "second.docx"), "output", ActivePath()),
+        )
+        for canonical, launcher, documents, output, archive in path_cases:
+            with self.subTest(
+                canonical=type(canonical).__name__,
+                launcher=type(launcher).__name__,
+                first_document=type(documents[0]).__name__,
+                output=type(output).__name__,
+                archive=type(archive).__name__,
+            ):
+                with mock.patch.object(
+                    owner_candidate,
+                    "assemble_portable_oneclick_tree",
+                    side_effect=AssertionError("portable assembly must not start"),
+                ) as assemble:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        owner_candidate.assemble_owner_portable_candidate(
+                            canonical,
+                            launcher,
+                            documents,
+                            output,
+                            archive,
+                            integration_sha=_SHA,
+                            expected_document_sha256=("1" * 64, "2" * 64),
+                            expected_sound_archive_sha256=_ARCHIVE_SHA,
+                        )
+                assemble.assert_not_called()
+                self.assertEqual(touched, [])
+
+        for source_count, game_count in ((ActiveCount(6), 3738), (6, ActiveCount(3738))):
+            with self.subTest(
+                source_count=type(source_count).__name__,
+                game_count=type(game_count).__name__,
+            ):
+                with mock.patch.object(
+                    owner_candidate,
+                    "assemble_portable_oneclick_tree",
+                    side_effect=AssertionError("portable assembly must not start"),
+                ) as assemble:
+                    with self.assertRaisesRegex(
+                        owner_candidate.OwnerPortableCandidateError,
+                        "count is invalid",
+                    ):
+                        owner_candidate.assemble_owner_portable_candidate(
+                            "canonical",
+                            "launcher.exe",
+                            ("first.docx", "second.docx"),
+                            "output",
+                            "candidate.zip",
+                            integration_sha=_SHA,
+                            expected_document_sha256=("1" * 64, "2" * 64),
+                            expected_sound_archive_sha256=_ARCHIVE_SHA,
+                            expected_seed_source_count=source_count,
+                            expected_seed_game_count=game_count,
+                        )
+                assemble.assert_not_called()
+                self.assertEqual(touched, [])
+
     def test_builder_binds_doc_hashes_and_requires_seed_in_both_package_stages(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             work = Path(raw)

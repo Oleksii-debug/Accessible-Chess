@@ -88,11 +88,11 @@ _TOP_ORDER = (
 _TEXT = {
     UILanguage.EN: {
         "top.file": "&File", "top.game": "&Game", "top.position": "&Position",
-        "top.pgn": "&PGN", "top.library": "&Library", "top.import": "&Import",
-        "top.export": "&Export", "top.engine": "&Engine", "top.analysis": "&Analysis",
+        "top.pgn": "PG&N", "top.library": "Librar&y", "top.import": "&Import",
+        "top.export": "E&xport", "top.engine": "&Engine", "top.analysis": "&Analysis",
         "top.books": "&Books", "top.training": "&Training",
-        "top.teacher": "&Teacher/Classroom", "top.settings": "&Settings", "top.help": "&Help",
-        "open_pgn": "Open PGN", "save_pgn": "Save PGN", "save_pgn_as": "Save PGN As",
+        "top.teacher": "Teacher/&Classroom", "top.settings": "&Settings", "top.help": "&Help",
+        "open_pgn": "Open PGN", "cancel_pgn_open": "Cancel PGN Open", "save_pgn": "Save PGN", "save_pgn_as": "Save PGN As", "cancel_pgn_save": "Cancel PGN Save",
         "import_library": "Import into Library", "export_pgn": "Export selected PGN", "exit": "Exit",
         "convert_pgn": "Convert PGN to UTF-8 (new copy)",
         "board_game": "Board and game", "standard": "New standard position",
@@ -129,7 +129,7 @@ _TEXT = {
         "top.export": "&Експорт", "top.engine": "&Stockfish", "top.analysis": "&Аналіз",
         "top.books": "&Книги", "top.training": "&Тренування",
         "top.teacher": "&Учитель/Клас", "top.settings": "&Налаштування", "top.help": "&Довідка",
-        "open_pgn": "Відкрити PGN", "save_pgn": "Зберегти PGN", "save_pgn_as": "Зберегти PGN як",
+        "open_pgn": "Відкрити PGN", "cancel_pgn_open": "Скасувати відкриття PGN", "save_pgn": "Зберегти PGN", "save_pgn_as": "Зберегти PGN як", "cancel_pgn_save": "Скасувати збереження PGN",
         "import_library": "Імпортувати до бібліотеки", "export_pgn": "Експортувати вибране PGN", "exit": "Вихід",
         "convert_pgn": "Перекодувати PGN у UTF-8 (нова копія)",
         "board_game": "Дошка і партія", "standard": "Нова стандартна позиція",
@@ -197,8 +197,10 @@ def build_full_product_menu_spec(
     rows = {
         "file": (
             action("open_pgn", "pgn.open"),
+            action("cancel_pgn_open", "pgn.cancel_open"),
             action("save_pgn", "pgn.save"),
             action("save_pgn_as", "pgn.save_as"),
+            action("cancel_pgn_save", "pgn.cancel_save"),
             separator,
             action("import_library", "library.import"),
             action("export_pgn", "pgn.export_selection"),
@@ -210,8 +212,10 @@ def build_full_product_menu_spec(
         "pgn": (
             action("pgn_screen", "screen.pgn"),
             action("open_pgn", "pgn.open"),
+            action("cancel_pgn_open", "pgn.cancel_open"),
             action("save_pgn", "pgn.save"),
             action("save_pgn_as", "pgn.save_as"),
+            action("cancel_pgn_save", "pgn.cancel_save"),
             action("previous_game", "pgn.previous_game"),
             action("next_game", "pgn.next_game"),
             action("copy_pgn", "pgn.copy_selection"),

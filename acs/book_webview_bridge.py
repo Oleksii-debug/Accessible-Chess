@@ -85,6 +85,6 @@ class BookWebViewBridge:
                 self._exact(data, {"language"})
                 return self._projection.set_language(data["language"])
             raise ValueError("unsupported book browser command")
-        except Exception:
+        except BaseException:
             # Do not echo FEN, bookmark input, local paths, source data or internals.
             return self._projection.generic_error()

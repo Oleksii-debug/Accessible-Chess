@@ -23,6 +23,23 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 
+def _canonical_top_level_profiles() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return visible EN/UA labels from the production native-menu authority."""
+    from acs.full_product_actions import build_full_product_action_registry
+    from acs.full_product_native_menu import build_full_product_menu_spec
+    from acs.full_product_ui_shell import UILanguage
+
+    registry = build_full_product_action_registry()
+
+    def visible(language: UILanguage) -> tuple[str, ...]:
+        return tuple(
+            menu.label.replace("&", "")
+            for menu in build_full_product_menu_spec(registry, language=language)
+        )
+
+    return visible(UILanguage.EN), visible(UILanguage.UA)
+
+
 def _managed_type(value: Any) -> str:
     if value is None:
         return ""
@@ -239,14 +256,10 @@ def main() -> int:
     if not worker_done.wait(5):
         errors.append("UIA oracle worker did not complete")
 
-    expected_ua = [
-        "Файл", "Гра", "Позиція", "PGN", "Бібліотека", "Імпорт", "Експорт",
-        "Stockfish", "Аналіз", "Книги", "Учитель/Клас", "Налаштування", "Довідка",
-    ]
-    expected_en = [
-        "File", "Game", "Position", "PGN", "Library", "Import", "Export",
-        "Engine", "Analysis", "Books", "Teacher/Classroom", "Settings", "Help",
-    ]
+    expected_en, expected_ua = _canonical_top_level_profiles()
+    expected_count = len(expected_en)
+    if len(expected_ua) != expected_count:
+        errors.append("canonical native-menu languages disagree on top-level count")
     winforms = result.get("winforms_after_uia") or result.get("winforms") or {}
     uia = result.get("uia") or {}
     names = uia.get("top_level_names") or []
@@ -257,10 +270,10 @@ def main() -> int:
         "main_menu_strip_is_menu": bool(winforms.get("main_menu_strip_is_menu")),
         "menu_handle_created": bool(winforms.get("menu_is_handle_created")),
         "menu_handle_nonzero": int(winforms.get("menu_handle") or 0) != 0,
-        "winforms_top_level_count_13": int(winforms.get("menu_item_count") or 0) == 13,
+        "winforms_top_level_count_matches_canonical": int(winforms.get("menu_item_count") or 0) == expected_count,
         "uia_exact_menu_bar_count_1": int(uia.get("exact_menu_bar_count") or 0) == 1,
-        "uia_top_level_profile_13": names in (expected_ua, expected_en),
-        "uia_expand_collapse_all": len(patterns) == 13 and all(patterns),
+        "uia_top_level_profile_matches_canonical": tuple(names) in (expected_ua, expected_en),
+        "uia_expand_collapse_all": len(patterns) == expected_count and all(patterns),
     }
     passed = not errors and all(checks.values())
     summary = {

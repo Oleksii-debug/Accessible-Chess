@@ -267,7 +267,7 @@ class BookWebViewProjection:
             self._language = language
             self._presenter.set_language(language)
             snapshot = self.snapshot()
-        except Exception:
+        except BaseException:
             # Language is presentation state, but a failed render must not publish
             # a half-applied locale. Restore both projection and presenter so the
             # bridge's generic error and the next successful render remain coherent.
@@ -466,7 +466,7 @@ class BookWebViewProjection:
         before_index = self._presenter.cursor_index
         try:
             return self._render(operation(), announcement=announcement)
-        except Exception:
+        except BaseException:
             if self._presenter.cursor_index != before_index:
                 self._presenter.restore_cursor(before_index)
             raise
@@ -506,7 +506,7 @@ class BookWebViewProjection:
         try:
             event = self._render(self._presenter.current(), announcement=announcement)
             self._presenter.bookmark(token)
-        except Exception:
+        except BaseException:
             self._last_bookmark = previous_name
             raise
         return event
@@ -520,7 +520,7 @@ class BookWebViewProjection:
                 lambda: self._presenter.restore_bookmark(token),
                 announcement=self._result_announcement("restored"),
             )
-        except Exception:
+        except BaseException:
             self._last_bookmark = previous_name
             raise
 

@@ -31,6 +31,12 @@ from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .student_progress_store import StudentProgressStore
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
+from .version2_final_product_application import Version2FinalProductApplication
+
+# Mutable release composition seam.  The direct release root defaults to the
+# complete Teacher/Education-capable application, while stacked packaged release
+# wrappers may temporarily replace Version2Application with richer subclasses.
+Version2Application = Version2FinalProductApplication
 from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
@@ -129,8 +135,30 @@ def _install_unsaved_pgn_close_guard(
     def cancel_close(event: object) -> None:
         try:
             setattr(event, "Cancel", True)
-        except Exception as error:
+        except BaseException as error:
             raise RuntimeError("Version 2 native close cannot be cancelled") from error
+
+    def announce_close_failure() -> None:
+        reporter = getattr(application, "announce_shutdown_failure", None)
+        if not callable(reporter):
+            return
+        try:
+            reporter()
+        except BaseException:
+            # Presentation is secondary to preserving the live owner and the
+            # original shutdown/resume failure that made FormClosing refuse.
+            pass
+
+    def clear_close_failure_diagnostics() -> None:
+        # Each accepted close attempt owns fresh diagnostic truth. Historical
+        # failure objects must not survive a later successful retry or mask an
+        # incomplete-but-nonexceptional shutdown.
+        for name in ("_native_close_resume_error", "_native_close_shutdown_error"):
+            try:
+                setattr(application, name, None)
+            except BaseException:
+                # Diagnostics are secondary to the close transaction itself.
+                pass
 
     def on_form_closing(_sender: object, event: object) -> None:
         if state["shutdown_complete"]:
@@ -144,34 +172,40 @@ def _install_unsaved_pgn_close_guard(
             try:
                 session = getattr(application, "session", None)
                 dirty = session is not None and bool(getattr(session, "dirty"))
-            except Exception:
+            except BaseException:
                 dirty = True
 
             if dirty:
                 try:
                     discard = confirmation() is True
-                except Exception:
+                except BaseException:
+                    announce_close_failure()
                     cancel_close(event)
                     return
                 if not discard:
                     cancel_close(event)
                     return
 
+            clear_close_failure_diagnostics()
+
             if before_shutdown is not None:
                 try:
                     before_shutdown(application)
-                except Exception as error:
+                except BaseException as error:
                     setattr(application, "_native_close_resume_error", error)
+                    announce_close_failure()
                     cancel_close(event)
                     return
 
             try:
                 shutdown_complete = shutdown() is True
-            except Exception as error:
+            except BaseException as error:
                 setattr(application, "_native_close_shutdown_error", error)
+                announce_close_failure()
                 cancel_close(event)
                 return
             if not shutdown_complete:
+                announce_close_failure()
                 cancel_close(event)
                 return
 
@@ -208,20 +242,16 @@ def _install_close_guard_or_shutdown(
             dialogs,
             before_shutdown=before_shutdown,
         )
-    except Exception:
-        cleanup_error = None
+    except BaseException:
+        # The close-guard failure is the startup authority. Cleanup is best
+        # effort here; native_runtime_factory performs a second idempotent
+        # retirement attempt before propagating the same primary failure.
         try:
             shutdown_runtime = getattr(file_runtime, "shutdown", None)
-            if not callable(shutdown_runtime) or shutdown_runtime() is not True:
-                cleanup_error = RuntimeError(
-                    "Version 2 unbound native runtime did not shut down"
-                )
-        except Exception as exc:
-            cleanup_error = exc
-        if cleanup_error is not None:
-            raise RuntimeError(
-                "Version 2 unbound native runtime cleanup failed after close-guard installation failure"
-            ) from cleanup_error
+            if callable(shutdown_runtime):
+                shutdown_runtime()
+        except BaseException:
+            pass
         raise
     return file_runtime
 
@@ -373,7 +403,7 @@ def _close_partial_version2_composition(*resources: Any | None) -> None:
             continue
         try:
             close()
-        except Exception:
+        except BaseException:
             pass
 
 
@@ -448,7 +478,7 @@ def create_version2_release_application(
             engine_play_service=engine_play,
             lang=language.value,
         )
-    except Exception:
+    except BaseException:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
 
@@ -508,7 +538,7 @@ def create_version2_release_application(
             api.bind_version2_application(candidate)
             application = candidate
             return candidate
-        except Exception:
+        except BaseException:
             application_build_failed = True
             _close_partial_version2_composition(
                 database,
@@ -544,13 +574,17 @@ def create_version2_release_application(
             current_focus_provider=lambda: str(application._focus),
             dialog_language_provider=dialog_language_provider,
         )
-        book_open_worker = Version2BookOpenWorker(
-            prepare=application.prepare_book_open,
-            commit=application.commit_prepared_book_open,
-            post_to_ui=Version2WinFormsUiPoster(owner_control),
-            event_sink=application._book_open_event,
-        )
+        book_open_worker = None
         try:
+            # File runtime ownership already exists at this point. Keep Book
+            # worker/poster construction inside the same unwind boundary so a
+            # constructor abort cannot orphan the file worker/pump.
+            book_open_worker = Version2BookOpenWorker(
+                prepare=application.prepare_book_open,
+                commit=application.commit_prepared_book_open,
+                post_to_ui=Version2WinFormsUiPoster(owner_control),
+                event_sink=application._book_open_event,
+            )
             application.bind_book_open_worker(book_open_worker)
             file_runtime = _install_close_guard_or_shutdown(
                 file_runtime,
@@ -559,12 +593,24 @@ def create_version2_release_application(
                 book_dialogs,
                 before_shutdown=resume_coordinator.prepare_shutdown,
             )
-        except Exception:
+        except BaseException:
+            # Startup publication failed before the native runtime became a
+            # usable product owner. Retire every newly acquired native worker,
+            # release only this unpublished Book-worker binding, and preserve
+            # the original startup failure even if cleanup itself aborts.
+            if book_open_worker is not None:
+                try:
+                    book_open_worker.shutdown()
+                except BaseException:
+                    pass
+                try:
+                    application.unbind_book_open_worker(book_open_worker)
+                except BaseException:
+                    pass
             try:
-                book_open_worker.shutdown()
-            finally:
-                if getattr(application, "_book_open_worker", None) is None:
-                    file_runtime.shutdown()
+                file_runtime.shutdown()
+            except BaseException:
+                pass
             raise
         # Publish every owner-bound application callback only after the native
         # runtime and FormClosing guard are both live. Failed startup must leave

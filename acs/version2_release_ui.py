@@ -701,7 +701,7 @@ def run_version2_release_window(
         api.bind_version2_application(application)
 
     application_closed = False
-    startup_errors: list[Exception] = []
+    startup_errors: list[BaseException] = []
 
     def close_application(*_args: Any) -> bool:
         nonlocal application_closed
@@ -709,10 +709,10 @@ def run_version2_release_window(
             # A production native FormClosing guard shuts application-owned state
             # down while the owner Form is still alive.  The release loop only
             # records that completed shutdown here; it must never run it twice.
-            if getattr(application, "_native_close_shutdown_complete", False):
+            if getattr(application, "_native_close_shutdown_complete", False) is True:
                 application_closed = True
             else:
-                if not api._invoke_ui(application.shutdown):
+                if api._invoke_ui(application.shutdown) is not True:
                     return False
                 application_closed = True
         api._ui_closed = True
@@ -790,16 +790,37 @@ def run_version2_release_window(
             owner = getattr(window, "_accessible_chess_native_menu_host", None)
             if owner is None:
                 raise RuntimeError("Accessible Version 2 native Windows owner could not be resolved.")
-            native_files = file_runtime_factory(owner)
-            application.bind_files(native_files)
+            candidate_files = file_runtime_factory(owner)
+            try:
+                application.bind_files(candidate_files)
+            except BaseException:
+                # The application does not own the native runtime until bind_files
+                # completes. Retire an unpublished candidate here so an abort-class
+                # affinity/binding failure cannot orphan its worker/pump. Cleanup is
+                # best effort and must never replace the binding failure.
+                try:
+                    shutdown_candidate = getattr(candidate_files, "shutdown", None)
+                    if callable(shutdown_candidate):
+                        shutdown_candidate()
+                except BaseException:
+                    pass
+                raise
+            native_files = candidate_files
 
         def start_native_host(*_args: Any) -> None:
             try:
                 install_menu_on_native_host()
-            except Exception as error:
+            except BaseException as error:
                 startup_errors.append(error)
                 try:
-                    close_application()
+                    # If native FormClosing ownership is already installed,
+                    # destroying the host must be the one teardown authority.
+                    # Calling application.shutdown() first would preempt the
+                    # guard and let destroy trigger the same shutdown twice.
+                    if application is None or getattr(
+                        application, "_native_unsaved_close_guard", None
+                    ) is None:
+                        close_application()
                 finally:
                     window.destroy()
                 raise
@@ -830,7 +851,10 @@ def run_version2_release_window(
     # failure.  This closes the exact failure-precedence gap proven by #588.
     try:
         if application is not None and not application_closed:
-            close_application()
+            if close_application() is not True:
+                cleanup_error = RuntimeError(
+                    "Version 2 application shutdown did not complete."
+                )
     except BaseException as error:
         cleanup_error = error
 

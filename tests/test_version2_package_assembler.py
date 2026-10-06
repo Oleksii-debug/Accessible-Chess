@@ -22,6 +22,9 @@ from acs.version2_package_preflight import (
     MANIFEST_NAME,
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
+    _REQUIRED_DESKTOP_RUNTIME_FILES,
+    _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES,
+    _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
     validate_version2_package_tree,
     validate_version2_package_zip,
 )
@@ -62,20 +65,46 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _minimal_windows_pe() -> bytes:
-    data = bytearray(512)
+def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> bytes:
+    data = bytearray(1024)
     data[0:2] = b"MZ"
     pe_offset = 0x80
     data[0x3C:0x40] = pe_offset.to_bytes(4, "little")
     data[pe_offset:pe_offset + 4] = b"PE\x00\x00"
     coff = pe_offset + 4
-    data[coff:coff + 2] = (0x8664).to_bytes(2, "little")
+    data[coff:coff + 2] = machine.to_bytes(2, "little")
     data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
-    data[coff + 16:coff + 18] = (0xF0).to_bytes(2, "little")
+    optional_size = 0xF0 if machine == 0x8664 else 0xE0
+    data[coff + 16:coff + 18] = optional_size.to_bytes(2, "little")
     data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
     optional = coff + 20
-    data[optional:optional + 2] = (0x20B).to_bytes(2, "little")
+    pe32_plus = machine == 0x8664
+    data[optional:optional + 2] = (
+        (0x20B if pe32_plus else 0x10B).to_bytes(2, "little")
+    )
+    section = optional + optional_size
+    data[section:section + 8] = b".text\x00\x00\x00"
+    data[section + 8:section + 12] = (0x1000).to_bytes(4, "little")
+    data[section + 12:section + 16] = (0x2000).to_bytes(4, "little")
+    data[section + 16:section + 20] = (0x200).to_bytes(4, "little")
+    data[section + 20:section + 24] = (0x200).to_bytes(4, "little")
+    if managed:
+        directory_count_offset = 108 if pe32_plus else 92
+        directory_table_offset = 112 if pe32_plus else 96
+        data[
+            optional + directory_count_offset:optional + directory_count_offset + 4
+        ] = (16).to_bytes(4, "little")
+        clr_directory = optional + directory_table_offset + (14 * 8)
+        data[clr_directory:clr_directory + 4] = (0x2000).to_bytes(4, "little")
+        data[clr_directory + 4:clr_directory + 8] = (0x48).to_bytes(4, "little")
+        data[0x200:0x204] = (0x48).to_bytes(4, "little")
+        data[0x204:0x206] = (2).to_bytes(2, "little")
+        data[0x206:0x208] = (5).to_bytes(2, "little")
+        data[0x208:0x20C] = (0x2080).to_bytes(4, "little")
+        data[0x20C:0x210] = (0x40).to_bytes(4, "little")
+        data[0x280:0x284] = b"BSJB"
     return bytes(data)
+
 
 
 class Version2PackageAssemblerTests(unittest.TestCase):
@@ -90,6 +119,19 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             _VALID_WINFORMS_CONFIG, encoding="utf-8"
         )
         (product / "runtime.dll").write_bytes(b"runtime")
+        for relative in _REQUIRED_DESKTOP_RUNTIME_FILES:
+            runtime = product.joinpath(*relative.split("/")[1:])
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            runtime.write_bytes(
+                _minimal_windows_pe(
+                    machine=(
+                        0x014C
+                        if relative in _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES
+                        else 0x8664
+                    ),
+                    managed=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
+                )
+            )
         for name in _REQUIRED_WEB:
             path = web / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -432,6 +474,70 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                     )
             self.assertEqual(target.read_bytes(), b"keep")
 
+    def test_zip_publication_rejects_same_inode_mutation_after_private_readback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product, notices = self._sources(root)
+            output = root / "candidate"
+            assemble_version2_package_tree(product, notices, output, integration_sha=_SHA)
+            target = root / "candidate.zip"
+
+            real_link = __import__("os").link
+
+            def link_then_mutate(source, destination):
+                real_link(source, destination)
+                with Path(source).open("ab") as handle:
+                    handle.write(b"late-post-readback-mutation")
+
+            with patch(
+                "acs.version2_package_assembler.os.link",
+                side_effect=link_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackageAssemblyError,
+                    "differs from validated archive",
+                ):
+                    write_version2_package_zip(
+                        output,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+            self.assertFalse(target.exists())
+
+    def test_zip_failed_public_readback_preserves_raced_foreign_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product, notices = self._sources(root)
+            output = root / "candidate"
+            assemble_version2_package_tree(product, notices, output, integration_sha=_SHA)
+            target = root / "candidate.zip"
+            real_validate = validate_version2_package_zip
+            calls = 0
+
+            def replace_publication_before_second_readback(path: Path, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return real_validate(path, **kwargs)
+                target.unlink()
+                target.write_bytes(b"foreign")
+                raise RuntimeError("simulated raced foreign publication")
+
+            with patch(
+                "acs.version2_package_assembler.validate_version2_package_zip",
+                side_effect=replace_publication_before_second_readback,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "simulated raced foreign publication",
+                ):
+                    write_version2_package_zip(
+                        output,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+            self.assertEqual(target.read_bytes(), b"foreign")
+
     def test_zip_output_inside_package_and_existing_zip_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -471,6 +577,103 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                             integration_sha=value,  # type: ignore[arg-type]
                         )
                     self.assertFalse(output.exists())
+
+    def test_public_controls_reject_active_mapping_and_paths_before_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        class ActiveDict(dict):
+            def items(self):
+                touched.append("items")
+                raise AssertionError("active mapping hook executed")
+
+        active_path = ActivePath()
+        active_mapping = ActiveDict(
+            {"native-menu-self-diagnostic.json": "diagnostic.json"}
+        )
+
+        with patch(
+            "acs.version2_package_assembler._safe_info",
+            side_effect=AssertionError("assembly filesystem work must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact dict or None"):
+                assemble_version2_package_tree(
+                    "product",
+                    "notices",
+                    "output",
+                    integration_sha=_SHA,
+                    diagnostic_files=active_mapping,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        exact_mapping = {"native-menu-self-diagnostic.json": active_path}
+        with patch(
+            "acs.version2_package_assembler._safe_info",
+            side_effect=AssertionError("assembly filesystem work must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                assemble_version2_package_tree(
+                    "product",
+                    "notices",
+                    "output",
+                    integration_sha=_SHA,
+                    diagnostic_files=exact_mapping,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        path_cases = (
+            (active_path, "notices", "output"),
+            ("product", active_path, "output"),
+            ("product", "notices", active_path),
+        )
+        for product, notices, output in path_cases:
+            with self.subTest(
+                product=type(product).__name__,
+                notices=type(notices).__name__,
+                output=type(output).__name__,
+            ):
+                with patch(
+                    "acs.version2_package_assembler._safe_info",
+                    side_effect=AssertionError("assembly filesystem work must not start"),
+                ) as inspect:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        assemble_version2_package_tree(
+                            product,
+                            notices,
+                            output,
+                            integration_sha=_SHA,
+                        )
+                inspect.assert_not_called()
+                self.assertEqual(touched, [])
+
+        for package_root, zip_path in (
+            (active_path, "candidate.zip"),
+            ("package", active_path),
+        ):
+            with self.subTest(
+                package_root=type(package_root).__name__,
+                zip_path=type(zip_path).__name__,
+            ):
+                with patch(
+                    "acs.version2_package_assembler.validate_version2_package_tree",
+                    side_effect=AssertionError("package validation must not start"),
+                ) as validation:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        write_version2_package_zip(
+                            package_root,
+                            zip_path,
+                            expected_integration_sha=_SHA,
+                        )
+                validation.assert_not_called()
+                self.assertEqual(touched, [])
+
+
 
 
 if __name__ == "__main__":

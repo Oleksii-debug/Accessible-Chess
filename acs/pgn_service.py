@@ -71,6 +71,33 @@ class PgnUnsafePathError(PgnFileError):
     """Raised when export would traverse filesystem indirection."""
 
 
+class PgnPublicationUnverifiedError(PgnFileError):
+    """Raised after publication when final destination provenance is unverified.
+
+    The atomic publication primitive has already crossed the point where the
+    destination may have changed. Callers must therefore not describe this as a
+    pre-publication save failure or blindly retry against stale provenance.
+    """
+
+
+class PgnPublishedPathChangedError(
+    PgnUnsafePathError,
+    PgnPublicationUnverifiedError,
+):
+    """Published bytes exist, but the selected pathname stopped naming them."""
+
+
+def _same_direct_path(left: str | Path, right: str | Path) -> bool:
+    """Compare direct path spellings with platform path/case normalization."""
+
+    def key(value: str | Path) -> str:
+        return os.path.normcase(
+            os.path.abspath(os.fspath(Path(value).expanduser()))
+        )
+
+    return key(left) == key(right)
+
+
 @dataclass(frozen=True)
 class PgnOpenResult:
     source: SourceFingerprint
@@ -510,6 +537,71 @@ def _create_hardlink_snapshot(destination: Path) -> Path:
     raise PgnFileError("PGN commit snapshot could not reserve a unique path")
 
 
+_MOVEFILE_REPLACE_EXISTING = 0x00000001
+_MOVEFILE_WRITE_THROUGH = 0x00000008
+_WINDOWS_FILE_EXISTS_ERRORS = frozenset({80, 183})
+
+
+def _windows_move_write_through(
+    source: Path,
+    destination: Path,
+    *,
+    replace: bool,
+) -> None:
+    """Move one prepared PGN into place with Windows write-through semantics."""
+
+    import ctypes
+
+    move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move_file_ex.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+    )
+    move_file_ex.restype = ctypes.c_int
+    flags = _MOVEFILE_WRITE_THROUGH
+    if replace:
+        flags |= _MOVEFILE_REPLACE_EXISTING
+    if move_file_ex(os.fspath(source), os.fspath(destination), flags):
+        return
+    error_code = ctypes.get_last_error()
+    if not replace and error_code in _WINDOWS_FILE_EXISTS_ERRORS:
+        raise FileExistsError(error_code, "PGN destination already exists", os.fspath(destination))
+    raise OSError(
+        error_code,
+        f"durable Windows PGN publication failed (Win32 {error_code})",
+        os.fspath(destination),
+    )
+
+
+def _replace_published_path(source: Path, destination: Path) -> None:
+    """Replace one PGN namespace entry with platform durability intent."""
+
+    if os.name == "nt":
+        _windows_move_write_through(source, destination, replace=True)
+        return
+    os.replace(source, destination)
+
+
+def _sync_published_namespace(path: Path) -> None:
+    """Confirm a successful PGN namespace publication reached stable storage."""
+
+    if os.name == "nt":
+        # Every Windows publication path below uses MoveFileExW with
+        # MOVEFILE_WRITE_THROUGH, so the namespace move itself is the durability
+        # barrier. The serialized temp file was fsynced before that move.
+        return
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(os.fspath(path.parent), flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def _cleanup_redundant_link_after_commit(path: Path) -> None:
     """Best-effort cleanup after publication has already committed.
 
@@ -527,14 +619,14 @@ def _cleanup_redundant_link_after_commit(path: Path) -> None:
         return
     except FileNotFoundError:
         return
-    except OSError:
+    except BaseException:
         pass
 
     try:
         os.unlink(path)
     except FileNotFoundError:
         pass
-    except OSError:
+    except BaseException:
         # The destination is already committed. Residual cleanup is maintenance,
         # not a reason to misreport the save as failed.
         pass
@@ -542,6 +634,12 @@ def _cleanup_redundant_link_after_commit(path: Path) -> None:
 
 def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
     """Atomically publish ``tmp_path`` only if ``destination`` is still absent."""
+
+    if os.name == "nt":
+        # MoveFileExW without REPLACE_EXISTING preserves no-clobber semantics;
+        # WRITE_THROUGH makes the namespace move itself a durability barrier.
+        _windows_move_write_through(tmp_path, destination, replace=False)
+        return
 
     try:
         os.link(tmp_path, destination)
@@ -570,28 +668,34 @@ def _publish_expected_hash(
         if _current_sha256(snapshot) != expected_sha256:
             raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
 
-        os.replace(tmp_path, destination)
+        _replace_published_path(tmp_path, destination)
 
         # ``snapshot`` references the pre-publication inode. A competing writer
         # that modified that inode immediately before our replace changes this
         # digest too. Restore those newer bytes before reporting the conflict.
         try:
             snapshot_sha256 = _current_sha256(snapshot)
-        except (OSError, ValueError, PgnFileError) as exc:
+        except BaseException as exc:
             preserve_snapshot = True
-            raise PgnFileError(
-                "PGN publication could not be verified safely; recovery snapshot was preserved"
+            raise PgnPublicationUnverifiedError(
+                "PGN publication crossed the commit boundary but recovery verification failed"
             ) from exc
 
         if snapshot_sha256 != expected_sha256:
             try:
-                os.replace(snapshot, destination)
-            except OSError as exc:
+                _replace_published_path(snapshot, destination)
+            except BaseException as exc:
                 preserve_snapshot = True
-                raise PgnFileError(
-                    "PGN concurrent-write rollback failed; recovery snapshot was preserved"
+                raise PgnPublicationUnverifiedError(
+                    "PGN publication crossed the commit boundary and rollback could not be verified"
                 ) from exc
             snapshot = None
+            try:
+                _sync_published_namespace(destination)
+            except BaseException as exc:
+                raise PgnPublicationUnverifiedError(
+                    "PGN concurrent-write rollback completed but durability could not be confirmed"
+                ) from exc
             raise PgnConcurrentWriteError(f"PGN changed during publication: {destination}")
     finally:
         if snapshot is not None and not preserve_snapshot:
@@ -654,6 +758,8 @@ def save_pgn_atomic(
     cleaned and the destination remains unchanged.
     """
 
+    if type(overwrite) is not bool:
+        raise TypeError("overwrite must be a boolean")
     if pre_publish_check is not None and not callable(pre_publish_check):
         raise TypeError("pre_publish_check must be callable")
     expected_sha256 = _validated_expected_sha256(expected_sha256)
@@ -703,22 +809,48 @@ def save_pgn_atomic(
             _publish_expected_hash(tmp_path, destination, expected_sha256)
             tmp_path = None
         else:
-            os.replace(tmp_path, destination)
+            _replace_published_path(tmp_path, destination)
             tmp_path = None
     finally:
         if tmp_path is not None:
             try:
                 tmp_path.unlink()
-            except FileNotFoundError:
+            except BaseException:
+                # Temporary-file cleanup is secondary to the already selected
+                # pre-publication failure/cancellation. Never replace that
+                # terminal truth with a cleanup abort; a residual temp file is
+                # safer than inviting a blind retry or hiding the real cause.
                 pass
 
-    # Publication has committed. Bind the returned provenance to the same
-    # destination-directory object as the write; otherwise a post-commit
-    # directory substitution could make fingerprint() authenticate unrelated
-    # bytes at the same pathname and falsely report them as this save.
-    _assert_bound_export_parent(destination.parent, parent_identity)
-    published = fingerprint(destination)
-    _assert_bound_export_parent(destination.parent, parent_identity)
+    # Publication has crossed the commit boundary. Bind the returned
+    # provenance to the same destination-directory object as the write;
+    # otherwise a post-commit directory substitution could make fingerprint()
+    # authenticate unrelated bytes at the same pathname and falsely report them
+    # as this save. Any failure from this point is materially different from a
+    # pre-publication failure: the destination may already contain the new
+    # bytes, so propagate a distinct terminal truth and never invite a blind
+    # retry against stale in-memory provenance.
+    try:
+        _sync_published_namespace(destination)
+    except BaseException as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN publication completed but namespace durability could not be confirmed"
+        ) from exc
+    try:
+        _assert_bound_export_parent(destination.parent, parent_identity)
+        published = fingerprint(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
+    except PgnUnsafePathError as exc:
+        # Preserve the historical path-safety type for security callers while
+        # also marking the failure as post-publication uncertainty for the
+        # Windows terminal-truth layer.
+        raise PgnPublishedPathChangedError(
+            "PGN publication completed but the selected pathname changed before confirmation"
+        ) from exc
+    except BaseException as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN publication completed but final destination provenance could not be verified"
+        ) from exc
     return published
 
 

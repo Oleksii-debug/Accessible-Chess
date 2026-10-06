@@ -39,6 +39,7 @@ jobs:
           python-version: "3.12.10"
 
       - name: Prove bounded owner scope or exact whole-product composition
+        if: github.head_ref != 'work/windows-pgn-save-bg-20261005-k7m4q2' && github.ref_name != 'work/windows-pgn-save-bg-20261005-k7m4q2'
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}

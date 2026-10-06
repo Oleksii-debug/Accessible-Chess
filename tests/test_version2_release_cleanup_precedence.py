@@ -25,6 +25,10 @@ class _CleanupFailure(RuntimeError):
     pass
 
 
+class _AbortFailure(BaseException):
+    pass
+
+
 class _Event:
     def __init__(self) -> None:
         self.handlers = []
@@ -149,6 +153,46 @@ class Version2ReleaseCleanupPrecedenceTests(unittest.TestCase):
             return error
         return None
 
+    def test_abort_class_native_startup_failure_destroys_window_and_preserves_primary(self) -> None:
+        calls: list[str] = []
+        primary = _AbortFailure("NATIVE_STARTUP_ABORT")
+        app_failure = _CleanupFailure("APPLICATION_CLEANUP")
+        app = _Application(calls, app_failure)
+        runtime = _Runtime(calls)
+        api = self.make_api()
+        webview = _WebView()
+
+        def close_analysis(_api) -> None:
+            calls.append("analysis-close")
+
+        def abort_menu(*_args) -> bool:
+            raise primary
+
+        with patch.object(Stage1ReleaseAccessibleChessAPI, "close_analysis", close_analysis):
+            caught = self.capture(
+                lambda: run_version2_release_window(
+                    api,
+                    app,
+                    runtime,
+                    webview_module=webview,
+                    menu_installer=abort_menu,
+                )
+            )
+
+        self.assertIs(caught, primary)
+        self.assertTrue(webview.window.destroyed)
+        self.assertEqual(
+            calls,
+            [
+                "application-shutdown",
+                "application-shutdown",
+                "analysis-close",
+                "runtime-close",
+            ],
+        )
+        self.assertEqual(app.shutdown_count, 2)
+        self.assertEqual(runtime.close_count, 1)
+
     def test_create_window_failure_still_runs_complete_cleanup_chain(self) -> None:
         calls: list[str] = []
         primary = _PrimaryFailure("CREATE_WINDOW")
@@ -242,6 +286,50 @@ class Version2ReleaseCleanupPrecedenceTests(unittest.TestCase):
         )
         self.assertEqual(app.shutdown_count, 1)
         self.assertEqual(runtime.close_count, 1)
+
+    def test_incomplete_application_shutdown_is_a_cleanup_failure_and_later_cleanup_runs(self) -> None:
+        for refusal in (False, 1):
+            with self.subTest(refusal=repr(refusal)):
+                calls: list[str] = []
+                app = _Application(calls)
+                runtime = _Runtime(calls)
+                api = self.make_api()
+
+                def incomplete_shutdown():
+                    calls.append("application-shutdown")
+                    app.shutdown_count += 1
+                    return refusal
+
+                def close_analysis(_api) -> None:
+                    calls.append("analysis-close")
+
+                app.shutdown = incomplete_shutdown
+                with patch.object(
+                    Stage1ReleaseAccessibleChessAPI,
+                    "close_analysis",
+                    close_analysis,
+                ):
+                    caught = self.capture(
+                        lambda: run_version2_release_window(
+                            api,
+                            app,
+                            runtime,
+                            webview_module=_WebView(),
+                            menu_installer=lambda *_args: True,
+                        )
+                    )
+
+                self.assertIsInstance(caught, RuntimeError)
+                self.assertEqual(
+                    str(caught),
+                    "Version 2 application shutdown did not complete.",
+                )
+                self.assertEqual(
+                    calls,
+                    ["application-shutdown", "analysis-close", "runtime-close"],
+                )
+                self.assertEqual(app.shutdown_count, 1)
+                self.assertEqual(runtime.close_count, 1)
 
     def test_analysis_failure_remains_primary_while_runtime_cleanup_runs(self) -> None:
         calls: list[str] = []

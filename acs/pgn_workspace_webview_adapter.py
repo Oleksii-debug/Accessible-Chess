@@ -81,12 +81,26 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         router: FullProductActionRouter,
         *,
         language: UILanguage = UILanguage.UA,
+        document_warnings: tuple[str, ...] = (),
     ) -> None:
         if not isinstance(workspace, PgnWorkspacePort):
             raise TypeError("workspace does not satisfy the PGN workspace port")
         if not isinstance(router, FullProductActionRouter):
             raise TypeError("PGN workspace router must be FullProductActionRouter")
+        if type(document_warnings) is not tuple or any(
+            type(item) is not str for item in document_warnings
+        ):
+            raise TypeError("PGN document warnings must be a built-in tuple of plain text")
         self._workspace = workspace
+        self._document_warning_count = len(document_warnings)
+        self._document_warnings = tuple(
+            warning
+            for warning in (
+                self._bounded_document_warning(item)
+                for item in document_warnings[:256]
+            )
+            if warning
+        )
         self._router = router
         self._presentation_key = secrets.token_bytes(32)
         presenter, view = self._capture_presenter(language)
@@ -97,6 +111,20 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             lambda: int(getattr(self._workspace_view, "game_count")),
             language=language,
         )
+
+    @staticmethod
+    def _bounded_document_warning(value: str) -> str:
+        # Recovery warnings are passive presentation data. Bound and normalize
+        # them before they cross into the browser/NVDA surface; never let
+        # untrusted warning text become command or GameTree authority.
+        prefix = value[:720]
+        normalized = "".join(
+            character
+            if ord(character) >= 32 and not 0xD800 <= ord(character) <= 0xDFFF
+            else " "
+            for character in prefix
+        )
+        return " ".join(normalized.split())
 
     @staticmethod
     def _view_identity(view: object) -> tuple[object, ...]:
@@ -262,6 +290,23 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
 
     def _snapshot_current(self) -> dict[str, object]:
         snapshot = PgnWebViewProjection.snapshot(self)
+        game = snapshot.get("game")
+        if isinstance(game, dict) and self._document_warning_count:
+            existing = game.get("warnings", ())
+            if type(existing) is not tuple:
+                existing = ()
+            document_warnings = self._document_warnings
+            if self._document_warning_count > len(document_warnings):
+                omitted = (
+                    "Додаткові попередження відновлення не показано."
+                    if self._language is UILanguage.UA
+                    else "Additional recovery warnings are not shown."
+                )
+                if len(document_warnings) >= 256:
+                    document_warnings = document_warnings[:255]
+                document_warnings = document_warnings + (omitted,)
+            remaining = max(0, 256 - len(document_warnings))
+            game["warnings"] = document_warnings + existing[:remaining]
         snapshot["presentation_token"] = self._presentation_token(self._workspace_view)
         snapshot["workspace"] = {
             "dirty": bool(getattr(self._workspace_view, "dirty", False)),

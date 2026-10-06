@@ -797,6 +797,80 @@ class BookProjectionTests(unittest.TestCase):
         redact.assert_not_called()
 
 
+    def test_navigation_abort_restores_exact_semantic_cursor(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        before = self.presenter.current()
+        before_index = self.presenter.cursor_index
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=AbortSignal("simulated browser abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.next()
+
+        self.assertEqual(before_index, self.presenter.cursor_index)
+        self.assertEqual(before, self.presenter.current())
+
+    def test_book_language_abort_restores_projection_and_presenter_language(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        before = self.projection.snapshot()
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=AbortSignal("simulated locale render abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.set_language(UILanguage.UA)
+
+        self.assertIs(UILanguage.EN, self.projection.language)
+        after = self.projection.snapshot()
+        self.assertEqual(before["heading"], after["heading"])
+        self.assertEqual(before["block"]["index"], after["block"]["index"])
+
+    def test_bookmark_save_abort_restores_transient_name_and_reader_binding(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        before_name = self.projection.bookmark_name
+        with patch.object(
+            self.presenter,
+            "bookmark",
+            side_effect=AbortSignal("simulated bookmark publication abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.save_bookmark("abort-target")
+
+        self.assertEqual(before_name, self.projection.bookmark_name)
+        with self.assertRaises(LookupError):
+            self.presenter.restore_bookmark("abort-target")
+
+    def test_bookmark_restore_abort_restores_cursor_and_transient_name(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        self.projection.save_bookmark("origin")
+        self.projection.next_position()
+        self.projection.save_bookmark("current")
+        before = self.presenter.current()
+        before_name = self.projection.bookmark_name
+
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=AbortSignal("simulated restore browser abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.restore_bookmark("origin")
+
+        self.assertEqual(before, self.presenter.current())
+        self.assertEqual(before_name, self.projection.bookmark_name)
+
+
 class TrainingProjectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.definition = ExerciseDefinition(
@@ -1049,6 +1123,67 @@ class TrainingProjectionTests(unittest.TestCase):
         self.assertEqual(en["title"], ua["title"])
         self.assertNotEqual(en["progress"]["step_label"], ua["progress"]["step_label"])
         self.assertNotEqual(en["heading"], ua["heading"])
+
+
+    def test_training_submit_abort_restores_exact_session_state(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        before = self.presenter.snapshot()
+        retained = self.presenter.session
+        with patch.object(
+            self.projection,
+            "_render",
+            side_effect=AbortSignal("simulated training browser abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.submit("e4")
+
+        self.assertIs(retained, self.presenter.session)
+        self.assertEqual(before, self.presenter.snapshot())
+        self.assertEqual("", self.presenter.message)
+
+    def test_training_language_abort_restores_locale_without_progress_drift(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        self.projection.submit("e3")
+        before_state = self.presenter.snapshot()
+        before_view = self.projection.snapshot()
+        with patch.object(
+            self.projection,
+            "snapshot",
+            side_effect=AbortSignal("simulated training locale abort"),
+        ):
+            with self.assertRaises(AbortSignal):
+                self.projection.set_language(UILanguage.UA)
+
+        self.assertIs(UILanguage.EN, self.projection.language)
+        self.assertEqual(before_state, self.presenter.snapshot())
+        after_view = self.projection.snapshot()
+        self.assertEqual(before_view["heading"], after_view["heading"])
+
+    def test_training_continuation_probe_abort_degrades_to_unavailable(self) -> None:
+        class AbortSignal(BaseException):
+            pass
+
+        def abort_continuation() -> bool:
+            raise AbortSignal("simulated continuation provider abort")
+
+        projection = TrainingWebViewProjection(
+            TrainingPresenter(ExerciseSession(self.definition), language=UILanguage.EN),
+            language=UILanguage.EN,
+            can_continue=abort_continuation,
+        )
+        projection.submit("e4")
+        completed = projection.submit("Kh2")
+        self.assertTrue(completed.payload["snapshot"]["progress"]["completed"])
+        continuation = next(
+            action
+            for action in completed.payload["snapshot"]["actions"]
+            if action["command"] == "training.continue"
+        )
+        self.assertFalse(continuation["enabled"])
 
 
 if __name__ == "__main__":

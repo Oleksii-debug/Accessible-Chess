@@ -4,14 +4,20 @@ on:
   pull_request:
     branches:
       - fix/current-book-target-passive-resolution-20261004-sol57b1
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'acs/book_progress_store.py'
       - 'tests/test_book_progress_passive_ingress_current.py'
       - '.github/workflows/current-book-progress-passive-ingress.yml'
+      - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  STORE_BLOB: 9679133f914839439bc42b63c4d79064b9c49bdd
+  INGRESS_TEST_BLOB: fdc34f0637c2b26c2e5e70bab63c973204bb6481
 
 concurrency:
   group: current-book-progress-passive-ingress-${{ github.event.pull_request.number || github.ref }}
@@ -58,12 +64,15 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-book-progress-passive-ingress.yml' \
+            '.github/workflows/v2-book-progress-production-repair.yml' \
             'acs/book_progress_store.py' \
             'tests/test_book_progress_passive_ingress_current.py' | sort)"
           test "$changed" = "$expected_paths" || {
             printf 'Unexpected Book progress passive-ingress scope:\n%s\n' "$changed" >&2
             exit 1
           }
+          test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$STORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_progress_passive_ingress_current.py)" = "$INGRESS_TEST_BLOB"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:

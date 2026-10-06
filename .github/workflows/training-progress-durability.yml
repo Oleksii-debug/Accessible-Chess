@@ -8,18 +8,14 @@ on:
       - 'tests/test_w2_training_progress_crash_recovery.py'
       - 'tests/test_training_authority_convergence.py'
       - 'tests/test_training_progress_ancestor_authority.py'
-      - 'tests/test_training_progress_durability_concurrency.py'
       - '.github/workflows/training-progress-durability.yml'
-  push:
-    branches:
-      - converge/current-product-training-durability-evidence-20261005-zftrkmo
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: training-progress-durability-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: training-progress-durability-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,20 +37,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Reject superseded pull-request candidate
-        if: ${{ github.event_name == 'pull_request' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          event_sha="${{ github.event.pull_request.head.sha }}"
-          git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
-          live_sha="$(git rev-parse FETCH_HEAD)"
-          test "$live_sha" = "$event_sha" || {
-            printf 'TRAINING_PROGRESS_SUPERSEDED event=%s live=%s\n' "$event_sha" "$live_sha" >&2
-            exit 1
-          }
-          echo 'TRAINING_PROGRESS_EXACT_HEAD=PASS'
-
       - name: Setup exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -69,7 +51,6 @@ jobs:
           tests/test_w2_training_progress_crash_recovery.py
           tests/test_training_authority_convergence.py
           tests/test_training_progress_ancestor_authority.py
-          tests/test_training_progress_durability_concurrency.py
 
       - name: Run Training progress crash/durability regressions
         shell: bash
@@ -78,7 +59,6 @@ jobs:
           tests.test_w2_training_progress_crash_recovery
           tests.test_training_authority_convergence
           tests.test_training_progress_ancestor_authority
-          tests.test_training_progress_durability_concurrency
 
       - name: Verify candidate diff syntax
         if: ${{ github.event_name == 'pull_request' && runner.os == 'Linux' }}

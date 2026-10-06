@@ -5,10 +5,12 @@ import unittest
 from unittest import mock
 
 from acs.gametree import parse_games, serialize_games
+import acs.pgn_service as pgn_service_module
 from acs.import_contract import ImportQuality
 from acs.pgn_service import (
     PgnConcurrentWriteError,
     PgnFileImporter,
+    PgnPublicationUnverifiedError,
     PgnUnsafePathError,
     export_game_atomic,
     open_pgn,
@@ -179,7 +181,7 @@ class PgnFileServiceTests(unittest.TestCase):
             path = Path(tmp) / "shared.pgn"
             path.write_text('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n', encoding="utf-8")
             opened = open_pgn(path)
-            real_replace = os.replace
+            real_replace = pgn_service_module._replace_published_path
 
             def racing_replace(src, dst):
                 Path(dst).write_text(
@@ -188,7 +190,7 @@ class PgnFileServiceTests(unittest.TestCase):
                 )
                 return real_replace(src, dst)
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+            with mock.patch("acs.pgn_service._replace_published_path", side_effect=racing_replace):
                 with self.assertRaises(PgnConcurrentWriteError):
                     save_pgn_atomic(
                         path,
@@ -202,7 +204,7 @@ class PgnFileServiceTests(unittest.TestCase):
         games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "new-shared.pgn"
-            real_link = os.link
+            real_link = pgn_service_module._publish_no_clobber
 
             def racing_link(src, dst, *args, **kwargs):
                 Path(dst).write_text(
@@ -211,7 +213,7 @@ class PgnFileServiceTests(unittest.TestCase):
                 )
                 return real_link(src, dst, *args, **kwargs)
 
-            with mock.patch("acs.pgn_service.os.link", side_effect=racing_link):
+            with mock.patch("acs.pgn_service._publish_no_clobber", side_effect=racing_link):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(path, games, overwrite=False)
             self.assertIn("Created by another writer", path.read_text(encoding="utf-8"))
@@ -287,6 +289,177 @@ class PgnFileServiceTests(unittest.TestCase):
                 "Replacement path",
                 path.read_text(encoding="utf-8"),
             )
+
+    def test_post_commit_cleanup_base_exceptions_leave_committed_bytes_authoritative(self):
+        class CleanupAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "committed.pgn"
+            destination.write_text("committed bytes", encoding="utf-8")
+            redundant = Path(tmp) / "committed.pgn.redundant"
+            redundant.write_text("redundant bytes", encoding="utf-8")
+
+            with mock.patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=CleanupAbort("Path.unlink cleanup aborted"),
+            ):
+                with mock.patch(
+                    "acs.pgn_service.os.unlink",
+                    side_effect=CleanupAbort("os.unlink cleanup aborted"),
+                ):
+                    pgn_service_module._cleanup_redundant_link_after_commit(redundant)
+
+            self.assertEqual(
+                destination.read_text(encoding="utf-8"),
+                "committed bytes",
+            )
+            self.assertTrue(redundant.exists())
+            redundant.unlink()
+
+    def test_post_publish_namespace_base_exception_is_publication_unverified(self):
+        class DurabilityAbort(BaseException):
+            pass
+
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "post-publish-abort.pgn"
+
+            with mock.patch(
+                "acs.pgn_service._sync_published_namespace",
+                side_effect=DurabilityAbort("directory sync aborted"),
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError):
+                    save_pgn_atomic(path, games)
+
+            self.assertTrue(path.exists())
+            self.assertIn("Prepared", path.read_text(encoding="utf-8"))
+
+    def test_expected_hash_verification_base_exception_preserves_recovery_snapshot(self):
+        class VerificationAbort(BaseException):
+            pass
+
+        games = parse_games('[Event "Our save"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shared-verification-abort.pgn"
+            path.write_text(
+                '[Event "Original"]\n[Result "*"]\n\n1. d4 *\n',
+                encoding="utf-8",
+            )
+            opened = open_pgn(path)
+            real_current_sha256 = pgn_service_module._current_sha256
+            snapshot_reads = 0
+
+            def abort_second_snapshot_verification(candidate):
+                nonlocal snapshot_reads
+                candidate = Path(candidate)
+                if ".cas-" in candidate.name and candidate.suffix == ".bak":
+                    snapshot_reads += 1
+                    if snapshot_reads == 2:
+                        raise VerificationAbort("post-replace snapshot verification aborted")
+                return real_current_sha256(candidate)
+
+            with mock.patch(
+                "acs.pgn_service._current_sha256",
+                side_effect=abort_second_snapshot_verification,
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+
+            snapshots = list(Path(tmp).glob("shared-verification-abort.pgn.cas-*.bak"))
+            self.assertEqual(len(snapshots), 1)
+            self.assertIn("Original", snapshots[0].read_text(encoding="utf-8"))
+            self.assertIn("Our save", path.read_text(encoding="utf-8"))
+
+    def test_expected_hash_rollback_base_exception_preserves_newer_writer_snapshot(self):
+        class RollbackAbort(BaseException):
+            pass
+
+        games = parse_games('[Event "Our save"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "shared-rollback-abort.pgn"
+            path.write_text(
+                '[Event "Original"]\n[Result "*"]\n\n1. d4 *\n',
+                encoding="utf-8",
+            )
+            opened = open_pgn(path)
+            real_replace = pgn_service_module._replace_published_path
+            replace_calls = 0
+
+            def abort_rollback(source, destination):
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    Path(destination).write_text(
+                        '[Event "Concurrent writer"]\n[Result "*"]\n\n1. c4 *\n',
+                        encoding="utf-8",
+                    )
+                    return real_replace(source, destination)
+                raise RollbackAbort("rollback publication aborted")
+
+            with mock.patch(
+                "acs.pgn_service._replace_published_path",
+                side_effect=abort_rollback,
+            ):
+                with self.assertRaises(PgnPublicationUnverifiedError):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        overwrite=True,
+                        expected_sha256=opened.source.sha256,
+                    )
+
+            self.assertEqual(replace_calls, 2)
+            snapshots = list(Path(tmp).glob("shared-rollback-abort.pgn.cas-*.bak"))
+            self.assertEqual(len(snapshots), 1)
+            self.assertIn("Concurrent writer", snapshots[0].read_text(encoding="utf-8"))
+            self.assertIn("Our save", path.read_text(encoding="utf-8"))
+
+    def test_pre_publish_failure_survives_temp_cleanup_base_exception(self):
+        class CleanupAbort(BaseException):
+            pass
+
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pre-publish-cleanup-abort.pgn"
+            real_unlink = Path.unlink
+
+            def abort_temp_cleanup(candidate, *args, **kwargs):
+                candidate = Path(candidate)
+                if candidate.name.startswith(path.name + ".") and candidate.suffix == ".tmp":
+                    raise CleanupAbort("temporary cleanup aborted")
+                return real_unlink(candidate, *args, **kwargs)
+
+            def primary_failure():
+                raise RuntimeError("primary pre-publication failure")
+
+            with mock.patch.object(
+                Path,
+                "unlink",
+                autospec=True,
+                side_effect=abort_temp_cleanup,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "primary pre-publication failure",
+                ):
+                    save_pgn_atomic(
+                        path,
+                        games,
+                        pre_publish_check=primary_failure,
+                    )
+
+            self.assertFalse(path.exists())
+            residual = list(Path(tmp).glob("pre-publish-cleanup-abort.pgn.*.tmp"))
+            self.assertEqual(len(residual), 1)
+            real_unlink(residual[0])
 
     def test_pre_publish_check_aborts_after_fsync_without_publication(self):
         games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')

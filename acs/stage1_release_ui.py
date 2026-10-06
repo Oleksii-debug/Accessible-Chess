@@ -23,6 +23,51 @@ from .webapp_keymap import KeymapAwareAccessibleChessAPI
 class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     """Release API with the saturation board-command dispatcher enabled."""
 
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        settings = getattr(self, "_settings", None)
+        state["announceMoveErrors"] = (
+            settings.get("announce_move_errors", False) is True
+            if settings is not None else False
+        )
+        return state
+
+    @staticmethod
+    def _settings_persistence_available(settings: object | None) -> bool:
+        if settings is None:
+            return False
+        if getattr(settings, "_baseline_known", True) is not True:
+            return False
+        return getattr(settings, "_write_blocked_reason", None) is None
+
+    def get_sound_settings(self) -> dict[str, Any]:
+        state = super().get_sound_settings()
+        if not self._settings_persistence_available(getattr(self, "_settings", None)):
+            return {**state, "ok": False}
+        return state
+
+    def get_move_feedback_settings(self) -> dict[str, Any]:
+        settings = getattr(self, "_settings", None)
+        if not self._settings_persistence_available(settings):
+            return {"ok": False, "enabled": False}
+        try:
+            enabled = settings.get("announce_move_errors", False) is True
+        except Exception:
+            _core._LOG.exception("Could not read move feedback preference")
+            return {"ok": False, "enabled": False}
+        return {"ok": True, "enabled": enabled}
+
+    def set_move_error_announcements(self, enabled: bool) -> dict[str, Any]:
+        settings = getattr(self, "_settings", None)
+        if type(enabled) is not bool or not self._settings_persistence_available(settings):
+            return {**self.get_move_feedback_settings(), "ok": False}
+        try:
+            settings.set("announce_move_errors", enabled)
+        except Exception:
+            _core._LOG.exception("Could not persist move feedback preference")
+            return {**self.get_move_feedback_settings(), "ok": False}
+        return self.get_move_feedback_settings()
+
     @staticmethod
     def _binding_context(value: object) -> str:
         raw = getattr(value, "value", value)

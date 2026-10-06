@@ -102,11 +102,8 @@ def _status_announcement(status: UpgradeUiStatus, *, recovered: bool, language: 
             else "Оновлення даних до Version 2 завершено."
         )
     if status is UpgradeUiStatus.CURRENT:
-        return (
-            "Version 2 data is verified and ready."
-            if english
-            else "Дані Version 2 перевірено та готові."
-        )
+        # Routine successful startup is silent; recovery/upgrade remains explicit.
+        return ""
     raise ValueError("unsupported completed upgrade status")
 
 
@@ -141,6 +138,8 @@ def _publish_canonical_upgrade_status(application: Any, report: Version2UpgradeR
         "recovered_interrupted_upgrade": event.recovered_interrupted_upgrade,
         "focus_target": event.focus_target,
     }
+    if not payload["announcement"]:
+        return
     events = getattr(application, "_events", None)
     append = getattr(events, "append", None)
     if not callable(append):

@@ -623,6 +623,742 @@ class BookHtmlImportTests(unittest.TestCase):
             )
         )
 
+    def test_inline_display_none_cannot_publish_reading_or_chess_semantics(self) -> None:
+        source = f"""<html><body>
+<h1>Visible before</h1>
+<section style=" color: red ; DISPLAY : none ">
+  <p>Style-hidden reading text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+  <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible after</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-display-none.html",
+            available_assets={"images/hidden.png"},
+        )
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible before", rendered)
+        self.assertIn("Visible after", rendered)
+        self.assertNotIn("Style-hidden reading text", rendered)
+        self.assertNotIn('[Event "Accessible book demo"]', rendered)
+
+    def test_inline_display_cascade_uses_last_declaration_and_important_precedence(self) -> None:
+        visible_sources = (
+            f"""<html><body>
+<div style="display:none; DISPLAY:block">
+  <p>Visible by later declaration</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</div>
+</body></html>""",
+            f"""<html><body>
+<div style="display: block ! IMPORTANT; display:none">
+  <p>Visible by important declaration</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</div>
+</body></html>""",
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-visible-{index}.html",
+                )
+                self.assertTrue(
+                    any(isinstance(block, Paragraph) for block in result.document.blocks)
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+        hidden = import_html_book(
+            f"""<html><body>
+<div style="display:none!important; display:block">
+  <div data-acs-fen="{Board.START}">Must remain hidden</div>
+</div>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="style-important-hidden.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in hidden.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_invalid_display_value_cannot_override_valid_hidden_declaration(self) -> None:
+        hidden_sources = (
+            f"""<html><body>
+<section style="display:none; display:bogus">
+  <div data-acs-fen="{Board.START}">Hidden invalid override</div>
+</section>
+<p>Visible tail one</p>
+</body></html>""",
+            f"""<html><body>
+<section style="display:none; display:future-layout">
+  <div data-acs-fen="{Board.START}">Hidden unsupported display value</div>
+</section>
+<p>Visible tail four</p>
+</body></html>""",
+            f"""<html><body>
+<section style='display:none; display:"block"'>
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible tail two</p>
+</body></html>""",
+            f"""<html><body>
+<section style="display:none !important; display:bogus !important">
+  <img src="images/hidden.png" alt="Hidden invalid important override" data-acs-fen="{Board.START}">
+</section>
+<p>Visible tail three</p>
+</body></html>""",
+        )
+        for index, source in enumerate(hidden_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-invalid-display-override-{index}.html",
+                    available_assets={"images/hidden.png"},
+                )
+                self.assertEqual(result.pgn_games, 0)
+                self.assertEqual(result.image_references, ())
+                self.assertFalse(
+                    any(
+                        isinstance(block, (Game, Diagram, Position, Note))
+                        for block in result.document.blocks
+                    )
+                )
+                rendered = "\n".join(
+                    getattr(block, "text", "")
+                    for block in result.document.blocks
+                )
+                self.assertIn(
+                    f"Visible tail {('one', 'four', 'two', 'three')[index]}",
+                    rendered,
+                )
+                self.assertNotIn("Hidden", rendered)
+
+    def test_known_valid_display_values_can_override_prior_none(self) -> None:
+        for index, display_value in enumerate(
+            (
+                "block",
+                "inline",
+                "flex",
+                "grid",
+                "math",
+                "grid-lanes",
+                "inline-grid-lanes",
+                "inline-block",
+                "block flow-root",
+                "inline flex",
+                "block math",
+                "math block",
+                "inline math",
+                "run-in math",
+                "m\\61 th",
+                "block flow list-item",
+            )
+        ):
+            with self.subTest(display_value=display_value):
+                result = import_html_book(
+                    f"""<html><body>
+<section style="display:none; display:{display_value}">
+  <div data-acs-fen="{Board.START}">Visible valid override</div>
+</section>
+</body></html>""",
+                    source_name=f"style-valid-display-override-{index}.html",
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+    def test_inline_content_visibility_hidden_suppresses_semantic_subtree(self) -> None:
+        source = f"""<html><body>
+<section style="content-visibility:hidden">
+  <p>Hidden accessible text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+  <pre>{{PGN 1}}
+{PGN}</pre>
+  <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+  <div style="content-visibility:visible">Descendant cannot restore subtree</div>
+</section>
+<p>Visible tail</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="content-visibility-hidden.html",
+            available_assets={"images/hidden.png"},
+        )
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertEqual(rendered.strip(), "Visible tail")
+
+    def test_inline_content_visibility_cascade_and_important_precedence(self) -> None:
+        visible = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden; content-visibility:visible">
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>""",
+            source_name="content-visibility-visible-override.html",
+        )
+        self.assertEqual(
+            len([block for block in visible.document.blocks if isinstance(block, Position)]),
+            1,
+        )
+
+        hidden = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden !important; content-visibility:visible">
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+</section>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="content-visibility-important.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in hidden.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_invalid_content_visibility_value_cannot_resurrect_hidden_subtree(self) -> None:
+        result = import_html_book(
+            f"""<html><body>
+<section style="content-visibility:hidden; content-visibility:bogus">
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+</section>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="content-visibility-invalid-override.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in result.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_cascade_dependent_css_wide_values_cannot_resurrect_hidden_semantics(self) -> None:
+        cascade_values = (
+            "inherit",
+            "revert",
+            "revert-layer",
+        )
+        for property_name, hidden_value in (
+            ("display", "none"),
+            ("content-visibility", "hidden"),
+        ):
+            for important in ("", " !important"):
+                for index, value in enumerate(cascade_values):
+                    with self.subTest(
+                        property=property_name,
+                        value=value,
+                        important=bool(important),
+                    ):
+                        result = import_html_book(
+                            f"""<html><body>
+<section style="{property_name}:{hidden_value}{important}; {property_name}:{value}{important}">
+  <div data-acs-fen="{Board.START}">Hidden cascade-dependent value</div>
+</section>
+<p>Visible cascade tail {property_name} {index}</p>
+</body></html>""",
+                            source_name=(
+                                f"style-cascade-dependent-{property_name}-"
+                                f"{index}-{'important' if important else 'normal'}.html"
+                            ),
+                        )
+                        self.assertFalse(
+                            any(
+                                isinstance(block, Position)
+                                for block in result.document.blocks
+                            )
+                        )
+                        self.assertTrue(
+                            any(
+                                isinstance(block, Paragraph)
+                                and block.text
+                                == f"Visible cascade tail {property_name} {index}"
+                                for block in result.document.blocks
+                            )
+                        )
+
+
+    def test_inline_display_comments_cannot_smuggle_hidden_semantics(self) -> None:
+        hidden_sources = (
+            f'''<html><body>
+<section style="display/* comment */:none">
+  <p>Comment-hidden text</p>
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+</section>
+<p>Visible tail one</p>
+</body></html>''',
+            f'''<html><body>
+<section style="display:/* ; display:block */none">
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible tail two</p>
+</body></html>''',
+            f'''<html><body>
+<section style="display:none/* ; display:block */">
+  <img src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+</section>
+<p>Visible tail three</p>
+</body></html>''',
+        )
+        for index, source in enumerate(hidden_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-comment-hidden-{index}.html",
+                    available_assets={"images/hidden.png"},
+                )
+                self.assertEqual(result.pgn_games, 0)
+                self.assertEqual(result.image_references, ())
+                self.assertFalse(
+                    any(
+                        isinstance(block, (Game, Diagram, Position, Note))
+                        for block in result.document.blocks
+                    )
+                )
+                rendered = "\n".join(
+                    getattr(block, "text", "")
+                    for block in result.document.blocks
+                )
+                self.assertIn(f"Visible tail {('one', 'two', 'three')[index]}", rendered)
+                self.assertNotIn("Comment-hidden text", rendered)
+
+    def test_inline_display_comments_preserve_cascade_and_token_boundaries(self) -> None:
+        visible_sources = (
+            f'''<html><body>
+<section style="display:none/* comment */; display:block">
+  <p>Later visible declaration</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>''',
+            f'''<html><body>
+<section style="display:block !important; /* ; */ display:none">
+  <p>Important visible declaration</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>''',
+            f'''<html><body>
+<section style="dis/* separator */play:none">
+  <p>Split property name remains visible</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>''',
+            f'''<html><body>
+<section style="display:n/* separator */one">
+  <p>Split property value remains visible</p>
+  <div data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>''',
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-comment-visible-{index}.html",
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+                self.assertTrue(
+                    any(isinstance(block, Paragraph) for block in result.document.blocks)
+                )
+
+    def test_comment_markers_inside_css_strings_do_not_consume_later_display_none(self) -> None:
+        hidden_sources = (
+            f'''<html><body>
+<section style='font-family:"/*"; display:none'>
+  <div data-acs-fen="{Board.START}">Hidden quoted marker</div>
+</section>
+<p>Visible tail one</p>
+</body></html>''',
+            f'''<html><body>
+<section style="font-family:'/*'; display:none">
+  <div data-acs-fen="{Board.START}">Hidden single-quoted marker</div>
+</section>
+<p>Visible tail two</p>
+</body></html>''',
+            f'''<html><body>
+<section style='--token:\\/\\*; display:none'>
+  <div data-acs-fen="{Board.START}">Hidden escaped marker</div>
+</section>
+<p>Visible tail three</p>
+</body></html>''',
+        )
+        for index, source in enumerate(hidden_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-string-comment-marker-{index}.html",
+                )
+                self.assertFalse(
+                    any(isinstance(block, Position) for block in result.document.blocks)
+                )
+                rendered = "\n".join(
+                    getattr(block, "text", "")
+                    for block in result.document.blocks
+                )
+                self.assertIn(
+                    f"Visible tail {('one', 'two', 'three')[index]}",
+                    rendered,
+                )
+                self.assertNotIn("Hidden", rendered)
+
+    def test_inline_style_semicolons_inside_strings_or_escapes_are_not_declarations(self) -> None:
+        visible_sources = (
+            f'''<html><body>
+<section style='--label:"x; display:none; y"; display:block'>
+  <div data-acs-fen="{Board.START}">Visible quoted semicolon</div>
+</section>
+</body></html>''',
+            f'''<html><body>
+<section style='--label:x\\;display:none; display:block'>
+  <div data-acs-fen="{Board.START}">Visible escaped semicolon</div>
+</section>
+</body></html>''',
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-semicolon-data-{index}.html",
+                )
+                positions = [
+                    block for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+        hidden = import_html_book(
+            f'''<html><body>
+<section style='--label:"x; display:block; y"; display:none'>
+  <div data-acs-fen="{Board.START}">Hidden after quoted semicolon</div>
+</section>
+<p>Visible tail</p>
+</body></html>''',
+            source_name="style-real-display-after-quoted-semicolon.html",
+        )
+        self.assertFalse(
+            any(isinstance(block, Position) for block in hidden.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_inline_display_css_escapes_match_browser_hidden_semantics(self) -> None:
+        hidden_sources = (
+            f"""<html><body>
+<section style="d\\69 splay:none">
+  <div data-acs-fen="{Board.START}">Hidden escaped property</div>
+</section>
+<p>Visible tail property</p>
+</body></html>""",
+            f"""<html><body>
+<section style="display:n\\6f ne">
+  <div data-acs-fen="{Board.START}">Hidden escaped value</div>
+</section>
+<p>Visible tail value</p>
+</body></html>""",
+            f"""<html><body>
+<section style="display:none !\\69 mportant; display:block">
+  <div data-acs-fen="{Board.START}">Hidden escaped important</div>
+</section>
+<p>Visible tail important</p>
+</body></html>""",
+        )
+        for index, source in enumerate(hidden_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-css-escape-hidden-{index}.html",
+                )
+                self.assertFalse(
+                    any(isinstance(block, Position) for block in result.document.blocks)
+                )
+
+        visible = import_html_book(
+            f"""<html><body>
+<section style="display:block !\\69 mportant; display:none">
+  <div data-acs-fen="{Board.START}">Visible escaped important</div>
+</section>
+</body></html>""",
+            source_name="style-css-escape-visible-important.html",
+        )
+        positions = [
+            block for block in visible.document.blocks if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].fen, Board.START)
+
+    def test_css_token_matching_does_not_unicode_fold_visible_content_away(self) -> None:
+        visible_sources = (
+            f"""<html><body>
+<section style="diſplay:none">
+  <div data-acs-fen="{Board.START}">Visible long-s property</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:noNE ">
+  <div data-acs-fen="{Board.START}">Visible NBSP value</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display :none">
+  <div data-acs-fen="{Board.START}">Visible NBSP property</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:block !important; display:none !İmportant">
+  <div data-acs-fen="{Board.START}">Visible non-ASCII important</div>
+</section>
+</body></html>""",
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-css-unicode-token-{index}.html",
+                )
+                positions = [
+                    block for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+        hidden = import_html_book(
+            f"""<html><body>
+<section style="DISPLAY:NoNe ! IMPORTANT">
+  <div data-acs-fen="{Board.START}">ASCII case-insensitive hidden</div>
+</section>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="style-css-ascii-case-insensitive.html",
+        )
+        self.assertFalse(
+            any(isinstance(block, Position) for block in hidden.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_css_comments_after_hex_escapes_cannot_join_display_tokens(self) -> None:
+        visible_sources = (
+            f"""<html><body>
+<section style="d\\69/**/splay:none">
+  <div data-acs-fen="{Board.START}">Visible split property escape</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:n\\6f/**/ne">
+  <div data-acs-fen="{Board.START}">Visible split value escape</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:none !\\69/**/mportant; display:block">
+  <div data-acs-fen="{Board.START}">Visible split important escape</div>
+</section>
+</body></html>""",
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-comment-after-hex-escape-{index}.html",
+                )
+                positions = [
+                    block
+                    for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+    def test_invalid_css_identifier_escapes_do_not_invent_display_none(self) -> None:
+        visible_sources = (
+            f"""<html><body>
+<section style="display:n\\
+one; display:block">
+  <div data-acs-fen="{Board.START}">Visible newline escape</div>
+</section>
+</body></html>""",
+            f"""<html><body>
+<section style="display:n\\6f\u00a0ne; display:block">
+  <div data-acs-fen="{Board.START}">Visible non-CSS whitespace</div>
+</section>
+</body></html>""",
+        )
+        for index, source in enumerate(visible_sources):
+            with self.subTest(index=index):
+                result = import_html_book(
+                    source,
+                    source_name=f"style-invalid-css-escape-{index}.html",
+                )
+                positions = [
+                    block for block in result.document.blocks
+                    if isinstance(block, Position)
+                ]
+                self.assertEqual(len(positions), 1)
+                self.assertEqual(positions[0].fen, Board.START)
+
+    def test_nested_css_component_semicolons_cannot_forge_display_declarations(self) -> None:
+        hidden = import_html_book(
+            f"""<html><body>
+<section style="--token:url(data:text/plain;x; display:block !important); display:none">
+  <div data-acs-fen="{Board.START}">Hidden despite fake nested block</div>
+</section>
+<p>Visible tail</p>
+</body></html>""",
+            source_name="style-nested-fake-block.html",
+        )
+        self.assertFalse(
+            any(isinstance(block, Position) for block in hidden.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+        visible = import_html_book(
+            f"""<html><body>
+<section style="--token:fn(x; display:none !important); display:block">
+  <div data-acs-fen="{Board.START}">Visible despite fake nested none</div>
+</section>
+</body></html>""",
+            source_name="style-nested-fake-none.html",
+        )
+        positions = [
+            block for block in visible.document.blocks
+            if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].fen, Board.START)
+
+    def test_unterminated_inline_style_comment_consumes_remainder_without_leak(self) -> None:
+        hidden = import_html_book(
+            f'''<html><body>
+<section style="display:none/* unclosed">
+  <div data-acs-fen="{Board.START}">Hidden position</div>
+</section>
+<p>Visible tail</p>
+</body></html>''',
+            source_name="style-comment-unclosed-hidden.html",
+        )
+        self.assertFalse(any(isinstance(block, Position) for block in hidden.document.blocks))
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible tail"
+                for block in hidden.document.blocks
+            )
+        )
+
+    def test_inline_visibility_can_be_overridden_by_visible_descendant(self) -> None:
+        source = f"""<html><body>
+<section style="visibility:hidden">
+  <p style="visibility:visible">Visible descendant text</p>
+  <div style="visibility:visible" data-acs-fen="{Board.START}">Visible position</div>
+</section>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-visibility-descendant-override.html",
+        )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible descendant text"
+                for block in result.document.blocks
+            )
+        )
+        positions = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, Position)
+        ]
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].fen, Board.START)
+
+    def test_inline_style_hidden_void_element_does_not_hide_following_content(self) -> None:
+        source = f"""<html><body>
+<img style="display:none" src="images/hidden.png" alt="Hidden image" data-acs-fen="{Board.START}">
+<p>Visible after style-hidden image</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="style-hidden-void.html",
+            available_assets={"images/hidden.png"},
+        )
+
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible after style-hidden image"
+                for block in result.document.blocks
+            )
+        )
+
     def test_hidden_subtree_cannot_publish_reading_or_chess_semantics(self) -> None:
         source = f"""<html><body>
 <h1>Visible before</h1>
@@ -750,6 +1486,29 @@ class BookHtmlImportTests(unittest.TestCase):
                 and block.text == "Visible after hidden image"
                 for block in result.document.blocks
             )
+        )
+
+    def test_hidden_self_closing_void_elements_do_not_fake_nesting_mismatches(self) -> None:
+        source = """<html><body>
+<section hidden>
+  <area/><base/><col/><embed/><param/><source/><track/><wbr/>
+  <p>Hidden text</p>
+</section>
+<p>Visible tail</p>
+</body></html>"""
+        result = import_html_book(source, source_name="hidden-void-startend.html")
+
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible tail", rendered)
+        self.assertNotIn("Hidden text", rendered)
+        self.assertFalse(
+            any("mismatched hidden elements" in warning for warning in result.warnings)
+        )
+        self.assertFalse(
+            any("hidden content unclosed" in warning for warning in result.warnings)
         )
 
     def test_malformed_hidden_nesting_fails_closed_without_resuming_early(self) -> None:

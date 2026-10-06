@@ -313,29 +313,42 @@ def _canonical_json_bytes(value: object) -> bytes:
 
 
 def _snapshot_copy(value: object) -> dict[str, object]:
-    if not isinstance(value, Mapping):
+    # Persisted snapshots are JSON objects and must cross this boundary as exact
+    # built-in dictionaries.  Reject Mapping subclasses before iteration so
+    # provider-defined hooks cannot execute inside progress validation.
+    if type(value) is not dict:
         raise BookProgressStoreError(
             "book progress snapshot must be an object",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
-    if set(value) != _READER_SNAPSHOT_FIELDS:
+    snapshot_fields = tuple(value)
+    if any(type(field) is not str for field in snapshot_fields):
+        raise BookProgressStoreError(
+            "book progress snapshot has invalid field names",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+    if set(snapshot_fields) != _READER_SNAPSHOT_FIELDS:
         raise BookProgressStoreError(
             "book progress snapshot has unsupported fields",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
-    snapshot = dict(value)
-    if len(_canonical_json_bytes(snapshot)) > MAX_BOOK_SNAPSHOT_BYTES:
-        raise BookProgressStoreError(
-            "book progress snapshot exceeds the resource limit",
-            code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
-        )
+    snapshot = value.copy()
     try:
-        return BookReader.validate_snapshot_contract(snapshot)
+        validated = BookReader.validate_snapshot_contract(snapshot)
     except (TypeError, ValueError):
         raise BookProgressStoreError(
             "book progress snapshot is corrupt",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         ) from None
+    # Size the already-passive validated snapshot. Serializing before nested
+    # validation would let a dict subclass in return_points/fallback_digests
+    # execute provider-defined items()/iteration hooks inside json.dumps.
+    if len(_canonical_json_bytes(validated)) > MAX_BOOK_SNAPSHOT_BYTES:
+        raise BookProgressStoreError(
+            "book progress snapshot exceeds the resource limit",
+            code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+        )
+    return validated
 
 
 def _empty_payload() -> dict[str, object]:
@@ -347,9 +360,18 @@ def _empty_payload() -> dict[str, object]:
 
 
 def _validate_payload(value: object) -> dict[str, object]:
-    if not isinstance(value, Mapping):
+    # The JSON decoder and all store-owned payload builders produce exact dicts.
+    # Keep ingress passive: arbitrary Mapping implementations may execute code
+    # from membership, indexing, length, or iteration hooks.
+    if type(value) is not dict:
         raise BookProgressStoreError(
             "book progress store root must be an object",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+    root_fields = tuple(value)
+    if any(type(field) is not str for field in root_fields):
+        raise BookProgressStoreError(
+            "book progress store has invalid field names",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
     if "schema_version" not in value:
@@ -378,8 +400,16 @@ def _validate_payload(value: object) -> dict[str, object]:
             "book progress entries are missing",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
+    if (
+        schema_version == BOOK_PROGRESS_STORE_SCHEMA_VERSION
+        and "generation" not in value
+    ):
+        raise BookProgressStoreError(
+            "book progress store generation is missing",
+            code=BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
     raw_entries = value["entries"]
-    if not isinstance(raw_entries, Mapping):
+    if type(raw_entries) is not dict:
         raise BookProgressStoreError(
             "book progress entries must be an object",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
@@ -402,7 +432,7 @@ def _validate_payload(value: object) -> dict[str, object]:
         entries[key] = _snapshot_copy(raw_snapshot)
 
     expected_fields = _STORE_V1_FIELDS if schema_version == 1 else _STORE_V2_FIELDS
-    if set(value) != expected_fields:
+    if set(root_fields) != expected_fields:
         raise BookProgressStoreError(
             "book progress store has unsupported fields",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
@@ -844,7 +874,7 @@ class BookProgressStore:
                 code=BookProgressStoreErrorCode.CORRUPT_STORE,
             ) from None
         validated = _validate_payload(parsed)
-        assert isinstance(parsed, Mapping)
+        assert type(parsed) is dict
         source_schema_version = parsed["schema_version"]
         assert type(source_schema_version) is int
         return validated, source_schema_version

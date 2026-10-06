@@ -25,6 +25,7 @@ from acs.teaching_session import (
     PositionSourceKind,
     TeachingActivity,
     TeachingPositionSource,
+    TeachingSessionError,
     TeachingStep,
     default_policy,
 )
@@ -122,28 +123,39 @@ class Version2TeacherSessionRuntimeBindingTests(unittest.TestCase):
         self.assertIsNone(self.app._teaching_state)
         self.assertFalse(self.app.snapshot()["product_status"]["teacher_session_active"])
 
-    def test_changed_classroom_scope_rejects_mutation_without_advancing_state(self) -> None:
+    def test_changed_classroom_scope_is_rejected_before_workspace_or_session_advances(self) -> None:
         self.app.start_teaching_session(self._plan())
         before = self.app._owned_teaching_state()
+        workspace_before = self.app._education_workspace
         revision = self.app.education_revision
-        self.app.replace_education_workspace(
-            EducationWorkspace.empty(ClassroomSnapshot()),
-            expected_revision=revision,
-        )
-        self.app.shell.open_route("teacher")
 
+        with self.assertRaisesRegex(
+            TeachingSessionError,
+            "unknown classroom lesson",
+        ):
+            self.app.replace_education_workspace(
+                EducationWorkspace.empty(ClassroomSnapshot()),
+                expected_revision=revision,
+            )
+
+        self.assertEqual(revision, self.app.education_revision)
+        self.assertIs(workspace_before, self.app._education_workspace)
+        after_rejection = self.app._owned_teaching_state()
+        self.assertIs(after_rejection, before)
+        self.assertEqual(0, after_rejection.revision)
+        self.assertEqual(Board.START, after_rejection.position_fen)
+        self.assertIsNone(after_rejection.presentation.pointer.square)
+
+        self.app.shell.open_route("teacher")
         event = self.app.browser_command(
             "teacher",
             "teacher.pointer_input",
             {"coordinate": "e4"},
         )
-
-        self.assertEqual("error", event["kind"])
-        after = self.app._owned_teaching_state()
-        self.assertIs(after, before)
-        self.assertEqual(0, after.revision)
-        self.assertEqual(Board.START, after.position_fen)
-        self.assertIsNone(after.presentation.pointer.square)
+        self.assertEqual("render-pointer", event["kind"])
+        after_command = self.app._owned_teaching_state()
+        self.assertEqual(1, after_command.revision)
+        self.assertEqual("e4", after_command.presentation.pointer.square)
 
     def test_hidden_or_modal_teacher_commands_preserve_canonical_session(self) -> None:
         self.app.start_teaching_session(self._plan())

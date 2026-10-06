@@ -180,7 +180,7 @@ class FullProductNativeMenuTests(unittest.TestCase):
             ],
             [menu.menu_id for menu in menus],
         )
-        self.assertEqual("&Teacher/Classroom", menus[11].label)
+        self.assertEqual("Teacher/&Classroom", menus[11].label)
         actions = [
             item
             for menu in menus
@@ -194,6 +194,47 @@ class FullProductNativeMenuTests(unittest.TestCase):
         ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
         self.assertEqual("&Файл", ua[0].label)
         self.assertEqual("&Учитель/Клас", ua[11].label)
+
+    def test_top_level_mnemonics_are_unique_in_each_supported_language(self) -> None:
+        expected_visible = {
+            UILanguage.EN: (
+                "File", "Game", "Position", "PGN", "Library", "Import", "Export",
+                "Engine", "Analysis", "Books", "Training", "Teacher/Classroom",
+                "Settings", "Help",
+            ),
+            UILanguage.UA: (
+                "Файл", "Гра", "Позиція", "PGN", "Бібліотека", "Імпорт", "Експорт",
+                "Stockfish", "Аналіз", "Книги", "Тренування", "Учитель/Клас",
+                "Налаштування", "Довідка",
+            ),
+        }
+        registry = build_full_product_action_registry()
+
+        for language, visible_labels in expected_visible.items():
+            menus = build_full_product_menu_spec(registry, language=language)
+            mnemonic_keys = []
+            for menu, visible in zip(menus, visible_labels):
+                self.assertEqual(1, menu.label.count("&"), menu.label)
+                marker = menu.label.index("&")
+                self.assertLess(marker + 1, len(menu.label), menu.label)
+                mnemonic_keys.append(menu.label[marker + 1].casefold())
+                self.assertEqual(visible, menu.label.replace("&", ""))
+
+            self.assertEqual(len(mnemonic_keys), len(set(mnemonic_keys)))
+
+            menu_alt_bindings = {f"alt+{key}" for key in mnemonic_keys}
+            default_plain_alt_bindings = {
+                binding.casefold()
+                for definition in registry.definitions()
+                if (binding := registry.get_binding(definition.action_id)) is not None
+                and binding.startswith("Alt+")
+                and binding.count("+") == 1
+                and len(binding.removeprefix("Alt+")) == 1
+            }
+            self.assertTrue(
+                menu_alt_bindings.isdisjoint(default_plain_alt_bindings),
+                (language, menu_alt_bindings & default_plain_alt_bindings),
+            )
 
     def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
         controller, calls, commands, _exits = make_controller()
@@ -237,6 +278,54 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("Наступний блок", ua_labels["book.next_block"])
         self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
         self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
+
+    def test_pgn_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        pgn_menu = next(menu for menu in controller.spec() if menu.menu_id == "pgn")
+        cancel_item = next(
+            item for item in pgn_menu.items
+            if item.action_id == "pgn.cancel_open"
+        )
+        self.assertEqual("Cancel PGN Open", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("pgn.cancel_open", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_pgn = next(menu for menu in ua if menu.menu_id == "pgn")
+        ua_cancel = next(
+            item for item in ua_pgn.items
+            if item.action_id == "pgn.cancel_open"
+        )
+        self.assertEqual("Скасувати відкриття PGN", ua_cancel.label)
+
+    def test_pgn_menu_exposes_cancel_save_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        pgn_menu = next(menu for menu in controller.spec() if menu.menu_id == "pgn")
+        cancel_item = next(
+            item for item in pgn_menu.items
+            if item.action_id == "pgn.cancel_save"
+        )
+        self.assertEqual("Cancel PGN Save", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("pgn.cancel_save", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_pgn = next(menu for menu in ua if menu.menu_id == "pgn")
+        ua_cancel = next(
+            item for item in ua_pgn.items
+            if item.action_id == "pgn.cancel_save"
+        )
+        self.assertEqual("Скасувати збереження PGN", ua_cancel.label)
 
     def test_books_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
         controller, calls, commands, _exits = make_controller()
