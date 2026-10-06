@@ -10,7 +10,11 @@ from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.child_coaching_rotation import (
+    RotationActivity,
+    RotationRound,
+    RotationTarget,
     advance_rotation,
+    build_rotation_plan,
     default_group_rotation,
     start_rotation,
 )
@@ -217,6 +221,51 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         )
 
     @staticmethod
+    def _two_group_classroom() -> ClassroomSnapshot:
+        students = tuple(
+            Student(f"student-{index}", f"Student {index}", ConsentState.GRANTED)
+            for index in range(1, 5)
+        )
+        return ClassroomSnapshot(
+            students=students,
+            classes=(
+                ClassroomClass(
+                    "class-1",
+                    "Class",
+                    ("group-1", "group-2"),
+                ),
+            ),
+            groups=(
+                Group("group-1", "class-1", "Group 1"),
+                Group("group-2", "class-1", "Group 2"),
+            ),
+            courses=(Course("course-1", "Course", ("lesson-1",)),),
+            cohorts=(
+                Cohort(
+                    "cohort-1",
+                    "course-1",
+                    ("student-1", "student-2"),
+                    "group-1",
+                ),
+                Cohort(
+                    "cohort-2",
+                    "course-1",
+                    ("student-3", "student-4"),
+                    "group-2",
+                ),
+            ),
+            lessons=(
+                Lesson(
+                    "lesson-1",
+                    "course-1",
+                    "Lesson",
+                    (),
+                    "2026-10-04T10:00:00Z",
+                ),
+            ),
+        )
+
+    @staticmethod
     def _plan() -> LessonSession:
         activity = TeachingActivity.TEACHER_EXPLAINS
         return LessonSession(
@@ -273,6 +322,103 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertIsNotNone(durable)
         assert durable is not None
         self.assertEqual(foreign_state, durable.state)
+
+    def test_group_target_rejects_unknown_classroom_group_before_adoption(self) -> None:
+        plan = build_rotation_plan(
+            self.plan,
+            rotation_id="rotation-missing-group",
+            rounds=(
+                RotationRound(
+                    "pair",
+                    RotationActivity.PAIR_PLAY,
+                    "Pair missing group",
+                    5,
+                    RotationTarget.GROUP,
+                    ("group-missing",),
+                ),
+            ),
+        )
+        state = start_rotation(plan)
+        self.store.save(plan, state, expected_revision=None)
+        before = self.store.path.read_bytes()
+
+        with self.assertRaisesRegex(RuntimeError, "outside current classroom scope"):
+            self.app.begin_or_resume_default_group_rotation("rotation-missing-group")
+
+        self.assertEqual(before, self.store.path.read_bytes())
+        self.assertIsNone(self.app._rotation_state)
+        self.assertTrue(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+    def test_group_pairing_must_exactly_match_classroom_group_membership(self) -> None:
+        self.app.stop_teaching_session()
+        workspace = EducationWorkspace.empty(self._two_group_classroom())
+        self.app.replace_education_workspace(
+            workspace,
+            expected_revision=self.app.education_revision,
+        )
+        lesson = LessonSession(
+            "session-two-groups",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            ("student-1", "student-2", "student-3", "student-4"),
+            None,
+        )
+        self.app.start_teaching_session(lesson)
+        plan = build_rotation_plan(
+            lesson,
+            rotation_id="rotation-group-1",
+            rounds=(
+                RotationRound(
+                    "pair",
+                    RotationActivity.PAIR_PLAY,
+                    "Pair group 1",
+                    5,
+                    RotationTarget.GROUP,
+                    ("group-1",),
+                ),
+            ),
+        )
+        state = start_rotation(plan)
+        durable_revision = self.store.save(plan, state, expected_revision=None)
+        resumed = self.app.begin_or_resume_default_group_rotation("rotation-group-1")
+        self.assertEqual(state, resumed)
+        self.assertEqual(durable_revision, self.app._rotation_store_revision)
+
+        self.app.plan_classroom_pairings(
+            batch_id="pair-all-groups",
+            game_session_ids=("game-1", "game-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        before = self.store.path.read_bytes()
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "does not match current rotation target",
+        ):
+            self.app.bind_current_pairing_to_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+        self.assertEqual(before, self.store.path.read_bytes())
+        self.assertEqual(state, self.app._rotation_state)
+
+        self.app.plan_classroom_pairings(
+            batch_id="pair-group-1",
+            game_session_ids=("game-group-1",),
+            student_ids=("student-1", "student-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        bound = self.app.bind_current_pairing_to_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.assertEqual("pair-group-1", bound.pair_play_batch_ref)
+        durable = self.store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(bound, durable.state)
 
     def test_pair_round_requires_exact_current_pairing_then_advances_to_review(self) -> None:
         state = self._reach_pair_round()

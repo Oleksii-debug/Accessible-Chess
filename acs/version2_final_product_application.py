@@ -520,6 +520,61 @@ class Version2FinalProductApplication(Version2Application):
             workspace,
         )
 
+    @staticmethod
+    def _rotation_group_target_students(
+        item,
+        lesson: LessonSession,
+        classroom: cd.ClassroomSnapshot,
+    ) -> set[str]:
+        """Resolve one GROUP target through canonical classroom/cohort ownership."""
+
+        if item.target is not RotationTarget.GROUP:
+            raise ChildCoachingRotationError("rotation target is not group-scoped")
+        lesson_record = next(
+            (
+                candidate
+                for candidate in classroom.lessons
+                if candidate.lesson_id == lesson.lesson_id
+            ),
+            None,
+        )
+        if lesson_record is None:
+            raise ChildCoachingRotationError(
+                "rotation group target cannot resolve an unknown classroom lesson"
+            )
+        known_groups = {candidate.group_id for candidate in classroom.groups}
+        lesson_students = set(lesson.student_ids)
+        resolved: set[str] = set()
+        for group_id in item.target_ids:
+            if group_id not in known_groups:
+                raise ChildCoachingRotationError(
+                    "rotation group target is outside the current classroom"
+                )
+            members = {
+                student_id
+                for cohort in classroom.cohorts
+                if cohort.course_id == lesson_record.course_id
+                and cohort.group_id == group_id
+                for student_id in cohort.student_ids
+                if student_id in lesson_students
+            }
+            if not members:
+                raise ChildCoachingRotationError(
+                    "rotation group target has no students in the lesson session"
+                )
+            resolved.update(members)
+        return resolved
+
+    def _validate_rotation_group_scope(
+        self,
+        plan: RotationPlan,
+        lesson: LessonSession,
+        classroom: cd.ClassroomSnapshot,
+    ) -> None:
+        for item in plan.rounds:
+            if item.target is RotationTarget.GROUP:
+                self._rotation_group_target_students(item, lesson, classroom)
+
     def bind_child_coaching_rotation_store(
         self,
         store: ChildCoachingRotationStore,
@@ -557,6 +612,19 @@ class Version2FinalProductApplication(Version2Application):
             except ChildCoachingRotationError:
                 if loaded.state.phase is not RotationPhase.COMPLETED:
                     self._rotation_load_error = True
+            else:
+                workspace = self._education_workspace
+                if type(workspace) is not EducationWorkspace:
+                    self._rotation_load_error = True
+                else:
+                    try:
+                        self._validate_rotation_group_scope(
+                            loaded.plan,
+                            lesson,
+                            workspace.classroom,
+                        )
+                    except ChildCoachingRotationError:
+                        self._rotation_load_error = True
 
     def _refresh_rotation_recovery_for_lesson(self, lesson: LessonSession) -> None:
         """Refresh read-only durable recovery truth for a newly owned lesson."""
@@ -581,12 +649,25 @@ class Version2FinalProductApplication(Version2Application):
             # as recovery-required before any keyboard mutation is attempted.
             self._rotation_load_error = loaded.state.phase is not RotationPhase.COMPLETED
         else:
-            self._rotation_load_error = False
+            workspace = self._education_workspace
+            if type(workspace) is not EducationWorkspace:
+                self._rotation_load_error = True
+                return
+            try:
+                self._validate_rotation_group_scope(
+                    loaded.plan,
+                    lesson,
+                    workspace.classroom,
+                )
+            except ChildCoachingRotationError:
+                self._rotation_load_error = True
+            else:
+                self._rotation_load_error = False
 
     def _rotation_authorities(
         self,
     ) -> tuple[LessonSession, RotationPlan, RotationState, ChildCoachingRotationStore]:
-        lesson, _workspace = self._classroom_orchestration_authorities()
+        lesson, workspace = self._classroom_orchestration_authorities()
         plan = self._rotation_plan
         state = self._rotation_state
         store = self._rotation_store
@@ -595,6 +676,7 @@ class Version2FinalProductApplication(Version2Application):
         if store is None:
             raise RuntimeError("Group rotation store is unavailable")
         validate_rotation_scope(plan, lesson)
+        self._validate_rotation_group_scope(plan, lesson, workspace.classroom)
         return lesson, plan, state, store
 
     def begin_or_resume_default_group_rotation(
@@ -604,7 +686,7 @@ class Version2FinalProductApplication(Version2Application):
         """Create one default rotation or resume the exact durable live-lesson plan."""
 
         self._assert_thread()
-        lesson, _workspace = self._classroom_orchestration_authorities()
+        lesson, workspace = self._classroom_orchestration_authorities()
         store = self._rotation_store
         if store is None:
             raise RuntimeError("Group rotation store is unavailable")
@@ -658,6 +740,17 @@ class Version2FinalProductApplication(Version2Application):
                     self._rotation_load_error = True
                     raise
             else:
+                try:
+                    self._validate_rotation_group_scope(
+                        loaded.plan,
+                        lesson,
+                        workspace.classroom,
+                    )
+                except ChildCoachingRotationError as exc:
+                    self._rotation_load_error = True
+                    raise RuntimeError(
+                        "Stored group rotation is outside current classroom scope"
+                    ) from exc
                 if loaded.plan.rotation_id != rotation_id:
                     self._rotation_load_error = True
                     raise RuntimeError(
@@ -730,7 +823,12 @@ class Version2FinalProductApplication(Version2Application):
                 expected_students = set(lesson.student_ids)
             elif item.target is RotationTarget.SELECTED:
                 expected_students = set(item.target_ids)
-            # GROUP membership remains owned by the classroom/group authority.
+            elif item.target is RotationTarget.GROUP:
+                expected_students = self._rotation_group_target_students(
+                    item,
+                    lesson,
+                    workspace.classroom,
+                )
             if expected_students is not None and batch_students != expected_students:
                 raise RuntimeError(
                     "Pairing batch does not match current rotation target"
