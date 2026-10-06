@@ -23,17 +23,75 @@ OwnerThreadCall = Callable[[Callable[[], object]], Awaitable[object]]
 
 
 class AgentOwnerThreadCall:
-    """Adapt an existing synchronous owner-thread marshal to an async tool port."""
+    """Marshal short canonical operations through a non-blocking owner poster.
 
-    def __init__(self, invoke_owner: Callable[[Callable[[], object]], object]) -> None:
-        if not callable(invoke_owner):
-            raise TypeError("invoke_owner must be callable")
-        self._invoke_owner = invoke_owner
+    The Agent worker never performs a synchronous native Invoke. Production uses
+    the existing WinForms BeginInvoke poster, so application shutdown can cancel
+    and join Agent work without a worker/UI circular wait.
+    """
+
+    def __init__(
+        self,
+        post_owner: Callable[[Callable[[], None]], object],
+        *,
+        owner_thread_id: int | None = None,
+    ) -> None:
+        if not callable(post_owner):
+            raise TypeError("post_owner must be callable")
+        if owner_thread_id is not None and (
+            type(owner_thread_id) is not int or owner_thread_id <= 0
+        ):
+            raise ValueError("owner_thread_id must be a positive integer or None")
+        self._post_owner = post_owner
+        self._owner_thread_id = owner_thread_id
 
     async def __call__(self, callback: Callable[[], object]) -> object:
         if not callable(callback):
             raise TypeError("owner callback must be callable")
-        return self._invoke_owner(callback)
+        if (
+            self._owner_thread_id is not None
+            and threading.get_ident() == self._owner_thread_id
+        ):
+            return callback()
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[object] = loop.create_future()
+        cancelled = threading.Event()
+
+        def resolve(value: object) -> None:
+            if not future.done():
+                future.set_result(value)
+
+        def reject(error: BaseException) -> None:
+            if not future.done():
+                future.set_exception(error)
+
+        def invoke() -> None:
+            if cancelled.is_set():
+                return
+            try:
+                value = callback()
+            except BaseException as error:
+                try:
+                    loop.call_soon_threadsafe(reject, error)
+                except RuntimeError:
+                    pass
+                return
+            try:
+                loop.call_soon_threadsafe(resolve, value)
+            except RuntimeError:
+                pass
+
+        try:
+            self._post_owner(invoke)
+        except BaseException:
+            cancelled.set()
+            raise
+        try:
+            return await future
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
 
 class AgentConversationRuntimeHost:
