@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 env:
-  STORE_BLOB: 5aa8e6f201b8ab002b123acce23ab821874a414c
-  INGRESS_TEST_BLOB: 0c7e3d0beaa651ac1f0995d32756b6b802bddc63
+  STORE_BLOB: 9679133f914839439bc42b63c4d79064b9c49bdd
+  INGRESS_TEST_BLOB: 09e68edb9f50b91d8cf13dcdb6939a19946b49bd
 
 concurrency:
   group: current-book-progress-passive-ingress-${{ github.event.pull_request.number || github.ref }}
