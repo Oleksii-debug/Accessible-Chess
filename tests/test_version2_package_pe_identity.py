@@ -302,6 +302,104 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             )
             self.assertEqual(report.integration_sha, "a" * 40)
 
+    def test_checksum_inventory_uses_dedicated_memory_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            real_reader = preflight._read_stable_bytes_file
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=real_reader,
+            ) as reader:
+                _validate_tree(root)
+
+            calls = [
+                call
+                for call in reader.call_args_list
+                if call.kwargs.get("label") == "checksum inventory"
+            ]
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(
+                calls[0].kwargs["max_bytes"],
+                min(
+                    preflight.PackageLimits().max_member_bytes,
+                    preflight._MAX_CHECKSUMS_BYTES,
+                ),
+            )
+
+    def test_checksum_inventory_enforces_dedicated_memory_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            checksum = root / preflight.CHECKSUMS_NAME
+            checksum.touch()
+            with checksum.open("r+b") as handle:
+                handle.truncate(preflight._MAX_CHECKSUMS_BYTES + 1)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "checksum inventory exceeds archive byte limit",
+            ):
+                preflight._checksums(
+                    root,
+                    (preflight.CHECKSUMS_NAME,),
+                    preflight.PackageLimits(),
+                )
+
+    def test_checksum_inventory_preserves_smaller_caller_limit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / preflight.CHECKSUMS_NAME).write_bytes(b"")
+
+            real_reader = preflight._read_stable_bytes_file
+            limits = preflight.PackageLimits(max_member_bytes=1024)
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=real_reader,
+            ) as reader:
+                checksums, authority_sha256 = preflight._checksums(
+                    root,
+                    (preflight.CHECKSUMS_NAME,),
+                    limits,
+                )
+
+            self.assertEqual(checksums, {})
+            self.assertEqual(
+                authority_sha256,
+                preflight.hashlib.sha256(b"").hexdigest(),
+            )
+            checksum_calls = [
+                call
+                for call in reader.call_args_list
+                if call.kwargs.get("label") == "checksum inventory"
+            ]
+            self.assertEqual(len(checksum_calls), 1)
+            self.assertEqual(checksum_calls[0].kwargs["max_bytes"], 1024)
+
+    def test_checksum_inventory_rejects_more_entries_than_package_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "payload.bin").write_bytes(b"payload")
+            (root / preflight.CHECKSUMS_NAME).write_text(
+                "a" * 64 + "  payload.bin\n"
+                + "b" * 64
+                + "  unexpected.bin\n",
+                encoding="utf-8",
+            )
+
+            limits = preflight.PackageLimits()
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "checksum inventory contains too many entries",
+            ):
+                preflight._checksums(
+                    root,
+                    (preflight.CHECKSUMS_NAME, "payload.bin"),
+                    limits,
+                )
+
     def test_checksum_inventory_snapshot_failure_is_authoritative(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
