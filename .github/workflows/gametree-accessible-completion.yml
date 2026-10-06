@@ -18,6 +18,10 @@ on:
 permissions:
   contents: read
 
+env:
+  EXPECTED_BASE_SHA: 3081ac91685647f5d246403279168ea01e92c3ab
+  PRIOR_GAMETREE_HEAD: 2b85ce297ad760313fe409b81216485b6dc148b8
+
 concurrency:
   group: gametree-accessible-completion-${{ github.ref }}
   cancel-in-progress: true
@@ -35,6 +39,27 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify canonical ancestry and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git merge-base --is-ancestor "$PRIOR_GAMETREE_HEAD" HEAD
+          git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort > actual-scope.txt
+          cat > expected-scope.txt <<'EOF'
+          .github/workflows/gametree-accessible-completion.yml
+          acs/full_product_actions.py
+          acs/full_product_presenters.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/ui_keymap_adapter.py
+          acs/version2_pgn_commands.py
+          tests/test_gametree_accessible_completion.py
+          web/full_product_pgn.js
+          EOF
+          sort -o expected-scope.txt expected-scope.txt
+          diff -u expected-scope.txt actual-scope.txt
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,6 +76,8 @@ jobs:
           tests/test_gametree_accessible_completion.py
       - name: Parse browser GameTree surface
         run: node --check web/full_product_pgn.js
+      - name: PGN browser DOM regression
+        run: node tests/js/pgn_surface_dom_test.js
       - name: GameTree completion regression
         run: >-
           python -m unittest -v
@@ -62,6 +89,8 @@ jobs:
           tests.test_version2_pgn_commands
           tests.test_dev1_pgn_webview_projection
           tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_fen_editor_turn_and_visible_status
           tests.test_bilingual_localization_contract_current
           tests.test_full_product_pgn_keybindings
       - name: Core chess selftest

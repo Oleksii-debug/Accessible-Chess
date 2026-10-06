@@ -8,6 +8,7 @@ from acs.full_product_ui_shell import UILanguage
 from acs.gametree import parse_games
 from acs.gametree_navigation import GameTreeCursor, VariationStep, resolve_line
 from acs.pgn_document import PgnDocumentSession
+from acs.pgn_workspace import MAX_PGN_EDIT_TAG_NAME_CHARS, MAX_PGN_EDIT_TAG_VALUE_CHARS
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
 from acs.version2_pgn_commands import Version2PgnCommands
@@ -104,6 +105,26 @@ class AccessibleGameTreeCompletionTests(unittest.TestCase):
         self.assertEqual(workspace.to_text(), before)
         self.assertEqual(workspace.content_revision, before_revision)
         self.assertEqual(workspace.cursor, GameTreeCursor((VariationStep(1, 0),), 0))
+
+    def test_projection_preserves_current_tag_edit_contract(self):
+        games = tuple(parse_games(DOCUMENT))
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
+        projection = PgnWebViewProjection(
+            presenter,
+            lambda _action, _payload: None,
+            lambda: 1,
+            language=UILanguage.EN,
+        )
+
+        snapshot = projection.snapshot()
+        self.assertEqual(
+            snapshot["edit_contract"]["tag_name_max_chars"],
+            MAX_PGN_EDIT_TAG_NAME_CHARS,
+        )
+        self.assertEqual(
+            snapshot["edit_contract"]["tag_value_max_chars"],
+            MAX_PGN_EDIT_TAG_VALUE_CHARS,
+        )
 
     def test_projection_reports_mainline_context_and_alternative_count(self):
         games = tuple(parse_games(DOCUMENT))
