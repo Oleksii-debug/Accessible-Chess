@@ -725,6 +725,31 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
         self.assertIs(caught.exception, failure)
 
+    def test_canonical_pgn_serializer_validation_observes_control_inside_large_warning_collection(self):
+        import acs.gametree as gametree
+        from acs.gametree import PgnGame, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN warning validation')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        game = PgnGame(
+            line=VariationLine(result='*'),
+            warnings=[f'warning {index}' for index in range(300)],
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._validate_game_for_serialization(
+                game,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
     def test_canonical_pgn_serializer_observes_control_inside_large_comment_collection(self):
         import acs.gametree as gametree
         from acs.gametree import Comment, VariationLine

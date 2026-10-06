@@ -940,9 +940,24 @@ def _validate_game_for_serialization(
             "source_index must be a non-negative exact integer",
             code=GameTreeErrorCode.INVALID_GAME,
         )
-    if type(game.warnings) is not list or any(
-        not isinstance(warning, str) for warning in game.warnings
-    ):
+    if type(game.warnings) is not list:
+        raise GameTreeSerializationError(
+            "game warnings must be a list of text values",
+            code=GameTreeErrorCode.INVALID_CONTAINER,
+        )
+    if control_checkpoint is None:
+        invalid_warning = any(
+            not isinstance(warning, str) for warning in game.warnings
+        )
+    else:
+        invalid_warning = False
+        for warning_index, warning in enumerate(game.warnings, start=1):
+            if warning_index % 128 == 1:
+                control_checkpoint()
+            if not isinstance(warning, str):
+                invalid_warning = True
+                break
+    if invalid_warning:
         raise GameTreeSerializationError(
             "game warnings must be a list of text values",
             code=GameTreeErrorCode.INVALID_CONTAINER,
