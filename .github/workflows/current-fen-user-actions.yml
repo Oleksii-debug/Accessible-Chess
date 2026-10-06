@@ -6,6 +6,7 @@ on:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'acs/keybindings.py'
+      - 'acs/ui_keymap_adapter.py'
       - 'acs/webapp_keymap.py'
       - 'acs/full_product_actions.py'
       - 'acs/full_product_native_menu.py'
@@ -13,6 +14,7 @@ on:
       - 'tests/test_version2_release_ui.py'
       - 'tests/test_version2_application.py'
       - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_ui_keymap_adapter.py'
       - '.github/workflows/current-fen-user-actions.yml'
   workflow_dispatch:
 
@@ -69,9 +71,11 @@ jobs:
             'acs/full_product_actions.py' \
             'acs/full_product_native_menu.py' \
             'acs/keybindings.py' \
+            'acs/ui_keymap_adapter.py' \
             'acs/version2_application.py' \
             'acs/webapp_keymap.py' \
             'tests/test_full_product_native_menu.py' \
+            'tests/test_ui_keymap_adapter.py' \
             'tests/test_version2_application.py' \
             'tests/test_version2_release_ui.py' | sort)"
           test "$changed" = "$expected_paths"
@@ -84,6 +88,7 @@ jobs:
         run: >-
           python -m compileall -q
           acs/keybindings.py
+          acs/ui_keymap_adapter.py
           acs/webapp_keymap.py
           acs/full_product_actions.py
           acs/full_product_native_menu.py
@@ -91,6 +96,7 @@ jobs:
           tests/test_version2_release_ui.py
           tests/test_version2_application.py
           tests/test_full_product_native_menu.py
+          tests/test_ui_keymap_adapter.py
 
       - name: Execute focused FEN user journeys
         run: >-
@@ -98,6 +104,7 @@ jobs:
           tests.test_version2_release_ui
           tests.test_version2_application
           tests.test_full_product_native_menu
+          tests.test_ui_keymap_adapter
           tests.test_dev2_fen_atomicity
           tests.test_fen_input_budget_current
           tests.test_position_editor
