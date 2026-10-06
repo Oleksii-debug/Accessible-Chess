@@ -327,18 +327,22 @@ def _snapshot_copy(value: object) -> dict[str, object]:
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         )
     snapshot = dict(value)
-    if len(_canonical_json_bytes(snapshot)) > MAX_BOOK_SNAPSHOT_BYTES:
-        raise BookProgressStoreError(
-            "book progress snapshot exceeds the resource limit",
-            code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
-        )
     try:
-        return BookReader.validate_snapshot_contract(snapshot)
+        validated = BookReader.validate_snapshot_contract(snapshot)
     except (TypeError, ValueError):
         raise BookProgressStoreError(
             "book progress snapshot is corrupt",
             code=BookProgressStoreErrorCode.CORRUPT_STORE,
         ) from None
+    # Size the already-passive validated snapshot. Serializing before nested
+    # validation would let a dict subclass in return_points/fallback_digests
+    # execute provider-defined items()/iteration hooks inside json.dumps.
+    if len(_canonical_json_bytes(validated)) > MAX_BOOK_SNAPSHOT_BYTES:
+        raise BookProgressStoreError(
+            "book progress snapshot exceeds the resource limit",
+            code=BookProgressStoreErrorCode.RESOURCE_LIMIT,
+        )
+    return validated
 
 
 def _empty_payload() -> dict[str, object]:
