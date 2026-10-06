@@ -9,7 +9,11 @@ from unittest import mock
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
-from acs.child_coaching_rotation import advance_rotation
+from acs.child_coaching_rotation import (
+    advance_rotation,
+    default_group_rotation,
+    start_rotation,
+)
 from acs.child_coaching_rotation_store import (
     ChildCoachingRotationStore,
     ChildCoachingRotationStoreConflictError,
@@ -241,6 +245,34 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         )
         self.assertEqual("pair_play", self.app.group_rotation_snapshot()["activity"])
         return state
+
+    def test_rebinding_store_exposes_unfinished_foreign_owner_before_start_resume(self) -> None:
+        foreign_lesson = LessonSession(
+            "session-foreign",
+            "lesson-1",
+            TeachingPositionSource(PositionSourceKind.START),
+            self.plan.steps,
+            self.plan.student_ids,
+            self.plan.cohort_id,
+        )
+        foreign_plan = default_group_rotation(
+            foreign_lesson,
+            rotation_id="rotation-foreign",
+        )
+        foreign_state = start_rotation(foreign_plan)
+        self.store.save(foreign_plan, foreign_state, expected_revision=None)
+
+        self.app.bind_child_coaching_rotation_store(self.store)
+
+        status = self.app._rotation_keyboard_result()
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("recovery" in spoken or "віднов" in spoken)
+        self.assertIsNone(self.app._rotation_state)
+        durable = self.store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(foreign_state, durable.state)
 
     def test_pair_round_requires_exact_current_pairing_then_advances_to_review(self) -> None:
         state = self._reach_pair_round()

@@ -533,14 +533,30 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("Child coaching rotation store is already bound")
         self._rotation_store = store
         try:
-            store.load()
+            loaded = store.load()
         except Exception:
             # Binding never adopts durable lesson state, but malformed or
             # unreadable storage is already recovery-relevant product truth.
             self._rotation_load_error = True
-        # A successful integrity probe is not a state reconciliation. Preserve
-        # any prior recovery fence until begin_or_resume reloads the exact
-        # durable generation into the application-owned plan/state/revision.
+            return
+
+        # Binding can occur after a Teacher session is already active (the
+        # composition seam is intentionally reusable in tests/hosts). A valid
+        # but unfinished foreign durable owner is already a recovery condition;
+        # do not announce "not started" until Start/Resume discovers it.
+        # This probe is read-only and may only raise the recovery fence. A
+        # successful probe must never clear an existing stale-memory fence.
+        lesson = self._teaching_plan
+        if (
+            not self._rotation_load_error
+            and type(lesson) is LessonSession
+            and loaded is not None
+        ):
+            try:
+                validate_rotation_scope(loaded.plan, lesson)
+            except ChildCoachingRotationError:
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    self._rotation_load_error = True
 
     def _refresh_rotation_recovery_for_lesson(self, lesson: LessonSession) -> None:
         """Refresh read-only durable recovery truth for a newly owned lesson."""
