@@ -32,6 +32,7 @@ from .child_coaching_rotation import (
     RotationPhase,
     RotationPlan,
     RotationState,
+    RotationTarget,
     advance_rotation,
     bind_pair_play_batch,
     current_round,
@@ -697,6 +698,26 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("No classroom pairing batch is active")
         _lesson2, workspace = self._classroom_orchestration_authorities()
         assert_pairing_scope(batch, lesson, workspace.classroom)
+        item = current_round(plan, state)
+        batch_students = {
+            student_id
+            for pairing in batch.pairings
+            for student_id in (
+                pairing.white_student_id,
+                pairing.black_student_id,
+            )
+        }
+        batch_students.update(batch.unpaired_student_ids)
+        expected_students: set[str] | None = None
+        if item.target is RotationTarget.ALL:
+            expected_students = set(lesson.student_ids)
+        elif item.target is RotationTarget.SELECTED:
+            expected_students = set(item.target_ids)
+        # GROUP membership remains owned by the classroom/group authority.
+        if expected_students is not None and batch_students != expected_students:
+            raise RuntimeError(
+                "Pairing batch does not match current rotation target"
+            )
         next_state = bind_pair_play_batch(
             plan,
             state,

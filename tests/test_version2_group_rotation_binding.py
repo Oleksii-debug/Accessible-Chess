@@ -240,6 +240,43 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertEqual("review", snap["activity"])
         self.assertFalse(snap["pair_play_bound"])
 
+    def test_pair_round_rejects_subset_batch_for_all_students_target(self) -> None:
+        state = self._reach_pair_round()
+        before = self.store.path.read_bytes()
+        subset = self.app.plan_classroom_pairings(
+            batch_id="pair-round-subset",
+            game_session_ids=("game-1",),
+            student_ids=("student-1", "student-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        self.assertEqual(1, len(subset.pairings))
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "does not match current rotation target",
+        ):
+            self.app.bind_current_pairing_to_group_rotation(
+                expected_rotation_revision=state.revision
+            )
+
+        self.assertEqual(before, self.store.path.read_bytes())
+        self.assertEqual(state, self.app._rotation_state)
+        self.assertFalse(
+            self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
+        )
+
+        self.app.plan_classroom_pairings(
+            batch_id="pair-round-all",
+            game_session_ids=("game-1", "game-2"),
+            base_seconds=300,
+            increment_seconds=2,
+        )
+        bound = self.app.bind_current_pairing_to_group_rotation(
+            expected_rotation_revision=state.revision
+        )
+        self.assertEqual("pair-round-all", bound.pair_play_batch_ref)
+
     def test_reconnect_resumes_exact_durable_round_for_same_lesson(self) -> None:
         state = self.app.begin_or_resume_default_group_rotation("rotation-1")
         state = self.app.advance_group_rotation(
