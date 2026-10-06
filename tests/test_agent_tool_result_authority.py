@@ -93,10 +93,17 @@ class AgentToolResultAuthorityTests(unittest.TestCase):
         original["query"]["moves"].append("Nf3")
         original["query"]["label"] = "changed"
 
+        nested = call.arguments["query"]
         self.assertEqual(
-            dict(call.arguments)["query"],
-            {"moves": ["e4"], "label": "café"},
+            dict(nested),
+            {"moves": ("e4",), "label": "café"},
         )
+        self.assertEqual(tool_arguments_fingerprint(call.arguments), fingerprint)
+
+        with self.assertRaises(TypeError):
+            nested["label"] = "mutated"
+        with self.assertRaises(TypeError):
+            nested["moves"][0] = "d4"
         self.assertEqual(tool_arguments_fingerprint(call.arguments), fingerprint)
 
     def test_tool_arguments_reject_active_mapping_and_list_subclasses(self) -> None:

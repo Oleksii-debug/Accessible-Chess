@@ -38,8 +38,8 @@ jobs:
         env:
           PARENT_REF: fix/media-agent-tool-result-authority-20261005-sol56h7m3
           PARENT_SHA: 75852342ce3ec50fbc27511843f18e019aad37da
-          SOURCE_BLOB: 427f68fcd94620744ddf2aaad81334ab160dc06d
-          TEST_BLOB: c5504468f3fc5cb5632ce853db6ccce59025082e
+          SOURCE_BLOB: c67746fc1658149caf33a8193b5bebd3d5f71a71
+          TEST_BLOB: 3f3ab277c81ee6843fcc6982d9cf2a1a9f75eea1
         run: |
           set -euo pipefail
           candidate="$(git rev-parse HEAD)"

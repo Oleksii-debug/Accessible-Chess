@@ -105,7 +105,10 @@ class ToolCall:
         normalized = _normalize_json(self.arguments)
         if type(normalized) is not dict:
             raise TypeError("arguments must normalize to a built-in mapping")
-        object.__setattr__(self, "arguments", MappingProxyType(normalized))
+        frozen = _freeze_json(normalized)
+        if type(frozen) is not MappingProxyType:
+            raise TypeError("arguments must freeze to an immutable mapping")
+        object.__setattr__(self, "arguments", frozen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +210,20 @@ def _normalize_json(
         return result
 
     raise TypeError(f"{path} contains unsupported active value type")
+
+
+def _freeze_json(value: object) -> object:
+    """Recursively freeze one already-normalized JSON-like value."""
+
+    if value is None or type(value) in (bool, int, float, str):
+        return value
+    if type(value) is list:
+        return tuple(_freeze_json(item) for item in value)
+    if type(value) is dict:
+        return MappingProxyType(
+            {key: _freeze_json(item) for key, item in value.items()}
+        )
+    raise TypeError("normalized arguments contain an unsupported value type")
 
 
 def tool_arguments_fingerprint(arguments: Mapping[str, object]) -> str:
