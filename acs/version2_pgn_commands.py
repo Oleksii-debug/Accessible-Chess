@@ -356,7 +356,12 @@ class Version2PgnCommands:
         else:
             if action_id in {"pgn.nag_edit", "pgn.variation_add"}:
                 allowed.add("text")
-            if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+            if action_id in {
+                "pgn.variation_move_up",
+                "pgn.variation_move_down",
+                "pgn.variation_delete",
+                "pgn.variation_promote",
+            }:
                 allowed.update({"parent_path", "parent_move_index", "variation_index"})
             allowed_variants = [allowed]
         payload_fields = set(payload)
@@ -491,12 +496,28 @@ class Version2PgnCommands:
                 request.move_index,
             )
             return workspace.add_variation(target, variation)
-        if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+        if action_id in {
+            "pgn.variation_move_up",
+            "pgn.variation_move_down",
+            "pgn.variation_delete",
+            "pgn.variation_promote",
+        }:
             parent = tuple(VariationStep(*step) for step in payload["parent_path"])
-            target = VariationEditTarget(parent, payload["parent_move_index"], payload["variation_index"], request.expected_record_digest)
+            target = VariationEditTarget(
+                parent,
+                payload["parent_move_index"],
+                payload["variation_index"],
+                request.expected_record_digest,
+            )
             if target.child_path != cursor.line_path:
                 raise ValueError("variation selection changed")
-            return workspace.delete_variation(target) if action_id.endswith("delete") else workspace.promote_variation(target)
+            if action_id == "pgn.variation_move_up":
+                return workspace.reorder_variation(target, target.variation_index - 1)
+            if action_id == "pgn.variation_move_down":
+                return workspace.reorder_variation(target, target.variation_index + 1)
+            if action_id == "pgn.variation_delete":
+                return workspace.delete_variation(target)
+            return workspace.promote_variation(target)
         if action_id == "pgn.copy_selection":
             self._copy_text(serialize_game(self._selection_game(request, workspace)))
             return None
