@@ -28,6 +28,7 @@ def test_fen_user_actions_are_bilingual_and_remappable():
     rows = _by_id(build_web_keymap(build_full_product_action_registry()))
     expected = {
         "board.read_fen": ("Прочитати поточний FEN", "Read current FEN"),
+        "position.read_fen": ("Прочитати поточний FEN", "Read current FEN"),
         "position.copy_fen": ("Скопіювати поточний FEN", "Copy current FEN"),
         "pgn.new_from_position": (
             "Створити PGN з поточної позиції",
