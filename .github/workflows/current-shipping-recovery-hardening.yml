@@ -45,8 +45,23 @@ env:
   RELEASE_RECEIPT_BLOB: 00bb1fff72d83b7c27e2f2063a4f974a0b36ada0
   RELEASE_RECEIPT_TEST_BLOB: fdcff572870271b6c1d18cbed5a2620b9aa74226
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
-  V2_RELEASE_BOOTSTRAP_BLOB: 4c2d80826c3fea81c13befb60532bf9ef9c7853e
+  V2_RELEASE_BOOTSTRAP_BLOB: 69bfc1e92a8937fa6b8969c3a0f312e68afcb739
   V2_RELEASE_DOM_TEST_BLOB: f95d76dd1b5e8d2dd9e9aaf36d329868e6a00569
+  OWNER_GAMEPLAY_WORKFLOW_BLOB: 055f4529012c9e784b9999637179fa350d052d1e
+  LIBRARY_PROJECTION_BLOB: 099b9d5300577873fda30bedc5c1736808f7af2e
+  SETTINGS_BLOB: 81d7d7e2d05b87552aadbda476eb3618ffa4fff1
+  STAGE1_RELEASE_UI_BLOB: 7e0a402dd96b50fb3167b4ac6d5693c58a7ef107
+  V2_UPGRADE_STATUS_RELEASE_BLOB: 5382eee936c174a53b01b82f746c0e225a614faa
+  WEBAPP_BLOB: 084bf4eb68708afa68b6b7d401a6fa5dc5d63181
+  WEBAPP_KEYMAP_CORE_BLOB: 1ca46fa05c5e307a8d2060a60a7047b152dea3ce
+  OWNER_GAMEPLAY_TEST_BLOB: 7a30d9e46c5ee48a86f82294424efb3062ca6c8a
+  OWNER_GAMEPLAY_WAV_TEST_BLOB: 3ec1ab9c8c7dfc99f49158ad5a6f51b6ae5b639a
+  OWNER_GAMEPLAY_KEYBOARD_JS_BLOB: 516980a6404b0f88f2c2b9c7d9bed9043282b9c6
+  OWNER_SOUND_BRIDGE_JS_BLOB: e109441970d87aaad478695406bd5ab87dc29750
+  FULL_PRODUCT_LIBRARY_BLOB: 4f807c225036c9566b783ee5e7dc1c8e0999377b
+  WEB_INDEX_BLOB: 125338220a0d4ee0c68ab30aa65f29fd038565f6
+  STAGE1_RELEASE_BOOTSTRAP_BLOB: 902c1711499864b4fd48285f1fbd142176ad6209
+  V2_FINAL_PRODUCT_BOOTSTRAP_BLOB: 7c39227cbbfcf5a4629bf12ae5b7fa1955e0e6c6
   PHYSICAL_RECORDER_BLOB: d569f82be929b3b979ef2c4514501521052696a9
   PHYSICAL_HARDENING_TEST_BLOB: 3b20f3295b420984151bfe1048660182e5d16c23
   PGN_OPEN_WORKER_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
@@ -98,24 +113,39 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
           expected=(
             ".github/workflows/current-shipping-recovery-hardening.yml"
+            ".github/workflows/owner-gameplay-feedback.yml"
             ".github/workflows/sound-scaled-cache-integrity.yml"
             ".github/workflows/w6-v2-package-assembler.yml"
             ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
             ".github/workflows/w6-v2-release-payload-current-assembler.yml"
+            "acs/library_webview_projection.py"
+            "acs/settings.py"
+            "acs/stage1_release_ui.py"
             "acs/version2_application.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
             "acs/version2_release_app.py"
             "acs/version2_release_receipt.py"
             "acs/version2_release_ui.py"
+            "acs/version2_upgrade_status_release.py"
             "acs/version2_windows_book_open_worker.py"
             "acs/version2_windows_file_workflows.py"
             "acs/version2_windows_host_runtime.py"
             "acs/version2_windows_import_ui_pump.py"
+            "acs/webapp.py"
+            "acs/webapp_keymap_core.py"
+            "docs/changes/OWNER_GAMEPLAY_FEEDBACK_20261006.md"
             "scripts/record_owner_physical_acceptance.py"
-            "web/version2_release_bootstrap.js"
+            "tests/js/owner_gameplay_keyboard_test.js"
+            "tests/js/owner_sound_bridge_ready_test.js"
+            "tests/js/stage1_core_language_test.js"
             "tests/js/version2_release_bootstrap_dom_test.js"
+            "tests/test_accessible_webui.py"
+            "tests/test_dev1_release_ui_regressions.py"
+            "tests/test_owner_gameplay_feedback.py"
+            "tests/test_owner_gameplay_wav_delivery.py"
             "tests/test_owner_physical_acceptance_json_hardening.py"
+            "tests/test_stage1_release_composition_ui.py"
             "tests/test_v2_board_analysis_hotkey_feedback.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
@@ -123,6 +153,7 @@ jobs:
             "tests/test_v2_windows_pgn_open_worker.py"
             "tests/test_v2_windows_pgn_save_terminal_truth.py"
             "tests/test_v2_windows_pgn_save_worker.py"
+            "tests/test_v2_windows_upgrade_status_shipping.py"
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
             "tests/test_version2_package_pe_identity.py"
@@ -134,6 +165,11 @@ jobs:
             "tests/test_version2_windows_book_open_worker.py"
             "tests/test_w5_native_formclosing_dirty_pgn.py"
             "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
+            "web/full_product_library.js"
+            "web/index.html"
+            "web/stage1_release_bootstrap.js"
+            "web/version2_final_product_bootstrap.js"
+            "web/version2_release_bootstrap.js"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
@@ -172,6 +208,21 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
           test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$V2_RELEASE_BOOTSTRAP_BLOB"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/owner-gameplay-feedback.yml)" = "$OWNER_GAMEPLAY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/library_webview_projection.py)" = "$LIBRARY_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/settings.py)" = "$SETTINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = "$STAGE1_RELEASE_UI_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_upgrade_status_release.py)" = "$V2_UPGRADE_STATUS_RELEASE_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$WEBAPP_KEYMAP_CORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_gameplay_feedback.py)" = "$OWNER_GAMEPLAY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_gameplay_wav_delivery.py)" = "$OWNER_GAMEPLAY_WAV_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/owner_gameplay_keyboard_test.js)" = "$OWNER_GAMEPLAY_KEYBOARD_JS_BLOB"
+          test "$(git rev-parse HEAD:tests/js/owner_sound_bridge_ready_test.js)" = "$OWNER_SOUND_BRIDGE_JS_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_library.js)" = "$FULL_PRODUCT_LIBRARY_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+          test "$(git rev-parse HEAD:web/stage1_release_bootstrap.js)" = "$STAGE1_RELEASE_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "$V2_FINAL_PRODUCT_BOOTSTRAP_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
           test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$PHYSICAL_HARDENING_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$PGN_OPEN_WORKER_TEST_BLOB"
@@ -234,6 +285,19 @@ jobs:
           tests.test_v2_windows_file_worker_shutdown_fence
           tests.test_v2_windows_file_logging_passive
           tests.test_chessbase_library_import_report_passive
+          tests.test_owner_gameplay_feedback
+          tests.test_owner_gameplay_wav_delivery
+          tests.test_v2_windows_upgrade_status_shipping
+          tests.test_settings
+          tests.test_move_entry
+          tests.test_notation
+          tests.test_sound_runtime
+          tests.test_sound_events
+          tests.test_dev3_sound_failure_isolation
+          tests.test_dev1_release_ui_regressions
+          tests.test_dev1_library_webview_projection
+          tests.test_accessible_webui
+          tests.test_stage1_release_composition_ui
           tests.test_bookreader_revision_barriers_current
           tests.test_book_bidirectional_semantic_navigation
           tests.test_bookdocument_identity_bounds_current
@@ -252,6 +316,16 @@ jobs:
           tests.test_dev4_pgn_resource_security
           tests.test_dev4_pgn_truncation_quality
           tests.test_whole_product_user_journey
+
+      - name: Execute integrated owner gameplay DOM contracts
+        run: |
+          node tests/js/owner_gameplay_keyboard_test.js
+          node tests/js/owner_sound_bridge_ready_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/library_surface_dom_test.js
+          node tests/js/stage1_core_language_test.js
+          node tests/js/remappable_input_submit_keys_current_test.js
+          python run_accessible_chess_v2.py --diagnostic
 
       - name: Execute shipping boundary contracts
         run: >-
