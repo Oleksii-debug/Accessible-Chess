@@ -711,7 +711,8 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                     FileWorkflowEventKind.IMPORT_STARTED,
                     FileWorkflowEventKind.IMPORT_PROGRESS,
                     FileWorkflowEventKind.IMPORT_COMPLETED,
-                ],            )
+                ],
+            )
 
             while owner.posted:
                 owner.posted.pop(0)()
@@ -1410,7 +1411,8 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(
                 [event.kind for event in imported_events],
                 [FileWorkflowEventKind.PGN_OPENED],
-            )            self.assertTrue(runtime.shutdown())
+            )
+            self.assertTrue(runtime.shutdown())
 
     def test_real_pgn_save_uses_worker_and_owner_callback_through_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2007,7 +2009,8 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 with mailbox.delivery_batch() as events:
                     leased_batches.append(events)
                     if len(leased_batches) == 1:
-                        raise PresentationAbort()                    delivered.extend(events)
+                        raise PresentationAbort()
+                    delivered.extend(events)
 
             runtime = self._runtime(
                 owner,
