@@ -294,6 +294,10 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
         self.assertIsNotNone(self.app._pending_shell_publication_restore)
         self.assertEqual(self.app.snapshot()["shell_publication_token"], token)
         self.assertTrue(self.app.shell._publication_hold_active)
+        self.assertIs(self.app.session, prior_session)
+        self.assertIs(self.app.pgn, prior_pgn)
+        self.assertEqual(self.app._focus, prior_focus)
+        self.assertTrue(self.app._pgn_browser_lease_required)
 
         recovered = self.app.browser_command(
             "shell",

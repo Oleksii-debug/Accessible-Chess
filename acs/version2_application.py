@@ -316,9 +316,11 @@ class Version2Application:
             prior_training_workspace,
             prior_training,
         ) = pending
-        # Rollback is a transaction too. Keep pending + domain restore authority
-        # live until shell, application owners and publication hold are restored.
-        self.shell._restore_presentation_state(shell_state)
+        # Rollback is a transaction too. Restore independent application/domain
+        # owners before the fallible shell restore seam. If shell restoration
+        # transiently fails, the old Library DOM stays fenced by the publication
+        # hold and cannot sit over a newly published PGN owner while the exact
+        # acknowledgement remains retryable.
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
@@ -333,6 +335,7 @@ class Version2Application:
             self.pgn = prior_pgn
             self.pgn_board_active = prior_pgn_board_active
             self._pgn_browser_lease_required = prior_pgn_browser_lease_required
+        self.shell._restore_presentation_state(shell_state)
         self.shell._end_publication_hold()
         self._pending_shell_publication = None
         self._pending_shell_publication_restore = None
