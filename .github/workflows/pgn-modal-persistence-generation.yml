@@ -1,23 +1,23 @@
-name: Books Return Invalidation Atomicity
+name: Windows PGN Modal Persistence Generation
 
 on:
   push:
     branches:
-      - fix/books-return-reader-rollback-20261006-ooxple7
+      - fix/windows-pgn-modal-generation-current-20261006-ooxple7
   pull_request:
     branches:
-      - converge/current-books-persistence-apex-20261006-zftrkmo
+      - converge/current-windows-pgn-generation-import-apex-20261006-zftrkmo
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: books-return-invalidation-atomicity-${{ github.head_ref || github.ref_name }}
+  group: windows-pgn-modal-persistence-generation-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  return-invalidation-atomicity:
+  modal-persistence-generation:
     strategy:
       fail-fast: false
       matrix:
@@ -25,8 +25,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      BASE_BRANCH: converge/current-books-persistence-apex-20261006-zftrkmo
-      BASE_SHA: b0cb38cad9630cc92dcb848e6bcaf2abfd2ba474
+      BASE_BRANCH: converge/current-windows-pgn-generation-import-apex-20261006-zftrkmo
+      BASE_SHA: 7acff17b56d1beaf0f0924fa06ab9d00214b4cbe
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -46,10 +46,7 @@ jobs:
         with:
           python-version: "3.12.10"
 
-      - name: Install pinned test runner
-        run: python -m pip install -q pytest==8.4.2
-
-      - name: Prove exact Books apex and bounded delta
+      - name: Prove exact current PGN apex and bounded delta
         shell: bash
         run: |
           set -euo pipefail
@@ -59,8 +56,8 @@ jobs:
           else
             test "$head_sha" = "${{ github.sha }}"
           fi
-          git fetch --no-tags origin             "+refs/heads/$BASE_BRANCH:refs/remotes/origin/books-apex-parent"
-          live_base="$(git rev-parse refs/remotes/origin/books-apex-parent)"
+          git fetch --no-tags origin             "+refs/heads/$BASE_BRANCH:refs/remotes/origin/current-pgn-apex"
+          live_base="$(git rev-parse refs/remotes/origin/current-pgn-apex)"
           test "$live_base" = "$BASE_SHA"
           test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
           git diff --check "$BASE_SHA"...HEAD
@@ -68,35 +65,41 @@ jobs:
           mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
           printf '%s\n' "${paths[@]}"
           expected=(
-            ".github/workflows/books-navigation-abort-rollback.yml"
-            "acs/book_board_workflow.py"
-            "tests/test_v2_book_board_workflow.py"
+            ".github/workflows/pgn-modal-persistence-generation.yml"
+            "acs/version2_windows_file_workflows.py"
+            "tests/test_v2_windows_pgn_open_worker.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
           )
           test "${#paths[@]}" -eq "${#expected[@]}"
           for i in "${!expected[@]}"; do
             test "${paths[$i]}" = "${expected[$i]}"
           done
 
-      - name: Compile Books return boundary
+      - name: Compile modal generation boundary
         run: >-
           python -m py_compile
-          acs/book_board_workflow.py
-          tests/test_v2_book_board_workflow.py
+          acs/version2_windows_file_workflows.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_save_worker.py
 
-      - name: Execute Book Board and route regressions
+      - name: Execute PGN modal and save authority regressions
         run: >-
           python -m unittest -v
-          tests.test_v2_book_board_workflow
-          tests.test_book_board_route_ownership
-          tests.test_version2_application
-          tests.test_dev1_books_training_webview_bridge
-          tests.test_book_engine_authority_passive_ingress
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_document_passive_ingress
+          tests.test_v2_windows_file_worker_preflight
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_pgn_open_invalid_session
+          tests.test_v2_windows_nvda_file_workflows
 
-      - name: Pytest focused Return rollback
+      - name: Pytest focused modal generation
         run: >-
           pytest -q
-          tests/test_v2_book_board_workflow.py
-          tests/test_book_board_route_ownership.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_save_worker.py
 
       - name: Core selftest
         run: python -m acs.selftest
