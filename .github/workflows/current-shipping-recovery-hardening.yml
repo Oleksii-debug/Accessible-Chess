@@ -231,7 +231,7 @@ jobs:
         with:
           python-version: "3.12.10"
       - name: Execute semantic document-copy oracle
-        run: >-
+        run: |
           node --check tests/p0_semantic_document_copy_executable.js
           node tests/p0_semantic_document_copy_executable.js
           node tests/js/version2_release_bootstrap_dom_test.js
