@@ -24,6 +24,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CURRENT_PRODUCT_PARENT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
+  CURRENT_PRODUCT_PARENT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
   LEGACY_RUNTIME_BASE: 8610b3a79c1631a9619427a58ae1617cb1576210
   LEGACY_OWNER_511_HEAD: 58be5a7e577714f221be6653655f4bc1d6bb1acd
   LEGACY_OWNER_565_PARENT_HEAD: f9f9ba6915ce88674214365a6260c92c091ebc1b
@@ -65,6 +67,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_PARENT_BRANCH:refs/remotes/origin/current-product-parent"
+          live_product_parent="$(git rev-parse refs/remotes/origin/current-product-parent)"
+          test "$live_product_parent" = "$CURRENT_PRODUCT_PARENT_SHA"
           git merge-base --is-ancestor "$LEGACY_RUNTIME_BASE" HEAD
           git diff --check "$LEGACY_RUNTIME_BASE" HEAD
           changed="$(git diff --name-only "$LEGACY_RUNTIME_BASE" HEAD | sort)"
