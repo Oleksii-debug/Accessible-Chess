@@ -338,6 +338,21 @@ class Version2WindowsFileWorkflowRuntime:
         # A close attempt can retire the pump after the worker stored such an
         # event. Re-deliver it only after both runtime halves are live again.
         self._pump.request_pending_wakeup()
+        # A UI/NVDA observer failure retains the exact canonical mailbox batch.
+        # Liveness alone is not successful recovery: keep file actions fenced
+        # until the retained terminal can actually cross the presentation
+        # boundary, otherwise a visible product could resume with stale
+        # accessible state. The outer runtime stays retryable and the mailbox
+        # remains intact for the next refused-close recovery attempt.
+        if self._mailbox.pending_count:
+            try:
+                self._file_delegate.shutdown(timeout=0.0)
+            except BaseException:
+                # Fencing is best-effort here; the authoritative result is that
+                # recovery did not complete. The application recovery coordinator
+                # will re-retire attempted owners as one transaction.
+                pass
+            return False
         # UI-ready delivery is synchronous on the owner thread. A retained
         # terminal can therefore re-enter native shutdown before this recovery
         # boundary returns. Never report the runtime as recovered after that
