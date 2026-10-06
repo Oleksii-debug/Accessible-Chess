@@ -327,7 +327,13 @@ def _require_confidence(value: object) -> float:
             "confidence must be a finite number in the range 0..1",
             code=MediaErrorCode.INVALID_CONFIDENCE,
         )
-    number = float(value)
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise MediaContractError(
+            "confidence must be a finite number in the range 0..1",
+            code=MediaErrorCode.INVALID_CONFIDENCE,
+        ) from exc
     if not math.isfinite(number) or number < 0.0 or number > 1.0:
         raise MediaContractError(
             "confidence must be a finite number in the range 0..1",
