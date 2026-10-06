@@ -85,9 +85,77 @@ class AccessibleWebUiTests(unittest.TestCase):
             fragment = self.html[self.html.index(f'id="{control}"'):self.html.index(f'id="{control}"') + 250]
             self.assertNotIn("aria-describedby", fragment)
 
+    def test_help_dialog_focus_target_is_programmatically_focusable(self):
+        self.assertIn(
+            '<h2 id="help-title" tabindex="-1">Довідка</h2>',
+            self.html,
+        )
+        self.assertIn(
+            '<div id="help" class="block" aria-live="off"></div>',
+            self.html,
+        )
+        self.assertIn(
+            "el('open-help').addEventListener('click',()=>{el('help-dialog').showModal();el('help-title').focus()})",
+            self.html,
+        )
+        self.assertIn(
+            "el('help-dialog').addEventListener('close',()=>el('open-help').focus())",
+            self.html,
+        )
+
+    def test_keymap_dialog_restores_opener_focus_after_close(self):
+        self.assertIn(
+            "el('open-keymap').addEventListener('click',()=>{el('keymap-dialog').showModal();el('key-search').focus()})",
+            self.html,
+        )
+        self.assertIn(
+            "el('keymap-dialog').addEventListener('close',()=>{stopCapture(false);el('open-keymap').focus()})",
+            self.html,
+        )
+
+    def test_engine_game_dialog_start_and_cancel_focus_are_atomic(self):
+        self.assertIn(
+            "let engineGameStartInFlight=false,engineGameReturnFocusOnClose=false;",
+            self.html,
+        )
+        self.assertIn(
+            "if(engineGameStartInFlight)return;const button=el('engine-game-start'),cancel=el('engine-game-cancel')",
+            self.html,
+        )
+        self.assertIn(
+            "engineGameStartInFlight=true;button.disabled=true;if(cancel)cancel.disabled=true",
+            self.html,
+        )
+        self.assertIn(
+            "setText('engine-game-dialog-status',starting);announceUserAction(starting)",
+            self.html,
+        )
+        self.assertIn(
+            "engineGameReturnFocusOnClose=false;el('engine-game-dialog').close();el('move-input').focus()",
+            self.html,
+        )
+        self.assertIn(
+            "finally{engineGameStartInFlight=false;button.disabled=false;if(cancel)cancel.disabled=false}",
+            self.html,
+        )
+        self.assertIn(
+            "el('engine-game-dialog').addEventListener('cancel',e=>{if(engineGameStartInFlight)e.preventDefault()})",
+            self.html,
+        )
+        self.assertIn(
+            "el('engine-game-dialog').addEventListener('close',()=>{const restore=engineGameReturnFocusOnClose;engineGameReturnFocusOnClose=false;if(restore)el('engine-play-open').focus()})",
+            self.html,
+        )
+
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', self.html)
+        self.assertIn(
+            '<dialog id="keymap-dialog" aria-labelledby="h-keyboard" aria-describedby="key-recovery-status">',
+            self.html,
+        )
+        self.assertIn('<div id="key-recovery-status" class="block" hidden></div>', self.html)
+        self.assertNotIn('id="key-recovery-status" class="block" role="status"', self.html)
         self.assertNotIn('status.setAttribute(\'role\',\'status\')', self.html)
         self.assertNotIn("Конфліктів немає", self.html)
         self.assertNotIn("No conflicts.", self.html)
