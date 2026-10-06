@@ -295,6 +295,32 @@ class PortableTreeTests(unittest.TestCase):
         incomplete = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=None)
         self.assertIsNone(portable_module._stable_change_metadata(incomplete))
 
+    def test_windows_snapshot_ignores_creation_time_when_mtime_is_stable(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        second = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            with mock.patch.object(
+                portable_module,
+                "_complete_file_identity",
+                return_value=True,
+            ):
+                self.assertTrue(
+                    portable_module._same_file_snapshot(first, second),
+                )
+
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(
             lambda path: portable_module._stable_bytes(
