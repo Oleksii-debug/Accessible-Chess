@@ -31,6 +31,11 @@ class ChessAgentToolsError(ValueError):
 
 
 OwnerThreadCall = Callable[[Callable[[], object]], Awaitable[object]]
+# Trusted host seam. A bound application callback must reject without changing
+# board_provider state, or commit exactly one already-validated move and leave
+# board_provider at that resulting FEN. The Agent adapter deliberately does not
+# attempt a blind Board-only rollback of application-owned history or clocks.
+BoardMovePort = Callable[[str], object]
 
 
 def _exact_int(value: object, *, name: str, minimum: int, maximum: int) -> int:
@@ -51,6 +56,25 @@ def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
         raise ChessAgentToolsError(f"{name} must be text")
     value = value.strip()
     return value or None
+
+
+def _required_move_text(arguments: Mapping[str, object]) -> str:
+    if set(arguments) != {"move"}:
+        raise ChessAgentToolsError("move tool accepts exactly one move field")
+    value = arguments.get("move")
+    if type(value) is not str:
+        raise ChessAgentToolsError("move must be text")
+    if (
+        len(value) > 32
+        or "\n" in value
+        or "\r" in value
+        or "\x00" in value
+    ):
+        raise ChessAgentToolsError("move text is outside supported bounds")
+    normalized = value.strip()
+    if not normalized:
+        raise ChessAgentToolsError("move text is outside supported bounds")
+    return normalized
 
 
 class MediaAgentBridge:
@@ -140,6 +164,7 @@ class ChessAgentToolRegistry:
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
+        board_move: BoardMovePort | None = None,
         owner_call: OwnerThreadCall | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
@@ -148,6 +173,8 @@ class ChessAgentToolRegistry:
             raise TypeError("board_provider must be callable")
         if not callable(board_commands_provider):
             raise TypeError("board_commands_provider must be callable")
+        if board_move is not None and not callable(board_move):
+            raise TypeError("board_move must be callable or None")
         if owner_call is not None and not callable(owner_call):
             raise TypeError("owner_call must be callable or None")
         self.executor = executor
@@ -156,6 +183,7 @@ class ChessAgentToolRegistry:
         self.analysis_service = analysis_service
         self.search_service = search_service
         self.media = media
+        self.board_move = board_move
         self.owner_call = owner_call
 
     async def _on_owner(self, callback: Callable[[], object]) -> object:
@@ -276,6 +304,65 @@ class ChessAgentToolRegistry:
 
             return await self._on_owner(read)
 
+
+        async def preview_move(arguments: Mapping[str, object]) -> object:
+            move_text = _required_move_text(arguments)
+
+            def preview() -> object:
+                candidate = self._board().clone()
+                san = candidate.push_text(move_text)
+                return {
+                    "applied": False,
+                    "san": san,
+                    "fen": candidate.fen(),
+                    "turn": candidate.turn,
+                    "inCheck": candidate.in_check(),
+                    "legalMoveCount": len(candidate.legal_moves()),
+                }
+
+            return await self._on_owner(preview)
+
+        async def play_move(arguments: Mapping[str, object]) -> object:
+            move_text = _required_move_text(arguments)
+            mutation = self.board_move
+            if mutation is None:
+                raise ChessAgentToolsError(
+                    "canonical board mutation port is unavailable"
+                )
+
+            def apply() -> object:
+                board = self._board()
+                before_fen = board.fen()
+                candidate = board.clone()
+                san = candidate.push_text(move_text)
+                expected_fen = candidate.fen()
+
+                result = mutation(move_text)
+                if type(result) is not dict or result.get("ok") is not True:
+                    if self._board().fen() != before_fen:
+                        raise RuntimeError(
+                            "rejected board mutation changed canonical state"
+                        )
+                    raise ChessAgentToolsError(
+                        "canonical application rejected move"
+                    )
+
+                current = self._board()
+                if current.fen() != expected_fen:
+                    raise RuntimeError(
+                        "canonical application move diverged from validated move"
+                    )
+                return {
+                    "applied": True,
+                    "san": san,
+                    "fen": current.fen(),
+                    "turn": current.turn,
+                    "inCheck": current.in_check(),
+                    "legalMoveCount": len(current.legal_moves()),
+                }
+
+            return await self._on_owner(apply)
+
         self.executor.register(
             ToolSpec(
                 "board.current",
@@ -305,6 +392,25 @@ class ChessAgentToolRegistry:
             ),
             material,
         )
+
+        self.executor.register(
+            ToolSpec(
+                "board.preview_move",
+                "Validate one SAN/coordinate move on a canonical Board clone without changing product state.",
+                input_schema={"move": "legal SAN or coordinate move"},
+            ),
+            preview_move,
+        )
+        if self.board_move is not None:
+            self.executor.register(
+                ToolSpec(
+                    "board.play_move",
+                    "Apply exactly one validated move through a host-provided atomic canonical application mutation port.",
+                    risk=ToolRisk.LOCAL_WRITE,
+                    input_schema={"move": "legal SAN or coordinate move"},
+                ),
+                play_move,
+            )
 
     def _register_engine(self) -> None:
         service = self.analysis_service
