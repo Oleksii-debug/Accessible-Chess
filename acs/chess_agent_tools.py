@@ -15,6 +15,7 @@ from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
+from .continuous_analysis import ContinuousAnalysisService
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
@@ -135,6 +136,7 @@ class ChessAgentToolRegistry:
         board_provider: Callable[[], Board],
         board_commands_provider: Callable[[], BoardCommandService],
         analysis_service: AnalysisService | None = None,
+        continuous_analysis: ContinuousAnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
     ) -> None:
@@ -147,7 +149,14 @@ class ChessAgentToolRegistry:
         self.executor = executor
         self.board_provider = board_provider
         self.board_commands_provider = board_commands_provider
+        if continuous_analysis is not None and not isinstance(
+            continuous_analysis, ContinuousAnalysisService
+        ):
+            raise TypeError(
+                "continuous_analysis must be ContinuousAnalysisService or None"
+            )
         self.analysis_service = analysis_service
+        self.continuous_analysis = continuous_analysis
         self.search_service = search_service
         self.media = media
 
@@ -155,6 +164,8 @@ class ChessAgentToolRegistry:
         self._register_board()
         if self.analysis_service is not None:
             self._register_engine()
+        if self.continuous_analysis is not None:
+            self._register_continuous_analysis()
         if self.search_service is not None:
             self._register_library()
         if self.media is not None:
@@ -311,6 +322,106 @@ class ChessAgentToolRegistry:
                 input_schema={"multipv": "1-10", "depth": "1-40"},
             ),
             analyze,
+        )
+
+    def _register_continuous_analysis(self) -> None:
+        service = self.continuous_analysis
+        assert service is not None
+
+        def snapshot() -> dict[str, object]:
+            state = service.state()
+            current_fen = self._board().fen()
+            position_current = state.fen == current_fen
+            result = state.last_result
+            if (
+                result is None
+                or not position_current
+                or result.fen != current_fen
+                or result.stale
+            ):
+                result_payload = None
+            else:
+                result_payload = result.as_dict()
+            return {
+                "running": state.running,
+                "revision": state.revision,
+                "requestedFen": state.fen,
+                "currentFen": current_fen,
+                "positionCurrent": position_current,
+                "multipv": state.multipv,
+                "depth": state.depth,
+                "result": result_payload,
+            }
+
+        async def request_analysis(
+            arguments: Mapping[str, object],
+        ) -> object:
+            allowed = frozenset({"multipv", "depth"})
+            if not frozenset(arguments).issubset(allowed):
+                raise ChessAgentToolsError(
+                    "engine.request_analysis received an unsupported argument"
+                )
+            multipv = _exact_int(
+                arguments.get("multipv", 5),
+                name="multipv",
+                minimum=1,
+                maximum=10,
+            )
+            depth = _exact_int(
+                arguments.get("depth", 16),
+                name="depth",
+                minimum=1,
+                maximum=40,
+            )
+            board = self._board()
+            service.start(board.fen(), multipv=multipv, depth=depth)
+            return snapshot()
+
+        async def analysis_status(
+            arguments: Mapping[str, object],
+        ) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "engine.analysis_status accepts no arguments"
+                )
+            return snapshot()
+
+        async def cancel_analysis(
+            arguments: Mapping[str, object],
+        ) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "engine.cancel_analysis accepts no arguments"
+                )
+            service.stop()
+            return snapshot()
+
+        self.executor.register(
+            ToolSpec(
+                "engine.request_analysis",
+                "Request coalescing analysis for the current canonical board position.",
+                risk=ToolRisk.LOCAL_WRITE,
+                input_schema={
+                    "multipv": "optional 1-10",
+                    "depth": "optional 1-40",
+                },
+            ),
+            request_analysis,
+        )
+        self.executor.register(
+            ToolSpec(
+                "engine.analysis_status",
+                "Read continuous-analysis state and only current-position results.",
+            ),
+            analysis_status,
+        )
+        self.executor.register(
+            ToolSpec(
+                "engine.cancel_analysis",
+                "Cancel the current continuous-analysis request.",
+                risk=ToolRisk.LOCAL_WRITE,
+            ),
+            cancel_analysis,
         )
 
     def _register_library(self) -> None:
