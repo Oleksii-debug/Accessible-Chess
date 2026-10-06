@@ -247,20 +247,28 @@ class Version2WindowsFileWorkflowRuntime:
             pump_restored = self._pump.resume_after_refused_shutdown()
             if pump_restored is not True:
                 return False
+            # The delegate may synchronously publish an owner-async recovery
+            # terminal (for example PGN Open cancellation). Make the outer
+            # runtime live before that callback can run so presentation/focus
+            # recovery never observes a mixed "pump open, runtime closed" state.
+            # A failed delegate recovery rolls this boundary back below.
+            with self._lock:
+                self._closed = False
 
         try:
             delegate_restored = self._file_delegate.resume_after_refused_shutdown()
         except BaseException:
             if runtime_was_closed:
+                with self._lock:
+                    self._closed = True
                 self._pump.close()
             raise
         if delegate_restored is not True:
             if runtime_was_closed:
+                with self._lock:
+                    self._closed = True
                 self._pump.close()
             return False
-
-        with self._lock:
-            self._closed = False
 
         # Import terminals are canonical mailbox state, not disposable UI work.
         # A close attempt can retire the pump after the worker stored such an
