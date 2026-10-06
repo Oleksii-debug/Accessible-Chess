@@ -4,10 +4,19 @@ import asyncio
 import unittest
 
 from acs.agent_classroom_tools import AgentClassroomTools
+from acs.agent_model_contracts import (
+    ModelRequest,
+    ModelResponse,
+    ModelUsage,
+    ProviderCapabilities,
+    ProviderKind,
+)
+from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolCall, ToolExecutor
 from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
+from acs.universal_chess_agent import UniversalChessAgentRuntime
 
 
 def _board_commands(board: Board) -> BoardCommandService:
@@ -40,6 +49,33 @@ def _execute(executor: ToolExecutor, arguments=None):
             )
         )
     )
+
+
+class _ScriptedProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            provider_id="fixture",
+            kind=ProviderKind.LOCAL,
+            supports_private_data=True,
+        )
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("unexpected model call")
+        return ModelResponse(
+            request_id=request.request_id,
+            text=self.responses.pop(0),
+            provider_id="fixture",
+            provider_kind=ProviderKind.LOCAL,
+            model=request.model or "fixture-model",
+            usage=ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+        )
 
 
 class AgentClassroomToolsTests(unittest.TestCase):
@@ -223,6 +259,50 @@ class AgentClassroomToolsTests(unittest.TestCase):
         classroom = _execute(executor)
         self.assertTrue(classroom.ok, classroom.error)
         self.assertNotIn("private-student", repr(classroom.output))
+
+    def test_universal_agent_round_trips_only_sanitized_classroom_status(self):
+        board = Board()
+        executor = ToolExecutor()
+        ChessAgentToolRegistry(
+            executor=executor,
+            board_provider=lambda: board,
+            board_commands_provider=lambda: _board_commands(board),
+            application_snapshot_provider=lambda: self.snapshot,
+        ).register_all()
+
+        provider = _ScriptedProvider(
+            [
+                '{"type":"tool","tool_id":"classroom.status","arguments":{}}',
+                '{"type":"final","text":"Teaching session context read."}',
+            ]
+        )
+        gateway = ModelGateway()
+        gateway.register(provider)
+        runtime = UniversalChessAgentRuntime(
+            gateway=gateway,
+            tools=executor,
+            provider_id="fixture",
+            model="fixture-model",
+            product_instruction="Use Accessible Chess application tools only.",
+        )
+
+        result = asyncio.run(
+            runtime.run(
+                run_id="classroom-status-e2e",
+                user_text="Read the permitted classroom context.",
+            )
+        )
+
+        self.assertEqual(result.text, "Teaching session context read.")
+        self.assertEqual(result.tool_calls, 1)
+        self.assertEqual(len(provider.requests), 2)
+        tool_message = provider.requests[1].messages[-1].content
+        self.assertIn('"tool_id":"classroom.status"', tool_message)
+        self.assertIn("teacher_explains", tool_message)
+        self.assertIn("select_only", tool_message)
+        self.assertNotIn("private-student", tool_message)
+        self.assertNotIn("private note", tool_message)
+        self.assertNotIn('"pieces"', tool_message)
 
     def test_output_is_detached_from_later_snapshot_mutation(self):
         executor = ToolExecutor()

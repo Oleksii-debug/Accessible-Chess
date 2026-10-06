@@ -61,7 +61,7 @@ jobs:
           }
           test "$(git rev-parse HEAD:acs/agent_classroom_tools.py)" = '0dbc5613c13dfb1e8e9e6336fbc950cee8742e9f'
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = '110dc20a09973b8e62aeec4c916c7f43793a5b25'
-          test "$(git rev-parse HEAD:tests/test_agent_classroom_tools.py)" = '86a6965650037dcadc8bf46b177f621281b9a23b'
+          test "$(git rev-parse HEAD:tests/test_agent_classroom_tools.py)" = '53b1d91d33f0ee15b54e8341484b2173f3705061'
           test "$(git rev-parse HEAD:acs/version2_final_product_application.py)" = 'b90927d8e026a9debfca5cd7d7d095bb1f40413d'
           test "$(git rev-parse HEAD:acs/teacher_webview_projection.py)" = '135546114d1ae3b1fe925b44525a0a40af60be00'
           test "$(git rev-parse HEAD:acs/agent_tools.py)" = 'e432f97740922b7f64d5307c2ee7ae2eb4fd2c73'
