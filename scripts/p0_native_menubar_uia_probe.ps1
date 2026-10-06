@@ -94,7 +94,7 @@ function Test-CanonicalMenuBinding(
 ) {
     if($null -eq $FromHandle -or $ExpectedMenuHandle -eq 0){ return $false }
     if($AllMenuRows.Count -ne 1 -or $ExactRows.Count -ne 1 -or $AnyIdRows.Count -ne 1){ return $false }
-    foreach($row in @($FromHandle, $ExactRows[0], $AnyIdRows[0])) {
+    foreach($row in @($FromHandle, $AllMenuRows[0], $ExactRows[0], $AnyIdRows[0])) {
         if($null -eq $row){ return $false }
         if([string]$row['automation_id'] -ne 'AccessibleChessFullProductMenu'){ return $false }
         if([string]$row['control_type'] -ne 'ControlType.MenuBar'){ return $false }
