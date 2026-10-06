@@ -1767,7 +1767,7 @@ def _manifest(root: Path) -> tuple[str, dict[str, object]]:
         or not _SHA40_RE.fullmatch(integration_sha.casefold())
     ):
         _fail("release manifest integration_sha must be a 40-hex commit")
-    return integration_sha.casefold(), data
+    return integration_sha.casefold(), data, hashlib.sha256(payload).hexdigest()
 
 
 def _checksums(
@@ -1912,10 +1912,12 @@ def validate_version2_package_tree(
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
     _validate_required_runtime_resources(root, inventory, limits)
-    integration_sha, _ = _manifest(root)
+    integration_sha, _, manifest_sha256 = _manifest(root)
     if integration_sha != expected_sha:
         _fail("release manifest integration_sha does not match expected integration authority")
     checksums, checksum_authority_sha256 = _checksums(root, inventory, limits)
+    if _sha256(root / MANIFEST_NAME) != manifest_sha256:
+        _fail("release manifest changed during validation")
     _scan_text_hygiene(root, inventory, limits)
     _revalidate_checksums(root, checksums, checksum_authority_sha256)
     return Version2PackagePreflightReport(
