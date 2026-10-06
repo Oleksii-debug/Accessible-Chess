@@ -181,11 +181,12 @@ def test_verified_compressed_payload_uses_nonblocking_binary_open_when_available
         assert lawful_bundle._read_verified_compressed_payload(source) == payload
 
     assert observed["path"] == source
-    assert observed["flags"] & lawful_bundle.os.O_RDONLY == lawful_bundle.os.O_RDONLY
-    if getattr(lawful_bundle.os, "O_BINARY", 0):
-        assert observed["flags"] & lawful_bundle.os.O_BINARY
-    if getattr(lawful_bundle.os, "O_NONBLOCK", 0):
-        assert observed["flags"] & lawful_bundle.os.O_NONBLOCK
+    expected_flags = (
+        lawful_bundle.os.O_RDONLY
+        | getattr(lawful_bundle.os, "O_BINARY", 0)
+        | getattr(lawful_bundle.os, "O_NONBLOCK", 0)
+    )
+    assert observed["flags"] == expected_flags
 
 
 def test_local_build_materializes_only_verified_bounded_snapshot(tmp_path):
