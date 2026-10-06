@@ -354,6 +354,11 @@ class Version2FinalProductApplication(Version2Application):
     def snapshot(self) -> dict[str, object]:
         self._assert_thread()
         result = super().snapshot()
+        agent_snapshot = (
+            self.agent.projection.snapshot()
+            if self.shell.current_route.route_id == "agent"
+            else self.agent.projection.status_snapshot()
+        )
         result.update(
             {
                 "teacher": (
@@ -368,7 +373,7 @@ class Version2FinalProductApplication(Version2Application):
                     if self.education is None
                     else self.education.projection.snapshot()
                 ),
-                "agent": self.agent.projection.snapshot(),
+                "agent": agent_snapshot,
                 "product_status": {
                     "teacher_session_active": self.teacher is not None,
                     "education_available": self.education is not None,
