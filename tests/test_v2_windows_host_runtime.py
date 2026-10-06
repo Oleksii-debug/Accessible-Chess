@@ -827,6 +827,73 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_refused_close_resume_delivers_completed_library_export_terminal_once(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "library-export-recovery.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                database.import_pgn_text(_PGN, source_name="library-export-recovery.pgn")
+                row = database.conn.execute(
+                    "SELECT id FROM games ORDER BY id LIMIT 1"
+                ).fetchone()
+                assert row is not None
+                game_id = int(row["id"])
+            finally:
+                database.close()
+
+            def worker_factory() -> LibraryExportWorkerServices:
+                worker_db = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    LibraryExportService(worker_db),
+                    worker_db.close,
+                )
+
+            destination = Path(directory) / "recovered-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                export_events=export_events,
+                library_export_worker_services_factory=worker_factory,
+            )
+
+            started = runtime(
+                "library.export",
+                LibraryExportRequest.selected([game_id]).browser_payload(),
+            )
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            self.assertTrue(runtime.export_running)
+            self.assertTrue(owner.posted)
+            self.assertTrue(destination.exists())
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertEqual(
+                [event.kind for event in export_events],
+                [LibraryExportHostEventKind.STARTED],
+            )
+
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+            self.assertEqual(
+                [event.kind for event in export_events],
+                [
+                    LibraryExportHostEventKind.STARTED,
+                    LibraryExportHostEventKind.EXPORTED,
+                ],
+            )
+            self.assertEqual(export_events[-1].game_count, 1)
+
+            delivered = len(export_events)
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(len(export_events), delivered)
+            self.assertFalse(runtime.export_running)
+            self.assertEqual(len(open_pgn(destination)), 1)
+            self.assertTrue(runtime.shutdown())
+
     def test_refused_close_resume_restores_real_import_and_ui_delivery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "resume-after-refused-close.pgn"
