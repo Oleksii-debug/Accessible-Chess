@@ -518,6 +518,8 @@ class AccessibleChessAPI:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
         try:
+            if len(state.to_fen()) > MAX_FEN_CHARS:
+                return self._error(self._t("fen_text_too_long"))
             candidate_board = copy.deepcopy(self.board)
             candidate_board.board = list(state.pieces)
             candidate_board.turn = state.turn
