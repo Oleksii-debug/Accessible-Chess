@@ -200,13 +200,14 @@ class PositionState:
         # not: canonical Board.set_fen already requires unsigned ASCII decimal
         # counters. Enforce the same lexical contract here while leaving chess
         # legality (kings, checks, move provenance) outside the editor parser.
-        if any(
-            not counter.isascii() or not counter.isdecimal()
-            for counter in (halfmove_text, fullmove_text)
+        for counter, label in (
+            (halfmove_text, "halfmove"),
+            (fullmove_text, "fullmove"),
         ):
-            raise PositionValidationError(
-                "FEN move counters must be unsigned ASCII decimal integers"
-            )
+            if not counter.isascii() or not counter.isdecimal():
+                raise PositionValidationError(
+                    f"FEN {label} counter must be an unsigned ASCII decimal integer"
+                )
         halfmove = int(halfmove_text)
         fullmove = int(fullmove_text)
 
