@@ -7,6 +7,7 @@ on:
     paths:
       - 'acs/full_product_presenters.py'
       - 'acs/book_webview_projection.py'
+      - 'acs/book_webview_bridge.py'
       - 'tests/test_book_presenter_passive_ingress.py'
       - '.github/workflows/current-book-presenter-passive-ingress.yml'
   workflow_dispatch:
@@ -58,6 +59,7 @@ jobs:
           changed="$(git diff --name-only "$live_base"...HEAD | sort)"
           expected_paths="$(printf '%s\n' \
             '.github/workflows/current-book-presenter-passive-ingress.yml' \
+            'acs/book_webview_bridge.py' \
             'acs/book_webview_projection.py' \
             'acs/full_product_presenters.py' \
             'tests/test_book_presenter_passive_ingress.py' | sort)"
@@ -68,7 +70,8 @@ jobs:
 
           test "$(git hash-object acs/full_product_presenters.py)" = "846ff4ce87953c65d21c2471eeefc580c25ea32b"
           test "$(git hash-object acs/book_webview_projection.py)" = "136d99bd42839ecc3b781016c48f92f9e49293bd"
-          test "$(git hash-object tests/test_book_presenter_passive_ingress.py)" = "90c57e20583d6957c9f878f9c5e47a198ff12344"
+          test "$(git hash-object acs/book_webview_bridge.py)" = "6b2c17bbc898b014080b5ae32028e8ca99ed1de1"
+          test "$(git hash-object tests/test_book_presenter_passive_ingress.py)" = "14cec9991a6cc99b0b327f28350fe2d39340e9af"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -79,6 +82,7 @@ jobs:
           python -m compileall -q
           acs/full_product_presenters.py
           acs/book_webview_projection.py
+          acs/book_webview_bridge.py
           tests/test_book_presenter_passive_ingress.py
 
       - name: Execute Books presentation and workflow regressions
