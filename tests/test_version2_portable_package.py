@@ -1017,6 +1017,34 @@ class PortableTreeTests(unittest.TestCase):
                 with self.assertRaises(Version2PortablePackageError):
                     validate_portable_oneclick_tree(root, expected_integration_sha=_SHA)
 
+    def test_root_docx_discovery_never_uses_following_is_file_probe(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "portable"
+            root.mkdir()
+            _portable_fixture(root)
+            unexpected = root / "unexpected.docx"
+            unexpected.write_bytes(b"unexpected-document")
+            _write_checksums(root)
+
+            real_is_file = Path.is_file
+
+            def reject_follow_probe(path):
+                if path == unexpected:
+                    raise AssertionError(
+                        "portable DOCX discovery followed an unexpected path entry"
+                    )
+                return real_is_file(path)
+
+            with mock.patch.object(Path, "is_file", new=reject_follow_probe):
+                with self.assertRaisesRegex(
+                    Version2PortablePackageError,
+                    "exactly the declared two Word documents",
+                ):
+                    validate_portable_oneclick_tree(
+                        root,
+                        expected_integration_sha=_SHA,
+                    )
+
     def test_requires_exact_declared_two_root_docx_files(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw) / "portable"
