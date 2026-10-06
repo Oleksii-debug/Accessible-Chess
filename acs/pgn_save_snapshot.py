@@ -30,6 +30,7 @@ from .pgn_document import (
     PgnDocumentErrorCode,
     PgnDocumentSession,
     PgnDocumentView,
+    _passive_context_cursor,
 )
 from .pgn_service import (
     PgnPublicationUnverifiedError,
@@ -308,6 +309,25 @@ def _require_session(session: object) -> PgnDocumentSession:
     if type(session.workspace) is not PgnWorkspace:
         raise TypeError("PGN save snapshot requires an exact PgnWorkspace")
     return session
+
+
+def _passive_workspace_presentation(workspace: object):
+    """Read only bounded owner-thread presentation state for save finalization."""
+
+    if type(workspace) is not PgnWorkspace:
+        raise TypeError("PGN save presentation requires an exact PgnWorkspace")
+    game_count = workspace.game_count
+    selected_game_index = workspace.selected_game_index
+    cursor = _passive_context_cursor(workspace.cursor)
+    if (
+        type(game_count) is not int
+        or game_count < 1
+        or type(selected_game_index) is not int
+        or selected_game_index < 0
+        or selected_game_index >= game_count
+    ):
+        raise TypeError("PGN save presentation state is invalid")
+    return game_count, selected_game_index, cursor
 
 
 def _canonical_detached_games(
@@ -788,7 +808,26 @@ def commit_pgn_save_publication(
     # checked before source-staleness because an unchanged Save can legitimately
     # produce the same fingerprint as its source generation.
     if live_source == saved and live_saved_digest == binding.content_digest:
-        return current.view()
+        try:
+            game_count, selected_game_index, cursor = _passive_workspace_presentation(
+                live_workspace
+            )
+            return PgnDocumentView(
+                source_path=saved.path,
+                source_sha256=saved.sha256,
+                game_count=game_count,
+                selected_game_index=selected_game_index,
+                cursor=cursor,
+                dirty=live_content_digest != live_saved_digest,
+                document_revision=live_document_revision,
+                source_overwrite_safe=live_source_overwrite_safe,
+                global_warnings=live_global_warnings,
+            )
+        except BaseException as exc:
+            raise PgnDocumentError(
+                "PGN file is written but the current document presentation is invalid",
+                code=PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
+            ) from exc
 
     # Ordinary edits do not mutate either source provenance or the saved
     # baseline.  A competing successful Save/Save As does.  Bind both values so
@@ -810,30 +849,15 @@ def commit_pgn_save_publication(
     elif binding.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
 
-    # Validate the complete owner-thread presentation before mutating either
-    # the workspace persistence checkpoint or session provenance.  The file is
-    # already durable at this point, so any malformed cursor/warning/presentation
-    # state must become SAVE_COMMIT_FAILED without leaving an in-memory half
-    # commit.  This view was historically materialized only after the mutations,
-    # which could report failure after source/saved/revision had already advanced.
+    # Validate the bounded owner-thread presentation before mutating either
+    # workspace persistence authority or session provenance. Do not call the
+    # full document/workspace view here: workspace.view() computes the current
+    # record identity and can serialize/hash a large game on the Windows UI
+    # thread. Save finalization needs only passive navigation/presentation state.
     try:
-        precommit_view = current.view()
-        if (
-            type(precommit_view) is not PgnDocumentView
-            or type(precommit_view.game_count) is not int
-            or precommit_view.game_count < 1
-            or type(precommit_view.selected_game_index) is not int
-            or precommit_view.selected_game_index < 0
-            or precommit_view.selected_game_index >= precommit_view.game_count
-            or type(precommit_view.dirty) is not bool
-            or type(precommit_view.document_revision) is not int
-            or precommit_view.document_revision != live_document_revision
-            or type(precommit_view.source_overwrite_safe) is not bool
-            or precommit_view.source_overwrite_safe is not live_source_overwrite_safe
-            or type(precommit_view.global_warnings) is not tuple
-            or any(type(item) is not str for item in precommit_view.global_warnings)
-        ):
-            raise TypeError("PGN pre-commit presentation is invalid")
+        live_game_count, live_selected_game_index, live_cursor = (
+            _passive_workspace_presentation(live_workspace)
+        )
     except BaseException as exc:
         raise PgnDocumentError(
             "PGN file was written but the document checkpoint could not be finalized",
@@ -851,38 +875,29 @@ def commit_pgn_save_publication(
     final_view = PgnDocumentView(
         source_path=next_source.path,
         source_sha256=next_source.sha256,
-        game_count=precommit_view.game_count,
-        selected_game_index=precommit_view.selected_game_index,
-        cursor=precommit_view.cursor,
+        game_count=live_game_count,
+        selected_game_index=live_selected_game_index,
+        cursor=live_cursor,
         dirty=final_dirty,
         document_revision=next_revision,
         source_overwrite_safe=(
             True
             if binding.mode is PgnSaveMode.SAVE_AS
-            else precommit_view.source_overwrite_safe
+            else live_source_overwrite_safe
         ),
         global_warnings=(
             ()
             if binding.mode is PgnSaveMode.SAVE_AS
-            else precommit_view.global_warnings
+            else live_global_warnings
         ),
     )
 
-    # Complete the fallible workspace checkpoint before provenance mutation.
-    # No presentation reconstruction is allowed after the mutations below: the
-    # already-prepared final view is returned directly, so a successful
-    # checkpoint has no later fallible step that can turn into a contradictory
-    # failure after in-memory provenance advances.
+    # Commit only the persistence checkpoint before provenance mutation.
+    # The complete final document view is already prepared above. The bounded
+    # checkpoint therefore avoids current-record identity work on the owner/UI
+    # thread while preserving the exact published generation as dirty baseline.
     try:
-        if live_content_digest == binding.content_digest:
-            live_workspace.mark_saved()
-        else:
-            # The durable worker generation is now the real persistence
-            # baseline even though newer in-memory edits must remain dirty.
-            # Keep workspace-level dirty tracking aligned with the session's
-            # saved digest so returning exactly to the published generation
-            # becomes clean in both authorities.
-            live_workspace._rebase_saved_digest(binding.content_digest)
+        live_workspace._checkpoint_saved_digest(binding.content_digest)
     except BaseException as exc:
         raise PgnDocumentError(
             "PGN file was written but the document checkpoint could not be finalized",
