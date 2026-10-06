@@ -1002,6 +1002,11 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             expected_generation = controller._pgn_session_generation(current)
 
             current._source_overwrite_safe = not current._source_overwrite_safe
+            current._saved_digest = (
+                "0" * 64
+                if current._saved_digest != "0" * 64
+                else "1" * 64
+            )
             with controller._lock:
                 controller._generation = generation
                 controller._worker = worker
@@ -1087,7 +1092,6 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             terminal = events[-1]
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
             self.assertEqual(terminal.action_id, "pgn.open")
-            self.assertEqual(events[-1], terminal)
             self.assertFalse(controller.pgn_open_running)
 
 
