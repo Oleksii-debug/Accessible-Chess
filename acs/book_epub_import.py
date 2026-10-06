@@ -1112,6 +1112,40 @@ def _contains_ascii_control(
     )
 
 
+def _has_non_whitespace(
+    value: str | None,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    if not value:
+        return False
+    return any(
+        not character.isspace()
+        for character in _controlled_characters(value, control_checkpoint)
+    )
+
+
+def _compact_xml_text(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Compact XML text with the same whitespace semantics as split/join."""
+
+    tokens: list[str] = []
+    token_start: int | None = None
+    for character_index, character in enumerate(
+        _controlled_characters(value, control_checkpoint)
+    ):
+        if character.isspace():
+            if token_start is not None:
+                tokens.append(value[token_start:character_index])
+                token_start = None
+        elif token_start is None:
+            token_start = character_index
+    if token_start is not None:
+        tokens.append(value[token_start:])
+    return " ".join(tokens)
+
+
 def _is_space_separated_tokens(
     value: object,
     control_checkpoint: Callable[[], None] | None = None,
@@ -1239,7 +1273,7 @@ def _metadata_values(
                 "EPUB Dublin Core metadata must contain text only",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        text = " ".join((element.text or "").split())
+        text = _compact_xml_text(element.text or "", control_checkpoint)
         if text and text not in values:
             values.append(text)
     return values
@@ -1338,7 +1372,7 @@ def _validate_package_document(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if (package.text or "").strip():
+    if _has_non_whitespace(package.text, control_checkpoint):
         raise _error(
             "EPUB package contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1347,7 +1381,7 @@ def _validate_package_document(
     for child_index, child in enumerate(package, start=1):
         if control_checkpoint is not None and child_index % 128 == 1:
             control_checkpoint()
-        if (child.tail or "").strip():
+        if _has_non_whitespace(child.tail, control_checkpoint):
             raise _error(
                 "EPUB package contains invalid mixed text",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1400,7 +1434,7 @@ def _validate_package_document(
         )
 
     metadata = _required_unique_direct_child(package, "metadata", control_checkpoint)
-    if (metadata.text or "").strip():
+    if _has_non_whitespace(metadata.text, control_checkpoint):
         raise _error(
             "EPUB metadata contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1408,7 +1442,7 @@ def _validate_package_document(
     for metadata_index, child in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
-        if (child.tail or "").strip():
+        if _has_non_whitespace(child.tail, control_checkpoint):
             raise _error(
                 "EPUB metadata contains invalid mixed text",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1436,7 +1470,7 @@ def _validate_package_document(
                 "EPUB Dublin Core metadata must contain text only",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        if not " ".join((element.text or "").split()):
+        if not _compact_xml_text(element.text or "", control_checkpoint):
             raise _error(
                 "EPUB Dublin Core metadata values must not be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1465,7 +1499,7 @@ def _validate_package_document(
                 "EPUB unique identifier metadata must contain text only",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        value = " ".join((element.text or "").split())
+        value = _compact_xml_text(element.text or "", control_checkpoint)
         if not value:
             raise _error(
                 "EPUB unique identifier metadata is empty",
@@ -1587,7 +1621,7 @@ def _package_rootfiles(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if (container.text or "").strip():
+    if _has_non_whitespace(container.text, control_checkpoint):
         raise _error(
             "EPUB container contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1595,7 +1629,7 @@ def _package_rootfiles(
     for child_index, child in enumerate(container, start=1):
         if control_checkpoint is not None and child_index % 128 == 1:
             control_checkpoint()
-        if (child.tail or "").strip():
+        if _has_non_whitespace(child.tail, control_checkpoint):
             raise _error(
                 "EPUB container contains invalid mixed text",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1631,7 +1665,7 @@ def _package_rootfiles(
         context="rootfiles element",
         control_checkpoint=control_checkpoint,
     )
-    if (rootfiles.text or "").strip():
+    if _has_non_whitespace(rootfiles.text, control_checkpoint):
         raise _error(
             "EPUB rootfiles section contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1639,7 +1673,7 @@ def _package_rootfiles(
     for child_index, child in enumerate(rootfiles, start=1):
         if control_checkpoint is not None and child_index % 128 == 1:
             control_checkpoint()
-        if (child.tail or "").strip():
+        if _has_non_whitespace(child.tail, control_checkpoint):
             raise _error(
                 "EPUB rootfiles section contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1664,7 +1698,7 @@ def _package_rootfiles(
             context="rootfile element",
             control_checkpoint=control_checkpoint,
         )
-        if (element.text or "").strip():
+        if _has_non_whitespace(element.text, control_checkpoint):
             raise _error(
                 "EPUB rootfile element must be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1672,7 +1706,7 @@ def _package_rootfiles(
         for child_index, child in enumerate(element, start=1):
             if control_checkpoint is not None and child_index % 128 == 1:
                 control_checkpoint()
-            if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
+            if _is_container_namespace_tag(child.tag) or _has_non_whitespace(child.tail, control_checkpoint):
                 raise _error(
                     "EPUB rootfile element must be empty",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1703,7 +1737,7 @@ def _package_rootfiles(
                 "EPUB container declares too many package renditions",
                 BookEpubImportErrorCode.RESOURCE_LIMIT,
             )
-        if (element.tail or "").strip():
+        if _has_non_whitespace(element.tail, control_checkpoint):
             raise _error(
                 "EPUB rootfiles section contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1723,7 +1757,7 @@ def _package_rootfiles(
             context="links element",
             control_checkpoint=control_checkpoint,
         )
-        if (links.text or "").strip():
+        if _has_non_whitespace(links.text, control_checkpoint):
             raise _error(
                 "EPUB container links section contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1731,7 +1765,7 @@ def _package_rootfiles(
         for child_index, child in enumerate(links, start=1):
             if control_checkpoint is not None and child_index % 128 == 1:
                 control_checkpoint()
-            if (child.tail or "").strip():
+            if _has_non_whitespace(child.tail, control_checkpoint):
                 raise _error(
                     "EPUB container links section contains invalid text content",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1754,7 +1788,7 @@ def _package_rootfiles(
                 context="container link element",
                 control_checkpoint=control_checkpoint,
             )
-            if (element.text or "").strip():
+            if _has_non_whitespace(element.text, control_checkpoint):
                 raise _error(
                     "EPUB container link element must be empty",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1762,7 +1796,7 @@ def _package_rootfiles(
             for child_index, child in enumerate(element, start=1):
                 if control_checkpoint is not None and child_index % 128 == 1:
                     control_checkpoint()
-                if _is_container_namespace_tag(child.tag) or (child.tail or "").strip():
+                if _is_container_namespace_tag(child.tag) or _has_non_whitespace(child.tail, control_checkpoint):
                     raise _error(
                         "EPUB container link element must be empty",
                         BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1833,7 +1867,7 @@ def _manifest_items(
     control_checkpoint: Callable[[], None] | None = None,
 ) -> dict[str, _ManifestItem]:
     manifest = _required_unique_direct_child(package, "manifest", control_checkpoint)
-    if (manifest.text or "").strip():
+    if _has_non_whitespace(manifest.text, control_checkpoint):
         raise _error(
             "EPUB manifest contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1849,18 +1883,18 @@ def _manifest_items(
                     "EPUB manifest contains an invalid item element",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
-            if (element.tail or "").strip():
+            if _has_non_whitespace(element.tail, control_checkpoint):
                 raise _error(
                     "EPUB manifest contains invalid text content",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
             continue
-        if (element.text or "").strip() or len(element):
+        if _has_non_whitespace(element.text, control_checkpoint) or len(element):
             raise _error(
                 "EPUB manifest item must be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        if (element.tail or "").strip():
+        if _has_non_whitespace(element.tail, control_checkpoint):
             raise _error(
                 "EPUB manifest contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -2035,7 +2069,7 @@ def _spine_ids(
     control_checkpoint: Callable[[], None] | None = None,
 ) -> list[str]:
     spine = _required_unique_direct_child(package, "spine", control_checkpoint)
-    if (spine.text or "").strip():
+    if _has_non_whitespace(spine.text, control_checkpoint):
         raise _error(
             "EPUB spine contains invalid text content",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -2081,18 +2115,18 @@ def _spine_ids(
                     "EPUB spine contains an invalid itemref element",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
-            if (element.tail or "").strip():
+            if _has_non_whitespace(element.tail, control_checkpoint):
                 raise _error(
                     "EPUB spine contains invalid text content",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
                 )
             continue
-        if (element.text or "").strip() or len(element):
+        if _has_non_whitespace(element.text, control_checkpoint) or len(element):
             raise _error(
                 "EPUB spine itemref must be empty",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-        if (element.tail or "").strip():
+        if _has_non_whitespace(element.tail, control_checkpoint):
             raise _error(
                 "EPUB spine contains invalid text content",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,

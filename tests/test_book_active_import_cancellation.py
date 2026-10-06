@@ -264,6 +264,110 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         )
         self.assertGreater(len(calls), 6)
 
+    def test_epub_xml_text_compaction_preserves_split_join_semantics(self):
+        import acs.book_epub_import as epub
+
+        sample = (
+            "  Alpha\tBeta\nGamma\xa0Delta\u2003Epsilon  "
+            + (" word\t" * 3_000)
+            + "tail  "
+        )
+        calls = []
+        controlled = epub._compact_xml_text(sample, lambda: calls.append(1))
+        self.assertEqual(controlled, " ".join(sample.split()))
+        self.assertGreater(len(calls), 3)
+
+    def test_epub_xml_text_compaction_observes_control_inside_one_text_node(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB XML text node"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._compact_xml_text("metadata" * 4_000, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_whitespace_tail_scan_observes_control_inside_one_text_node(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long EPUB whitespace tail"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._has_non_whitespace((" \t\r\n" * 5_000), cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_metadata_value_compaction_threads_control(self):
+        import acs.book_epub_import as epub
+
+        metadata = epub.ET.fromstring(
+            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            '<dc:title>' + ("Title" * 5_000) + '</dc:title>'
+            '</metadata>'
+        )
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB metadata text normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._metadata_values(metadata, "title", cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_package_tail_scan_observes_control_before_id_walk(self):
+        import acs.book_epub_import as epub
+
+        package = epub.ET.fromstring(
+            _opf(
+                manifest='    <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>',
+                spine='    <itemref idref="c1"/>',
+            )
+        )
+        package.text = ""
+        package[0].tail = " " * 20_000
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB package mixed-text scan"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with patch.object(epub, "_validate_package_ids_unique") as id_walk:
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._validate_package_document(package, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        id_walk.assert_not_called()
+
     def test_epub_local_zip64_extra_scan_observes_control(self):
         import acs.book_epub_import as epub
 
