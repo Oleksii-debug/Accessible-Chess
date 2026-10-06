@@ -224,6 +224,9 @@ class Version2WindowsFileWorkflowRuntime:
                 return False
         owner_recovered = self._pump.request_pending_owner_callback()
         mailbox_recovered = self._pump.request_pending_wakeup()
+        with self._lock:
+            if self._closed:
+                return False
         return owner_recovered or mailbox_recovered
 
     def resume_after_refused_shutdown(self) -> bool:
@@ -274,6 +277,13 @@ class Version2WindowsFileWorkflowRuntime:
         # A close attempt can retire the pump after the worker stored such an
         # event. Re-deliver it only after both runtime halves are live again.
         self._pump.request_pending_wakeup()
+        # UI-ready delivery is synchronous on the owner thread. A retained
+        # terminal can therefore re-enter native shutdown before this recovery
+        # boundary returns. Never report the runtime as recovered after that
+        # re-entrant close has fenced it again.
+        with self._lock:
+            if self._closed:
+                return False
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
