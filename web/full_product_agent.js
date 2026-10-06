@@ -38,6 +38,19 @@
     if (!list || !empty) return;
     const rows = transcriptRows(snapshot);
     empty.hidden = rows.length !== 0;
+
+    const retained = Object.create(null);
+    rows.forEach(function (turn) {
+      if (!turn || typeof turn !== "object") return;
+      const turnId = String(turn.id || "");
+      if (/^agent-turn-[1-9][0-9]*$/.test(turnId)) retained[turnId] = true;
+    });
+    Array.from(list.children || []).forEach(function (item) {
+      if (item && item.id && !retained[item.id] && typeof list.removeChild === "function") {
+        list.removeChild(item);
+      }
+    });
+
     rows.forEach(function (turn) {
       if (!turn || typeof turn !== "object") return;
       const turnId = String(turn.id || "");
@@ -58,7 +71,7 @@
     });
   }
 
-  function applySnapshot(root, snapshot) {
+  function applyStatus(root, snapshot) {
     if (!root || !snapshot || typeof snapshot !== "object") return;
     const status = root.querySelector("#agent-live-status");
     const details = root.querySelector("#agent-status-details");
@@ -69,13 +82,17 @@
     if (details) details.textContent = String(snapshot.status_text || "");
     if (input) {
       input.disabled = snapshot.available === false;
-      input.placeholder = String(snapshot.input_placeholder || "");
+      if (typeof snapshot.input_placeholder === "string") input.placeholder = snapshot.input_placeholder;
       input.maxLength = 8000;
     }
     if (send) send.disabled = snapshot.can_submit !== true;
     if (stop) stop.disabled = snapshot.can_cancel !== true;
-    syncTranscript(root, snapshot);
     root._agentState = String(snapshot.state || "idle");
+  }
+
+  function applySnapshot(root, snapshot) {
+    applyStatus(root, snapshot);
+    syncTranscript(root, snapshot);
   }
 
   function schedulePoll(root, invoke, announce) {
@@ -84,20 +101,33 @@
     if (typeof setTimer !== "function") return;
     const token = (root._agentPollToken || 0) + 1;
     root._agentPollToken = token;
-    setTimer(function poll() {
-      if (root._agentPollToken !== token) return;
+
+    function pollFailure() {
+      // Background status polling is best-effort. Do not inject an
+      // unlocalized or repetitive live-region error; explicit commands still
+      // surface their localized failure through the canonical bridge.
+    }
+
+    function refreshCompletedTranscript() {
       safeInvoke(invoke, "agent.snapshot", {}, function (result) {
         if (root._agentPollToken !== token) return;
         const payload = result && result.payload && typeof result.payload === "object" ? result.payload : {};
         if (payload.snapshot) applySnapshot(root, payload.snapshot);
+      }, pollFailure);
+    }
+
+    setTimer(function poll() {
+      if (root._agentPollToken !== token) return;
+      safeInvoke(invoke, "agent.status", {}, function (result) {
+        if (root._agentPollToken !== token) return;
+        const payload = result && result.payload && typeof result.payload === "object" ? result.payload : {};
+        if (payload.snapshot) applyStatus(root, payload.snapshot);
         if (root._agentState === "running" || root._agentState === "cancelling") {
           setTimer(poll, 500);
+        } else {
+          refreshCompletedTranscript();
         }
-      }, function () {
-        // Background status polling is best-effort. Do not inject an
-        // unlocalized or repetitive live-region error; explicit commands still
-        // surface their localized failure through the canonical bridge.
-      });
+      }, pollFailure);
     }, 500);
   }
 
