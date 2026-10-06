@@ -239,6 +239,74 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             self.assertFalse(preflight._same_file_snapshot(negative, negative))
             self.assertFalse(preflight._same_file_snapshot(valid, changed))
 
+    def test_sha256_reads_one_stable_file_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            payload = b"stable-package-payload"
+            target.write_bytes(payload)
+            real_open = Path.open
+            read_opens = 0
+
+            def counting_open(path: Path, *args, **kwargs):
+                nonlocal read_opens
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == target and mode == "rb":
+                    read_opens += 1
+                return real_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=counting_open):
+                digest = preflight._sha256(target)
+
+            self.assertEqual(
+                digest,
+                preflight.hashlib.sha256(payload).hexdigest(),
+            )
+            self.assertEqual(read_opens, 1)
+
+    def test_sha256_rejects_identity_change_while_opening(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            target.write_bytes(b"stable-package-payload")
+
+            with patch.object(preflight, "_same_file_snapshot", return_value=False):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being opened",
+                ):
+                    preflight._sha256(target)
+
+    def test_sha256_rejects_handle_change_after_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            target.write_bytes(b"stable-package-payload")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                side_effect=(True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being read",
+                ):
+                    preflight._sha256(target)
+
+    def test_sha256_rejects_path_change_after_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "payload.bin"
+            target.write_bytes(b"stable-package-payload")
+
+            with patch.object(
+                preflight,
+                "_same_file_snapshot",
+                side_effect=(True, True, False),
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package file changed while being read",
+                ):
+                    preflight._sha256(target)
+
     def test_pe_validation_rejects_identity_change_while_opening(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "runtime.dll"
