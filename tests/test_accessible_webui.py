@@ -103,6 +103,16 @@ class AccessibleWebUiTests(unittest.TestCase):
             self.html,
         )
 
+    def test_keymap_dialog_restores_opener_focus_after_close(self):
+        self.assertIn(
+            "el('open-keymap').addEventListener('click',()=>{el('keymap-dialog').showModal();el('key-search').focus()})",
+            self.html,
+        )
+        self.assertIn(
+            "el('keymap-dialog').addEventListener('close',()=>el('open-keymap').focus())",
+            self.html,
+        )
+
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', self.html)
