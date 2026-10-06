@@ -176,6 +176,23 @@
           },
         },
       });
+      const requiredMethods = [
+        "getPlayerState",
+        "getCurrentTime",
+        "getDuration",
+        "playVideo",
+        "pauseVideo",
+        "seekTo",
+        "destroy",
+      ];
+      if (!this._player || (typeof this._player !== "object" && typeof this._player !== "function")) {
+        throw new Error("YouTube IFrame API returned an invalid player");
+      }
+      for (const method of requiredMethods) {
+        if (typeof this._player[method] !== "function") {
+          throw new Error(`YouTube IFrame player is missing ${method}`);
+        }
+      }
     }
 
     _requireReady() {
@@ -189,6 +206,20 @@
       let playbackState = "unstarted";
       let positionMs = 0;
       let durationMs = null;
+      if (this._errorCode !== null) {
+        return Object.freeze({
+          providerId: PROVIDER_ID,
+          sourceId: this.sourceId,
+          sourceKind: "remote_media",
+          videoId: this.videoId,
+          ok: false,
+          ready: this._ready,
+          playbackState,
+          positionMs,
+          durationMs,
+          errorCode: this._errorCode,
+        });
+      }
       if (this._ready) {
         playbackState = stateName(this._player.getPlayerState());
         positionMs = safeMilliseconds(this._player.getCurrentTime(), "current time");
