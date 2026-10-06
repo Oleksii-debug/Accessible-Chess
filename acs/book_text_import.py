@@ -362,12 +362,35 @@ class _Builder:
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
-_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^\)]+\)")
-_IMAGE_OPEN_RE = re.compile(r"!\[([^\]]*)\]\(")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+
+
+def _semantic_image_opener(line: str, index: int) -> tuple[int, str] | None:
+    """Return destination start and accessible alt text for a bounded image opener."""
+
+    if not line.startswith("![", index):
+        return None
+    cursor = index + 2
+    alt: list[str] = []
+    while cursor < len(line):
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < len(line):
+            escaped = line[cursor + 1]
+            if escaped in "\\[]()!":
+                alt.append(escaped)
+                cursor += 2
+                continue
+            alt.append(char)
+            cursor += 1
+            continue
+        if char == "]" and cursor + 1 < len(line) and line[cursor + 1] == "(":
+            return cursor + 2, "".join(alt)
+        alt.append(char)
+        cursor += 1
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,9 +446,9 @@ def _iter_semantic_images(line: str):
             index = min(length, index + 2)
             continue
 
-        opener = _IMAGE_OPEN_RE.match(line, index)
+        opener = _semantic_image_opener(line, index)
         if opener is not None:
-            destination_start = opener.end()
+            destination_start, alt_text = opener
             cursor = destination_start
             depth = 1
             while cursor < length:
@@ -444,7 +467,7 @@ def _iter_semantic_images(line: str):
                             yield _SemanticImageMatch(
                                 start_index=index,
                                 end_index=cursor + 1,
-                                alt=opener.group(1),
+                                alt=alt_text,
                             )
                             index = cursor + 1
                         break
