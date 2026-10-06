@@ -1248,5 +1248,76 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(plain.book_key, controlled.book_key)
 
 
+    def test_epub_host_metadata_normalization_observes_control_inside_one_token(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during EPUB host metadata normalization"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._required_text(
+                (" " * 20_000) + "book.epub",
+                "source_name",
+                cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_controlled_host_metadata_preserves_collapse_semantics(self):
+        import acs.book_epub_import as epub
+
+        sample = "\u2003  Study\tTitle\nwith\rmetadata  \u2002"
+        calls = []
+        controlled = epub._required_text(
+            sample,
+            "title",
+            lambda: calls.append(1),
+        )
+
+        self.assertEqual(controlled, epub._required_text(sample, "title"))
+        self.assertEqual(controlled, "Study Title with metadata")
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_import_threads_control_into_all_host_metadata_fields(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b"<html><body><p>Readable</p></body></html>")
+        real_required = epub._required_text
+        observed = []
+
+        def observing_required(value, field, control_checkpoint=None):
+            observed.append((field, control_checkpoint))
+            return real_required(value, field, control_checkpoint)
+
+        checkpoint = lambda: None
+        with patch.object(epub, "_required_text", side_effect=observing_required):
+            imported = epub.import_epub_book(
+                raw,
+                source_name=" book.epub ",
+                title=" Title ",
+                author=" Author ",
+                language=" uk ",
+                control_checkpoint=checkpoint,
+            )
+
+        self.assertEqual(imported.document.title, "Title")
+        self.assertEqual(imported.document.author, "Author")
+        self.assertEqual(imported.document.language, "uk")
+        self.assertEqual(
+            [field for field, _ in observed],
+            ["source_name", "title", "author", "language"],
+        )
+        self.assertTrue(all(callback is checkpoint for _, callback in observed))
+
+
 if __name__ == '__main__':
     unittest.main()
