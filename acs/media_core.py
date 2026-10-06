@@ -137,8 +137,12 @@ class MediaEvidence:
     end_ms: int
     fields: tuple[MediaEvidenceField, ...] = ()
     confidence: float = 1.0
-    authoritative: bool = False
+    source_authoritative: bool = False
+    source_revision: str | None = None
+    provider_id: str | None = None
     producer_revision: str | None = None
+    provenance: str | None = None
+    raw_candidate_ref: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -205,21 +209,25 @@ class MediaEvidence:
             tuple(sorted(normalized_fields, key=lambda item: (item.name, item.value))),
         )
         object.__setattr__(self, "confidence", _require_confidence(self.confidence))
-        if type(self.authoritative) is not bool:
+        if type(self.source_authoritative) is not bool:
             raise MediaContractError(
-                "authoritative must be an exact boolean",
+                "source_authoritative must be an exact boolean",
                 code=MediaErrorCode.INVALID_CONTAINER,
             )
-        if self.producer_revision is not None:
-            object.__setattr__(
-                self,
-                "producer_revision",
-                _require_bounded_text(
-                    self.producer_revision,
-                    "producer_revision",
-                    max_chars=512,
-                ),
-            )
+        for attribute, field_name, limit in (
+            ("source_revision", "source_revision", 512),
+            ("provider_id", "provider_id", 512),
+            ("producer_revision", "producer_revision", 512),
+            ("provenance", "provenance", 4096),
+            ("raw_candidate_ref", "raw_candidate_ref", 4096),
+        ):
+            value = getattr(self, attribute)
+            if value is not None:
+                object.__setattr__(
+                    self,
+                    attribute,
+                    _require_bounded_text(value, field_name, max_chars=limit),
+                )
 
 
 @dataclass(frozen=True, slots=True)

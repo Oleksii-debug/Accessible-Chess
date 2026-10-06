@@ -580,6 +580,66 @@ class MediaCoreContractTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
 
+
+    def test_media_evidence_provenance_is_explicit_but_never_chess_authority(self):
+        evidence = MediaEvidence(
+            evidence_id="ev-provenance",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.STRUCTURED_CHESS,
+            start_ms=10,
+            end_ms=20,
+            confidence=0.99,
+            source_authoritative=True,
+            source_revision="broadcast-rev-42",
+            provider_id="lichess-broadcast",
+            producer_revision="adapter-v3",
+            provenance="provider structured move feed",
+            raw_candidate_ref="provider-ply-17",
+        )
+        self.assertTrue(evidence.source_authoritative)
+        self.assertEqual(evidence.source_revision, "broadcast-rev-42")
+        self.assertEqual(evidence.provider_id, "lichess-broadcast")
+        self.assertEqual(evidence.producer_revision, "adapter-v3")
+        self.assertEqual(evidence.provenance, "provider structured move feed")
+        self.assertEqual(evidence.raw_candidate_ref, "provider-ply-17")
+        with self.assertRaises(AttributeError):
+            _ = evidence.authoritative
+
+    def test_media_evidence_source_authority_is_exact_boolean(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-bool",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.STRUCTURED_CHESS,
+                start_ms=0,
+                end_ms=0,
+                source_authoritative=1,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_media_evidence_provenance_text_is_bounded_and_utf8_safe(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-too-long",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.SPEECH_CONTEXT,
+                start_ms=0,
+                end_ms=1,
+                provenance="x" * 4097,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-bad-utf8",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.SPEECH_CONTEXT,
+                start_ms=0,
+                end_ms=1,
+                raw_candidate_ref="bad\ud800",
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TEXT)
+
     def test_reconciliation_result_enforces_fail_closed_state_semantics(self):
         verified = MediaReconciliationResult(
             source_id="lesson-1",
@@ -628,7 +688,7 @@ class MediaCoreContractTests(unittest.TestCase):
             end_ms=1000,
             fields=(MediaEvidenceField("provider-move", "opaque-provider-token"),),
             confidence=1.0,
-            authoritative=True,
+            source_authoritative=True,
         )
         class CanonicalPort:
             def reconcile_media_evidence(self, *, current_chess_ref, evidence):
