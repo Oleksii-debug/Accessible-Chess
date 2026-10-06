@@ -2407,7 +2407,12 @@ def _resolved_asset(
     if control_checkpoint is not None:
         control_checkpoint()
     stripped_reference = _controlled_strip(reference, control_checkpoint)
-    parts = urlsplit(stripped_reference)
+    try:
+        parts = urlsplit(stripped_reference)
+    except ValueError:
+        return None
+    if control_checkpoint is not None:
+        control_checkpoint()
     if parts.scheme or parts.netloc or not parts.path:
         return None
     try:
