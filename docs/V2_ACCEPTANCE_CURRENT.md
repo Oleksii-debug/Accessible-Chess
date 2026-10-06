@@ -1,5 +1,41 @@
 # Accessible Chess — Version 2 Human Acceptance Current
 
+## 2026-10-06 final execution-run audit override
+
+Live GitHub exact heads, checks and artifacts supersede older snapshots below. This section is descriptive audit state, not a new priority queue.
+
+- default `main` at audit read: `513b17ce4213af3cdf47d971a9311676adf50ecd` (documentation/policy-only delta relative to the executable lineage);
+- executable Product #1981: `d0e14b998bb57b5c3b53609ecef41ab646b213a3`;
+- canonical shipping/recovery convergence: PR #2184 at `d26b1bd96a48d05772ed5c32f2c9df581ab8064a`, draft + mergeable, clean descendant of Product (Product -> #2184 behind=0);
+- #2184 exact merge delta: 58 paths; Current Shipping Recovery Hardening declares 58 exact blob assertions and the final audit read found zero mismatches;
+- owner gameplay/accessibility #2195 is merged into #2184. The same lineage also contains the fail-closed move-feedback settings repair: missing/unreadable Settings can no longer report `ok=true`, and the regression is exact-pinned in the canonical shipping gate;
+- exact-head qualification on #2184 remained nonterminal at audit close: 43 queued and 4 pending PR-triggered runs. Current Shipping Recovery Hardening, Windows Composition, P0 Release Critical Triad, Owner Gameplay Feedback, One-Click Finalizer and Portable Final Candidate were not terminal GREEN.
+
+Whole-project reconciliation:
+
+- the integrated PGN Open/Save/Save As host lineage formerly represented by #2098 is an ancestor of #2184; do not reopen the closed component PRs as competing PGN authorities;
+- Library #2073 remains a separate 17-path Product-based lineage and diverges from #2184; it is not shipping-integrated by topology;
+- child-coaching recovery #2097 remains a separate 10-path Product-based lineage and diverges from #2184;
+- Media Intelligence / Universal Chess Agent remains active required scope under issue #1992 and the live media/agent PR stacks. #2013 and #2003 remain topologically separate from #2184. Preserve canonical Board/GameTree legality, typed evidence/tool boundaries, provider compliance and Web-reusable application services when later converging them;
+- the newest observed media stack also includes recorded-media player/accessibility work and provider-compliant playback work; none is silently treated as part of the blind-user Windows shipping bytes until deliberately integrated;
+- closed package qualification #2099 is not a shipping ancestor and must not be revived as a second release authority; current #2184 directly gates the relevant portable/package/finalizer contracts;
+- full CBF/CBI semantic compatibility remains unproven pending lawful authentic fixtures plus an independent semantic oracle;
+- binding physical/user acceptance remains open in #730, #691, #1601 and owner finding #22;
+- the supplied Drive project plan and historical reservation ledger were re-read. Their top-level rule correctly defers to live GitHub/Issue #14; historical reservations do not create present mutation authority.
+
+The executable lineage already carries substantial coverage for chess/SAN/FEN/PGN correctness, Books semantic reading and deterministic navigation, malformed/resource safety, lawful starter-content contracts, persistence/recovery, keyboard/WebView/native accessibility, Windows package integrity and Web-ready shared-service boundaries. This audit found no basis for a competing parser, chess-rules authority, persistence system, speech system, package authority or orchestration framework.
+
+Release truth remains:
+
+- `HUMAN_TESTED=NO`
+- `HUMAN_ACCEPTED=NO`
+- `NVDA_VERIFIED=NO`
+- `FINAL_WINDOWS_ZIP=NO`
+
+No release claim is valid until the exact accepted shipping/package bytes have attributable terminal qualification, fresh artifact readback and physical Windows/NVDA/restart acceptance.
+
+---
+
 Updated: 2026-10-05 final execution-run audit
 
 ## Release truth
