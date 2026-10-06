@@ -2005,6 +2005,37 @@ class PortableTreeTests(unittest.TestCase):
                 )
             self.assertFalse((root / "candidate.zip").exists())
 
+    def test_assembler_rejects_derived_document_tuple_before_container_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActiveTuple(tuple):
+            def __len__(self):
+                touched.append("len")
+                raise AssertionError("derived tuple len hook executed")
+
+            def __iter__(self):
+                touched.append("iter")
+                raise AssertionError("derived tuple iteration hook executed")
+
+        documents = ActiveTuple(("first.docx", "second.docx"))
+        with mock.patch.object(
+            portable_module,
+            "validate_version2_package_tree",
+            side_effect=AssertionError("package preflight must not start"),
+        ) as preflight_authority:
+            with self.assertRaisesRegex(TypeError, "exact two-item tuple"):
+                assemble_portable_oneclick_tree(
+                    "unused-canonical",
+                    "unused-launcher.exe",
+                    documents,
+                    "unused-output",
+                    integration_sha=_SHA,
+                )
+        preflight_authority.assert_not_called()
+        self.assertEqual(touched, [])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
