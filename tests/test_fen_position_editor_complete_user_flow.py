@@ -119,6 +119,42 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
                 self.assertFalse(api.edit_position_metadata(*args)["ok"])
                 self.assertEqual(api.board.fen(), before)
 
+    def test_editor_state_with_adjacent_kings_blocks_gameplay(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.clear_board()["ok"])
+        self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
+        self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
+        before = api.board.fen()
+
+        self.assertFalse(api.get_state()["positionComplete"])
+        self.assertFalse(api.validate_position_editor()["ok"])
+
+        moved = api.make_move("Ke2")
+        self.assertFalse(moved["ok"])
+        self.assertIn("Invalid position", moved["announcement"])
+        self.assertEqual(api.board.fen(), before)
+
+        selected = api.click_square("e1")
+        self.assertFalse(selected["ok"])
+        self.assertIn("Invalid position", selected["announcement"])
+        self.assertEqual(api.board.fen(), before)
+
+    def test_editor_state_with_inconsistent_en_passant_blocks_gameplay(self):
+        api = AccessibleChessAPI(lang="en")
+        before = api.board.fen()
+
+        edited = api.edit_position_metadata("w", "KQkq", "e6", "0", "1")
+        self.assertTrue(edited["ok"])
+        invalid_fen = api.board.fen()
+        self.assertNotEqual(invalid_fen, before)
+        self.assertFalse(api.get_state()["positionComplete"])
+        self.assertFalse(api.validate_position_editor()["ok"])
+
+        moved = api.make_move("e4")
+        self.assertFalse(moved["ok"])
+        self.assertIn("Invalid position", moved["announcement"])
+        self.assertEqual(api.board.fen(), invalid_fen)
+
     def test_accessible_html_exposes_all_position_editor_controls(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
             encoding="utf-8"
