@@ -32,38 +32,30 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Prove exact stacked scope
+      - name: Prove retained LiveKit authority on QA composition
         if: github.event_name == 'pull_request'
         shell: bash
         env:
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          ADMIN_OWNER_SHA: b0b15666127599aed88d007533e4d622042674bf
+          ADMIN_BLOB: 40aa7d37b80c38fdfaeec145864a76e2daebd664
+          ADMIN_TEST_BLOB: 5707b3facd588b327d493958e20c8709f0dc5739
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
           test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
-          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
-          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$HEAD_REF" = "qa/classroom-moderation-server-composition-20261002"
+          git cat-file -e "$ADMIN_OWNER_SHA^{commit}" || git fetch --no-tags origin "$ADMIN_OWNER_SHA"
+          git merge-base --is-ancestor "$ADMIN_OWNER_SHA" HEAD
+          test "$(git rev-parse HEAD:acs/livekit_classroom_moderation_admin.py)" = "$ADMIN_BLOB"
+          test "$(git rev-parse HEAD:tests/test_livekit_classroom_moderation_admin.py)" = "$ADMIN_TEST_BLOB"
           git fetch --no-tags origin "$EXPECTED_BASE_REF"
           base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"
-          if ! git merge-base --is-ancestor "$base" HEAD; then
-            echo "Current moderation base $base is not an ancestor of HEAD; synchronize the stacked PR."
-            exit 1
-          fi
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
           git diff --check "$base...HEAD"
-          changed="$(git diff --name-only "$base...HEAD" | sort)"
-          allowed="$(printf '%s\n' \
-            '.github/workflows/livekit-classroom-moderation-admin.yml' \
-            'acs/livekit_classroom_moderation_admin.py' \
-            'tests/test_livekit_classroom_moderation_admin.py' | sort)"
-          test "$changed" = "$allowed"
-          git diff --quiet "$base" HEAD -- \
-            acs/classroom_moderation_rpc.py \
-            acs/classroom_realtime_media.py \
-            acs/classroom_domain.py \
-            acs/chesscore.py
-
       - name: Set up exact Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:

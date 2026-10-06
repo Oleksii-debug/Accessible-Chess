@@ -77,19 +77,19 @@ jobs:
 
           for path in \
             acs/sqlite_classroom_moderation_ledger.py \
-            tests/test_sqlite_classroom_moderation_ledger.py \
-            .github/workflows/classroom-moderation-sqlite-ledger.yml
+            tests/test_sqlite_classroom_moderation_ledger.py
           do
             test "$(git rev-parse "$CURRENT_LEDGER_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
           done
+          test "$(git rev-parse HEAD:.github/workflows/classroom-moderation-sqlite-ledger.yml)" = "d46f4605f3a509d0bc0ae11a9989f3df8b35f7fd"
 
           for path in \
             acs/livekit_classroom_moderation_admin.py \
-            tests/test_livekit_classroom_moderation_admin.py \
-            .github/workflows/livekit-classroom-moderation-admin.yml
+            tests/test_livekit_classroom_moderation_admin.py
           do
             test "$(git rev-parse "$ADMIN_OWNER_SHA:$path")" = "$(git rev-parse "HEAD:$path")"
           done
+          test "$(git rev-parse HEAD:.github/workflows/livekit-classroom-moderation-admin.yml)" = "07d1bec542ae0f5f6dd6be47373c5135ce4f80c9"
 
           for path in \
             acs/classroom_join_credentials.py \
