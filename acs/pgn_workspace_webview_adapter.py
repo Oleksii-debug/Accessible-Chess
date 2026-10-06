@@ -374,8 +374,26 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             unknown = set(extra).difference({"text", "slot", "index"})
             if unknown:
                 raise ValueError("PGN action contains untrusted authority fields")
+            has_slot = "slot" in extra
+            has_index = "index" in extra
+            if has_slot != has_index:
+                raise ValueError("PGN comment target must contain slot and index together")
             if "text" in extra:
                 trusted["text"] = extra["text"]
+            if has_slot:
+                slot = extra["slot"]
+                index = extra["index"]
+                if type(slot) is not str or slot not in {
+                    "before",
+                    "after",
+                    "leading",
+                    "trailing",
+                }:
+                    raise ValueError("PGN comment slot is invalid")
+                if type(index) is not int or index < -1 or index > 255:
+                    raise ValueError("PGN comment index is invalid")
+                trusted["slot"] = slot
+                trusted["index"] = index
         return trusted
 
     def _dispatch_registered(self, action_id: str, payload: Mapping[str, object]) -> Any:
@@ -538,8 +556,21 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             )
         )
 
-    def edit_comment(self, text: str) -> PgnWebViewEvent:
-        return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
+    def edit_comment(
+        self,
+        text: str,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+    ) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.edit_comment(
+                self,
+                text,
+                slot=slot,
+                index=index,
+            )
+        )
 
     def edit_nags(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_nags(self, text))
@@ -547,8 +578,19 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
     def add_variation(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.add_variation(self, text))
 
-    def delete_comment(self) -> PgnWebViewEvent:
-        return self._mutate_and_render(super().delete_comment)
+    def delete_comment(
+        self,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+    ) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.delete_comment(
+                self,
+                slot=slot,
+                index=index,
+            )
+        )
 
     def delete_variation(self) -> PgnWebViewEvent:
         return self._mutate_and_render(super().delete_variation)
