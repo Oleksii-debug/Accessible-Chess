@@ -48,6 +48,36 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertTrue(removed["ok"])
         self.assertNotIn("Q", api.board.fen().split()[0])
 
+    def test_side_to_move_action_clears_stale_en_passant_and_preserves_position(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(
+            api.set_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")["ok"]
+        )
+        before_pieces = api.board.fen().split()[0]
+
+        changed = api.set_turn("b")
+
+        self.assertTrue(changed["ok"])
+        fields = api.board.fen().split()
+        self.assertEqual(fields[0], before_pieces)
+        self.assertEqual(fields[1:], ["b", "-", "-", "0", "2"])
+        self.assertTrue(api.get_state()["positionComplete"])
+
+    def test_move_entry_side_command_uses_same_en_passant_safe_transition(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(
+            api.set_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")["ok"]
+        )
+
+        changed = api.make_move("b")
+
+        self.assertTrue(changed["ok"])
+        self.assertEqual(
+            api.board.fen(),
+            "4k3/8/8/3pP3/8/8/8/4K3 b - - 0 2",
+        )
+        self.assertTrue(api.get_state()["positionComplete"])
+
     def test_metadata_update_is_atomic_on_invalid_values(self):
         api = AccessibleChessAPI(lang="uk")
         before = api.board.fen()
