@@ -56,6 +56,12 @@ class Version2WindowsFileWorkflowRuntime:
         import_ui_ready: Callable[[Version2ImportUiEventMailbox], Any],
         pgn_export_event_sink: Callable[[object], Any],
         next_delegate: Callable[[str, Mapping[str, object]], Any],
+        library_export_event_sink: Callable[[object], Any] | None = None,
+        library_export_delegate: Version2WindowsLibraryExportDelegate | None = None,
+        library_export_worker_services_factory: Callable[
+            [], LibraryExportWorkerServices
+        ]
+        | None = None,
         current_focus_provider: Callable[[], str] | None = None,
         dialog_language_provider: Callable[[], object] | None = None,
         mailbox_max_events: int = 64,
@@ -80,14 +86,42 @@ class Version2WindowsFileWorkflowRuntime:
         ):
             if not callable(callback):
                 raise TypeError(f"{name} must be callable")
+        if library_export_event_sink is not None and not callable(
+            library_export_event_sink
+        ):
+            raise TypeError("library_export_event_sink must be callable")
+        if library_export_delegate is not None and not isinstance(
+            library_export_delegate, Version2WindowsLibraryExportDelegate
+        ):
+            raise TypeError(
+                "library_export_delegate must be Version2WindowsLibraryExportDelegate"
+            )
+        if library_export_worker_services_factory is not None and not callable(
+            library_export_worker_services_factory
+        ):
+            raise TypeError("library_export_worker_services_factory must be callable")
+        if (
+            library_export_delegate is not None
+            and library_export_worker_services_factory is not None
+        ):
+            raise ValueError(
+                "inject either library_export_delegate or worker services factory, not both"
+            )
         if current_focus_provider is not None and not callable(current_focus_provider):
             raise TypeError("current_focus_provider must be callable")
-        if dialog_language_provider is not None and not callable(dialog_language_provider):
+        if dialog_language_provider is not None and not callable(
+            dialog_language_provider
+        ):
             raise TypeError("dialog_language_provider must be callable")
 
         self._ui_thread_id = threading.get_ident()
         self._lock = threading.RLock()
         self._closed = False
+        # Native file dialogs pump the owner message loop. Reserve the exact
+        # Library operation during modal pre-worker setup so a re-entrant
+        # Import/Export command cannot slip past the counterpart busy check
+        # before either delegate has published its worker-running state.
+        self._library_modal_operation = ""
 
         self._mailbox = Version2ImportUiEventMailbox(max_events=mailbox_max_events)
         self._poster = Version2WinFormsUiPoster(
