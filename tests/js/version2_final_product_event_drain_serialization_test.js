@@ -47,6 +47,7 @@ let heldDrainResolve = null;
 let heldRefreshResolve = null;
 let refreshCalls = 0;
 let terminalFocus = [];
+let appliedEventCount = 0;
 let stageStarts = [];
 let firstStageResolve = null;
 
@@ -70,7 +71,9 @@ const bridge = {
 
 const context = vm.createContext({
   Promise,
+  MAX_NATIVE_EVENT_BATCH: 64,
   api: () => bridge,
+  plainObject: (value) => !!value && typeof value === "object" && !Array.isArray(value),
   validFocusId: (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value),
   restoreQueuedNativeFocus: (id) => {
     terminalFocus.push(id);
@@ -91,6 +94,7 @@ const context = vm.createContext({
     });
   },
   applyQueuedEvent: (event, orderedStage1Refreshes) => {
+    appliedEventCount += 1;
     if (event.kind === "repaint") return true;
     if (event.kind === "stage-first") {
       orderedStage1Refreshes.push(() => {
@@ -247,6 +251,75 @@ assert.strictEqual(
   "terminal worker event stole newer visible user focus"
 );
 
+
+// Oversized batches fail closed before any event/focus side effect.
+const appliedBeforeOversized = appliedEventCount;
+const terminalBeforeOversized = terminalFocus.slice();
+nextDrain = Array.from({ length: 65 }, () => ({
+  kind: "status",
+  payload: { focus_target: "library-export-filtered" }
+}));
+drainEvents();
+await flushMany();
+assert.strictEqual(
+  appliedEventCount,
+  appliedBeforeOversized,
+  "oversized native event batch reached presentation handlers"
+);
+assert.deepStrictEqual(
+  terminalFocus,
+  terminalBeforeOversized,
+  "oversized native event batch changed terminal focus"
+);
+
+// Announcements are trusted only as bounded primitive strings. A hostile object
+// must never get a toString() callback from the WebView presentation layer.
+assert(
+  source.includes("if (!plainObject(event) || !NATIVE_EVENT_KINDS.has(event.kind)) return false;"),
+  "native event kind/schema guard is missing"
+);
+assert(
+  source.includes('if (event.kind === "delegated" && !validActionId(payload.action_id)) return false;'),
+  "delegated action-id guard is missing"
+);
+const boundedTextBlock = extract(
+  "  function boundedText(value, limit) {",
+  "  function plainObject(value) {",
+  "bounded announcement helper"
+);
+const announceBlock = extract(
+  "  function announce(message) {",
+  "  const nav = documentRef.createElement",
+  "announcement publisher"
+);
+const announceLive = { textContent: "unchanged" };
+let hostileAnnouncementTouched = false;
+const announceContext = vm.createContext({
+  MAX_ANNOUNCEMENT_TEXT: 1200,
+  live: announceLive,
+  global: { setTimeout(callback) { callback(); } }
+});
+vm.runInContext(
+  boundedTextBlock + announceBlock + "\nthis.__announce = announce;",
+  announceContext,
+  { filename: "version2_final_product_bootstrap.js#announce" }
+);
+announceContext.__announce({
+  toString() {
+    hostileAnnouncementTouched = true;
+    return "hostile";
+  }
+});
+assert.strictEqual(hostileAnnouncementTouched, false, "announcement object reached toString()");
+assert.strictEqual(announceLive.textContent, "unchanged", "hostile announcement reached live region");
+announceContext.__announce("x".repeat(1201));
+assert.strictEqual(announceLive.textContent, "unchanged", "oversized announcement reached live region");
+announceContext.__announce("Safe bounded announcement");
+assert.strictEqual(
+  announceLive.textContent,
+  "Safe bounded announcement",
+  "valid bounded announcement was not published"
+);
 
 // Product presentation is a transaction too. A renderer may reject malformed
 // content after touching its candidate DOM; the previously committed screen,
