@@ -67,6 +67,7 @@ on:
       - 'tests/test_v2_library_search_service_v4.py'
       - 'tests/test_version2_formats_integration.py'
       - 'tests/test_version2_formats_canonical_nullmove_gate.py'
+      - 'tests/test_version2_formats_base_scope_workflow.py'
       - 'tools/optional/LIBCBH_BACKEND.md'
       - 'tools/optional/UNCBV_BACKEND.md'
       - 'tools/optional/libcbh_json_bridge.cpp'
@@ -122,11 +123,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_SHA="$(git rev-parse HEAD^1)"
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          else
+            BASE_SHA="$(git rev-parse HEAD^1)"
+          fi
           printf 'FORMATS_CANDIDATE_BASE=%s\n' "$BASE_SHA"
           test -n "$BASE_SHA"
           git cat-file -e "$BASE_SHA^{commit}"
           git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
           git diff --check "$BASE_SHA" HEAD
 
           changed="$(git diff --name-only "$BASE_SHA" HEAD | sort)"
@@ -183,6 +192,7 @@ jobs:
       - name: Version 2 semantic format journeys
         run: >-
           python -m unittest -v
+          tests.test_version2_formats_base_scope_workflow
           tests.test_version2_formats_canonical_nullmove_gate
           tests.test_version2_formats_integration
           tests.test_cbv_extractor
