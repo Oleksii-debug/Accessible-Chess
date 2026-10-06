@@ -582,6 +582,49 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(len(owner_events), 1)
             self.assertEqual(owner_events[0].kind, FileWorkflowEventKind.PGN_OPENED)
 
+    def test_import_started_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "import-cancel-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            cancel_results = []
+            holder = {}
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
+                    cancel_results.append(
+                        holder["delegate"]("library.cancel_import", {})
+                    )
+
+            delegate = self._delegate(
+                source,
+                event_sink=sink,
+                post_to_ui=lambda callback: None,
+            )
+            holder["delegate"] = delegate
+
+            with mock.patch.object(threading.Thread, "start", autospec=True) as start:
+                result = delegate("library.import", {})
+
+            start.assert_not_called()
+            self.assertEqual(
+                [event.kind for event in cancel_results],
+                [FileWorkflowEventKind.IMPORT_CANCELLING],
+            )
+            self.assertEqual(result.kind, FileWorkflowEventKind.IMPORT_CANCELLED)
+            self.assertEqual(result.action_id, "library.import")
+            self.assertEqual(result.focus_target, "library-import-file")
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_CANCELLING,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                ],
+            )
+            self.assertFalse(delegate.import_running)
+
     def test_import_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "import-shutdown.pgn"
@@ -1020,6 +1063,127 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.pgn_open_running)
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "pgn_open_ui_post_failed")
+
+    def test_pgn_open_started_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "open-cancel-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            cancel_results = []
+            posted = []
+            holder = {}
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.PGN_OPEN_STARTED:
+                    cancel_results.append(
+                        holder["delegate"]("pgn.cancel_open", {})
+                    )
+
+            delegate = self._delegate(
+                source,
+                event_sink=sink,
+                post_to_ui=posted.append,
+            )
+            holder["delegate"] = delegate
+
+            with mock.patch.object(threading.Thread, "start", autospec=True) as start:
+                result = delegate("pgn.open", {})
+
+            start.assert_not_called()
+            self.assertEqual(posted, [])
+            self.assertEqual(
+                [event.kind for event in cancel_results],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLING],
+            )
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
+            self.assertEqual(result.action_id, "pgn.open")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+            self.assertFalse(delegate.pgn_open_running)
+
+    def test_pgn_save_started_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "save-cancel-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+
+            class SaveDialogs(_Dialogs):
+                def __init__(self, source: Path, destination: Path) -> None:
+                    super().__init__(source)
+                    self.destination = destination
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return self.destination
+
+            for action_id in ("pgn.save", "pgn.save_as"):
+                with self.subTest(action_id=action_id):
+                    destination = Path(tmp) / (
+                        "cancelled-save-as.pgn"
+                        if action_id == "pgn.save_as"
+                        else "unused-destination.pgn"
+                    )
+                    session = PgnDocumentSession.open(source)
+                    events = []
+                    cancel_results = []
+                    posted = []
+                    holder = {}
+
+                    def sink(event):
+                        events.append(event)
+                        if event.kind is FileWorkflowEventKind.PGN_SAVE_STARTED:
+                            cancel_results.append(
+                                holder["delegate"]("pgn.cancel_save", {})
+                            )
+
+                    delegate = Version2WindowsFileActionDelegate(
+                        dialogs=SaveDialogs(source, destination),
+                        get_pgn_session=lambda: session,
+                        set_pgn_session=lambda value: None,
+                        import_services_factory=lambda: Version2ImportWorkerServices(
+                            _UnusedLibrary(), None, lambda: None
+                        ),
+                        event_sink=sink,
+                        next_delegate=lambda action, payload: None,
+                        current_focus_provider=lambda: "pgn-tree",
+                        post_to_ui=posted.append,
+                    )
+                    holder["delegate"] = delegate
+
+                    with mock.patch.object(
+                        threading.Thread, "start", autospec=True
+                    ) as start:
+                        result = delegate(action_id, {})
+
+                    start.assert_not_called()
+                    self.assertEqual(posted, [])
+                    self.assertEqual(
+                        [event.kind for event in cancel_results],
+                        [FileWorkflowEventKind.PGN_SAVE_CANCELLING],
+                    )
+                    self.assertEqual(
+                        result.kind, FileWorkflowEventKind.PGN_SAVE_CANCELLED
+                    )
+                    self.assertEqual(result.action_id, action_id)
+                    self.assertEqual(result.focus_target, "pgn-tree")
+                    self.assertEqual(
+                        [event.kind for event in events],
+                        [
+                            FileWorkflowEventKind.PGN_SAVE_STARTED,
+                            FileWorkflowEventKind.PGN_SAVE_CANCELLING,
+                            FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+                        ],
+                    )
+                    self.assertFalse(delegate.pgn_save_running)
+                    self.assertEqual(source.read_bytes(), original)
+                    self.assertFalse(destination.exists())
 
     def test_pgn_open_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
