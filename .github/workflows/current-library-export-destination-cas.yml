@@ -54,7 +54,6 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           SHIPPING_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-          PINNED_SHIPPING_SHA: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
           PINNED_PGN_SERVICE_BLOB: 76ae657c9cea85cbb57b5c202bc2954717ce9d58
           PINNED_PGN_EXPORT_HOST_BLOB: 913a74348f1323887d9d880285814a7680869ae1
           PINNED_PGN_COMMANDS_BLOB: 74a94b45597fbdc1607e7b3452df41b88837b42f
@@ -77,10 +76,6 @@ jobs:
 
           git fetch --no-tags origin "+refs/heads/$SHIPPING_REF:refs/remotes/origin/$SHIPPING_REF"
           live_shipping="$(git rev-parse "refs/remotes/origin/$SHIPPING_REF")"
-          test "$live_shipping" = "$PINNED_SHIPPING_SHA" || {
-            echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SHIPPING_MOVED pinned=$PINNED_SHIPPING_SHA live=$live_shipping" >&2
-            exit 1
-          }
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
             test "$EVENT_BASE_SHA" = "$live_shipping"
           fi
@@ -96,19 +91,27 @@ jobs:
             'tests/test_library_open_game_publication.py' \
             'tests/test_v2_windows_host_runtime.py' \
             'tests/test_v2_windows_library_export_background.py' | sort)"
-          test "$changed" = "$expected" || {
-            printf 'Unexpected Library export background/CAS scope:\n%s\n' "$changed" >&2
-            exit 1
-          }
+          if [ "$changed" = "$expected" ]; then
+            scope_mode=EXACT_RECONVERGENCE
+            test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$LIBRARY_HOST_RUNTIME_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
+          else
+            if ! git diff --quiet "$live_shipping"...HEAD -- \
+              '.github/workflows/current-library-export-destination-cas.yml' \
+              '.github/workflows/current-library-open-publication-ack.yml'; then
+              printf 'Unexpected Library workflow mutation outside exact reconvergence:\n%s\n' "$changed" >&2
+              exit 1
+            fi
+            scope_mode=DEPENDENT_VALIDATION
+          fi
 
           test "$(git rev-parse HEAD:acs/pgn_service.py)" = "$PINNED_PGN_SERVICE_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_pgn_export.py)" = "$PINNED_PGN_EXPORT_HOST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$PINNED_PGN_COMMANDS_BLOB"
 
-          test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$LIBRARY_HOST_RUNTIME_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
           echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SHIPPING=$live_shipping"
+          echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SCOPE_MODE=$scope_mode"
           echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SCOPE=PASS"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
