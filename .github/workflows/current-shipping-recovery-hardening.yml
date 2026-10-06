@@ -35,6 +35,8 @@ env:
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
   PACKAGE_PREFLIGHT_BLOB: 08c4024b063a7c674bada1a712cfdf44e7470c10
   PACKAGE_PREFLIGHT_TEST_BLOB: b986b679e9bb14e60f7c8297c09ddef914357c15
+  PORTABLE_PACKAGE_BLOB: efd46e24ec656b4226bb2f1a6b22e7473d0c0f66
+  PORTABLE_PACKAGE_TEST_BLOB: b86ac45bd5782ac90f070a9f116c69652464a062
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
   V2_RELEASE_DOM_TEST_BLOB: 6052ddfde81b98ef842660390be7a033b688bc9a
   PHYSICAL_RECORDER_BLOB: 91ffd7ef6c83f31c502f5fbe594caa49838f7150
@@ -90,6 +92,7 @@ jobs:
             ".github/workflows/current-shipping-recovery-hardening.yml"
             "acs/version2_application.py"
             "acs/version2_package_preflight.py"
+            "acs/version2_portable_package.py"
             "acs/version2_release_app.py"
             "acs/version2_release_ui.py"
             "acs/version2_windows_book_open_worker.py"
@@ -109,6 +112,7 @@ jobs:
             "tests/test_version2_application.py"
             "tests/test_version2_composition_startup_cleanup_current.py"
             "tests/test_version2_package_preflight.py"
+            "tests/test_version2_portable_package.py"
             "tests/test_version2_release_cleanup_precedence.py"
             "tests/test_version2_release_ui.py"
             "tests/test_version2_windows_book_open_worker.py"
@@ -140,6 +144,8 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "$FORMCLOSING_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "$PORTABLE_PACKAGE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_portable_package.py)" = "$PORTABLE_PACKAGE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
@@ -153,6 +159,7 @@ jobs:
           python -m py_compile
           acs/version2_application.py
           acs/version2_package_preflight.py
+          acs/version2_portable_package.py
           acs/version2_release_app.py
           acs/version2_release_ui.py
           acs/version2_windows_book_open_worker.py
@@ -166,6 +173,7 @@ jobs:
           tests/test_work_v2_shutdown_progress_failure_cleanup.py
           tests/test_version2_composition_startup_cleanup_current.py
           tests/test_version2_package_preflight.py
+          tests/test_version2_portable_package.py
           tests/test_version2_release_ui.py
           tests/test_version2_release_cleanup_precedence.py
           tests/test_version2_windows_book_open_worker.py
