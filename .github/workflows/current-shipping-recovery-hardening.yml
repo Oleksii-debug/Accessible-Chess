@@ -41,7 +41,7 @@ env:
   IMPORT_UI_PUMP_BLOB: 2551c9a3a06cef24b1a849154e9ced66aac6f23b
   IMPORT_UI_PUMP_TEST_BLOB: 7131b3cafd8a6a4673c1296fb739e16abfa1e4f2
   BOOK_OPEN_WORKER_TEST_BLOB: 434d66ce85d8da05891c220cd477d3ea41ff36b1
-  HOST_RUNTIME_TEST_BLOB: 52dd8d02890af3c84d50e36b5eceac5bb2797969
+  HOST_RUNTIME_TEST_BLOB: 5bf76149f11751ee46820a4ad21e595a82585ef8
   FILE_SHUTDOWN_TEST_BLOB: 999475ab6289877a21392de0dbf3550729b7f4a3
   FORMCLOSING_TEST_BLOB: 197661e6fee63d19fcdc86535815389cb1c70868
   RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
@@ -113,6 +113,10 @@ env:
   CHILD_ROTATION_TEST_BLOB: 3acee0fa67f1d1e9320cdc9985912d5ca4edc8c3
   CHILD_ROTATION_RECOVERY_TEST_BLOB: 5a3233b611cca861de497d3e7692560f7d9b449e
   GROUP_ROTATION_BINDING_TEST_BLOB: a3d8e457673b48bc707c938a9d4cc5ac5b942344
+  LIBRARY_EXPORT_CAS_WORKFLOW_BLOB: 20465341a036c3d118af1b3eca0ffce447714066
+  LIBRARY_OPEN_ACK_WORKFLOW_BLOB: 1c67fe0e2b8fbecdd918b6dbf630f14c52830e34
+  LIBRARY_OPEN_PUBLICATION_TEST_BLOB: cc3c1eadd86498e6ced76c3ea898f80b33d25975
+  LIBRARY_EXPORT_BACKGROUND_TEST_BLOB: 9b7de203065595261988568e3b9702d7cfcb61b1
 
 jobs:
   recovery-hardening:
@@ -317,6 +321,10 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_child_coaching_rotation.py)" = "$CHILD_ROTATION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_child_coaching_rotation_completed_recovery.py)" = "$CHILD_ROTATION_RECOVERY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-library-export-destination-cas.yml)" = "$LIBRARY_EXPORT_CAS_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/current-library-open-publication-ack.yml)" = "$LIBRARY_OPEN_ACK_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_PUBLICATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/current-book-html-inline-style-visibility.yml)" = "$BOOK_HTML_STYLE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$BOOK_HTML_IMPORT_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_book_html_import.py)" = "$BOOK_HTML_IMPORT_TEST_BLOB"
@@ -466,6 +474,8 @@ jobs:
           tests/test_child_coaching_rotation_completed_recovery.py
           tests/test_version2_group_rotation_binding.py
           tests/test_issue22_release_contract.py
+          tests/test_library_open_game_publication.py
+          tests/test_v2_windows_library_export_background.py
           tests/test_notation.py
           tests/test_position_text_authority.py
           tests/test_nvda_p0_contract.py
@@ -552,6 +562,8 @@ jobs:
           tests.test_dev1_release_ui_regressions
           tests.test_full_product_native_menu
           tests.test_dev1_library_webview_projection
+          tests.test_library_open_game_publication
+          tests.test_v2_windows_library_export_background
           tests.test_accessible_webui
           tests.test_issue22_release_contract
           tests.test_nvda_p0_contract
@@ -601,6 +613,7 @@ jobs:
           node tests/js/owner_sound_bridge_ready_test.js
           node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
+          node tests/js/library_export_surface_dom_test.js
           node tests/js/stage1_core_language_test.js
           node tests/js/remappable_input_submit_keys_current_test.js
           python run_accessible_chess_v2.py --diagnostic
