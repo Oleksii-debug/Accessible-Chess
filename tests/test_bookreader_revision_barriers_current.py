@@ -262,6 +262,43 @@ class BookReaderRevisionBarrierCurrentTests(unittest.TestCase):
         with self.assertRaises(LookupError):
             reader.restore_return_point("handoff")
 
+    def test_provisional_return_point_rejects_reentrant_named_overwrite(self) -> None:
+        reader = BookReader(self.make_book())
+        reader.go_to(1)
+        reader.save_return_point("handoff")
+        previous = reader.restore_return_point("handoff")
+        self.assertEqual(previous.index, 1)
+
+        reader.go_to(0)
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "provisional return point changed during handoff",
+        ):
+            with reader.provisional_return_point("handoff") as location:
+                self.assertEqual(location.index, 0)
+                reader.go_to(2)
+                reader.save_return_point("handoff")
+
+        # The failed provisional transaction restores the exact binding that
+        # existed before the handoff rather than retaining either competing key.
+        self.assertEqual(reader.restore_return_point("handoff").index, 1)
+
+    def test_new_provisional_return_point_rejects_reentrant_named_overwrite(self) -> None:
+        reader = BookReader(self.make_book())
+        reader.go_to(0)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "provisional return point changed during handoff",
+        ):
+            with reader.provisional_return_point("handoff") as location:
+                self.assertEqual(location.index, 0)
+                reader.go_to(2)
+                reader.save_return_point("handoff")
+
+        with self.assertRaises(LookupError):
+            reader.restore_return_point("handoff")
+
     def test_provisional_return_point_success_has_final_revision_barrier(self) -> None:
         reader = BookReader(self.make_book())
         reader.go_to(1)
