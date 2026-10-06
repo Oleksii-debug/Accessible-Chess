@@ -300,6 +300,99 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIsNone(self.app._book_open_worker)
         self.assertFalse(self.app.unbind_book_open_worker(worker))
 
+    def test_new_book_open_recovers_retained_terminal_before_file_picker(self):
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+
+        observed_busy = []
+
+        def picker():
+            observed_busy.extend(
+                event["payload"].get("book_open_busy")
+                for event in self.app._events
+                if "book_open_busy" in event.get("payload", {})
+            )
+            return None
+
+        with mock.patch.object(self.app, "open_book_dialog", side_effect=picker) as dialog:
+            self.assertIsNone(self.app._delegate("book.open", {}))
+            dialog.assert_called_once_with()
+
+        self.assertEqual(observed_busy, [True, False])
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_failed_retained_book_terminal_blocks_file_picker_until_retry(self):
+        fail_terminal_once = [True]
+
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        def sink(event):
+            if (
+                event.kind is BookOpenWorkerEventKind.FAILED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("terminal presentation unavailable")
+            return self.app._book_open_event(event)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=sink,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+
+        with mock.patch.object(
+            self.app,
+            "open_book_dialog",
+            return_value=None,
+        ) as dialog:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "terminal presentation unavailable",
+            ):
+                self.app._delegate("book.open", {})
+            dialog.assert_not_called()
+
+            self.assertIsNone(self.app._delegate("book.open", {}))
+            dialog.assert_called_once_with()
+
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
     def test_event_drain_recovers_book_terminal_after_ui_post_failure(self):
         def reject_post(_callback):
             raise RuntimeError("owner temporarily unavailable")
