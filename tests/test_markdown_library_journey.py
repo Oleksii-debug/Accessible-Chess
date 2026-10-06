@@ -9,6 +9,7 @@ from acs.book_library_import import open_book_library_source
 from acs.book_library_game_lookup import AcsdbBookGameLookup
 from acs.book_text_import import import_text_book, BookTextFormat, BookTextImportError
 from acs.bookdocument import Game, Heading, ListBlock, Note, Paragraph, Position
+from acs.bookreader import BOOK_READER_SNAPSHOT_SCHEMA_VERSION, BookReader
 from acs.chesscore import Board
 from acs.gametree_legality import validate_game_legality
 from acs.library_import_service import LibraryImportService
@@ -183,14 +184,16 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             any("block quote structure" in warning for warning in first.warnings)
         )
 
-    def test_heading_images_use_alt_text_without_destination_identity_churn(self):
+    def test_heading_images_use_alt_text_and_preserve_legacy_progress_identity(self):
+        first_identity = 'Before  ![Board position](https://one.invalid/board.png "first title")  after'
+        second_identity = 'Before  ![Board position](https://two.invalid/changed.png "second title")  after'
         first = import_text_book(
-            '# Before  ![Board position](https://one.invalid/board.png "first title")  after #',
+            f"# {first_identity} #",
             source_name="heading-one.md",
             source_format=BookTextFormat.MARKDOWN,
         )
         second = import_text_book(
-            '# Before  ![Board position](https://two.invalid/changed.png "second title")  after #',
+            f"# {second_identity} #",
             source_name="heading-two.md",
             source_format=BookTextFormat.MARKDOWN,
         )
@@ -206,11 +209,37 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
         expected = "Before  Board position  after"
         self.assertEqual(first_headings[0].text, expected)
         self.assertEqual(second_headings[0].text, expected)
-        self.assertEqual(first_headings[0].block_id, second_headings[0].block_id)
         self.assertEqual(first.document.title, expected)
         self.assertEqual(second.document.title, expected)
         self.assertNotIn("one.invalid", first_headings[0].text)
         self.assertNotIn("first title", first_headings[0].text)
+
+        def legacy_id(identity_text):
+            digest = sha256(
+                ("Heading\0" + "1\0" + identity_text).encode("utf-8")
+            ).hexdigest()[:20]
+            return f"markdown-{digest}-1"
+
+        first_legacy_id = legacy_id(first_identity)
+        second_legacy_id = legacy_id(second_identity)
+        self.assertEqual(first_headings[0].block_id, first_legacy_id)
+        self.assertEqual(second_headings[0].block_id, second_legacy_id)
+        self.assertNotEqual(first_legacy_id, second_legacy_id)
+
+        # An existing progress snapshot produced before the visible-text repair
+        # must still reopen the same semantic heading for unchanged source bytes.
+        restored = BookReader.restore_snapshot(
+            first.document,
+            {
+                "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+                "current_target": f"block:{first_legacy_id}",
+                "return_points": {},
+                "fallback_digests": {},
+            },
+        )
+        location = restored.location()
+        self.assertEqual(location.block_id, first_legacy_id)
+        self.assertEqual(first.document.blocks[location.index].text, expected)
         self.assertTrue(
             any(
                 "image destination was excluded" in warning
