@@ -143,6 +143,18 @@ class AccessibleChessAPI:
         b = board or self._display_board()
         return b.board.count("K") == 1 and b.board.count("k") == 1
 
+    def _position_playable(self, board: Board | None = None) -> bool:
+        """Ask the canonical Board FEN authority whether gameplay may start."""
+
+        b = board or self._display_board()
+        if not self._position_complete(b):
+            return False
+        try:
+            Board(b.fen())
+        except Exception:
+            return False
+        return True
+
     def square_label(self, square: int | str, board: Board | None = None) -> str:
         b = board or self._display_board()
         # Use the canonical exact-int/exact-text square boundary for both forms.
@@ -199,6 +211,8 @@ class AccessibleChessAPI:
         turn_text = self._t("white_turn") if b.turn == "w" else self._t("black_turn")
         if not self._position_complete(b):
             return f"{self._t('setup_incomplete')} {turn_text}"
+        if not self._position_playable(b):
+            return f"{self._t('position_invalid')} {turn_text}"
         legal = b.legal_moves()
         if legal:
             if b.in_check(b.turn):
@@ -469,7 +483,7 @@ class AccessibleChessAPI:
                 if self.selected_source is not None and self._at_history_end() else None
             ),
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
-            "positionComplete": self._position_complete(display_board),
+            "positionComplete": self._position_playable(display_board),
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
@@ -684,6 +698,8 @@ class AccessibleChessAPI:
             return self._error(self._t("review_before_move"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
         side = self.board.turn
         try:
             candidate_board = copy.deepcopy(self.board)
@@ -751,6 +767,8 @@ class AccessibleChessAPI:
             return self._error(self._t("square_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
         p = self.board.board[target]
         if self.selected_source is None:
             if not p:
