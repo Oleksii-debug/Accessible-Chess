@@ -165,6 +165,11 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
                         announcement,
                         f"analysis action {expected_action} became silent while disabled",
                     )
+                    self.assertIn(
+                        "вимкнено",
+                        announcement.lower(),
+                        f"analysis action {expected_action} did not explain that analysis is disabled",
+                    )
 
 
 if __name__ == "__main__":
