@@ -31,6 +31,7 @@ from .sound_windows import (
 )
 from .version2_package_preflight import (
     Version2PackagePreflightError,
+    _passive_path,
     validate_winforms_accessibility_app_config,
 )
 from .stockfish_runtime import (
@@ -950,10 +951,13 @@ def prepare_version2_release_payload(
     ``manifest.json``, provenance identity, and the complete semantic sound-event set.
     """
 
-    standalone = Path(standalone_dir)
-    stockfish_archive = Path(stockfish_release_archive)
-    sounds = Path(sound_pack_dir)
-    output = Path(output_root)
+    standalone = _passive_path(standalone_dir, label="standalone directory")
+    stockfish_archive = _passive_path(
+        stockfish_release_archive,
+        label="Stockfish release archive",
+    )
+    sounds = _passive_path(sound_pack_dir, label="sound-pack directory")
+    output = _passive_path(output_root, label="release payload output")
 
     if output.exists():
         raise Version2ReleasePayloadError("output payload root already exists")

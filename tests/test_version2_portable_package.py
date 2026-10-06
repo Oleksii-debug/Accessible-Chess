@@ -2005,6 +2005,171 @@ class PortableTreeTests(unittest.TestCase):
                 )
             self.assertFalse((root / "candidate.zip").exists())
 
+    def test_assembler_rejects_derived_document_tuple_before_container_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActiveTuple(tuple):
+            def __len__(self):
+                touched.append("len")
+                raise AssertionError("derived tuple len hook executed")
+
+            def __iter__(self):
+                touched.append("iter")
+                raise AssertionError("derived tuple iteration hook executed")
+
+        documents = ActiveTuple(("first.docx", "second.docx"))
+        with mock.patch.object(
+            portable_module,
+            "validate_version2_package_tree",
+            side_effect=AssertionError("package preflight must not start"),
+        ) as preflight_authority:
+            with self.assertRaisesRegex(TypeError, "exact two-item tuple"):
+                assemble_portable_oneclick_tree(
+                    "unused-canonical",
+                    "unused-launcher.exe",
+                    documents,
+                    "unused-output",
+                    integration_sha=_SHA,
+                )
+        preflight_authority.assert_not_called()
+        self.assertEqual(touched, [])
+
+
+
+    def test_require_user_seed_rejects_active_truthiness_before_work(self) -> None:
+        touched: list[str] = []
+
+        class ActiveFlag:
+            def __bool__(self):
+                touched.append("bool")
+                raise AssertionError("active require_user_seed truthiness executed")
+
+        flag = ActiveFlag()
+
+        with mock.patch.object(
+            portable_module,
+            "_safe_info",
+            side_effect=AssertionError("tree inspection must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact bool"):
+                validate_portable_oneclick_tree(
+                    "unused-portable",
+                    expected_integration_sha=_SHA,
+                    require_user_seed=flag,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with mock.patch.object(
+            portable_module,
+            "_sha40",
+            side_effect=AssertionError("assembly authority must not start"),
+        ) as sha_authority:
+            with self.assertRaisesRegex(TypeError, "exact bool"):
+                assemble_portable_oneclick_tree(
+                    "unused-canonical",
+                    "unused-launcher.exe",
+                    ("first.docx", "second.docx"),
+                    "unused-output",
+                    integration_sha=_SHA,
+                    require_user_seed=flag,
+                )
+        sha_authority.assert_not_called()
+        self.assertEqual(touched, [])
+
+        with mock.patch.object(
+            portable_module,
+            "Path",
+            side_effect=AssertionError("ZIP path parsing must not start"),
+        ) as path_authority:
+            with self.assertRaisesRegex(TypeError, "exact bool"):
+                write_portable_oneclick_zip(
+                    "unused-portable",
+                    "unused.zip",
+                    expected_integration_sha=_SHA,
+                    require_user_seed=flag,
+                )
+        path_authority.assert_not_called()
+        self.assertEqual(touched, [])
+
+
+
+    def test_portable_path_controls_reject_active_pathlike_before_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        active = ActivePath()
+
+        with mock.patch.object(
+            portable_module,
+            "_safe_info",
+            side_effect=AssertionError("portable tree inspection must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                validate_portable_oneclick_tree(
+                    active,
+                    expected_integration_sha=_SHA,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        assemble_cases = (
+            (active, "launcher.exe", ("first.docx", "second.docx"), "output"),
+            ("canonical", active, ("first.docx", "second.docx"), "output"),
+            ("canonical", "launcher.exe", ("first.docx", "second.docx"), active),
+            ("canonical", "launcher.exe", (active, "second.docx"), "output"),
+        )
+        for canonical, launcher, documents, output in assemble_cases:
+            with self.subTest(
+                canonical=type(canonical).__name__,
+                launcher=type(launcher).__name__,
+                output=type(output).__name__,
+                first_document=type(documents[0]).__name__,
+            ):
+                with mock.patch.object(
+                    portable_module,
+                    "validate_version2_package_tree",
+                    side_effect=AssertionError("package preflight must not start"),
+                ) as preflight_authority:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        assemble_portable_oneclick_tree(
+                            canonical,
+                            launcher,
+                            documents,
+                            output,
+                            integration_sha=_SHA,
+                        )
+                preflight_authority.assert_not_called()
+                self.assertEqual(touched, [])
+
+        for package_root, zip_path in (
+            (active, "candidate.zip"),
+            ("portable", active),
+        ):
+            with self.subTest(
+                package_root=type(package_root).__name__,
+                zip_path=type(zip_path).__name__,
+            ):
+                with mock.patch.object(
+                    portable_module,
+                    "validate_portable_oneclick_tree",
+                    side_effect=AssertionError("portable validation must not start"),
+                ) as validation:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        write_portable_oneclick_zip(
+                            package_root,
+                            zip_path,
+                            expected_integration_sha=_SHA,
+                        )
+                validation.assert_not_called()
+                self.assertEqual(touched, [])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
