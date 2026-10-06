@@ -19,7 +19,7 @@ concurrency:
 
 env:
   EPUB_IMPORT_BLOB: 0bfeffce90ae04ea71f6aef08a73de476db91d58
-  ACTIVE_CANCEL_TEST_BLOB: e0d80af2832e44b4a542c2e3a15701f16549da87
+  ACTIVE_CANCEL_TEST_BLOB: 4be61244b0204bb5b9af311d64bf9e8f3144a8bc
 
 jobs:
   exact-head:
