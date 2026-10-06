@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from acs.book_board_workflow import BookBoardWorkflow
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewEvent, BookWebViewProjection
 from acs.bookdocument import BookDocument, Paragraph
@@ -218,6 +219,112 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
         self.assertEqual(event.kind, "render")
         self.assertEqual(event.payload["source"], "v2-class")
         self.assertEqual(class_calls, ["next"])
+        self.assertEqual(touched, [])
+
+    def test_version2_projection_ignores_exact_root_and_helper_instance_shadows(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                "V2 passive roots",
+                blocks=[Paragraph(text="Readable V2 paragraph", block_id="p1")],
+            )
+        )
+        workflow = BookBoardWorkflow.__new__(BookBoardWorkflow)
+        workflow._reader = reader
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda command, payload: None,
+            language=UILanguage.EN,
+        )
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("V2 instance shadow must not execute")
+
+        reader.block_reading_snapshot = hostile  # type: ignore[method-assign]
+        projection._workflow_presentation_state = hostile  # type: ignore[method-assign]
+
+        block = BookReaderPresenter.current(projection._presenter)
+        with patch.object(
+            Version2BookWebViewProjection,
+            "_workflow_presentation_state",
+            new=lambda _self: (False, 0),
+        ):
+            snapshot = Version2BookWebViewProjection._snapshot_from_block(
+                projection,
+                block,
+            )
+
+        self.assertEqual(snapshot["block"]["text"], "Readable V2 paragraph")
+        self.assertFalse(snapshot["board_active"])
+        self.assertEqual(touched, [])
+
+    def test_version2_semantic_workflow_dispatch_ignores_instance_shadow(self) -> None:
+        reader = self._reader()
+        workflow = BookBoardWorkflow.__new__(BookBoardWorkflow)
+        workflow._reader = reader
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda command, payload: None,
+            language=UILanguage.EN,
+        )
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("workflow instance shadow must not execute")
+
+        workflow.semantic_game_snapshot = hostile  # type: ignore[method-assign]
+
+        def canonical(_workflow, _index):
+            raise ValueError("canonical workflow method reached")
+
+        with patch.object(
+            BookBoardWorkflow,
+            "semantic_game_snapshot",
+            new=canonical,
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "^canonical workflow method reached$",
+            ):
+                Version2BookWebViewProjection._semantic_tree_snapshot(
+                    projection,
+                    0,
+                )
+
+        self.assertEqual(touched, [])
+
+    def test_version2_public_overrides_ignore_helper_instance_shadows(self) -> None:
+        reader = self._reader()
+        workflow = BookBoardWorkflow.__new__(BookBoardWorkflow)
+        workflow._reader = reader
+        projection = Version2BookWebViewProjection(
+            reader,
+            workflow,
+            lambda command, payload: None,
+            language=UILanguage.EN,
+        )
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("hostile")
+            raise AssertionError("V2 helper instance shadow must not execute")
+
+        projection._workflow_action = hostile  # type: ignore[method-assign]
+        projection._result_announcement = hostile  # type: ignore[method-assign]
+        projection.generic_error = hostile  # type: ignore[method-assign]
+
+        with patch.object(
+            Version2BookWebViewProjection,
+            "_workflow_action",
+            new=lambda _self, _action, _expected: False,
+        ):
+            event = Version2BookWebViewProjection.open_position(projection)
+
+        self.assertEqual(event.kind, "error")
         self.assertEqual(touched, [])
 
     def test_exact_reader_presenter_projection_chain_still_renders(self) -> None:
