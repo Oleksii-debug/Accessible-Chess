@@ -167,7 +167,9 @@
         const next = safeCommandResult(result);
         if (next !== null) {
           render(root, next, invokeCommand, true);
+          return;
         }
+        button.disabled = previousDisabled;
       })
       .catch(() => {
         if (!isCurrent(root, generation)) return;
