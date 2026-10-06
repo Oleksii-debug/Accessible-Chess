@@ -26,6 +26,7 @@ from acs.full_product_ui_shell import UILanguage
 from acs.search_service import GameSearchService
 from acs.universal_chess_agent import UniversalChessAgentRuntime
 from acs.version2_final_product_application import Version2FinalProductApplication
+from acs.version2_final_release import _bind_agent_execution
 
 
 PGN = """[Event "Agent Owner Thread"]
@@ -460,6 +461,70 @@ class AgentExecutionHostTests(unittest.TestCase):
         self.assertTrue(poster.posted.is_set())
         poster.run_all()
         self.assertEqual(side_effects, [])
+
+    def test_final_release_factory_uses_native_begininvoke_owner_boundary(self):
+        owner = OwnerHarness()
+        side_threads: list[int] = []
+
+        class NativeOwner:
+            IsDisposed = False
+            Disposing = False
+
+            def BeginInvoke(self, callback):
+                owner.post(callback)
+                return object()
+
+        api = SimpleNamespace(
+            _ui_owner=NativeOwner(),
+            _ui_action=lambda callback: callback,
+            _ui_thread=owner.thread_id,
+        )
+        app = self.application_shell()
+
+        def factory(_api, _application, owner_call):
+            executor = ToolExecutor()
+
+            async def owner_tool(_arguments):
+                return await owner_call(
+                    lambda: side_threads.append(get_ident()) or {"ok": True}
+                )
+
+            executor.register(
+                ToolSpec("fixture.owner", "native owner fixture"),
+                owner_tool,
+            )
+            return runtime_for(OwnerToolProvider(), executor)
+
+        _bind_agent_execution(api, app, factory)
+        host = app._agent_execution_host
+        try:
+            app.browser_command(
+                "agent",
+                "agent.submit",
+                {"text": "Use native owner."},
+            )
+            done = wait_for(app.agent.projection, "completed")
+            self.assertEqual(
+                done["transcript"][-1]["text"],
+                "Owner call completed.",
+            )
+            self.assertEqual(side_threads, [owner.thread_id])
+        finally:
+            if host is not None:
+                self.assertTrue(host.shutdown(timeout=3))
+            owner.close()
+
+    def test_second_host_binding_is_rejected_without_replacing_live_projection(self):
+        app = self.application_shell()
+        host = bind_agent_runtime(app, runtime_for(FinalProvider()))
+        projection = app.agent.projection
+        try:
+            with self.assertRaisesRegex(RuntimeError, "already installed"):
+                bind_agent_runtime(app, runtime_for(FinalProvider()))
+            self.assertIs(app.agent.projection, projection)
+            self.assertTrue(host.alive)
+        finally:
+            self.assertTrue(host.shutdown(timeout=3))
 
     def test_owner_call_rejects_non_callable_boundary(self):
         owner_call = AgentOwnerThreadCall(lambda callback: callback())
