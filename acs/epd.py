@@ -218,12 +218,17 @@ def _parse_operation(segment: str) -> EpdOperation:
 
 def _parse_counter(operation: EpdOperation) -> int:
     operand = operation.operand
-    if operand is None or not operand.isascii() or not operand.isdecimal():
+    if operand is None or not operand.isascii():
         raise EpdParseError(
-            f"EPD {operation.opcode} operand must be an unsigned ASCII decimal integer"
+            f"EPD {operation.opcode} operand must be a non-negative ASCII integer"
+        )
+    digits = operand[1:] if operand.startswith("+") else operand
+    if not digits or not digits.isdecimal():
+        raise EpdParseError(
+            f"EPD {operation.opcode} operand must be a non-negative ASCII integer"
         )
     try:
-        return int(operand)
+        return int(digits)
     except ValueError as exc:
         raise EpdParseError(
             f"EPD {operation.opcode} operand is outside the supported integer range"
