@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import unittest
 
 from acs.gametree_navigation import GameTreeCursor, VariationStep, resolve_line
@@ -286,6 +287,61 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
         self.assertEqual(session.workspace.selected_game_index, 0)
         self.assertEqual(session.workspace.cursor, GameTreeCursor())
         self.assertFalse(session.workspace.dirty)
+
+    def test_complete_edits_save_and_reopen_without_semantic_loss(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "Persist"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 *'
+        )
+        workspace = session.workspace
+        commands = Version2PgnCommands(lambda: session)
+
+        workspace.line_end()
+        commands(
+            "pgn.append_moves",
+            {**command_target(session), "text": "Nc6"},
+        )
+
+        workspace.set_cursor(GameTreeCursor((), 2))
+        commands(
+            "pgn.variation_add",
+            {**command_target(session), "text": "c5 Nf3"},
+        )
+
+        workspace.set_cursor(GameTreeCursor((), 1))
+        commands(
+            "pgn.nag_edit",
+            {**command_target(session), "text": "$1"},
+        )
+        commands(
+            "pgn.tag_edit",
+            {
+                **command_target(session),
+                "name": "Annotator",
+                "value": "Accessible Chess",
+            },
+        )
+
+        before_save = session.copy_pgn()
+        self.assertTrue(session.dirty)
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "edited.pgn"
+            session.save_as(target)
+            self.assertFalse(session.dirty)
+            reopened = PgnDocumentSession.open(target)
+
+        self.assertEqual(reopened.copy_pgn(), before_save)
+        game = reopened.workspace.current_game()
+        self.assertEqual(game.tags["Annotator"], "Accessible Chess")
+        self.assertEqual(game.line.moves[0].nags, ["$1"])
+        self.assertEqual(
+            [move.san for move in game.line.moves],
+            ["e4", "e5", "Nf3", "Nc6"],
+        )
+        self.assertEqual(
+            [move.san for move in game.line.moves[1].variations[0].moves],
+            ["c5", "Nf3"],
+        )
 
     def test_accessible_pgn_surface_contains_complete_editing_dialogs(self):
         js = (
