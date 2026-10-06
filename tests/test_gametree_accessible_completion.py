@@ -225,6 +225,35 @@ class AccessibleGameTreeCompletionTests(unittest.TestCase):
         self.assertEqual(calls[-1][0], "pgn.variation_move_down")
         self.assertEqual(set(calls[-1][1]), {"game_index", "node_id"})
 
+    def test_bridge_rejects_malformed_unicode_tag_payload_without_dispatch(self):
+        games = tuple(parse_games(DOCUMENT))
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def dispatch(action: str, payload):
+            calls.append((action, dict(payload)))
+
+        projection = PgnWebViewProjection(
+            presenter,
+            dispatch,
+            lambda: 1,
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+
+        for value in ("lone-high-\ud800", "lone-low-\udfff"):
+            with self.subTest(value=repr(value)):
+                result = bridge.dispatch(
+                    "pgn.tag_edit",
+                    {"name": "Event", "value": value},
+                )
+                self.assertEqual(result.kind, "error")
+                self.assertEqual(
+                    result.payload.get("message"),
+                    "The action could not be completed.",
+                )
+                self.assertEqual(calls, [])
+
     def test_browser_surface_describes_selected_treeitem_with_structural_context(self):
         js = (
             Path(__file__).resolve().parents[1] / "web" / "full_product_pgn.js"
