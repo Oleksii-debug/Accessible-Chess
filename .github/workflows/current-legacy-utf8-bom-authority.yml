@@ -7,6 +7,7 @@ on:
     paths:
       - "acs/legacy_text_encoding.py"
       - "tests/test_legacy_text_encoding.py"
+      - "tests/test_legacy_book_utf16_integration.py"
       - ".github/workflows/current-legacy-utf8-bom-authority.yml"
   workflow_dispatch:
 
@@ -21,6 +22,7 @@ env:
   BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   SOURCE_BLOB: 1f38fe854aa73440c7269c46fa6a725df6340cdb
   TEST_BLOB: ce4642d5c62a6bf30f1198124f86344fbda0b272
+  INTEGRATION_TEST_BLOB: 079c1d198a1cf7a9ef9e85a0287fa5bc5d94fb93
 
 jobs:
   qualify:
@@ -65,6 +67,7 @@ jobs:
           expected=(
             ".github/workflows/current-legacy-utf8-bom-authority.yml"
             "acs/legacy_text_encoding.py"
+            "tests/test_legacy_book_utf16_integration.py"
             "tests/test_legacy_text_encoding.py"
           )
           test "${#actual[@]}" -eq "${#expected[@]}"
@@ -73,6 +76,7 @@ jobs:
           done
           test "$(git rev-parse HEAD:acs/legacy_text_encoding.py)" = "$SOURCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_legacy_text_encoding.py)" = "$TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_legacy_book_utf16_integration.py)" = "$INTEGRATION_TEST_BLOB"
 
       - name: Compile bounded legacy encoding surface
         run: python -m compileall -q acs/legacy_text_encoding.py tests/test_legacy_text_encoding.py
