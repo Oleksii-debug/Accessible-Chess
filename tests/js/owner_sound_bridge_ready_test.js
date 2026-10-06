@@ -51,6 +51,39 @@ vm.runInContext(source.slice(source.indexOf('async function markReady()'),source
   assert.equal(feedback.checked,false,'failed feedback reload must clear stale enabled state');
   assert.equal(feedback.disabled,true,'failed feedback reload must remain disabled');
 
+  let resolveFeedbackWrite = null;
+  bridge.get_move_feedback_settings = async()=>({ok:true,enabled:false});
+  bridge.set_move_error_announcements = ()=>new Promise(resolve=>{resolveFeedbackWrite=resolve;});
+  feedback.checked = true;
+  const pendingFeedbackWrite = context.persistMoveFeedbackSetting(feedback,true);
+  assert.equal(feedback.disabled,true,'feedback control must be disabled while persistence is unresolved');
+  resolveFeedbackWrite({ok:true,enabled:true});
+  assert.equal(await pendingFeedbackWrite,true,'authoritative feedback write should succeed');
+  assert.equal(feedback.checked,true,'authoritative persisted feedback state must be reflected');
+  assert.equal(feedback.disabled,false,'authoritative feedback write must re-enable the control');
+
+  bridge.set_move_error_announcements = async()=>({ok:false,enabled:true});
+  bridge.get_move_feedback_settings = async()=>({ok:true,enabled:false});
+  feedback.checked = true;
+  assert.equal(
+    await context.persistMoveFeedbackSetting(feedback,true),
+    false,
+    'non-authoritative feedback write must fail closed',
+  );
+  assert.equal(feedback.checked,false,'failed feedback write must restore canonical persisted state');
+  assert.equal(feedback.disabled,false,'successful canonical reread may re-enable the feedback control');
+
+  bridge.set_move_error_announcements = async()=>{throw new Error('private feedback write failure');};
+  bridge.get_move_feedback_settings = async()=>{throw new Error('private feedback read failure');};
+  feedback.checked = true;
+  assert.equal(
+    await context.persistMoveFeedbackSetting(feedback,true),
+    false,
+    'feedback write exception must fail closed',
+  );
+  assert.equal(feedback.checked,false,'failed feedback write+reload must clear stale requested state');
+  assert.equal(feedback.disabled,true,'failed feedback write+reload must leave the control disabled');
+
   failSoundRead = true;
   const failedReload = context.loadSoundState();
   assert.equal(
