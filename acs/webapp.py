@@ -537,6 +537,7 @@ class AccessibleChessAPI:
     def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
         if type(square) is not str or type(piece) is not str:
             return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
+        square = square.strip().lower()
         if not re.fullmatch(r"[a-h][1-8]", square):
             return self._error("Неправильне поле." if self.lang == "uk" else "Invalid square.")
         normalized_piece = None if piece in {"", "-"} else piece
@@ -567,11 +568,12 @@ class AccessibleChessAPI:
             return self._error("Лічильники ходів мають бути цілими невід’ємними числами." if self.lang == "uk" else "Move counters must be unsigned integers.")
         try:
             state = self._position_state_from_live_board()
+            normalized_castling = state.with_castling(castling).castling
             state = PositionState(
                 state.pieces,
                 turn=turn,
-                castling=castling.strip() or "-",
-                en_passant=en_passant.strip() or "-",
+                castling=normalized_castling,
+                en_passant=en_passant.strip().lower() or "-",
                 halfmove=int(halfmove_text),
                 fullmove=int(fullmove_text),
             )
@@ -583,14 +585,30 @@ class AccessibleChessAPI:
             "Position metadata updated.",
         )
 
+    def _localized_position_problem(self, problem: str) -> str:
+        if self.lang != "uk":
+            return problem
+        if problem.startswith("white king count must be 1"):
+            return "має бути рівно один білий король"
+        if problem.startswith("black king count must be 1"):
+            return "має бути рівно один чорний король"
+        if problem.startswith("pawn on invalid first rank at "):
+            return "пішак не може стояти на першій горизонталі: " + problem.rsplit(" ", 1)[-1]
+        if problem.startswith("pawn on invalid eighth rank at "):
+            return "пішак не може стояти на восьмій горизонталі: " + problem.rsplit(" ", 1)[-1]
+        if "castling right inconsistent" in problem:
+            return "права рокіровки не відповідають розташуванню короля і тури"
+        return "структура позиції некоректна"
+
     def validate_position_editor(self) -> dict[str, Any]:
         try:
             state = self._position_state_from_live_board()
             structural = state.validate_playable()
             if structural:
+                problems = [self._localized_position_problem(item) for item in structural]
                 return self._error(
                     ("Позиція ще не готова до гри: " if self.lang == "uk" else "Position is not yet playable: ")
-                    + "; ".join(structural)
+                    + "; ".join(problems)
                 )
             Board(state.to_fen())
         except (PositionValidationError, ValueError):
