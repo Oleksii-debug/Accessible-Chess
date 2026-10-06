@@ -89,13 +89,26 @@ class AcsdbBookGameLookup:
         reparsed: list[str],
     ) -> list[str]:
         if not persisted:
+            if len(reparsed) > MAX_PGN_LEXICAL_TOKENS:
+                raise BookLibraryGameLookupError(
+                    "stored book game warnings exceed the canonical resource limit"
+                )
             return list(reparsed)
         merged = list(persisted)
         seen = set(persisted)
         for warning in reparsed:
-            if warning not in seen:
-                merged.append(warning)
-                seen.add(warning)
+            if warning in seen:
+                continue
+            if len(merged) >= MAX_PGN_LEXICAL_TOKENS:
+                # Each warning source is bounded independently, but their union
+                # must stay inside the same canonical lexical-work envelope.
+                # Do not publish a Book-side GameTree whose diagnostics exceed
+                # the D06 source budget merely because provenance was merged.
+                raise BookLibraryGameLookupError(
+                    "stored book game warnings exceed the canonical resource limit"
+                )
+            merged.append(warning)
+            seen.add(warning)
         return merged
 
     def load_book_game(self, game_id: int) -> PgnGame:
