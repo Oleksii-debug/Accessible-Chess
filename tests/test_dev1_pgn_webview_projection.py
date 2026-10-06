@@ -612,6 +612,21 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.assertEqual("error", result.kind)
         self.assertFalse(StripBomb.touched)
 
+    def test_direct_projection_rejects_surrogate_edit_text_before_dispatch(self) -> None:
+        before = list(self.calls)
+        operations = (
+            lambda: self.projection.search("\ud800"),
+            lambda: self.projection.append_moves("e4 {\ud800}"),
+            lambda: self.projection.edit_comment("\udfff"),
+            lambda: self.projection.edit_nags("$1 \ud800"),
+            lambda: self.projection.add_variation("c5 {\udfff}"),
+        )
+        for operation in operations:
+            with self.subTest(operation=operation):
+                with self.assertRaises(ValueError):
+                    operation()
+                self.assertEqual(before, self.calls)
+
     def test_utf16_unit_counter_is_total_for_lone_surrogates(self) -> None:
         self.assertEqual(1, _utf16_units("\ud800"))
         self.assertEqual(1, _utf16_units("\udfff"))
