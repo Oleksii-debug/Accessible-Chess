@@ -12,7 +12,7 @@ from enum import Enum
 from hashlib import sha256
 from typing import Any
 
-from .full_product_presenters import LibraryPresenter, LibraryView, SurfaceStatus
+from .full_product_presenters import LibraryPresenter, LibraryRowView, LibraryView, SurfaceStatus
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .library_import_service import LibraryImportProgress, LibraryImportResult
 from .presentation_privacy import redact_local_paths
@@ -125,7 +125,7 @@ _JS_MAX_SAFE_INTEGER = (1 << 53) - 1
 def _scrub_visible_text(value: object, *, language: UILanguage, limit: int) -> str:
     if value is None:
         return ""
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise TypeError("library presentation text must be text")
     text = value.replace("\x00", "").strip()
     text = redact_local_paths(text, _LABELS[language]["local_path"])
@@ -185,6 +185,46 @@ class LibraryImportWebViewProjection:
     @property
     def phase(self) -> LibraryImportPhase:
         return self._phase
+
+    def _capture_presentation_state(self) -> tuple[object, ...]:
+        """Capture the complete transient import presentation authority."""
+
+        return (
+            self._phase,
+            self._processed_games,
+            self._total_games,
+            self._warning_count,
+            self._attempt_id,
+            self._message,
+            self._source_reading,
+            self._book_source_report,
+        )
+
+    def _restore_presentation_state(self, state: tuple[object, ...]) -> None:
+        """Restore one state captured by _capture_presentation_state()."""
+
+        if type(state) is not tuple or len(state) != 8:
+            raise TypeError("invalid Library import presentation checkpoint")
+        (
+            phase,
+            processed_games,
+            total_games,
+            warning_count,
+            attempt_id,
+            message,
+            source_reading,
+            book_source_report,
+        ) = state
+        if not isinstance(phase, LibraryImportPhase):
+            raise TypeError("invalid Library import presentation phase")
+        self._phase = phase
+        self._processed_games = processed_games  # type: ignore[assignment]
+        self._total_games = total_games  # type: ignore[assignment]
+        self._warning_count = warning_count  # type: ignore[assignment]
+        self._attempt_id = attempt_id  # type: ignore[assignment]
+        self._message = message  # type: ignore[assignment]
+        self._source_reading = source_reading  # type: ignore[assignment]
+        self._book_source_report = book_source_report  # type: ignore[assignment]
 
     def _labels(self) -> Mapping[str, str]:
         return _IMPORT_LABELS[self._language]
@@ -368,23 +408,28 @@ class LibraryImportWebViewProjection:
         return self._render(announce=True, focus_target="library-import-file")
 
     def progress(self, progress: LibraryImportProgress) -> LibraryWebViewEvent:
-        if not isinstance(progress, LibraryImportProgress):
-            raise TypeError("progress must be LibraryImportProgress")
+        if type(progress) is not LibraryImportProgress:
+            raise TypeError("progress must be exact LibraryImportProgress")
+        canonical = LibraryImportProgress(
+            progress.attempt_id,
+            progress.processed_games,
+            progress.total_games,
+        )
         if self._phase not in {
             LibraryImportPhase.RUNNING,
             LibraryImportPhase.CANCELLING,
         }:
             raise RuntimeError("library import is not active")
-        if progress.total_games != self._total_games:
+        if canonical.total_games != self._total_games:
             raise ValueError("library import total changed")
-        if progress.processed_games < self._processed_games:
+        if canonical.processed_games < self._processed_games:
             raise ValueError("library import progress moved backwards")
-        if progress.processed_games > _JS_MAX_SAFE_INTEGER:
+        if canonical.processed_games > _JS_MAX_SAFE_INTEGER:
             raise ValueError("library import progress exceeds browser-safe integer range")
-        if self._attempt_id is not None and progress.attempt_id != self._attempt_id:
+        if self._attempt_id is not None and canonical.attempt_id != self._attempt_id:
             raise ValueError("library import attempt changed")
-        self._attempt_id = progress.attempt_id
-        self._processed_games = progress.processed_games
+        self._attempt_id = canonical.attempt_id
+        self._processed_games = canonical.processed_games
         return self._render(announce=False)
 
     def request_cancel(self) -> LibraryWebViewEvent:
@@ -395,21 +440,30 @@ class LibraryImportWebViewProjection:
         return self._render(announce=True, focus_target="library-import-cancel")
 
     def complete(self, result: LibraryImportResult) -> LibraryWebViewEvent:
-        if not isinstance(result, LibraryImportResult):
-            raise TypeError("result must be LibraryImportResult")
+        if type(result) is not LibraryImportResult:
+            raise TypeError("result must be exact LibraryImportResult")
+        canonical = LibraryImportResult(
+            result.attempt_id,
+            result.source_id,
+            result.game_count,
+            result.warning_count,
+            result.first_game_id,
+            result.last_game_id,
+            result.reused,
+        )
         if self._phase not in {
             LibraryImportPhase.RUNNING,
             LibraryImportPhase.CANCELLING,
         }:
             raise RuntimeError("library import is not active")
-        if result.game_count != self._total_games:
+        if canonical.game_count != self._total_games:
             raise ValueError("library import result count changed")
-        if self._attempt_id is not None and result.attempt_id != self._attempt_id:
+        if self._attempt_id is not None and canonical.attempt_id != self._attempt_id:
             raise ValueError("library import result attempt changed")
         self._phase = LibraryImportPhase.COMPLETED
-        self._processed_games = result.game_count
-        self._warning_count = result.warning_count
-        self._attempt_id = result.attempt_id
+        self._processed_games = canonical.game_count
+        self._warning_count = canonical.warning_count
+        self._attempt_id = canonical.attempt_id
         self._message = ""
         return self._render(announce=True, focus_target="library-import-file")
 
@@ -518,24 +572,26 @@ class LibraryWebViewProjection:
         )
 
     def _row(self, row: object, *, position: int) -> dict[str, object]:
-        game_id = getattr(row, "game_id", None)
+        if type(row) is not LibraryRowView:
+            raise TypeError("library presenter row is invalid")
+        game_id = row.game_id
         if (
             type(game_id) is not int
             or game_id <= 0
             or game_id > _JS_MAX_SAFE_INTEGER
         ):
             raise ValueError("library row has invalid browser-safe game identity")
-        selected = getattr(row, "selected", None)
+        selected = row.selected
         if type(selected) is not bool:
             raise ValueError("library row has invalid selection state")
         label = _scrub_visible_text(
-            getattr(row, "label", ""), language=self._language, limit=520
+            row.label, language=self._language, limit=520
         )
         source = _scrub_visible_text(
-            getattr(row, "source_label", ""), language=self._language, limit=160
+            row.source_label, language=self._language, limit=160
         )
         result = _scrub_visible_text(
-            getattr(row, "result", ""), language=self._language, limit=32
+            row.result, language=self._language, limit=32
         )
         return {
             "dom_id": _dom_token(game_id),
@@ -553,18 +609,35 @@ class LibraryWebViewProjection:
             return _scrub_visible_text(view.message, language=self._language, limit=500)
         if not view.rows:
             query = self._query
-            filtered = any(getattr(query, field) is not None for field in (
-                "player", "event", "eco", "opening", "game_date", "date_from",
-                "date_to", "result", "source_id", "source_name",
-            ))
+            filtered = any(
+                getattr(query, field) is not None
+                for field in (
+                    "player",
+                    "event",
+                    "eco",
+                    "opening",
+                    "game_date",
+                    "date_from",
+                    "date_to",
+                    "result",
+                    "source_id",
+                    "source_name",
+                )
+            )
             return labels["empty" if filtered else "empty_library"]
         if len(view.rows) == 1:
             return labels["shown_one"]
         return labels["shown_many"].format(count=len(view.rows))
 
     def _snapshot_from_view(self, view: LibraryView) -> dict[str, object]:
-        if not isinstance(view, LibraryView):
+        if type(view) is not LibraryView:
             raise TypeError("library presenter returned invalid view")
+        if type(view.rows) is not tuple:
+            raise TypeError("library presenter rows must be a canonical tuple")
+        if type(view.status) is not SurfaceStatus:
+            raise TypeError("library presenter status is invalid")
+        if type(view.has_previous_page) is not bool or type(view.has_next_page) is not bool:
+            raise TypeError("library presenter page availability is invalid")
         labels = _LABELS[self._language]
         rows = tuple(self._row(row, position=index + 1) for index, row in enumerate(view.rows))
         selected = tuple(row for row in rows if row["selected"])
@@ -653,12 +726,12 @@ class LibraryWebViewProjection:
         previous = self._presenter._capture_presentation_state()
         try:
             return self._render_event(operation(), announce=announce)
-        except Exception:
+        except BaseException:
             self._presenter._restore_presentation_state(previous)
             raise
 
     def search(self, query: GameSearchQuery) -> LibraryWebViewEvent:
-        if not isinstance(query, GameSearchQuery):
+        if type(query) is not GameSearchQuery:
             raise TypeError("query must be GameSearchQuery")
         normalized = query.normalized()
         if normalized.after_game_id is not None:
@@ -670,7 +743,7 @@ class LibraryWebViewProjection:
                 lambda: self._presenter.search(normalized),
                 announce=True,
             )
-        except Exception:
+        except BaseException:
             self._query = previous_query
             raise
 
@@ -727,12 +800,14 @@ class LibraryWebViewProjection:
         return LibraryWebViewEvent("delegated", {"action": "library.open_game"})
 
     def set_language(self, language: UILanguage | str) -> LibraryWebViewEvent:
-        if isinstance(language, str):
+        if type(language) is str:
+            if len(language) > 16 or "\x00" in language:
+                raise ValueError("unsupported UI language")
             try:
                 language = UILanguage(language.strip().lower())
             except ValueError:
                 raise ValueError("unsupported UI language") from None
-        if not isinstance(language, UILanguage):
+        elif type(language) is not UILanguage:
             raise TypeError("language must be UILanguage")
 
         # A locale transition spans three cooperating presentation objects.
@@ -743,14 +818,15 @@ class LibraryWebViewProjection:
         # types are sealed at ingress, so restoring through their canonical
         # setters is a bounded local rollback rather than provider dispatch.
         previous_language = self._language
+        previous_presenter = self._presenter._capture_presentation_state()
         try:
             self._presenter.set_language(language)
             self._import.set_language(language)
             self._language = language
             view = self._presenter.view()
             return self._render_event(view, announce=False)
-        except Exception:
-            self._presenter.set_language(previous_language)
+        except BaseException:
+            self._presenter._restore_presentation_state(previous_presenter)
             self._import.set_language(previous_language)
             self._language = previous_language
             raise
@@ -758,12 +834,15 @@ class LibraryWebViewProjection:
     def safe_call(self, method: Callable[[], LibraryWebViewEvent]) -> LibraryWebViewEvent:
         try:
             return method()
-        except Exception as exc:
+        except BaseException as exc:
+            # Abort-class values are private control flow. Do not stringify them
+            # while producing the browser/NVDA terminal.
+            source: object = exc if isinstance(exc, Exception) else ""
             return LibraryWebViewEvent(
                 "error",
                 {
                     "message": _scrub_visible_text(
-                        concise_user_error(exc, language=self._language),
+                        concise_user_error(source, language=self._language),
                         language=self._language,
                         limit=500,
                     )
