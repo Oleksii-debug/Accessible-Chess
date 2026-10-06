@@ -254,6 +254,39 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
             acceptance_module._publish_exclusive(output, payload)
             self.assertEqual(output.read_bytes(), payload)
 
+    def test_post_staging_cleanup_mutation_rejects_owned_output_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            payload = b'{"accepted":true}\n'
+            real_remove = acceptance_module._remove_owned_publication_file
+            injected = False
+
+            def remove_then_mutate(path, expected_identity):
+                nonlocal injected
+                candidate = Path(path)
+                real_remove(candidate, expected_identity)
+                if candidate != output and not injected:
+                    output.write_bytes(b'{"accepted":false}\n')
+                    injected = True
+
+            with mock.patch.object(
+                acceptance_module,
+                "_remove_owned_publication_file",
+                side_effect=remove_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "published bytes changed after staging cleanup",
+                ):
+                    acceptance_module._publish_exclusive(output, payload)
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
+            acceptance_module._publish_exclusive(output, payload)
+            self.assertEqual(output.read_bytes(), payload)
+
     def test_post_link_durability_failure_cleans_owned_output_and_retry_succeeds(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
