@@ -61,6 +61,11 @@ def _html(*, fen: str | None = None, pgn: str = PGN) -> str:
 
 
 class BookHtmlImportTests(unittest.TestCase):
+    def test_html_block_budget_tracks_canonical_document_ceiling(self) -> None:
+        import acs.book_html_import as html
+
+        self.assertEqual(html.MAX_HTML_BLOCKS, html.MAX_BOOK_DOCUMENT_BLOCKS)
+
     def test_warning_budget_includes_suppression_marker_without_losing_non_overflow_warnings(self) -> None:
         with patch("acs.book_html_import.MAX_HTML_WARNINGS", 3):
             exact = _SemanticHtmlParser(available_assets=None)
