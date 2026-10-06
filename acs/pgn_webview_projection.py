@@ -59,6 +59,11 @@ _LABELS = {
         "empty": "У PGN немає партій.",
         "previous_game": "Попередня партія",
         "next_game": "Наступна партія",
+        "game_add": "Додати партію",
+        "game_delete": "Видалити поточну партію",
+        "game_delete_title": "Видалити партію",
+        "game_delete_message": "Видалити поточну партію з цього PGN?",
+        "game_delete_confirm": "Видалити",
         "parent": "До батьківського варіанта",
         "comment_edit": "Додати або змінити коментар",
         "comment_delete": "Видалити коментар",
@@ -95,6 +100,11 @@ _LABELS = {
         "empty": "The PGN contains no games.",
         "previous_game": "Previous game",
         "next_game": "Next game",
+        "game_add": "Add game",
+        "game_delete": "Delete current game",
+        "game_delete_title": "Delete game",
+        "game_delete_message": "Delete the current game from this PGN?",
+        "game_delete_confirm": "Delete",
         "parent": "Return to parent variation",
         "comment_edit": "Add or edit comment",
         "comment_delete": "Delete comment",
@@ -394,6 +404,15 @@ class PgnWebViewProjection:
                 "tree": (),
                 "focus_target": "",
                 "actions": (),
+                "game_manager": {
+                    "add_label": labels["game_add"],
+                    "delete_label": labels["game_delete"],
+                    "delete_title": labels["game_delete_title"],
+                    "delete_message": labels["game_delete_message"],
+                    "delete_confirm_label": labels["game_delete_confirm"],
+                    "cancel_label": labels["cancel"],
+                    "can_delete": False,
+                },
                 "metadata_editor": {
                     "open_label": labels["metadata_open"],
                     "title": labels["metadata_title"],
@@ -479,6 +498,15 @@ class PgnWebViewProjection:
             },
             "tree": tree,
             "focus_target": focus_target,
+            "game_manager": {
+                "add_label": labels["game_add"],
+                "delete_label": labels["game_delete"],
+                "delete_title": labels["game_delete_title"],
+                "delete_message": labels["game_delete_message"],
+                "delete_confirm_label": labels["game_delete_confirm"],
+                "cancel_label": labels["cancel"],
+                "can_delete": count > 1,
+            },
             "actions": (
                 {"action": "pgn.previous_game", "label": labels["previous_game"], "enabled": view.game_index > 0},
                 {"action": "pgn.next_game", "label": labels["next_game"], "enabled": view.game_index + 1 < count},
@@ -541,6 +569,15 @@ class PgnWebViewProjection:
             "focus_target": "pgn-refresh-view",
             "game": {},
             "tree": (),
+            "game_manager": {
+                "add_label": labels["game_add"],
+                "delete_label": labels["game_delete"],
+                "delete_title": labels["game_delete_title"],
+                "delete_message": labels["game_delete_message"],
+                "delete_confirm_label": labels["game_delete_confirm"],
+                "cancel_label": labels["cancel"],
+                "can_delete": False,
+            },
             "actions": (),
             "metadata_editor": {
                 "open_label": labels["metadata_open"],
@@ -663,6 +700,14 @@ class PgnWebViewProjection:
                 raise ValueError("PGN variation action requires variation selection")
         self._presenter.dispatch_edit(action_id, self._dispatch, extra=extra)
         return PgnWebViewEvent("delegated", {"action": action_id})
+
+    def add_game(self) -> PgnWebViewEvent:
+        self._dispatch("pgn.game_add", {})
+        return PgnWebViewEvent("delegated", {"action": "pgn.game_add"})
+
+    def delete_game(self) -> PgnWebViewEvent:
+        self._dispatch("pgn.game_delete", {})
+        return PgnWebViewEvent("delegated", {"action": "pgn.game_delete"})
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
         if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
