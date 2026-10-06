@@ -62,6 +62,12 @@ env:
   WEB_INDEX_BLOB: 125338220a0d4ee0c68ab30aa65f29fd038565f6
   STAGE1_RELEASE_BOOTSTRAP_BLOB: 902c1711499864b4fd48285f1fbd142176ad6209
   V2_FINAL_PRODUCT_BOOTSTRAP_BLOB: 7c39227cbbfcf5a4629bf12ae5b7fa1955e0e6c6
+  OWNER_GAMEPLAY_DOC_BLOB: e3db8d9c77358e10e0e51983305c6bed4107f66f
+  STAGE1_CORE_LANGUAGE_TEST_BLOB: de9ed33762a8aa6f1771ead21aa6070e1bb9b012
+  ACCESSIBLE_WEBUI_TEST_BLOB: 9609be5b953922822f2841081bf831e04d0246c3
+  DEV1_RELEASE_UI_REGRESSIONS_TEST_BLOB: 4fb51179498937f842baa644c817835d9b23270d
+  STAGE1_RELEASE_COMPOSITION_UI_TEST_BLOB: d1dbb20a1e9e33d874047513bd26d4ba6700dbf4
+  V2_UPGRADE_STATUS_SHIPPING_TEST_BLOB: 3cdac1a2c91d4b37cbd23500042f5d855340144d
   PHYSICAL_RECORDER_BLOB: d569f82be929b3b979ef2c4514501521052696a9
   PHYSICAL_HARDENING_TEST_BLOB: 3b20f3295b420984151bfe1048660182e5d16c23
   PGN_OPEN_WORKER_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
@@ -228,6 +234,12 @@ jobs:
           test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
           test "$(git rev-parse HEAD:web/stage1_release_bootstrap.js)" = "$STAGE1_RELEASE_BOOTSTRAP_BLOB"
           test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "$V2_FINAL_PRODUCT_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:docs/changes/OWNER_GAMEPLAY_FEEDBACK_20261006.md)" = "$OWNER_GAMEPLAY_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/js/stage1_core_language_test.js)" = "$STAGE1_CORE_LANGUAGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_accessible_webui.py)" = "$ACCESSIBLE_WEBUI_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_release_ui_regressions.py)" = "$DEV1_RELEASE_UI_REGRESSIONS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_stage1_release_composition_ui.py)" = "$STAGE1_RELEASE_COMPOSITION_UI_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_upgrade_status_shipping.py)" = "$V2_UPGRADE_STATUS_SHIPPING_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
           test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$PHYSICAL_HARDENING_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$PGN_OPEN_WORKER_TEST_BLOB"
