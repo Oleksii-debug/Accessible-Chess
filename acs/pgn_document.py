@@ -48,6 +48,7 @@ class PgnDocumentErrorCode(str, Enum):
     INVALID_RESULT = "invalid_result"
     INVALID_POSITION = "invalid_position"
     CONTEXT_STALE = "context_stale"
+    LAST_GAME_REQUIRED = "last_game_required"
 
 
 class PgnDocumentError(ValueError):
@@ -677,6 +678,42 @@ class PgnDocumentSession:
             cursor=old.cursor,
         )
         return len(incoming)
+
+    def append_new_game(
+        self,
+        tags: Mapping[str, str] | None = None,
+    ) -> PgnWorkspaceView:
+        """Append one canonical empty game and select it atomically."""
+
+        game, _validated_workspace = _validated_new_game(tags)
+        existing = list(self._workspace.games())
+        game.source_index = len(existing)
+        existing.append(game)
+        return self._replace_document(
+            tuple(existing),
+            selected_game_index=len(existing) - 1,
+            cursor=GameTreeCursor(),
+        )
+
+    def delete_current_game(self) -> PgnWorkspaceView:
+        """Delete the selected game while preserving a non-empty PGN document."""
+
+        old = self._workspace.view()
+        games = list(self._workspace.games())
+        if len(games) <= 1:
+            raise _error(
+                "PGN document must keep at least one game",
+                PgnDocumentErrorCode.LAST_GAME_REQUIRED,
+            )
+        del games[old.selected_game_index]
+        for index, game in enumerate(games):
+            game.source_index = index
+        selected = min(old.selected_game_index, len(games) - 1)
+        return self._replace_document(
+            tuple(games),
+            selected_game_index=selected,
+            cursor=GameTreeCursor(),
+        )
 
     def edit_tag(self, name: object, value: object) -> PgnWorkspaceView:
         if type(name) is not str or not name:
