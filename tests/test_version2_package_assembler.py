@@ -474,6 +474,70 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                     )
             self.assertEqual(target.read_bytes(), b"keep")
 
+    def test_zip_publication_rejects_same_inode_mutation_after_private_readback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product, notices = self._sources(root)
+            output = root / "candidate"
+            assemble_version2_package_tree(product, notices, output, integration_sha=_SHA)
+            target = root / "candidate.zip"
+
+            real_link = __import__("os").link
+
+            def link_then_mutate(source, destination):
+                real_link(source, destination)
+                with Path(source).open("ab") as handle:
+                    handle.write(b"late-post-readback-mutation")
+
+            with patch(
+                "acs.version2_package_assembler.os.link",
+                side_effect=link_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackageAssemblyError,
+                    "differs from validated archive",
+                ):
+                    write_version2_package_zip(
+                        output,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+            self.assertFalse(target.exists())
+
+    def test_zip_failed_public_readback_preserves_raced_foreign_target(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product, notices = self._sources(root)
+            output = root / "candidate"
+            assemble_version2_package_tree(product, notices, output, integration_sha=_SHA)
+            target = root / "candidate.zip"
+            real_validate = validate_version2_package_zip
+            calls = 0
+
+            def replace_publication_before_second_readback(path: Path, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return real_validate(path, **kwargs)
+                target.unlink()
+                target.write_bytes(b"foreign")
+                raise RuntimeError("simulated raced foreign publication")
+
+            with patch(
+                "acs.version2_package_assembler.validate_version2_package_zip",
+                side_effect=replace_publication_before_second_readback,
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "simulated raced foreign publication",
+                ):
+                    write_version2_package_zip(
+                        output,
+                        target,
+                        expected_integration_sha=_SHA,
+                    )
+            self.assertEqual(target.read_bytes(), b"foreign")
+
     def test_zip_output_inside_package_and_existing_zip_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -513,6 +577,103 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                             integration_sha=value,  # type: ignore[arg-type]
                         )
                     self.assertFalse(output.exists())
+
+    def test_public_controls_reject_active_mapping_and_paths_before_hooks(self) -> None:
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        class ActiveDict(dict):
+            def items(self):
+                touched.append("items")
+                raise AssertionError("active mapping hook executed")
+
+        active_path = ActivePath()
+        active_mapping = ActiveDict(
+            {"native-menu-self-diagnostic.json": "diagnostic.json"}
+        )
+
+        with patch(
+            "acs.version2_package_assembler._safe_info",
+            side_effect=AssertionError("assembly filesystem work must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact dict or None"):
+                assemble_version2_package_tree(
+                    "product",
+                    "notices",
+                    "output",
+                    integration_sha=_SHA,
+                    diagnostic_files=active_mapping,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        exact_mapping = {"native-menu-self-diagnostic.json": active_path}
+        with patch(
+            "acs.version2_package_assembler._safe_info",
+            side_effect=AssertionError("assembly filesystem work must not start"),
+        ) as inspect:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                assemble_version2_package_tree(
+                    "product",
+                    "notices",
+                    "output",
+                    integration_sha=_SHA,
+                    diagnostic_files=exact_mapping,
+                )
+        inspect.assert_not_called()
+        self.assertEqual(touched, [])
+
+        path_cases = (
+            (active_path, "notices", "output"),
+            ("product", active_path, "output"),
+            ("product", "notices", active_path),
+        )
+        for product, notices, output in path_cases:
+            with self.subTest(
+                product=type(product).__name__,
+                notices=type(notices).__name__,
+                output=type(output).__name__,
+            ):
+                with patch(
+                    "acs.version2_package_assembler._safe_info",
+                    side_effect=AssertionError("assembly filesystem work must not start"),
+                ) as inspect:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        assemble_version2_package_tree(
+                            product,
+                            notices,
+                            output,
+                            integration_sha=_SHA,
+                        )
+                inspect.assert_not_called()
+                self.assertEqual(touched, [])
+
+        for package_root, zip_path in (
+            (active_path, "candidate.zip"),
+            ("package", active_path),
+        ):
+            with self.subTest(
+                package_root=type(package_root).__name__,
+                zip_path=type(zip_path).__name__,
+            ):
+                with patch(
+                    "acs.version2_package_assembler.validate_version2_package_tree",
+                    side_effect=AssertionError("package validation must not start"),
+                ) as validation:
+                    with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                        write_version2_package_zip(
+                            package_root,
+                            zip_path,
+                            expected_integration_sha=_SHA,
+                        )
+                validation.assert_not_called()
+                self.assertEqual(touched, [])
+
+
 
 
 if __name__ == "__main__":

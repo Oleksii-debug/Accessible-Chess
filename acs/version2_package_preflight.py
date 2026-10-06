@@ -1555,9 +1555,10 @@ def _validate_stockfish_source_archive(
     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
         _fail(f"Stockfish corresponding source archive is invalid: {type(exc).__name__}")
 
-def validate_winforms_accessibility_app_config(path: Path) -> None:
+def validate_winforms_accessibility_app_config(path: str | Path) -> None:
     """Require the packaged WinForms accessibility switches to remain enabled."""
 
+    path = _passive_path(path, label="WinForms accessibility app-config")
     try:
         payload = _read_stable_bytes_file(
             path,
@@ -2081,8 +2082,24 @@ def _scan_text_hygiene(root: Path, inventory: tuple[str, ...], limits: PackageLi
                 source.close()
 
 
+_PLATFORM_PATH_TYPE = type(Path("."))
+
+
+def _passive_path(value: str | Path, *, label: str) -> Path:
+    """Normalize only passive public path controls before release work."""
+
+    if type(value) is _PLATFORM_PATH_TYPE:
+        return value
+    if type(value) is str:
+        return Path(value)
+    raise TypeError(f"{label} must be exact str or platform Path")
+
+
 def _normalize_expected_integration_sha(value: str) -> str:
-    if not isinstance(value, str) or not _SHA40_RE.fullmatch(value.casefold()):
+    # This is a direct API control, not parsed package data. Reject derived
+    # strings before invoking casefold() so active subclasses cannot execute
+    # caller code inside the release-preflight boundary.
+    if type(value) is not str or not _SHA40_RE.fullmatch(value.casefold()):
         _fail("expected integration authority must be a 40-hex commit")
     return value.casefold()
 
@@ -2093,10 +2110,13 @@ def validate_version2_package_tree(
     expected_integration_sha: str,
     limits: PackageLimits = PackageLimits(),
 ) -> Version2PackagePreflightReport:
-    if not isinstance(limits, PackageLimits):
-        raise TypeError("limits must be PackageLimits")
+    # PackageLimits is executable caller policy. A derived instance can
+    # override attribute access despite the frozen dataclass base; fail before
+    # any inventory/archive/filesystem work can consume those hooks.
+    if type(limits) is not PackageLimits:
+        raise TypeError("limits must be exact PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
-    root = Path(root)
+    root = _passive_path(root, label="package root")
     inventory, total = _inventory(root, limits)
     _validate_topology(root, inventory)
     _validate_required_runtime_resources(root, inventory, limits)
@@ -2189,10 +2209,13 @@ def validate_version2_package_zip(
     expected_integration_sha: str,
     limits: PackageLimits = PackageLimits(),
 ) -> Version2PackagePreflightReport:
-    if not isinstance(limits, PackageLimits):
-        raise TypeError("limits must be PackageLimits")
+    # PackageLimits is executable caller policy. A derived instance can
+    # override attribute access despite the frozen dataclass base; fail before
+    # any inventory/archive/filesystem work can consume those hooks.
+    if type(limits) is not PackageLimits:
+        raise TypeError("limits must be exact PackageLimits")
     expected_sha = _normalize_expected_integration_sha(expected_integration_sha)
-    path = Path(zip_path)
+    path = _passive_path(zip_path, label="Version 2 ZIP")
     snapshot, archive_sha = _snapshot_regular_file(
         path,
         label="Version 2 ZIP",
