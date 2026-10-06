@@ -590,6 +590,30 @@ Starting board
             any("image inside a list item" in warning for warning in result.warnings)
         )
 
+    def test_markdown_balanced_image_destination_does_not_change_reading_identity(self) -> None:
+        first = import_text_book(
+            "Before ![Board](images/(study-a)/board.png) after\n",
+            source_name="identity-a.md",
+            source_format="markdown",
+        )
+        second = import_text_book(
+            "Before ![Board](other/(study-b)/board.png) after\n",
+            source_name="identity-b.md",
+            source_format="markdown",
+        )
+        first_blocks = [
+            block for block in first.document.blocks
+            if isinstance(block, (Paragraph, Note))
+        ]
+        second_blocks = [
+            block for block in second.document.blocks
+            if isinstance(block, (Paragraph, Note))
+        ]
+        self.assertEqual(
+            [(type(block).__name__, block.text, block.block_id) for block in first_blocks],
+            [(type(block).__name__, block.text, block.block_id) for block in second_blocks],
+        )
+
     def test_markdown_unclosed_balanced_image_destination_stays_literal(self) -> None:
         source = "Before ![Board](images/(study)/board.png after\n"
         result = import_text_book(
