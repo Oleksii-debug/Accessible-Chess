@@ -362,8 +362,8 @@ class _Builder:
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
-_IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
-_IMAGE_OPEN_RE = re.compile(r"!\[([^\]]+)\]\(")
+_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^\)]+\)")
+_IMAGE_OPEN_RE = re.compile(r"!\[([^\]]*)\]\(")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
