@@ -1,0 +1,77 @@
+name: Current PGN Tag Edit Bounds
+
+on:
+  pull_request:
+    branches:
+      - feature/pgn-complete-editing-20261006-sol
+    paths:
+      - '.github/workflows/current-pgn-tag-edit-bounds.yml'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-pgn-tag-edit-bounds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PGN_WORKSPACE_BLOB: 4728e069d1fbc6f76daaed3116cabbe8ce6c0e0a
+  PGN_BRIDGE_BLOB: 79a33b2acb88183dc9e76c2a1751e1e1862510d0
+  PGN_FLOW_TEST_BLOB: f46f608474bedfa7d8830294e06e21fb3b24ccae
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-pgn-tag-edit-bounds.yml' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_workspace.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$PGN_BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$PGN_FLOW_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile changed Python
+        run: python -m py_compile acs/pgn_workspace.py acs/pgn_webview_bridge.py tests/test_pgn_complete_editing_user_flow.py
+
+      - name: Complete PGN editing flow
+        run: python -m unittest tests.test_pgn_complete_editing_user_flow
+
+      - name: Canonical PGN workspace regression
+        run: python -m unittest tests.test_pgn_workspace
+
+      - name: Version 2 PGN command regression
+        run: python -m unittest tests.test_version2_pgn_commands
+
+      - name: PGN WebView projection regression
+        run: python -m unittest tests.test_dev1_pgn_webview_projection
