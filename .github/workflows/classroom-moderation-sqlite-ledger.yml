@@ -55,6 +55,8 @@ jobs:
           changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
           allowed="$(printf '%s\n' \
             '.github/workflows/classroom-moderation-sqlite-ledger.yml' \
+            '.github/workflows/p0-release-critical-triad-convergence.yml' \
+            'tests/test_p0_release_critical_triad_convergence.py' \
             'acs/sqlite_classroom_moderation_ledger.py' \
             'tests/test_sqlite_classroom_moderation_ledger.py' | sort)"
           test "$changed" = "$allowed"
