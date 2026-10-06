@@ -15,9 +15,15 @@
   const ACTIONS = [
     "pgn.previous_game",
     "pgn.next_game",
+    "pgn.search",
+    "pgn.append_moves",
+    "pgn.tag_edit",
+    "pgn.tag_delete",
     "pgn.parent",
     "pgn.comment_edit",
     "pgn.comment_delete",
+    "pgn.nag_edit",
+    "pgn.variation_add",
     "pgn.variation_delete",
     "pgn.variation_promote",
     "pgn.copy_selection",
@@ -93,6 +99,33 @@
     requireText(editor.label, "PGN comment editor label", false, 120);
     requireText(editor.save_label, "PGN comment editor save label", false, 120);
     requireText(editor.cancel_label, "PGN comment editor cancel label", false, 120);
+    if (editor.entries !== undefined) {
+      if (!Array.isArray(editor.entries) || editor.entries.length > MAX_PGN_COMMENTS_PER_ITEM * 2) {
+        throw new TypeError("PGN comment editor entries are invalid");
+      }
+      editor.entries.forEach(function (entry) {
+        requireRecord(entry, "PGN comment entry");
+        if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0 ||
+            !Number.isSafeInteger(entry.index) || entry.index < 0 ||
+            entry.index >= MAX_PGN_COMMENTS_PER_ITEM) {
+          throw new TypeError("PGN comment entry target is invalid");
+        }
+        requireText(entry.label, "PGN comment entry label", false, 160);
+        requireText(entry.value, "PGN comment entry value", true, MAX_PGN_COMMENT_TEXT);
+      });
+    }
+    if (editor.add_slots !== undefined) {
+      if (!Array.isArray(editor.add_slots) || editor.add_slots.length > 4) {
+        throw new TypeError("PGN comment add slots are invalid");
+      }
+      editor.add_slots.forEach(function (entry) {
+        requireRecord(entry, "PGN comment add slot");
+        if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0) {
+          throw new TypeError("PGN comment add slot is invalid");
+        }
+        requireText(entry.label, "PGN comment add slot label", false, 160);
+      });
+    }
   }
 
   function requireActions(actions, game) {
@@ -244,6 +277,24 @@
       MAX_PGN_WARNINGS,
       720
     );
+    if (game.leading_comments !== undefined) {
+      requireText(game.leading_comments_heading, "PGN main-line leading comment heading", false, 160);
+      requireDenseTextArray(
+        game.leading_comments,
+        "PGN main-line leading comments",
+        MAX_PGN_COMMENTS_PER_ITEM,
+        1200
+      );
+    }
+    if (game.trailing_comments !== undefined) {
+      requireText(game.trailing_comments_heading, "PGN main-line trailing comment heading", false, 160);
+      requireDenseTextArray(
+        game.trailing_comments,
+        "PGN main-line trailing comments",
+        MAX_PGN_COMMENTS_PER_ITEM,
+        1200
+      );
+    }
 
     const nodeIds = new Set();
     const domIds = new Set();
@@ -362,6 +413,23 @@
     });
     section.appendChild(list);
     host.appendChild(section);
+  }
+
+  function renderMainLineComments(host, game) {
+    [
+      [game.leading_comments_heading, game.leading_comments],
+      [game.trailing_comments_heading, game.trailing_comments]
+    ].forEach(function (entry) {
+      const heading = entry[0];
+      const comments = Array.isArray(entry[1]) ? entry[1] : [];
+      if (!comments.length) return;
+      const section = node("section");
+      section.appendChild(node("h3", heading || "PGN comments"));
+      comments.forEach(function (comment) {
+        section.appendChild(node("p", comment));
+      });
+      host.appendChild(section);
+    });
   }
 
   function renderWarnings(host, game) {
@@ -617,6 +685,30 @@
     dialog.setAttribute("aria-busy", "false");
     dialog.appendChild(title);
 
+    const entries = Array.isArray(editor.entries) ? editor.entries : [];
+    const addSlots = Array.isArray(editor.add_slots) ? editor.add_slots : [];
+    const targetLabel = node("label", snapshot.document.lang === "en" ? "Comment position" : "Місце коментаря");
+    const target = node("select");
+    target.id = "pgn-comment-target";
+    targetLabel.htmlFor = target.id;
+    entries.forEach(function (entry, entryIndex) {
+      const option = node("option", entry.label);
+      option.value = "existing:" + entryIndex;
+      target.appendChild(option);
+    });
+    addSlots.forEach(function (slot, slotIndex) {
+      const option = node(
+        "option",
+        (snapshot.document.lang === "en" ? "New: " : "Новий: ") + slot.label
+      );
+      option.value = "new:" + slotIndex;
+      target.appendChild(option);
+    });
+    if (entries.length || addSlots.length) {
+      dialog.appendChild(targetLabel);
+      dialog.appendChild(target);
+    }
+
     const label = node("label", editor.label);
     const textarea = node("textarea");
     textarea.id = "pgn-comment-text";
@@ -630,15 +722,44 @@
     const save = node("button", editor.save_label);
     save.type = "button";
     save.disabled = !editor.enabled;
+    const remove = node("button", snapshot.document.lang === "en" ? "Delete comment" : "Видалити коментар");
+    remove.type = "button";
     const cancel = node("button", editor.cancel_label);
     cancel.type = "button";
     let opener = null;
     let savePending = false;
 
+    function currentTarget() {
+      if (!entries.length && !addSlots.length) return null;
+      const value = target.value || (entries.length ? "existing:0" : "new:0");
+      const parts = value.split(":");
+      const index = Number(parts[1]);
+      if (parts[0] === "existing") {
+        const entry = entries[index];
+        return entry ? { slot: entry.slot, index: entry.index, existing: true, value: entry.value } : null;
+      }
+      const slot = addSlots[index];
+      return slot ? { slot: slot.slot, index: -1, existing: false, value: "" } : null;
+    }
+
+    function syncTarget() {
+      const selected = currentTarget();
+      if (!selected) {
+        textarea.value = editor.value;
+        remove.disabled = true;
+        return;
+      }
+      textarea.value = selected.value;
+      remove.disabled = !selected.existing || savePending;
+    }
+    target.addEventListener("change", syncTarget);
+
     function setSavePending(value) {
       savePending = value === true;
       save.disabled = savePending || !editor.enabled;
       cancel.disabled = savePending;
+      remove.disabled = savePending || !(currentTarget() && currentTarget().existing);
+      target.disabled = savePending;
       textarea.readOnly = savePending;
       dialog.setAttribute("aria-busy", savePending ? "true" : "false");
     }
@@ -667,12 +788,16 @@
       // Keep deterministic focus inside the modal on a selectable/copyable,
       // read-only text surface instead of leaving focus on a disabled button.
       textarea.focus({ preventScroll: true });
+      const selected = currentTarget();
+      const payload = selected
+        ? { text: textarea.value, slot: selected.slot, index: selected.index }
+        : { text: textarea.value };
       const started = invokeCommand(
         root,
         invoke,
         announce,
         "pgn.comment_edit",
-        { text: textarea.value },
+        payload,
         {
           afterResult: function (result) {
             if (result.kind === "error") {
@@ -689,12 +814,39 @@
       );
       if (!started) recoverEditor();
     });
+    remove.addEventListener("click", function () {
+      if (savePending) return;
+      const selected = currentTarget();
+      if (!selected || !selected.existing) return;
+      setSavePending(true);
+      textarea.focus({ preventScroll: true });
+      const started = invokeCommand(
+        root,
+        invoke,
+        announce,
+        "pgn.comment_delete",
+        { slot: selected.slot, index: selected.index },
+        {
+          afterResult: function (result) {
+            if (result.kind === "error") {
+              recoverEditor();
+              return;
+            }
+            setSavePending(false);
+            if (result.kind === "delegated") closeAndRestore();
+          },
+          afterFailure: recoverEditor
+        }
+      );
+      if (!started) recoverEditor();
+    });
     cancel.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
       event.preventDefault();
       closeAndRestore();
     });
     dialog.appendChild(save);
+    dialog.appendChild(remove);
     dialog.appendChild(cancel);
 
     return {
@@ -706,13 +858,264 @@
         if (activeFlight && activeFlight.epoch === epoch) return;
         opener = button;
         dialog.showModal();
-        textarea.focus();
-        textarea.select();
+        if (entries.length || addSlots.length) {
+          target.value = entries.length ? "existing:0" : "new:0";
+          syncTarget();
+          target.focus();
+        } else {
+          textarea.value = editor.value;
+          textarea.focus();
+          textarea.select();
+        }
       }
     };
   }
 
-  function renderActions(root, host, snapshot, invoke, announce, commentDialog) {
+  function buildTagDialog(root, snapshot, invoke, announce) {
+    const en = snapshot.document.lang === "en";
+    const dialog = node("dialog");
+    dialog.id = "pgn-tag-dialog";
+    const title = node("h2", en ? "Edit PGN tag" : "Редагувати тег PGN");
+    title.id = "pgn-tag-dialog-title";
+    dialog.setAttribute("aria-labelledby", title.id);
+    dialog.setAttribute("aria-busy", "false");
+    dialog.appendChild(title);
+
+    const existingLabel = node("label", en ? "Existing tags" : "Наявні теги");
+    const existing = node("select");
+    existing.id = "pgn-tag-existing";
+    existingLabel.htmlFor = existing.id;
+    const custom = node("option", en ? "Custom tag" : "Власний тег");
+    custom.value = "";
+    existing.appendChild(custom);
+    snapshot.game.tags.forEach(function (tag) {
+      const option = node("option", tag.name + ": " + tag.value);
+      option.value = tag.name;
+      existing.appendChild(option);
+    });
+    dialog.appendChild(existingLabel);
+    dialog.appendChild(existing);
+
+    const nameLabel = node("label", en ? "Tag name" : "Назва тегу");
+    const nameInput = node("input");
+    nameInput.id = "pgn-tag-name";
+    nameInput.maxLength = 80;
+    nameLabel.htmlFor = nameInput.id;
+    dialog.appendChild(nameLabel);
+    dialog.appendChild(nameInput);
+
+    const valueLabel = node("label", en ? "Tag value" : "Значення тегу");
+    const valueInput = node("textarea");
+    valueInput.id = "pgn-tag-value";
+    valueInput.maxLength = 360;
+    valueLabel.htmlFor = valueInput.id;
+    dialog.appendChild(valueLabel);
+    dialog.appendChild(valueInput);
+
+    const save = node("button", en ? "Save" : "Зберегти");
+    save.type = "button";
+    const remove = node("button", en ? "Delete tag" : "Видалити тег");
+    remove.type = "button";
+    const cancel = node("button", en ? "Cancel" : "Скасувати");
+    cancel.type = "button";
+    let opener = null;
+    let pending = false;
+
+    function selectedTag() {
+      const name = existing.value || nameInput.value.trim();
+      return snapshot.game.tags.find(function (tag) { return tag.name === name; }) || null;
+    }
+    function syncFromExisting() {
+      if (!existing.value) return;
+      const tag = selectedTag();
+      nameInput.value = existing.value;
+      valueInput.value = tag ? tag.value : "";
+    }
+    existing.addEventListener("change", syncFromExisting);
+
+    function setPending(value) {
+      pending = value === true;
+      save.disabled = pending;
+      remove.disabled = pending;
+      cancel.disabled = pending;
+      existing.disabled = pending;
+      nameInput.readOnly = pending;
+      valueInput.readOnly = pending;
+      dialog.setAttribute("aria-busy", pending ? "true" : "false");
+    }
+    function restore() {
+      setPending(false);
+      if (dialog.open) nameInput.focus({ preventScroll: true });
+    }
+    function closeAndRestore() {
+      if (pending) return;
+      if (dialog.open) dialog.close();
+      if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+    }
+    function submit(command) {
+      const name = nameInput.value.trim();
+      if (!name) {
+        announce(en ? "Enter a tag name." : "Введіть назву тегу.");
+        nameInput.focus({ preventScroll: true });
+        return;
+      }
+      if ((name === "SetUp" || name === "FEN")) {
+        announce(en ? "Use the position workflow to change SetUp/FEN." : "Для SetUp/FEN використайте роботу з позицією.");
+        nameInput.focus({ preventScroll: true });
+        return;
+      }
+      if (command === "pgn.tag_delete" && name === "Result") {
+        announce(en ? "Result cannot be deleted." : "Тег Result не можна видалити.");
+        nameInput.focus({ preventScroll: true });
+        return;
+      }
+      setPending(true);
+      const payload = command === "pgn.tag_edit" ? { name: name, value: valueInput.value } : { name: name };
+      const started = invokeCommand(root, invoke, announce, command, payload, {
+        afterResult: function (result) {
+          if (result.kind === "error") {
+            restore();
+            return;
+          }
+          setPending(false);
+          if (result.kind === "delegated") closeAndRestore();
+        },
+        afterFailure: restore
+      });
+      if (!started) restore();
+    }
+    save.addEventListener("click", function () { submit("pgn.tag_edit"); });
+    remove.addEventListener("click", function () { submit("pgn.tag_delete"); });
+    cancel.addEventListener("click", closeAndRestore);
+    dialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closeAndRestore();
+    });
+    dialog.appendChild(save);
+    dialog.appendChild(remove);
+    dialog.appendChild(cancel);
+
+    return {
+      dialog: dialog,
+      open: function (button) {
+        const activeFlight = root._pgnFlight;
+        const epoch = root._pgnRenderEpoch || 0;
+        if (activeFlight && activeFlight.epoch === epoch) return;
+        opener = button;
+        existing.value = "";
+        nameInput.value = "";
+        valueInput.value = "";
+        setPending(false);
+        dialog.showModal();
+        existing.focus();
+      }
+    };
+  }
+
+  function buildSimpleEditDialog(root, snapshot, invoke, announce, spec) {
+    const dialog = node("dialog");
+    const title = node("h2", spec.title);
+    const titleId = spec.id + "-title";
+    title.id = titleId;
+    dialog.id = spec.id;
+    dialog.setAttribute("aria-labelledby", titleId);
+    dialog.setAttribute("aria-busy", "false");
+    dialog.appendChild(title);
+
+    const label = node("label", spec.label);
+    const textarea = node("textarea");
+    textarea.id = spec.id + "-text";
+    textarea.maxLength = spec.maxLength;
+    label.htmlFor = textarea.id;
+    dialog.appendChild(label);
+    dialog.appendChild(textarea);
+
+    const save = node("button", spec.saveLabel);
+    save.type = "button";
+    const cancel = node("button", spec.cancelLabel);
+    cancel.type = "button";
+    let opener = null;
+    let pending = false;
+
+    function setPending(value) {
+      pending = value === true;
+      save.disabled = pending;
+      cancel.disabled = pending;
+      textarea.readOnly = pending;
+      dialog.setAttribute("aria-busy", pending ? "true" : "false");
+    }
+
+    function closeAndRestore() {
+      if (pending) return;
+      if (dialog.open) dialog.close();
+      if (opener && typeof opener.focus === "function") {
+        opener.focus({ preventScroll: true });
+      }
+    }
+
+    function recover() {
+      setPending(false);
+      if (dialog.open) {
+        textarea.focus({ preventScroll: true });
+        if (typeof textarea.select === "function") textarea.select();
+      }
+    }
+
+    save.addEventListener("click", function () {
+      if (pending) return;
+      const value = textarea.value;
+      if (spec.command === "pgn.search") root._pgnLastSearch = value;
+      if (spec.requireNonEmpty && !value.trim()) {
+        announce(spec.emptyMessage);
+        textarea.focus({ preventScroll: true });
+        return;
+      }
+      setPending(true);
+      textarea.focus({ preventScroll: true });
+      const started = invokeCommand(
+        root,
+        invoke,
+        announce,
+        spec.command,
+        { text: value },
+        {
+          afterResult: function (result) {
+            if (result.kind === "error") {
+              recover();
+              return;
+            }
+            setPending(false);
+            if (result.kind === "delegated") closeAndRestore();
+          },
+          afterFailure: recover
+        }
+      );
+      if (!started) recover();
+    });
+    cancel.addEventListener("click", closeAndRestore);
+    dialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closeAndRestore();
+    });
+    dialog.appendChild(save);
+    dialog.appendChild(cancel);
+
+    return {
+      dialog: dialog,
+      open: function (button) {
+        const activeFlight = root._pgnFlight;
+        const epoch = root._pgnRenderEpoch || 0;
+        if (activeFlight && activeFlight.epoch === epoch) return;
+        opener = button;
+        textarea.value = typeof spec.initialValue === "function" ? spec.initialValue() : "";
+        dialog.showModal();
+        textarea.focus();
+        if (typeof textarea.select === "function") textarea.select();
+      }
+    };
+  }
+
+  function renderActions(root, host, snapshot, invoke, announce, searchDialog, appendDialog, tagDialog, commentDialog, nagDialog, variationDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-orientation", "horizontal");
@@ -732,8 +1135,28 @@
       });
       button.addEventListener("click", function () {
         if (button.disabled) return;
+        if (action.action === "pgn.search") {
+          searchDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.append_moves") {
+          appendDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.tag_edit" || action.action === "pgn.tag_delete") {
+          tagDialog.open(button);
+          return;
+        }
         if (action.action === "pgn.comment_edit") {
           commentDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.nag_edit") {
+          nagDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.variation_add") {
+          variationDialog.open(button);
           return;
         }
         invokeCommand(root, invoke, announce, action.action, {});
@@ -860,6 +1283,7 @@
     main.appendChild(node("p", game.result_label + ": " + game.result));
     renderTags(main, game);
     renderWarnings(main, game);
+    renderMainLineComments(main, game);
     renderTree(root, main, snapshot, invoke, announce);
     const commentDialog = buildCommentDialog(
       root,
@@ -867,8 +1291,66 @@
       invoke,
       announce
     );
-    renderActions(root, main, snapshot, invoke, announce, commentDialog);
+    const selected = snapshot.tree.find(function (item) { return item.selected; });
+    const en = snapshot.document.lang === "en";
+    const searchDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-search-dialog",
+      title: en ? "Search PGN" : "Пошук у PGN",
+      label: en ? "Search tags, moves, comments and NAGs" : "Пошук у тегах, ходах, коментарях і NAG",
+      saveLabel: en ? "Find next" : "Знайти далі",
+      cancelLabel: en ? "Close" : "Закрити",
+      command: "pgn.search",
+      maxLength: 4096,
+      requireNonEmpty: true,
+      emptyMessage: en ? "Enter search text." : "Введіть текст для пошуку.",
+      initialValue: function () { return root._pgnLastSearch || ""; }
+    });
+    const tagDialog = buildTagDialog(root, snapshot, invoke, announce);
+    const appendDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-append-dialog",
+      title: en ? "Continue current line" : "Продовжити поточну лінію",
+      label: en ? "Enter legal SAN moves from the current position, for example Nf3 Nc6" : "Введіть легальні SAN-ходи від поточної позиції, наприклад Nf3 Nc6",
+      saveLabel: en ? "Add moves" : "Додати ходи",
+      cancelLabel: en ? "Cancel" : "Скасувати",
+      command: "pgn.append_moves",
+      maxLength: 8192,
+      requireNonEmpty: true,
+      emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
+      initialValue: function () { return ""; }
+    });
+    const nagDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-nag-dialog",
+      title: en ? "NAG annotations" : "Анотації NAG",
+      label: en ? "NAGs separated by spaces, for example ! ? $1 $2" : "NAG через пробіл, наприклад ! ? $1 $2",
+      saveLabel: en ? "Save" : "Зберегти",
+      cancelLabel: en ? "Cancel" : "Скасувати",
+      command: "pgn.nag_edit",
+      maxLength: 512,
+      requireNonEmpty: false,
+      emptyMessage: "",
+      initialValue: function () {
+        return selected && Array.isArray(selected.nags) ? selected.nags.join(" ") : "";
+      }
+    });
+    const variationDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
+      id: "pgn-variation-dialog",
+      title: en ? "Add variation" : "Додати варіант",
+      label: en ? "Enter legal SAN moves from the position before the selected move, for example c5 Nf3" : "Введіть легальні SAN-ходи від позиції перед вибраним ходом, наприклад c5 Nf3",
+      saveLabel: en ? "Add" : "Додати",
+      cancelLabel: en ? "Cancel" : "Скасувати",
+      command: "pgn.variation_add",
+      maxLength: 8192,
+      requireNonEmpty: true,
+      emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
+      initialValue: function () { return ""; }
+    });
+    renderActions(root, main, snapshot, invoke, announce, searchDialog, appendDialog, tagDialog, commentDialog, nagDialog, variationDialog);
     main.appendChild(commentDialog.dialog);
+    main.appendChild(searchDialog.dialog);
+    main.appendChild(appendDialog.dialog);
+    main.appendChild(tagDialog.dialog);
+    main.appendChild(nagDialog.dialog);
+    main.appendChild(variationDialog.dialog);
     fragment.appendChild(main);
     commitRender(root, fragment, snapshot);
     focusTarget(root, requestedFocus);

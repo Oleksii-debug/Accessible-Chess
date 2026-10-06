@@ -174,6 +174,46 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual((), payload["line_path"])
         self.assertEqual("a" * 64, payload["expected_record_digest"])
 
+    def test_exact_comment_target_crosses_trusted_workspace_boundary(self) -> None:
+        first = self.projection.snapshot()["tree"][0]
+        self.bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+
+        edited = self.bridge.dispatch(
+            "pgn.comment_edit",
+            {"text": "Exact note", "slot": "after", "index": -1},
+        )
+        self.assertEqual("selection", edited.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.comment_edit", action_id)
+        self.assertEqual("Exact note", payload["text"])
+        self.assertEqual("after", payload["slot"])
+        self.assertEqual(-1, payload["index"])
+        self.assertEqual(0, payload["move_index"])
+        self.assertEqual("a" * 64, payload["expected_record_digest"])
+
+        deleted = self.bridge.dispatch(
+            "pgn.comment_delete",
+            {"slot": "after", "index": 0},
+        )
+        self.assertEqual("selection", deleted.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.comment_delete", action_id)
+        self.assertEqual("after", payload["slot"])
+        self.assertEqual(0, payload["index"])
+        self.assertEqual(0, payload["move_index"])
+
+    def test_workspace_adapter_rejects_utf16_overflow_before_registry_dispatch(self) -> None:
+        before = list(self.calls)
+        for operation in (
+            lambda: self.projection.search("😀" * 2049),
+            lambda: self.projection.append_moves("😀" * 4097),
+            lambda: self.projection.edit_tag("Event", "😀" * 181),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises(ValueError):
+                    operation()
+                self.assertEqual(before, self.calls)
+
     def test_keyboard_and_parent_navigation_cross_real_registry_exactly_once(self) -> None:
         self.projection.snapshot()
         down = self.bridge.dispatch("pgn.move", {"delta": 1})

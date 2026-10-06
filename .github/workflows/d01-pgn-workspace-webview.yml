@@ -24,6 +24,7 @@ on:
       - 'tests/test_pgn_tree_remaining_keybindings.py'
       - 'tests/test_pgn_browser_presentation_lease_required.py'
       - 'tests/test_version2_pgn_commands.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
       - 'tests/test_dev1_pgn_webview_atomicity.py'
       - 'tests/test_dev1_pgn_webview_projection.py'
       - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
@@ -167,7 +168,7 @@ jobs:
           # qualified bytes without depending on a historical ref name.
           presenter_actual="$(git rev-parse HEAD:acs/full_product_presenters.py)"
           case "$presenter_actual" in
-            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6|d8d69b595da990576b4240e16ea120cd6fb71c21|2c5c92f6229be97ffe8241f98eb636959e27f92c)
+            a752bb6b837d0332ad69047912dffeb537c7bd3f|678812ff028522c36b5c76df743dd2e0bac240c0|b279f68e907038acfaa1754f3e7de76ef541793c|48a9f697120654bd029903b554b969eb768984b6|d8d69b595da990576b4240e16ea120cd6fb71c21|2c5c92f6229be97ffe8241f98eb636959e27f92c|da56a615b8fe5d83a8a114b4ca807e34fe339fc6|07c68e56666bcb37f866d91a6317490b83d8a454)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_presenters.py actual=%s\n' "$presenter_actual" >&2
@@ -177,7 +178,7 @@ jobs:
 
           actions_actual="$(git rev-parse HEAD:acs/full_product_actions.py)"
           case "$actions_actual" in
-            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|8f331bbf722e5e859a153ebd1582ed0711bc490b|1de880e5e03e9a838ea4c2c69b47111091982e81|52d9bc817359f3e281af8b8845a104b7f8e48a2c)
+            b6be4376cbe0695136210c3b5b850cdf562f85a4|c30874e661e958db15856a250e414520467c095c|8f331bbf722e5e859a153ebd1582ed0711bc490b|1de880e5e03e9a838ea4c2c69b47111091982e81|52d9bc817359f3e281af8b8845a104b7f8e48a2c|3979e7a3b978715fd1ddfbb9e613f5f889675e8c)
               ;;
             *)
               printf 'Protected blob mismatch: acs/full_product_actions.py actual=%s\n' "$actions_actual" >&2
@@ -217,7 +218,7 @@ jobs:
           # identity remains fail-closed.
           web_index_actual="$(git rev-parse HEAD:web/index.html)"
           case "$web_index_actual" in
-            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6|477c0f155a5f3777da71c6e110429a024309dfa6)
+            17803443a815843be3aa1b8c6be1c5abb7e7c888|15d2c07665777151ec6d57326444d632c0f73eb3|6e3187583aaa40de5eb431174dada8c6b16e4142|b95570b20b0ec6fc0a947a29479800764e74d3bd|9bbf9eb537de9d572e91d482494b0da7ec52928f|a148d4414c378c3952ff273071e4ebfb0648721a|0b7cbf84cfe7b038084d2de9014594d6a45da548|75d8365df092de52d8ea48df76ab68fb7199faa6|477c0f155a5f3777da71c6e110429a024309dfa6|10abb7e5d20b75e9569244148714f8db3d079c2a)
               ;;
             *)
               printf 'Protected blob mismatch: web/index.html actual=%s\n' "$web_index_actual" >&2
@@ -264,7 +265,7 @@ jobs:
           done <<'LOCKS'
           tests/test_pgn_workspace.py=edce8f6a591ffc09d419e9046e14725c4a07cf54
           tests/test_dev1_pgn_webview_atomicity.py=dd84ea984555921eeed600a4b2f4e419cbb6fe75
-          tests/test_dev1_pgn_workspace_webview_adapter.py=ef3be2ed1297e1b81bdecfaed233b948a08774ef
+          tests/test_dev1_pgn_workspace_webview_adapter.py=08a21803696495d12c53bcfaaff294b1b31b8077
           LOCKS
 
           # Browser-contract hardening is an intentional successor of the
@@ -272,7 +273,7 @@ jobs:
           # reviewed successor identities; every third identity remains fail-closed.
           adapter_actual="$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)"
           case "$adapter_actual" in
-            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403)
+            4343fa698f7503cf257218868aa927b099ddf21b|6100c761953e101c60220bfe3af6d2751be2d403|62b908f4e4c59d7060678845e6cb8ff3b31b30b1|2819643bfaeb4e14dbb50b14defce3f48e25df17)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_workspace_webview_adapter.py actual=%s\n' "$adapter_actual" >&2
@@ -282,7 +283,7 @@ jobs:
 
           bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
           case "$bridge_actual" in
-            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480)
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|15a83d8bf171f8ad914c434c61442040ed734547)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
@@ -292,7 +293,7 @@ jobs:
 
           projection_test_actual="$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)"
           case "$projection_test_actual" in
-            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e|98a567716c2764c0b077e55101cad4111cd1e16a)
+            2b2c655c82f2427b046eb63d7925e4ceb9c303d4|c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e|98a567716c2764c0b077e55101cad4111cd1e16a|5703b31a7a24f0b3fed605c373e787ad7413bd33)
               ;;
             *)
               printf 'Feature blob mismatch: tests/test_dev1_pgn_webview_projection.py actual=%s\n' "$projection_test_actual" >&2
@@ -315,7 +316,7 @@ jobs:
           # successor; every third identity remains fail-closed.
           projection_actual="$(git rev-parse HEAD:acs/pgn_webview_projection.py)"
           case "$projection_actual" in
-            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738)
+            45049519527cda3d9c9f3c4de8e4244afc9fc614|e054f12da2bbaa580669ec5854d3acf725f91bf3|127037cb6cf264f579516df599bf8c1ad44e8985|11d8817f7c02dc1795b93a1a9c1faff20f4370ae|9a273c6676aed1ff094b8429f7706df009278738|a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60|8562ba21156466a915d1e72ca89e0029cd04fe44)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_projection.py actual=%s\n' "$projection_actual" >&2
@@ -325,7 +326,7 @@ jobs:
 
           command_actual="$(git rev-parse HEAD:acs/version2_pgn_commands.py)"
           case "$command_actual" in
-            d449d2352644c859774562628505f88d86acdea2|74a94b45597fbdc1607e7b3452df41b88837b42f)
+            d449d2352644c859774562628505f88d86acdea2|74a94b45597fbdc1607e7b3452df41b88837b42f|b85330c2458b864ee406de75cf58072ba2ee6338|6e2a86ffd7204f601ed21973c7ab4eb00b955d57)
               ;;
             *)
               printf 'Feature blob mismatch: acs/version2_pgn_commands.py actual=%s\n' "$command_actual" >&2
@@ -341,7 +342,7 @@ jobs:
 
           workspace_actual="$(git rev-parse HEAD:acs/pgn_workspace.py)"
           case "$workspace_actual" in
-            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB")
+            "$D06_WORKSPACE_BLOB"|"$D06_BOUNDED_WORKSPACE_BLOB"|8208afe46c734035db23e66b4f4e9c59d6524cf5)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_workspace.py actual=%s\n' "$workspace_actual" >&2
@@ -350,7 +351,7 @@ jobs:
           esac
           pgn_surface_actual="$(git rev-parse HEAD:web/full_product_pgn.js)"
           case "$pgn_surface_actual" in
-            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1)
+            947319b17b4dda179bb2393a6194e2d2a8960220|c80c2c7177b01ab6bee8acb2945f6f56d67a097e|39077a843aefc424801bd96b41bfc81e784ac597|1fa71cf6fea78d9d6d3ceb1aedee060c8756355e|f239a8ec490ef1f5eb3f45af9c384ae5fa7320a9|c5e51b80b6c097a72e1795c78ea93c6f7275e128|9b266d037d16e5264ba3897fd00606e3a3b861d7|a093ac419098978d6ca614e761d9a2ed687963b1|98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6|2a81d303d18440f60da7c38ab1eb8668e7f9e92b)
               ;;
             *)
               printf 'Feature blob mismatch: web/full_product_pgn.js actual=%s\n' "$pgn_surface_actual" >&2
@@ -367,7 +368,7 @@ jobs:
 
       - name: Compile and parse D01 PGN presentation
         run: |
-          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py acs/version2_application.py acs/version2_pgn_commands.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_pgn_browser_presentation_lease_required.py tests/test_version2_pgn_commands.py tests/test_v2_board_analysis_hotkey_feedback.py tests/test_pgn_tree_remaining_keybindings.py
+          python -m compileall -q acs/full_product_actions.py acs/pgn_workspace.py acs/pgn_webview_projection.py acs/pgn_webview_bridge.py acs/pgn_workspace_webview_adapter.py acs/version2_application.py acs/version2_pgn_commands.py tests/test_pgn_workspace.py tests/test_dev1_pgn_webview_projection.py tests/test_dev1_pgn_webview_atomicity.py tests/test_dev1_pgn_workspace_webview_adapter.py tests/test_pgn_browser_presentation_lease_required.py tests/test_version2_pgn_commands.py tests/test_pgn_complete_editing_user_flow.py tests/test_v2_board_analysis_hotkey_feedback.py tests/test_pgn_tree_remaining_keybindings.py
           node --check web/full_product_pgn.js
           node --check tests/js/pgn_surface_dom_test.js
           node --check tests/js/pgn_tree_keyboard_dom_test.js
@@ -393,6 +394,7 @@ jobs:
           tests.test_pgn_concurrent_save
           tests.test_pgn_browser_presentation_lease_required
           tests.test_version2_pgn_commands
+          tests.test_pgn_complete_editing_user_flow
           tests.test_whole_product_user_journey
           tests.test_keybindings
           tests.test_pgn_tree_remaining_keybindings
