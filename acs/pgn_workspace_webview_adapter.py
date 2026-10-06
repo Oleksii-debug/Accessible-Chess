@@ -385,6 +385,13 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         return result.value
 
     def _trusted_dispatch(self, action_id: str, payload: Mapping[str, object]) -> Any:
+        if action_id in {"pgn.game_add", "pgn.game_delete"}:
+            if payload:
+                raise ValueError("PGN game-management action contains untrusted fields")
+            return self._dispatch_registered(
+                action_id,
+                self._trusted_current_target(),
+            )
         if action_id in {"pgn.tag_edit", "pgn.tag_delete", "pgn.result_set"}:
             allowed = {
                 "pgn.tag_edit": {"name", "value"},
@@ -506,6 +513,16 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         if rejected is not None:
             return rejected
         return self._operate_and_render(operation)
+
+    def add_game(self) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.add_game(self)
+        )
+
+    def delete_game(self) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.delete_game(self)
+        )
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
         return self._mutate_and_render(
