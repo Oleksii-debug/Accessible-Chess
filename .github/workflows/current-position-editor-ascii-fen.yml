@@ -59,8 +59,20 @@ jobs:
             exit 1
           }
 
+      - name: Bind exact parser authority bytes
+        shell: bash
+        env:
+          POSITION_EDITOR_BLOB: 94f067e5f74f307025caf4fd303dd19843201c0e
+          POSITION_TEST_BLOB: 53d03f9daa249ca013af2feb67f889794b172235
+          CANONICAL_BOARD_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_editor.py)" = "$POSITION_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CANONICAL_BOARD_BLOB"
+
       - name: Compile exact semantic slice
-        run: python -m py_compile acs/position_editor.py tests/test_position_editor.py
+        run: python -m py_compile acs/chesscore.py acs/position_editor.py tests/test_position_editor.py
 
       - name: Run focused position and FEN regressions
         run: >-
