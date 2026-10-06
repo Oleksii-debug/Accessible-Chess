@@ -148,15 +148,15 @@ static const WCHAR *ac_child_exit_reason(DWORD code) {
 
 static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     if (code == ACCESSIBILITY_HOST_INIT_EXIT_CODE) {
-        return L"Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.";
+        return L"Could not initialize the accessible WebView2/WinForms interface. / Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.";
     }
     if (code == SAFE_LOCAL_SERVER_INIT_EXIT_CODE) {
-        return L"Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
+        return L"Could not initialize the secure local WebView2 server. / Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
     }
     if (code == RELEASE_UI_STARTUP_EXIT_CODE) {
-        return L"Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
+        return L"Could not start the main accessible Accessible Chess interface. / Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
     }
-    return L"Невідома рання помилка основної програми.";
+    return L"Unknown early failure in the main application. / Невідома рання помилка основної програми.";
 }
 
 static void ac_close_child_process_handle(void) {
@@ -301,21 +301,33 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         ac_flush_report(report);
     }
 
-    ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess не запустився.\r\n\r\nЕтап: ");
+    ac_copy(
+        g_message,
+        AC_PATH_CAP + 2048,
+        L"Accessible Chess could not start.\r\n"
+        L"Accessible Chess не запустився.\r\n\r\n"
+        L"Stage / Етап: "
+    );
     ac_append(g_message, AC_PATH_CAP + 2048, stage);
-    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nКод Windows: ");
+    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nWindows error / Код Windows: ");
     ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
     if (has_report) {
         ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт: ");
         ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     } else {
-        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт запуску не створено.");
+        ac_append(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"\r\n\r\nLaunch report was not created.\r\n"
+            L"Звіт запуску не створено."
+        );
     }
     if (!child_stopped) {
         ac_append(
             g_message,
             AC_PATH_CAP + 2048,
-            L"\r\n\r\nОсновний процес може ще працювати. Не запускайте другу копію, доки його не буде завершено."
+            L"\r\n\r\nThe main Accessible Chess process may still be running. Do not start another copy until it is closed.\r\n"
+            L"Основний процес може ще працювати. Не запускайте другу копію, доки його не буде завершено."
         );
     }
     ac_close_child_process_handle();
@@ -670,17 +682,21 @@ static void ac_fail_startup_timeout(HANDLE report) {
         ac_copy(
             g_message,
             AC_PATH_CAP + 2048,
+            L"Accessible Chess did not confirm a ready window within 30 seconds.\r\n"
             L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"The unresponsive process was stopped automatically. You can retry from this folder.\r\n"
             L"Завислий процес автоматично завершено. Можна повторити запуск з цієї папки.\r\n"
-            L"Збережіть звіт:\r\n"
+            L"Keep the launch report / Збережіть звіт:\r\n"
         );
     } else {
         ac_copy(
             g_message,
             AC_PATH_CAP + 2048,
+            L"Accessible Chess did not confirm a ready window within 30 seconds.\r\n"
             L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"The unresponsive process could not be stopped automatically. Do not start another copy until it is closed.\r\n"
             L"Автоматично завершити завислий процес не вдалося. Не запускайте другу копію, доки процес не буде завершено.\r\n"
-            L"Збережіть звіт:\r\n"
+            L"Keep the launch report / Збережіть звіт:\r\n"
         );
     }
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
@@ -950,11 +966,17 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_write_line(report, L"CHILD_LEFT_RUNNING: NO");
             ac_flush_report(report);
 
-            ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");
+            ac_copy(
+                g_message,
+                AC_PATH_CAP + 2048,
+                L"Accessible Chess exited before a usable window appeared.\r\n"
+                L"Accessible Chess завершився до появи робочого вікна.\r\n\r\n"
+                L"Exit code / Код: "
+            );
             ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
-            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nПричина: ");
+            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nReason / Причина: ");
             ac_append(g_message, AC_PATH_CAP + 2048, ac_child_exit_user_detail(exit_code));
-            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
+            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nReport / Звіт: ");
             ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
             MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
             ac_close_child_process_handle();
