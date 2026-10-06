@@ -2,19 +2,8 @@ name: Portable Launcher Report Reparse Safety
 
 on:
   pull_request:
-    paths:
-      - 'packaging/portable_launcher.c'
-      - 'tests/test_portable_launcher_contract.py'
-      - 'tests/test_portable_launcher_window_readiness.py'
-      - 'tests/test_portable_launcher_core_guard.py'
-      - '.github/workflows/current-launcher-report-data-identity.yml'
-      - '.github/workflows/portable-launch-report-reparse-safety.yml'
-  push:
     branches:
-      - 'fix/portable-launch-report-reparse-20261004-sol56a4'
-      - 'converge/books-training-owner-current-20261004-zftrkmo'
-      - 'fix/portable-launcher-core-inode-guard-20261004-sol56r9k4'
-      - 'converge/current-product-settings-launcher-20261004-c2mbezb'
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
@@ -28,7 +17,6 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
   PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   LAUNCHER_BLOB: b51fd45a0aba2c665787c5362cfa601caa1aabe7
   CONTRACT_TEST_BLOB: c0b639aaa0f1723f6445f28555cb78c6f21240f8
@@ -36,7 +24,7 @@ env:
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 concurrency:
-  group: portable-launch-report-reparse-${{ github.ref }}
+  group: portable-launch-report-reparse-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -53,6 +41,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
@@ -62,10 +51,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          product_base="$PRODUCT_BASE"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "$EVENT_BASE_REF" = "$PRODUCT_REF"
             product_base="$EVENT_BASE_SHA"
+          else
+            git fetch --no-tags origin "refs/heads/$PRODUCT_REF"
+            product_base="$(git rev-parse FETCH_HEAD)"
           fi
           test -n "$product_base"
           git merge-base --is-ancestor "$product_base" HEAD
@@ -103,6 +94,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Prove exact serial candidate and owned scope
         shell: bash
         env:
@@ -112,10 +104,12 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          product_base="$PRODUCT_BASE"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "$EVENT_BASE_REF" = "$PRODUCT_REF"
             product_base="$EVENT_BASE_SHA"
+          else
+            git fetch --no-tags origin "refs/heads/$PRODUCT_REF"
+            product_base="$(git rev-parse FETCH_HEAD)"
           fi
           test -n "$product_base"
           git merge-base --is-ancestor "$product_base" HEAD
