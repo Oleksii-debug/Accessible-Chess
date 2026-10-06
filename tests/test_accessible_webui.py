@@ -127,6 +127,10 @@ class AccessibleWebUiTests(unittest.TestCase):
             self.html,
         )
         self.assertIn(
+            "setText('engine-game-dialog-status',starting);announceUserAction(starting)",
+            self.html,
+        )
+        self.assertIn(
             "engineGameReturnFocusOnClose=false;el('engine-game-dialog').close();el('move-input').focus()",
             self.html,
         )
