@@ -1530,7 +1530,7 @@ def _package_rootfiles(
 
     # OCF validates container.xml after removing foreign-namespace elements and
     # their contents. Enforce the remaining canonical child order exactly:
-    # rootfiles first, followed by at most one optional links section.
+    # rootfiles first, followed by zero or more links sections.
     structural_children: list[ET.Element] = []
     for child_index, child in enumerate(container, start=1):
         if control_checkpoint is not None and child_index % 128 == 1:
@@ -1540,11 +1540,7 @@ def _package_rootfiles(
     if (
         not structural_children
         or structural_children[0].tag != _ROOTFILES_TAG
-        or len(structural_children) > 2
-        or (
-            len(structural_children) == 2
-            and structural_children[1].tag != _LINKS_TAG
-        )
+        or any(child.tag != _LINKS_TAG for child in structural_children[1:])
     ):
         raise _error(
             "EPUB container has invalid canonical child structure",
@@ -1638,8 +1634,9 @@ def _package_rootfiles(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    if len(structural_children) == 2:
-        links = structural_children[1]
+    for links_index, links in enumerate(structural_children[1:], start=1):
+        if control_checkpoint is not None and links_index % 128 == 1:
+            control_checkpoint()
         _validate_container_attributes(
             links,
             frozenset(),
