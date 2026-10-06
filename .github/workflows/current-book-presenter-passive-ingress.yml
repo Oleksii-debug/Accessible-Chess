@@ -70,8 +70,8 @@ jobs:
 
           test "$(git hash-object acs/full_product_presenters.py)" = "846ff4ce87953c65d21c2471eeefc580c25ea32b"
           test "$(git hash-object acs/book_webview_projection.py)" = "c0c3fcd6b8446e499ce9313b5f50085c9fcb0b56"
-          test "$(git hash-object acs/book_webview_bridge.py)" = "7cf2aedda78e7affaab93bdd8aa27266204339ea"
-          test "$(git hash-object tests/test_book_presenter_passive_ingress.py)" = "439255332ebbb29f980773b3726130567e08e713"
+          test "$(git hash-object acs/book_webview_bridge.py)" = "41d49735d9991bf7ee78a6bcd462094c544b9f4e"
+          test "$(git hash-object tests/test_book_presenter_passive_ingress.py)" = "700b03518553d0d7604d6ebab1e99299661a1a05"
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
